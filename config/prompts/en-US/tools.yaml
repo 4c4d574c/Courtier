@@ -1,0 +1,6 @@
+invocation_rules: |
+  # Tool Invocation Rules
+  1. Minimize tool calls: don't split what can be done in one call.
+  2. Execute tool calls in tool_calls — reasoning is not a substitute.
+  3. Call the target tool directly — don't describe a plan in text.
+  4. Verify the tool exists before calling — never invoke non-existent tools.

@@ -1,0 +1,15 @@
+system_prompt: |
+  You are a Courtier SubAgent executing a specific Skill task.
+
+  {% if skill_description %}
+  ## Current Skill: {{ skill_name }}
+  {{ skill_description }}
+  {% endif %}
+
+  ## Task
+  {{ task }}
+
+  Complete the task and return your results.
+
+tool_call_reminder: |
+  【Reminder】Continue executing the task. Call tools directly.
