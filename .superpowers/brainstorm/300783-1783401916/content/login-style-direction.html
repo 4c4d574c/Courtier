@@ -1,0 +1,82 @@
+<h2>登录页面风格方向</h2>
+<p class="subtitle">当前设计系统为「Editorial Warm / Paper」— 暖色纸质感 + 中文印章元素。以下三个方向都在此基础上延伸</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: linear-gradient(135deg, #faf7f2 0%, #f0ebe0 100%); min-height: 280px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+        <div style="position: absolute; inset: 0; opacity: 0.03; background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, #2d2520 2px, #2d2520 3px);"></div>
+        <div style="position: relative; z-index: 1; text-align: center;">
+          <div style="width: 64px; height: 64px; border: 3px solid #b71c2e; transform: rotate(45deg); margin: 0 auto 24px; display: flex; align-items: center; justify-content: center;">
+            <div style="transform: rotate(-45deg); font-family: serif; font-size: 18px; color: #b71c2e; font-weight: bold;">审</div>
+          </div>
+          <div style="width: 320px; background: rgba(255,255,255,0.8); backdrop-filter: blur(12px); border: 1px solid rgba(0,0,0,0.06); border-radius: 8px; padding: 32px 28px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+            <div style="height: 14px; background: #e8e3d8; border-radius: 3px; width: 60%; margin: 0 auto 8px;"></div>
+            <div style="height: 14px; background: #e8e3d8; border-radius: 3px; width: 40%; margin: 0 auto 20px;"></div>
+            <div style="height: 40px; background: #f5f2eb; border: 1px solid #e0dbd0; border-radius: 6px; margin-bottom: 12px;"></div>
+            <div style="height: 40px; background: #f5f2eb; border: 1px solid #e0dbd0; border-radius: 6px; margin-bottom: 20px;"></div>
+            <div style="height: 42px; background: #b71c2e; border-radius: 6px; width: 100%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 极简居中</h3>
+      <p>印章 Logo + 居中卡片，纸纹背景。干净克制，强调品牌印记。适合内部工具定位。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: linear-gradient(135deg, #2d2520 0%, #1a1510 100%); min-height: 280px; display: flex; align-items: center; justify-content: center;">
+        <div style="text-align: center;">
+          <div style="width: 64px; height: 64px; border: 3px solid #b71c2e; transform: rotate(45deg); margin: 0 auto 24px; display: flex; align-items: center; justify-content: center;">
+            <div style="transform: rotate(-45deg); font-family: serif; font-size: 18px; color: #b71c2e; font-weight: bold;">审</div>
+          </div>
+          <div style="width: 320px; background: rgba(255,255,255,0.06); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 32px 28px;">
+            <div style="height: 14px; background: rgba(255,255,255,0.1); border-radius: 3px; width: 60%; margin: 0 auto 8px;"></div>
+            <div style="height: 14px; background: rgba(255,255,255,0.1); border-radius: 3px; width: 40%; margin: 0 auto 20px;"></div>
+            <div style="height: 40px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; margin-bottom: 12px;"></div>
+            <div style="height: 40px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; margin-bottom: 20px;"></div>
+            <div style="height: 42px; background: #b71c2e; border-radius: 6px; width: 100%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — 暗色沉浸</h3>
+      <p>深色墨底 + 玻璃质感卡片，印章红在暗色下更有视觉冲击力。适合偏正式/权威感的定位。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #faf7f2; min-height: 280px; display: flex;">
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f0e8 0%, #ede4d4 100%); border-right: 1px solid rgba(0,0,0,0.04); position: relative;">
+          <div style="position: absolute; inset: 0; opacity: 0.04; background-image: radial-gradient(circle, #2d2520 1px, transparent 1px); background-size: 20px 20px;"></div>
+          <div style="position: relative; text-align: center;">
+            <div style="width: 80px; height: 80px; border: 4px solid #b71c2e; transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
+              <div style="transform: rotate(-45deg); font-family: serif; font-size: 28px; color: #b71c2e; font-weight: bold;">审</div>
+            </div>
+            <div style="margin-top: 16px; font-family: serif; font-size: 20px; color: #2d2520; letter-spacing: 2px;">SDTAgent</div>
+            <div style="font-size: 12px; color: #8b7355; margin-top: 4px;">文档智能审计平台</div>
+          </div>
+        </div>
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px;">
+          <div style="width: 280px;">
+            <div style="height: 14px; background: #e8e3d8; border-radius: 3px; width: 70%; margin-bottom: 8px;"></div>
+            <div style="height: 14px; background: #e8e3d8; border-radius: 3px; width: 50%; margin-bottom: 28px;"></div>
+            <div style="height: 40px; background: #f5f2eb; border: 1px solid #e0dbd0; border-radius: 6px; margin-bottom: 12px;"></div>
+            <div style="height: 40px; background: #f5f2eb; border: 1px solid #e0dbd0; border-radius: 6px; margin-bottom: 20px;"></div>
+            <div style="height: 42px; background: #b71c2e; border-radius: 6px; width: 100%;"></div>
+            <div style="height: 12px; background: #e8e3d8; border-radius: 3px; width: 100%; margin-top: 16px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — 分栏布局</h3>
+      <p>左品牌区 + 右登录表单。左侧承担品牌展示（印章、标语），右侧专注登录操作。信息量大时更友好。</p>
+    </div>
+  </div>
+</div>

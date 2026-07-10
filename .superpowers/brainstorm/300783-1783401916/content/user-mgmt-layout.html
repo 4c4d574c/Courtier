@@ -1,0 +1,174 @@
+<h2>用户管理页面布局</h2>
+<p class="subtitle">管理员后台的用户管理模块。整体风格延续分栏登录页的设计语言（印章品牌 + 暖色纸质感）</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #faf7f2; min-height: 320px; display: flex; flex-direction: column;">
+        <div style="height: 48px; background: #f5f0e8; border-bottom: 1px solid #e8e3d8; display: flex; align-items: center; padding: 0 16px; gap: 24px;">
+          <div style="width: 24px; height: 24px; border: 2px solid #b71c2e; transform: rotate(45deg);"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 80px;"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 60px;"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 60px;"></div>
+          <div style="margin-left: auto; height: 30px; background: #e0dbd0; border-radius: 15px; width: 90px;"></div>
+        </div>
+        <div style="flex: 1; padding: 24px;">
+          <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+            <div style="height: 32px; background: #f5f0e8; border-radius: 4px; width: 80px;"></div>
+            <div style="height: 32px; background: #f5f0e8; border-radius: 4px; width: 80px;"></div>
+            <div style="height: 32px; background: #f5f0e8; border-radius: 4px; width: 80px;"></div>
+          </div>
+          <div style="display: flex; gap: 20px; height: calc(100% - 52px);">
+            <div style="flex: 1; background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 20px;">
+              <div style="height: 12px; background: #e8e3d8; border-radius: 2px; width: 40%; margin-bottom: 16px;"></div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="height: 52px; background: #faf7f2; border-radius: 6px; border-left: 3px solid #b71c2e;"></div>
+                <div style="height: 52px; background: #faf7f2; border-radius: 6px;"></div>
+                <div style="height: 52px; background: #faf7f2; border-radius: 6px;"></div>
+                <div style="height: 52px; background: #faf7f2; border-radius: 6px; border-left: 3px solid #b87a0e;"></div>
+                <div style="height: 52px; background: #faf7f2; border-radius: 6px;"></div>
+              </div>
+            </div>
+            <div style="width: 320px; background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 20px;">
+              <div style="height: 12px; background: #e8e3d8; border-radius: 2px; width: 60%; margin-bottom: 16px;"></div>
+              <div style="height: 80px; background: #faf7f2; border-radius: 6px; margin-bottom: 12px;"></div>
+              <div style="height: 40px; background: #faf7f2; border-radius: 6px; margin-bottom: 8px;"></div>
+              <div style="height: 40px; background: #faf7f2; border-radius: 6px; margin-bottom: 8px;"></div>
+              <div style="height: 60px; background: #faf7f2; border-radius: 6px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 列表 + 侧边详情</h3>
+      <p>左侧用户列表（带状态标签），右侧滑出式详情面板。点击用户行即展开详情、操作日志、角色编辑。经典双栏管理布局。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #faf7f2; min-height: 320px; display: flex; flex-direction: column;">
+        <div style="height: 48px; background: #f5f0e8; border-bottom: 1px solid #e8e3d8; display: flex; align-items: center; padding: 0 16px; gap: 24px;">
+          <div style="width: 24px; height: 24px; border: 2px solid #b71c2e; transform: rotate(45deg);"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 80px;"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 60px;"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 60px;"></div>
+          <div style="margin-left: auto; height: 30px; background: #e0dbd0; border-radius: 15px; width: 90px;"></div>
+        </div>
+        <div style="flex: 1; padding: 24px;">
+          <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+            <div style="height: 32px; background: #f5f0e8; border-radius: 4px; width: 120px;"></div>
+            <div style="height: 32px; background: #f5f0e8; border-radius: 4px; width: 80px;"></div>
+            <div style="margin-left: auto; height: 32px; background: #b71c2e; border-radius: 4px; width: 100px;"></div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+            <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 16px;">
+              <div style="width: 36px; height: 36px; background: #f0ebe0; border-radius: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 70%; margin-bottom: 4px;"></div>
+              <div style="height: 8px; background: #f0ebe0; border-radius: 2px; width: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 20px; background: #5a8a4a; border-radius: 10px; width: 44px;"></div>
+            </div>
+            <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 16px;">
+              <div style="width: 36px; height: 36px; background: #f0ebe0; border-radius: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 60%; margin-bottom: 4px;"></div>
+              <div style="height: 8px; background: #f0ebe0; border-radius: 2px; width: 40%; margin-bottom: 8px;"></div>
+              <div style="height: 20px; background: #b87a0e; border-radius: 10px; width: 56px;"></div>
+            </div>
+            <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 16px;">
+              <div style="width: 36px; height: 36px; background: #f0ebe0; border-radius: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 80%; margin-bottom: 4px;"></div>
+              <div style="height: 8px; background: #f0ebe0; border-radius: 2px; width: 45%; margin-bottom: 8px;"></div>
+              <div style="height: 20px; background: #5a8a4a; border-radius: 10px; width: 44px;"></div>
+            </div>
+            <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 16px;">
+              <div style="width: 36px; height: 36px; background: #f0ebe0; border-radius: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 50%; margin-bottom: 4px;"></div>
+              <div style="height: 8px; background: #f0ebe0; border-radius: 2px; width: 60%; margin-bottom: 8px;"></div>
+              <div style="height: 20px; background: #b71c2e; border-radius: 10px; width: 44px;"></div>
+            </div>
+            <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 16px;">
+              <div style="width: 36px; height: 36px; background: #f0ebe0; border-radius: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 65%; margin-bottom: 4px;"></div>
+              <div style="height: 8px; background: #f0ebe0; border-radius: 2px; width: 35%; margin-bottom: 8px;"></div>
+              <div style="height: 20px; background: #5a8a4a; border-radius: 10px; width: 44px;"></div>
+            </div>
+            <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px; padding: 16px;">
+              <div style="width: 36px; height: 36px; background: #f0ebe0; border-radius: 50%; margin-bottom: 8px;"></div>
+              <div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 55%; margin-bottom: 4px;"></div>
+              <div style="height: 8px; background: #f0ebe0; border-radius: 2px; width: 45%; margin-bottom: 8px;"></div>
+              <div style="height: 20px; background: #d8d0c4; border-radius: 10px; width: 56px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — 卡片网格</h3>
+      <p>用户卡片网格布局，每个卡片显示头像、姓名、角色、状态。点击卡片弹出详情模态框。更像团队协作工具的「成员」页面。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #faf7f2; min-height: 320px; display: flex; flex-direction: column;">
+        <div style="height: 48px; background: #f5f0e8; border-bottom: 1px solid #e8e3d8; display: flex; align-items: center; padding: 0 16px; gap: 24px;">
+          <div style="width: 24px; height: 24px; border: 2px solid #b71c2e; transform: rotate(45deg);"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 80px;"></div>
+          <div style="height: 12px; background: #b71c2e; border-radius: 2px; width: 60px;"></div>
+          <div style="height: 12px; background: #d8d0c4; border-radius: 2px; width: 60px;"></div>
+          <div style="margin-left: auto; height: 30px; background: #e0dbd0; border-radius: 15px; width: 90px;"></div>
+        </div>
+        <div style="flex: 1; padding: 24px;">
+          <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+            <div style="height: 32px; background: white; border: 1px solid #e0dbd0; border-radius: 4px; width: 180px;"></div>
+            <div style="height: 32px; background: #f5f0e8; border-radius: 4px; width: 80px;"></div>
+            <div style="margin-left: auto; height: 32px; background: #b71c2e; border-radius: 4px; width: 100px;"></div>
+          </div>
+          <div style="background: white; border: 1px solid #e8e3d8; border-radius: 8px;">
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 80px; gap: 0; border-bottom: 1px solid #e8e3d8; padding: 10px 16px; font-size: 11px; color: #8b7355;">
+              <div>用户名</div><div>角色</div><div>状态</div><div>注册时间</div><div></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 80px; gap: 0; padding: 12px 16px; border-bottom: 1px solid #f5f0e8; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 28px; height: 28px; background: #f0ebe0; border-radius: 50%;"></div><div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 60px;"></div></div>
+              <div><div style="height: 18px; background: #f0f5ed; border-radius: 9px; width: 44px;"></div></div>
+              <div><div style="height: 18px; background: #edf5e8; border-radius: 9px; width: 36px;"></div></div>
+              <div><div style="height: 10px; background: #f0ebe0; border-radius: 2px; width: 70px;"></div></div>
+              <div style="display: flex; gap: 4px;"><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 80px; gap: 0; padding: 12px 16px; border-bottom: 1px solid #f5f0e8; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 28px; height: 28px; background: #f0ebe0; border-radius: 50%;"></div><div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 50px;"></div></div>
+              <div><div style="height: 18px; background: #fef5e8; border-radius: 9px; width: 56px;"></div></div>
+              <div><div style="height: 18px; background: #fef5e8; border-radius: 9px; width: 44px;"></div></div>
+              <div><div style="height: 10px; background: #f0ebe0; border-radius: 2px; width: 70px;"></div></div>
+              <div style="display: flex; gap: 4px;"><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 80px; gap: 0; padding: 12px 16px; border-bottom: 1px solid #f5f0e8; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 28px; height: 28px; background: #f0ebe0; border-radius: 50%;"></div><div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 70px;"></div></div>
+              <div><div style="height: 18px; background: #f0f5ed; border-radius: 9px; width: 44px;"></div></div>
+              <div><div style="height: 18px; background: #edf5e8; border-radius: 9px; width: 36px;"></div></div>
+              <div><div style="height: 10px; background: #f0ebe0; border-radius: 2px; width: 70px;"></div></div>
+              <div style="display: flex; gap: 4px;"><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 80px; gap: 0; padding: 12px 16px; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;"><div style="width: 28px; height: 28px; background: #f0ebe0; border-radius: 50%;"></div><div style="height: 10px; background: #e8e3d8; border-radius: 2px; width: 55px;"></div></div>
+              <div><div style="height: 18px; background: #f0f5ed; border-radius: 9px; width: 44px;"></div></div>
+              <div><div style="height: 18px; background: #fde8e8; border-radius: 9px; width: 36px;"></div></div>
+              <div><div style="height: 10px; background: #f0ebe0; border-radius: 2px; width: 70px;"></div></div>
+              <div style="display: flex; gap: 4px;"><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div><div style="width: 24px; height: 6px; background: #e8e3d8; border-radius: 3px;"></div></div>
+            </div>
+          </div>
+          <div style="display: flex; justify-content: center; gap: 4px; margin-top: 12px;">
+            <div style="width: 24px; height: 24px; background: #f5f0e8; border-radius: 4px;"></div>
+            <div style="width: 24px; height: 24px; background: #b71c2e; border-radius: 4px;"></div>
+            <div style="width: 24px; height: 24px; background: #f5f0e8; border-radius: 4px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — 表格式列表</h3>
+      <p>传统数据表格布局，带搜索、筛选、分页。密度高，适合用户量大时的批量管理。点击行展开内联详情或弹出抽屉。</p>
+    </div>
+  </div>
+</div>
