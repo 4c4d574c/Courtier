@@ -1,1 +1,0 @@
-"""Courtier legacy compatibility package."""
