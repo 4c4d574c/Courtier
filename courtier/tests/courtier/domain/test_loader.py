@@ -27,24 +27,27 @@ class TestDomainLoader:
 
     def test_validate_complete_package(self):
         with tempfile.TemporaryDirectory() as tmp:
-            domain = Path(tmp)
+            domain = Path(tmp) / "domains" / "test-domain"
+            domain.mkdir(parents=True)
             (domain / "config" / "prompts" / "zh-CN").mkdir(parents=True)
             (domain / "config" / "prompts" / "zh-CN" / "test.yaml").write_text("key: value\n")
             (domain / "config" / "domain.yaml").write_text("name: test\nlocales: [zh-CN]\n")
-            (domain / "plugins" / "my_plugin").mkdir(parents=True)
-            (domain / "plugins" / "my_plugin" / "plugin.yaml").write_text("name: my_plugin\n")
+            plugins_root = Path(tmp) / "plugins"
+            (plugins_root / "my_plugin").mkdir(parents=True)
+            (plugins_root / "my_plugin" / "plugin.yaml").write_text("name: my_plugin\n")
             (domain / "skills").mkdir()
             (domain / "skills" / "test.md").write_text("---\nname: test\n---\n# Test\n")
 
-            issues = DomainLoader.validate_domain(domain)
+            issues = DomainLoader.validate_domain(domain, plugins_root=plugins_root)
             assert issues == []
 
     def test_validate_returns_issues(self):
         with tempfile.TemporaryDirectory() as tmp:
-            domain = Path(tmp)
+            domain = Path(tmp) / "domains" / "test-domain"
+            domain.mkdir(parents=True)
             (domain / "config").mkdir(parents=True)
             (domain / "config" / "domain.yaml").write_text("name: test\nrequires_plugins: [missing_plugin]\nlocales: [fr-FR]\n")
             (domain / "config" / "prompts").mkdir()  # no fr-FR subdir
 
-            issues = DomainLoader.validate_domain(domain)
+            issues = DomainLoader.validate_domain(domain, plugins_root=Path(tmp) / "plugins")
             assert len(issues) > 0

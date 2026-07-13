@@ -45,18 +45,22 @@ class DomainLoader:
         Args:
             domain_path: Path to the domain package directory (e.g. domains/docaudit/).
             plugins_root: Path to the plugins directory. If None, inferred from
-                domain_path (plugins are expected at {repo_root}/plugins/).
+                domain_path — plugins are expected at {repo_root}/plugins/.
+
+        Raises:
+            ValueError: If plugins_root is None and domain_path is not under
+                a ``domains/`` directory (cannot infer repo root).
         """
         issues: list[str] = []
 
         # Infer plugins root if not provided
         if plugins_root is None:
-            # If domain_path is under domains/, plugins are at repo root level
-            if domain_path.parent.name == "domains":
-                plugins_root = domain_path.parent.parent / "plugins"
-            else:
-                # Fallback: look for plugins/ inside domain (legacy layout)
-                plugins_root = domain_path / "plugins"
+            if domain_path.parent.name != "domains":
+                raise ValueError(
+                    f"Cannot infer plugins root: domain_path '{domain_path}' is not "
+                    f"under a 'domains/' directory. Pass plugins_root explicitly."
+                )
+            plugins_root = domain_path.parent.parent / "plugins"
 
         # 1. Validate domain.yaml
         config = DomainLoader.load(domain_path)
