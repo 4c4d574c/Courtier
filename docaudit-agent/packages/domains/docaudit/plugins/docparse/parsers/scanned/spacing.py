@@ -253,7 +253,10 @@ def _is_cross_page_continuation(
     if not last_text:
         return False
 
-    if last_text.rstrip()[-1] in _SENTENCE_END:
+    stripped = last_text.rstrip()
+    if not stripped:
+        return False
+    if stripped[-1] in _SENTENCE_END:
         return False
 
     last_font = last_line.get("font_family", "")

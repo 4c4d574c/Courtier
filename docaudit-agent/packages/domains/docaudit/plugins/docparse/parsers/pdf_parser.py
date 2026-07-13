@@ -183,12 +183,11 @@ def _extract_page_lines(page: fitz.Page) -> list[dict[str, Any]]:
                 combined_text += span.get("text", "")
                 if not font_family:
                     font_family = span.get("font", "")
-                if not font_size:
-                    font_size = round(span.get("size", 0.0), 1)
-                if not font_weight:
-                    font_weight = "bold" in span.get("font", "").lower()
-                if not font_style:
-                    font_style = "italic" in span.get("font", "").lower()
+                size = round(span.get("size", 0.0), 1)
+                if not font_size and size:
+                    font_size = size
+                font_weight = font_weight or "bold" in span.get("font", "").lower()
+                font_style = font_style or "italic" in span.get("font", "").lower()
 
             text = combined_text.strip()
             if not text:

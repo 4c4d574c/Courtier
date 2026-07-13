@@ -341,7 +341,7 @@ class StructureRuleEngine:
                 addr_conf += CONFIDENCE_REGION
             if len(text) > 80:
                 addr_conf -= 0.20
-            if "。" in text or "，" in text and len(text) > 40:
+            if ("，" in text or "。" in text) and len(text) > 40:
                 addr_conf -= 0.20
             if addr_conf >= 0.6:
                 return self._build_classified(line, "addressee", addr_conf)

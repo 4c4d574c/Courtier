@@ -486,17 +486,17 @@ def compute_first_indent(
     if not rec_boxes:
         return {}
 
+    # Sort by Y coordinate, keeping original indices
+    indexed_boxes = list(enumerate(rec_boxes))
+    indexed_boxes.sort(key=lambda x: x[1][1])
+
     if len(rec_boxes) == 1:
-        idx = 0
+        idx = indexed_boxes[0][0]
         if outline_levels and outline_levels.get(idx) == "body_text":
             return {idx: calibrate_first_indent(STANDARD_FIRST_INDENT)}
         return {idx: 0.0}
 
     scale_x = a4_width_pt / img_width if img_width > 0 else 1.0
-
-    # Sort by Y coordinate, keeping original indices
-    indexed_boxes = list(enumerate(rec_boxes))
-    indexed_boxes.sort(key=lambda x: x[1][1])
 
     # Find paragraph boundaries using gap analysis
     gaps: list[float] = []
@@ -646,7 +646,8 @@ def compute_left_right_indent(
 
     if margin is None or (margin.left_margin == 0.0 and margin.right_margin == 0.0):
         return {
-            i: {"left_indent": 0.0, "right_indent": 0.0} for i in range(len(rec_boxes))
+            idx: {"left_indent": 0.0, "right_indent": 0.0}
+            for idx, _ in enumerate(rec_boxes)
         }
 
     px_to_mm = page_width_mm / img_width if img_width > 0 else 0.0

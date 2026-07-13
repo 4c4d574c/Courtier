@@ -411,9 +411,9 @@ def _check_element_font_module(
     mismatches: list[str] = []
     if spec_family and spec_family != actual_family:
         mismatches.append(f"字体应为「{spec_family}」，实际为「{actual_family}」")
-    if spec_font.font_size > 0 and float(spec_font.font_size) != float(
-        actual_font.get("font_size", 0)
-    ):
+    if spec_font.font_size > 0 and abs(
+        float(spec_font.font_size) - float(actual_font.get("font_size", 0))
+    ) > 0.5:
         mismatches.append(
             f"字号应为 {spec_font.font_size}，实际为 {actual_font.get('font_size', 0)}"
         )

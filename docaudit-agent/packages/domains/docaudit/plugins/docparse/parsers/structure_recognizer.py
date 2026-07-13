@@ -396,7 +396,9 @@ def _build_attachment_note(
         is_break = y_gap_px > 30.0 or x0_diff_px > 85.0  # 85px ≈ 40pt
 
         if is_break:
-            nxt.font.text = "\n" + nxt.font.text
+            nxt.font = nxt.font.model_copy(
+                update={"text": "\n" + nxt.font.text}
+            )
 
     return para
 
