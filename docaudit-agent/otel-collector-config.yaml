@@ -18,7 +18,10 @@ exporters:
   otlphttp/langfuse:
     endpoint: http://langfuse:3000/api/public/otlp
     headers:
-      Authorization: "Bearer ${env:LANGFUSE_PUBLIC_KEY}:${env:LANGFUSE_SECRET_KEY}"
+      Authorization: "Basic ${env:LANGFUSE_AUTH_HEADER}"
+    # LANGFUSE_AUTH_HEADER must be set to the base64 encoding of
+    #   publicKey:secretKey
+    # e.g. export LANGFUSE_AUTH_HEADER=$(echo -n "pk:sk" | base64)
   prometheus:
     endpoint: 0.0.0.0:8889
   debug:

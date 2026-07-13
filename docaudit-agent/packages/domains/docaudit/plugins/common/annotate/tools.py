@@ -59,7 +59,8 @@ class AnnotateDocumentTool:
             keep = kwargs.get("keep_comments", True)
 
             upload_dir = Path(
-                os.environ.get("DOCAUDIT_UPLOAD_DIR")
+                os.environ.get("COURTIER_UPLOAD_DIR")
+                or os.environ.get("DOCAUDIT_UPLOAD_DIR")
                 or os.environ.get("UPLOAD_DIR")
                 or ""
             )

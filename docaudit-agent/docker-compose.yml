@@ -89,7 +89,7 @@ services:
     networks:
       - courtier
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf -u elastic:${ES_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -154,6 +154,7 @@ services:
     environment:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-placeholder}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-placeholder}
+      - LANGFUSE_AUTH_HEADER=${LANGFUSE_AUTH_HEADER}
     networks:
       - courtier
 

@@ -65,7 +65,7 @@ async def bootstrap_admin_user() -> None:
                 return
 
             password_hash = bcrypt.hashpw(
-                settings.admin_password.encode(), bcrypt.gensalt(rounds=12)
+                settings.admin_password.encode(), bcrypt.gensalt(rounds=settings.bcrypt_rounds)
             ).decode()
             user = UserTable(
                 username=settings.admin_user,

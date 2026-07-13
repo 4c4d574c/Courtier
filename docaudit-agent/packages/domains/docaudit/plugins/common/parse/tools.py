@@ -90,10 +90,11 @@ class ParseTool:
 
             raw_path = kwargs["file_path"]
 
-            # Resolve the upload root from environment
-            safe_root_raw = os.environ.get("DOCAUDIT_UPLOAD_DIR") or os.environ.get(
-                "UPLOAD_DIR"
-            )
+            # Resolve the upload root from environment (prefer COURTIER_*, fall back
+            # to legacy DOCAUDIT_* names for compatibility).
+            safe_root_raw = os.environ.get("COURTIER_UPLOAD_DIR") or os.environ.get(
+                "DOCAUDIT_UPLOAD_DIR"
+            ) or os.environ.get("UPLOAD_DIR")
             if not safe_root_raw:
                 return ToolResult(
                     success=False,

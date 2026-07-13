@@ -21,6 +21,16 @@ _ENV_FILE = str(Path(__file__).resolve().parent.parent.parent.parent.parent / ".
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
+def _default_project_root() -> Path:
+    """Return COURTIER_REPO_ROOT if set, otherwise the auto-detected project root.
+
+    This ensures containerized/production deployments default to the explicit
+    repo root rather than the site-packages location of the installed wheel.
+    """
+    env_root = os.getenv("COURTIER_REPO_ROOT", "").strip()
+    return Path(env_root) if env_root else _PROJECT_ROOT
+
+
 def get_settings() -> "Settings":
     """Return the module-level Settings singleton, initialized eagerly at import time."""
     return _settings
@@ -41,7 +51,7 @@ class Settings(BaseSettings):
     mysql_url: str = Field(
         default="", description="MySQL 连接 URL，必须通过环境变量 MYSQL_URL 设置"
     )
-    upload_dir: str = str(_PROJECT_ROOT / "uploads")
+    upload_dir: str = str(_default_project_root() / "uploads")
 
     llm_base_url: str = Field(
         default="https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -111,7 +121,7 @@ class Settings(BaseSettings):
     cec_model_name: str = "ChineseErrorCorrector3-4B"
     cec_max_length: int = Field(default=16383, alias="cec_max_length")
     cec_user_dict: str = Field(
-        default=str(_PROJECT_ROOT / "packages" / "domains" / "docaudit" / "plugins" / "doccorrector" / "user_dict.txt"),
+        default=str(_default_project_root() / "packages" / "domains" / "docaudit" / "plugins" / "doccorrector" / "user_dict.txt"),
         alias="cec_user_dict",
     )
     cec_allowed_patterns: str = Field(
@@ -124,7 +134,7 @@ class Settings(BaseSettings):
     minio_access_key: str = Field(default="", description="MinIO access key")
     minio_secret_key: str = Field(default="", description="MinIO secret key")
     minio_secure: bool = Field(default=False, description="MinIO 是否使用 HTTPS")
-    cache_dir: str = str(_PROJECT_ROOT / "uploads" / ".cache")
+    cache_dir: str = str(_default_project_root() / "uploads" / ".cache")
     minio_bucket_docs: str = "courtier-docs"
     minio_bucket_library: str = "courtier-library"
     minio_bucket_resources: str = "courtier-resources"
@@ -144,7 +154,7 @@ class Settings(BaseSettings):
         description="是否启用结构化审计日志（记录 LLM prompts、reasoning、工具调用等）",
     )
     audit_log_dir: str = Field(
-        default=str(_PROJECT_ROOT / ".agent_logs"),
+        default=str(_default_project_root() / ".agent_logs"),
         alias="audit_log_dir",
         description="审计日志保存目录",
     )
@@ -313,14 +323,19 @@ class CourtierConfig:
         """Create CourtierConfig from environment variables.
 
         Reads:
+        - COURTIER_REPO_ROOT: explicit repository root path (default: auto-detect)
         - COURTIER_DOMAIN_PACKAGES: comma-separated domain names (default: "docaudit")
         - COURTIER_LOCALE: locale string (default: "zh-CN")
 
         Args:
             repo_root: Repository root path. If None, auto-detected from the
-                       packages/ directory relative to the caller.
+                       packages/ directory relative to the caller, unless
+                       COURTIER_REPO_ROOT is set.
         """
-        if repo_root is None:
+        env_root = os.getenv("COURTIER_REPO_ROOT", "").strip()
+        if env_root:
+            repo_root = Path(env_root)
+        elif repo_root is None:
             # Try to auto-detect: look for packages/domains/ relative to cwd
             cwd = Path.cwd()
             if (cwd / "packages" / "domains").is_dir():

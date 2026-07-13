@@ -313,8 +313,22 @@ COURTIER_DOMAIN_PACKAGES=docaudit,contract-review
 
 ---
 
-## 8. 未决事项
+## 9. 迁移后补强记录（2026-07-13）
 
-- `src/docbuilder/` 和 `src/dedump/` 的归属：当前未充分探索，Phase 2 时按实际判断归入 core 或 docaudit
-- `plugins/audit/` 下的 `format_audit`, `style_audit` 在磁盘上不存在对应目录但有 pyc 痕迹 — Phase 2 时确认是否需实现
-- 前端 webui/ 是否需要支持多 domain 切换的 UI — 超出本次设计范围，Phase 4 后单独规划
+在 Courtier 平台主体迁移完成后，进行第六轮 gap analysis 并修复以下运行时/部署/品牌一致性问题：
+
+| 问题 | 修复 |
+|------|------|
+| Docker 生产镜像无法自动定位仓库根目录 | 引入 `COURTIER_REPO_ROOT` 环境变量，Dockerfile 设置为 `/app` |
+| Elasticsearch 健康检查未携带认证 | `docker-compose.yml` 健康检查使用 `-u elastic:${ES_PASSWORD}` |
+| OTel Collector 向 Langfuse 使用错误 Bearer auth | 改为 Basic auth，并在 `.env.example` 中说明 `LANGFUSE_AUTH_HEADER` |
+| Wheel 包缺少领域运行时资源 | 将 `config/` 转为 Python package（`__init__.py`），Hatch 随 `packages/domains/docaudit` 自动纳入 `config/` 与 `skills/` |
+| Dockerfile 以 root 运行且无健康检查 | 新增非 root `courtier` 用户、`COURTIER_REPO_ROOT`、`HEALTHCHECK` |
+| `BCRYPT_ROUNDS` 设置未被使用 | `hash_password()` 与 admin bootstrap 均使用 `settings.bcrypt_rounds` |
+| 插件环境变量仍使用 `DOCAUDIT_` 前缀 | 主推 `COURTIER_PROJECT_ROOT` / `COURTIER_UPLOAD_DIR`，保留旧名做兼容回退 |
+| README/CLAUDE.md 启动示例 PYTHONPATH 不完整 | README 示例已补齐 `packages/domains/docaudit` |
+| Prometheus 抓取已注释的 `app` 服务 | 注释掉 `courtier` scrape job，避免服务未启动时告警 |
+| 缺少 Alembic 迁移健康检查 | 新增 `tests/test_alembic_smoke.py`，离线验证 revision graph |
+| 开发依赖缺少格式化/类型工具 | `pyproject.toml` dev 组新增 `black`、`isort`、`ruff`、`mypy` 及对应配置 |
+
+以上修复保持测试套件 813 passed / 6 skipped、wheel 构建、前端构建、插件扫描 VALID:8 / BLOCKED:0 的基线不变。

@@ -7,6 +7,8 @@ scrape_configs:
     static_configs:
       - targets: ["otel-collector:8889"]
 
-  - job_name: "courtier"
-    static_configs:
-      - targets: ["app:8000"]
+  # The `courtier` app service is currently commented out in docker-compose.yml.
+  # Uncomment the block below after enabling the `app` service.
+  # - job_name: "courtier"
+  #   static_configs:
+  #     - targets: ["app:8000"]

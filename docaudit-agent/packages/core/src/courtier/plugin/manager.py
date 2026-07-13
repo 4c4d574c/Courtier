@@ -286,7 +286,8 @@ class ProcessManager:
             "LC_ALL",
             "LC_CTYPE",
             "TZ",
-            "DOCAUDIT_UPLOAD_DIR",
+            "COURTIER_UPLOAD_DIR",
+            "DOCAUDIT_UPLOAD_DIR",  # deprecated fallback
             "UPLOAD_DIR",
         }
         env = {k: v for k, v in os.environ.items() if k in env_whitelist}
@@ -304,13 +305,17 @@ class ProcessManager:
         # Expose project root so plugins can resolve relative paths correctly.
         # The plugin subprocess CWD is the plugin directory, not the project
         # root, so Path.resolve() against a relative path yields a wrong result.
-        env["DOCAUDIT_PROJECT_ROOT"] = project_root
+        env["COURTIER_PROJECT_ROOT"] = project_root
+        env["DOCAUDIT_PROJECT_ROOT"] = project_root  # deprecated fallback
 
         # Expose upload directory so sandboxed tools (parse_document,
         # annotate_document) can validate paths against the safe root.
         from courtier.config import Settings
+
         settings = Settings()
-        env["DOCAUDIT_UPLOAD_DIR"] = str(Path(settings.upload_dir).resolve())
+        upload_dir = str(Path(settings.upload_dir).resolve())
+        env["COURTIER_UPLOAD_DIR"] = upload_dir
+        env["DOCAUDIT_UPLOAD_DIR"] = upload_dir  # deprecated fallback
 
         proc._process = await asyncio.create_subprocess_exec(
             "uv",

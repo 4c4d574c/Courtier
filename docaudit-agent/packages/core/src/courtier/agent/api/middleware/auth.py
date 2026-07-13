@@ -88,8 +88,11 @@ async def verify_jwt(
     return payload["sub"]
 
 
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
+def hash_password(password: str, rounds: int | None = None) -> str:
+    if rounds is None:
+        from courtier.config import get_settings
+        rounds = get_settings().bcrypt_rounds
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=rounds)).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
