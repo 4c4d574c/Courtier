@@ -1,0 +1,22 @@
+name: plagiarism
+version: "1.0.0"
+api: "1.0"
+description: "Plagiarism detection using dynamic IQR thresholding"
+
+dependencies:
+  host_services:
+    - cache
+  permissions:
+    - read:cache
+    - write:cache
+
+capabilities:
+  tools:
+    - name: detect_plagiarism
+      display_name: 抄袭检测
+      description: "Compare a document against a reference library to detect plagiarism."
+  system_prompt: |
+    # 查重检测
+    ## 能力
+    将待检测文档与参考库对比，识别抄袭嫌疑。
+    调用 detect_plagiarism 执行完整查重流水线，其内部会自动完成相似度计算、动态阈值计算与抄袭判定。

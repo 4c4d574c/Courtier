@@ -1,0 +1,5 @@
+errors:
+  tool_timeout: "Tool execution timed out ({{ timeout_seconds }}s): {{ tool_name }}"
+  permission_denied: "Permission denied: {{ action }}"
+  tool_not_found: "Tool not found: {{ tool_name }}"
+  internal_error: "Internal error: {{ message }}"

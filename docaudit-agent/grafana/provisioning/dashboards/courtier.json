@@ -1,0 +1,186 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "type": "datasource",
+      "label": "Prometheus",
+      "pluginId": "prometheus"
+    }
+  ],
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Agent Requests",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(agent_requests_total[1m])) by (agent_name, status)",
+          "legendFormat": "{{agent_name}} ({{status}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Agent Latency (P50/P95/P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(agent_latency_seconds_bucket[5m])) by (le, agent_name))",
+          "legendFormat": "{{agent_name}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(agent_latency_seconds_bucket[5m])) by (le, agent_name))",
+          "legendFormat": "{{agent_name}} p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(agent_latency_seconds_bucket[5m])) by (le, agent_name))",
+          "legendFormat": "{{agent_name}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "LLM Token Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(llm_token_usage_total[5m])) by (model, direction)",
+          "legendFormat": "{{model}} {{direction}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tokens/s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "LLM Call Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(llm_calls_total[1m])) by (model, agent_name)",
+          "legendFormat": "{{agent_name}} {{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "calls/s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Tool Executions",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(tool_executions_total[1m])) by (tool_name, status)",
+          "legendFormat": "{{tool_name}} ({{status}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "exec/s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Tool Latency (P50/P95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(tool_latency_seconds_bucket[5m])) by (le, tool_name))",
+          "legendFormat": "{{tool_name}} p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(tool_latency_seconds_bucket[5m])) by (le, tool_name))",
+          "legendFormat": "{{tool_name}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Sub-Agent Dispatch Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(rate(subagent_dispatch_total[1m])) by (subagent_name, status)",
+          "legendFormat": "{{subagent_name}} ({{status}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dispatch/s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "title": "Plugin States",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "plugin_state_changes",
+          "legendFormat": "{{plugin_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": [
+            { "type": "value", "value": "1", "text": "Active" },
+            { "type": "value", "value": "0", "text": "Inactive" }
+          ]
+        }
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["courtier", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Courtier Observability",
+  "uid": "courtier-obs",
+  "version": 1
+}

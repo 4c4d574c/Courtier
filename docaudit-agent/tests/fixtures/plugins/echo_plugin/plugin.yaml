@@ -1,0 +1,13 @@
+name: echo_plugin
+version: "0.1.0"
+api: "1.0"
+description: "Echo test plugin"
+
+runtime:
+  entry: entry.py
+
+capabilities:
+  tools:
+    - name: echo
+      display_name: "Echo"
+      description: "Returns the input unchanged"

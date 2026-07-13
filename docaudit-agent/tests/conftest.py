@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 
 # MUST run at module level (before any conftest or test module import)
-# because tests/agent/conftest.py imports src.agent.core.state, which
-# transitively imports src.config → Settings() validates secrets at
+# because tests/agent/conftest.py imports courtier.agent.core.state, which
+# transitively imports courtier.config → Settings() validates secrets at
 # import time.  Overriding DEPLOYMENT_ENVIRONMENT in os.environ takes
 # precedence over the .env file value in pydantic-settings v2.
 os.environ["DEPLOYMENT_ENVIRONMENT"] = "development"
@@ -27,16 +27,17 @@ os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password-for-pytest")
 # need a real database can set MYSQL_URL explicitly in their own fixtures.
 os.environ["MYSQL_URL"] = ""
 
-# When pytest collects from both ``tests/`` and ``src/`` trees in one
+# When pytest collects from both ``tests/`` and ``packages/`` trees in one
 # invocation, the ``pythonpath`` setting in pyproject.toml is sometimes
 # not resolved before in-source test modules are imported.  Ensure
-# ``src/`` is on sys.path unconditionally so that imports like
-# ``from docparse.parsers import ...`` work everywhere.
+# ``src/`` (legacy compat) and ``packages/`` are on sys.path
+# unconditionally so that imports like ``from docparse.parsers import ...``
+# and ``from docmodels import ...`` work everywhere.
 _SRC = str(Path(__file__).resolve().parent.parent / "src")
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-# Conftests and tests also import via the ``src.`` and ``plugins.`` prefixes
+# Conftests and tests import via ``courtier.*`` and ``plugins.*`` prefixes
 # (e.g. ``from courtier.agent.core.state import ...`` in tests/agent/conftest.py,
 # ``from plugins.audit... import ...`` in tests/plugin).  Those require the
 # project root on sys.path.  pytest only guarantees this for some invocations

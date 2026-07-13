@@ -1,0 +1,5 @@
+errors:
+  tool_timeout: "工具执行超时（{{ timeout_seconds }}秒）：{{ tool_name }}"
+  permission_denied: "权限不足：{{ action }}"
+  tool_not_found: "工具未找到：{{ tool_name }}"
+  internal_error: "内部错误：{{ message }}"

@@ -1,0 +1,17 @@
+name: parse
+version: "1.0.0"
+api: "1.0"
+description: "Document file parsing (PDF/DOCX/image)"
+
+capabilities:
+  tools:
+    - name: parse_document
+      display_name: 解析文档
+      description: "Parse a document file from disk into the internal Document model. Supports PDF, DOCX, and scanned images."
+  system_prompt: |
+    # 文档解析
+    ## 能力
+    将 PDF、DOCX、扫描图片解析为结构化的 Document 模型。
+    ## 使用方式
+    调用 `parse_document` 工具，传入 `file_path` 参数（绝对路径）。
+    解析为确定性操作，不需要 LLM 参与决策。

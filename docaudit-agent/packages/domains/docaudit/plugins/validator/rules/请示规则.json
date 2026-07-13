@@ -1,0 +1,734 @@
+{
+  "document_format_spec": {
+    "page": {
+      "page_size": "A4",
+      "page_dimensions": {
+        "width": 210,
+        "height": 297
+      },
+      "margin": {
+        "top_margin": 37,
+        "bottom_margin": 35,
+        "left_margin": 28,
+        "right_margin": 26
+      },
+      "header": {
+        "copy_number": {
+          "required": false,
+          "space_before": 0,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 1,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 37,
+                "x1": 56,
+                "y1": 49
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "份号：0001",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "classification_duration": {
+          "required": false,
+          "space_before": 0,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 2,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 156,
+                "y0": 37,
+                "x1": 212,
+                "y1": 49
+              },
+              "font": {
+                "font_family": "黑体",
+                "font_size": 16,
+                "font_weight": true,
+                "font_style": false,
+                "text": "秘密★10年",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "urgency_level": {
+          "required": false,
+          "space_before": 0,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 3,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 156,
+                "y0": 53,
+                "x1": 212,
+                "y1": 65
+              },
+              "font": {
+                "font_family": "黑体",
+                "font_size": 16,
+                "font_weight": true,
+                "font_style": false,
+                "text": "特急",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "issuing_logo": {
+          "required": true,
+          "space_before": 12,
+          "space_after": 6,
+          "line_spacing": 1.5,
+          "first_indent": 0,
+          "block_no": 4,
+          "outline_level": "others",
+          "alignment": "center",
+          "elements": [
+            {
+              "position": {
+                "x0": 45,
+                "y0": 85,
+                "x1": 165,
+                "y1": 115
+              },
+              "font": {
+                "font_family": "小标宋",
+                "font_size": 22,
+                "font_weight": true,
+                "font_style": false,
+                "text": "×××人民政府",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "issuing_number": {
+          "required": true,
+          "space_before": 3,
+          "space_after": 3,
+          "line_spacing": 1.0,
+          "first_indent": 1,
+          "block_no": 5,
+          "outline_level": "body_text",
+          "alignment": "left",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 125,
+                "x1": 98,
+                "y1": 137
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "×政发〔2024〕1号",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "signatory": {
+          "required": true,
+          "space_before": 0,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 6,
+          "outline_level": "others",
+          "alignment": "right",
+          "elements": [
+            {
+              "position": {
+                "x0": 130,
+                "y0": 125,
+                "x1": 182,
+                "y1": 137
+              },
+              "font": {
+                "font_family": "楷体",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "签发人：张三",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "ruling_line_pos": {
+          "required": true,
+          "space_before": 6,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 7,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 145,
+                "x1": 182,
+                "y1": 146
+              },
+              "font": {
+                "font_family": "",
+                "font_size": 0,
+                "font_weight": false,
+                "font_style": false,
+                "text": "红色分隔线",
+                "line_no": 1
+              }
+            }
+          ]
+        }
+      },
+      "body": {
+        "title": {
+          "required": true,
+          "space_before": 12,
+          "space_after": 6,
+          "line_spacing": 1.5,
+          "first_indent": 0,
+          "block_no": 8,
+          "outline_level": "others",
+          "alignment": "center",
+          "elements": [
+            {
+              "position": {
+                "x0": 60,
+                "y0": 165,
+                "x1": 150,
+                "y1": 191
+              },
+              "font": {
+                "font_family": "小标宋",
+                "font_size": 22,
+                "font_weight": false,
+                "font_style": false,
+                "text": "关于××××的请示",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "addressee": {
+          "required": true,
+          "space_before": 0,
+          "space_after": 0,
+          "line_spacing": 28.95,
+          "first_indent": 0,
+          "block_no": 9,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 205,
+                "x1": 70,
+                "y1": 222
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "×××人民政府：",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "main_text": {
+          "heading1": {
+            "required": false,
+            "space_before": 0,
+            "space_after": 0,
+            "line_spacing": 28.95,
+            "first_indent": 2,
+            "block_no": 1,
+            "outline_level": "heading1",
+            "elements": [
+              {
+                "position": {
+                  "x0": 28,
+                  "y0": 0,
+                  "x1": 182,
+                  "y1": 28.95
+                },
+                "font": {
+                  "font_family": "黑体",
+                  "font_size": 16,
+                  "font_weight": true,
+                  "font_style": false,
+                  "text": "一、一级标题示例",
+                  "line_no": 1
+                }
+              }
+            ]
+          },
+          "heading2": {
+            "required": false,
+            "space_before": 0,
+            "space_after": 0,
+            "line_spacing": 28.95,
+            "first_indent": 2,
+            "block_no": 2,
+            "outline_level": "heading2",
+            "elements": [
+              {
+                "position": {
+                  "x0": 28,
+                  "y0": 0,
+                  "x1": 182,
+                  "y1": 28.95
+                },
+                "font": {
+                  "font_family": "楷体",
+                  "font_size": 16,
+                  "font_weight": true,
+                  "font_style": false,
+                  "text": "（一）二级标题示例",
+                  "line_no": 1
+                }
+              }
+            ]
+          },
+          "heading3": {
+            "required": false,
+            "space_before": 0,
+            "space_after": 0,
+            "line_spacing": 28.95,
+            "first_indent": 2,
+            "block_no": 3,
+            "outline_level": "heading3",
+            "elements": [
+              {
+                "position": {
+                  "x0": 28,
+                  "y0": 0,
+                  "x1": 182,
+                  "y1": 28.95
+                },
+                "font": {
+                  "font_family": "仿宋",
+                  "font_size": 16,
+                  "font_weight": true,
+                  "font_style": false,
+                  "text": "1.三级标题示例",
+                  "line_no": 1
+                }
+              }
+            ]
+          },
+          "heading4": {
+            "required": false,
+            "space_before": 0,
+            "space_after": 0,
+            "line_spacing": 28.95,
+            "first_indent": 2,
+            "block_no": 4,
+            "outline_level": "heading4",
+            "elements": [
+              {
+                "position": {
+                  "x0": 28,
+                  "y0": 0,
+                  "x1": 182,
+                  "y1": 28.95
+                },
+                "font": {
+                  "font_family": "仿宋",
+                  "font_size": 16,
+                  "font_weight": false,
+                  "font_style": false,
+                  "text": "（1）四级标题示例",
+                  "line_no": 1
+                }
+              }
+            ]
+          },
+          "body_text": {
+            "required": true,
+            "space_before": 0,
+            "space_after": 0,
+            "line_spacing": 28.95,
+            "first_indent": 2,
+            "block_no": 10,
+            "outline_level": "body_text",
+            "elements": [
+              {
+                "position": {
+                  "x0": 28,
+                  "y0": 235,
+                  "x1": 182,
+                  "y1": 500
+                },
+                "font": {
+                  "font_family": "仿宋",
+                  "font_size": 16,
+                  "font_weight": false,
+                  "font_style": false,
+                  "text": "正文内容...",
+                  "line_no": 1
+                }
+              }
+            ]
+          },
+          "others": {
+            "required": false,
+            "space_before": 0,
+            "space_after": 0,
+            "line_spacing": 28.95,
+            "first_indent": 2,
+            "block_no": 0,
+            "outline_level": "others",
+            "elements": [
+              {
+                "position": {
+                  "x0": 28,
+                  "y0": 0,
+                  "x1": 182,
+                  "y1": 28.95
+                },
+                "font": {
+                  "font_family": "仿宋",
+                  "font_size": 16,
+                  "font_weight": false,
+                  "font_style": false,
+                  "text": "",
+                  "line_no": 1
+                }
+              }
+            ]
+          }
+        },
+        "attachment_note": {
+          "required": false,
+          "space_before": 6,
+          "space_after": 0,
+          "line_spacing": 28.95,
+          "first_indent": 2,
+          "block_no": 11,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 520,
+                "x1": 100,
+                "y1": 537
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "附件：1.××××",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "issuing_signature": {
+          "required": true,
+          "space_before": 12,
+          "space_after": 0,
+          "line_spacing": 28.95,
+          "first_indent": 0,
+          "block_no": 12,
+          "outline_level": "others",
+          "alignment": "right",
+          "elements": [
+            {
+              "position": {
+                "x0": 130,
+                "y0": 580,
+                "x1": 182,
+                "y1": 597
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "×××人民政府",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "issue_date": {
+          "required": true,
+          "space_before": 3,
+          "space_after": 0,
+          "line_spacing": 28.95,
+          "first_indent": 0,
+          "block_no": 13,
+          "outline_level": "others",
+          "alignment": "right",
+          "elements": [
+            {
+              "position": {
+                "x0": 140,
+                "y0": 615,
+                "x1": 182,
+                "y1": 632
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "2024年1月1日",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "stamp": {
+          "required": true,
+          "space_before": 0,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 14,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 130,
+                "y0": 600,
+                "x1": 182,
+                "y1": 642
+              },
+              "font": {
+                "font_family": "",
+                "font_size": 0,
+                "font_weight": false,
+                "font_style": false,
+                "text": "印章图像",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "note": {
+          "required": true,
+          "space_before": 6,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 2,
+          "block_no": 15,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 650,
+                "x1": 150,
+                "y1": 662
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "（联系人：×××，联系电话：×××××××）",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "attachments": {
+          "required": false,
+          "space_before": 6,
+          "space_after": 6,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 16,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 520,
+                "x1": 150,
+                "y1": 537
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 16,
+                "font_weight": false,
+                "font_style": false,
+                "text": "附件：1.××××",
+                "line_no": 1
+              }
+            }
+          ]
+        }
+      },
+      "footer": {
+        "closing_line": {
+          "required": true,
+          "space_before": 6,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 17,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 262,
+                "x1": 182,
+                "y1": 263
+              },
+              "font": {
+                "font_family": "",
+                "font_size": 0,
+                "font_weight": false,
+                "font_style": false,
+                "text": "黑色反线",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "carbon_copy": {
+          "required": false,
+          "space_before": 3,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 18,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 270,
+                "x1": 120,
+                "y1": 282
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 14,
+                "font_weight": false,
+                "font_style": false,
+                "text": "抄送：市委办公厅",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "issuing_office": {
+          "required": true,
+          "space_before": 3,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 19,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 28,
+                "y0": 285,
+                "x1": 90,
+                "y1": 297
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 14,
+                "font_weight": false,
+                "font_style": false,
+                "text": "×××人民政府办公室",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "distribution_date": {
+          "required": true,
+          "space_before": 3,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 20,
+          "outline_level": "others",
+          "alignment": "right",
+          "elements": [
+            {
+              "position": {
+                "x0": 140,
+                "y0": 285,
+                "x1": 182,
+                "y1": 297
+              },
+              "font": {
+                "font_family": "仿宋",
+                "font_size": 14,
+                "font_weight": false,
+                "font_style": false,
+                "text": "2024年1月2日印发",
+                "line_no": 1
+              }
+            }
+          ]
+        },
+        "page_number": {
+          "required": true,
+          "space_before": 6,
+          "space_after": 0,
+          "line_spacing": 1.0,
+          "first_indent": 0,
+          "block_no": 21,
+          "outline_level": "others",
+          "elements": [
+            {
+              "position": {
+                "x0": 100,
+                "y0": 297,
+                "x1": 110,
+                "y1": 309
+              },
+              "font": {
+                "font_family": "宋体",
+                "font_size": 14,
+                "font_weight": false,
+                "font_style": false,
+                "text": "— 1 —",
+                "line_no": 1
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+name: search
+version: "1.0.0"
+api: "1.0"
+description: "Elasticsearch document chunk search"
+
+capabilities:
+  tools:
+    - name: search_documents
+      display_name: 搜索文档
+      description: "在已索引的文档块中搜索内容。只需传入搜索关键词，系统会自动构建查询并格式化结果。"
+  system_prompt: |
+    # 文档搜索
+    ## 能力
+    通过自然语言关键词搜索已索引的文档块。
+    ## 使用方式
+    调用 `search_documents` 工具，传入 `query`（搜索关键词）。

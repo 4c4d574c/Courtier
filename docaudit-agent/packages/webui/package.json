@@ -1,0 +1,25 @@
+{
+  "name": "courtier-webui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "test": "node scripts/test-tool-calls.mjs && node scripts/test-subagent-tree.mjs && node scripts/test-session-event-handlers.mjs && node scripts/test-streaming-markdown.mjs && node scripts/test-tool-progress.mjs && node scripts/test-session-utils.mjs && node scripts/test-step-sync.mjs && node scripts/test-tool-result-status.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.4.11",
+    "marked": "^18.0.4",
+    "vue": "^3.5.13",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.7.3",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.10"
+  }
+}

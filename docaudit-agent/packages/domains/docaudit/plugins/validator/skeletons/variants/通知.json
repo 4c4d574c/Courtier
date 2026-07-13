@@ -1,0 +1,34 @@
+{
+  "doc_type": "通知",
+  "name": "通知格式模板",
+  "description": "通知文种差异覆盖：标题使用方正小标宋简体、正文行距固定值等。",
+  "elements": [
+    {
+      "key": "title",
+      "content_elements": [
+        {
+          "font": {"font_family": "方正小标宋简体", "font_size": 22}
+        }
+      ]
+    },
+    {
+      "key": "issuing_logo",
+      "content_elements": [
+        {
+          "font": {"font_family": "方正小标宋简体", "font_size": 22}
+        }
+      ]
+    },
+    {
+      "key": "body_text",
+      "format": {
+        "line_spacing": 28.95
+      },
+      "content_elements": [
+        {
+          "font": {"font_family": "仿宋_GB2312", "font_size": 16}
+        }
+      ]
+    }
+  ]
+}

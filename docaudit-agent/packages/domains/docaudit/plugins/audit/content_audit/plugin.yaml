@@ -1,0 +1,27 @@
+name: content_audit
+version: "1.0.0"
+api: "1.0"
+description: "Document content compliance audit — validates document body text against content rules"
+timeout_ms: 120000
+
+capabilities:
+  tools:
+    - name: check_content
+      display_name: 内容审查
+      description: "Check document body content against compliance rules for a given document type"
+      input_contract:
+        type: object
+        properties:
+          text:
+            type: string
+            description: "Document body text to audit"
+          doc_type:
+            type: string
+            description: "Document type (e.g. 通知, 请示, 报告)"
+          subtype:
+            type: string
+            description: "Document subtype (e.g. 发布性通知, 批转性通知)"
+        required: [text, doc_type]
+  system_prompt: |
+    # 内容合规审核
+    检查公文正文内容是否符合内容合规规则。

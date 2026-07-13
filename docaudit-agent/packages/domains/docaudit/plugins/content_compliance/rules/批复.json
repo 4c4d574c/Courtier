@@ -1,0 +1,10 @@
+{
+  "doc_type": "批复",
+  "subtypes": {
+    "批复": [
+      {"id": "REP_001", "name": "开头须引用请示", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(请示|报告).*[〔\\[]\\d{4}[〕\\]].*号", "message": "开头缺少对请示文号的引用"},
+      {"id": "REP_002", "name": "正文须有批复意见", "check_scope": "正文", "type": "required", "pattern": "(同意|原则同意|不同意|不予批准|现批复如下|经研究.*)", "message": "正文中缺少批复意见"},
+      {"id": "REP_003", "name": "结尾须有批复结语", "check_scope": "结尾", "check_length": 200, "type": "required", "pattern": "(此复|特此批复)", "message": "结尾缺少批复结语"}
+    ]
+  }
+}

@@ -1,0 +1,196 @@
+/* Split-panel auth layout */
+.auth-page {
+  display: flex;
+  min-height: 100vh;
+}
+
+.auth-left {
+  flex: 1;
+  background: linear-gradient(135deg, var(--paper) 0%, #f0ebe0 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-left::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    var(--ink) 2px,
+    var(--ink) 3px
+  );
+}
+
+.auth-brand {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.auth-seal {
+  width: 80px;
+  height: 80px;
+  border: 4px solid var(--seal);
+  transform: rotate(45deg);
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-seal span {
+  transform: rotate(-45deg);
+  font-family: "Noto Serif SC", serif;
+  font-size: 30px;
+  color: var(--seal);
+  font-weight: bold;
+}
+
+.auth-title {
+  font-family: "Noto Serif SC", serif;
+  font-size: 30px;
+  color: var(--ink);
+  letter-spacing: 4px;
+  margin: 0;
+}
+
+.auth-tagline {
+  font-size: 16px;
+  color: var(--ink-faint);
+  margin-top: 8px;
+}
+
+.auth-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper);
+}
+
+.auth-card {
+  width: 360px;
+  max-width: 90vw;
+}
+
+.auth-card-title {
+  font-family: "Noto Serif SC", serif;
+  font-size: 26px;
+  color: var(--ink);
+  margin: 0 0 32px;
+  text-align: center;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-field label {
+  font-size: 15px;
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+
+.auth-field input {
+  height: 44px;
+  padding: 0 12px;
+  background: var(--paper-high);
+  border: 1px solid #e0dbd0;
+  border-radius: 6px;
+  font-size: 17px;
+  color: var(--ink);
+  font-family: "Noto Sans SC", sans-serif;
+  outline: none;
+  transition: border-color 150ms;
+}
+
+.auth-field input:focus {
+  border-color: var(--seal);
+}
+
+.auth-error {
+  color: var(--err);
+  font-size: 15px;
+  margin: 0;
+}
+
+.auth-submit {
+  height: 44px;
+  background: var(--seal);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 17px;
+  font-family: "Noto Sans SC", sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 150ms;
+  margin-top: 4px;
+}
+
+.auth-submit:hover {
+  opacity: 0.9;
+}
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-switch {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 15px;
+  color: var(--ink-dim);
+}
+
+.auth-switch a {
+  color: var(--seal);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* Success state for RegisterView */
+.auth-success {
+  text-align: center;
+}
+
+.auth-success-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--ok);
+  color: white;
+  font-size: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+}
+
+.auth-success h2 {
+  font-family: "Noto Serif SC", serif;
+  font-size: 24px;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.auth-success p {
+  font-size: 16px;
+  color: var(--ink-dim);
+  margin: 0;
+}

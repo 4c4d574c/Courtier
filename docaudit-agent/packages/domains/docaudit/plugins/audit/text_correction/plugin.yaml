@@ -1,0 +1,21 @@
+name: text_correction
+version: "1.0.0"
+api: "1.0"
+description: "Chinese text correction — spelling, grammar, fullwidth/halfwidth, and punctuation errors"
+timeout_ms: 300000
+
+capabilities:
+  tools:
+    - name: correct_text
+      display_name: 文本纠错
+      description: "Detect and correct Chinese spelling, grammar, and formatting errors in text"
+      input_contract:
+        type: object
+        properties:
+          text:
+            type: string
+            description: "Text to check and correct"
+        required: [text]
+  system_prompt: |
+    # 文本纠错
+    检测并纠正中文文本中的拼写错误、语法错误、全角半角混用和标点符号错误。

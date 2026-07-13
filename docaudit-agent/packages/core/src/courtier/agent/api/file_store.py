@@ -1,0 +1,117 @@
+"""FileStore — maps opaque fileId strings to filesystem paths."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import secrets
+from dataclasses import dataclass
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FileInfo:
+    file_id: str
+    original_name: str
+    stored_path: str  # filesystem path relative to upload_dir
+    size_bytes: int
+
+
+class FileStore:
+    """Thread-safe file-id-to-path registry with JSON file persistence.
+
+    Each uploaded file gets a short opaque id (file_xxxxxxxx) that
+    the frontend uses as a reference.  The mapping is stored on disk
+    so it survives restarts.
+    """
+
+    def __init__(self, storage_dir: str) -> None:
+        self._dir = Path(storage_dir)
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._index_path = self._dir / "file_index.json"
+        self._files: dict[str, FileInfo] = {}
+        # asyncio.Lock protects in-memory dict operations.  File I/O
+        # (_save_index / _load_index) is outside the lock.
+        self._lock = asyncio.Lock()
+        self._load_index()
+
+    async def register(
+        self, original_name: str, stored_path: str, size_bytes: int
+    ) -> FileInfo:
+        file_id = f"file_{secrets.token_hex(4)}"
+        info = FileInfo(
+            file_id=file_id,
+            original_name=original_name,
+            stored_path=stored_path,
+            size_bytes=size_bytes,
+        )
+        async with self._lock:
+            self._files[file_id] = info
+        await self._save_index()
+        return info
+
+    async def resolve(self, file_id: str) -> FileInfo | None:
+        async with self._lock:
+            return self._files.get(file_id)
+
+    @staticmethod
+    def _safe_resolve(upload_dir: Path, stored_path: str) -> Path | None:
+        """Resolve *stored_path* relative to *upload_dir*, rejecting escapes."""
+        if not stored_path:
+            return None
+        p = Path(stored_path)
+        if p.is_absolute():
+            return None
+        base = upload_dir.resolve()
+        target = (base / p).resolve()
+        try:
+            target.relative_to(base)
+        except ValueError:
+            return None
+        return target
+
+    async def resolve_path(self, file_id: str, upload_dir: str) -> Path | None:
+        """Resolve a fileId to an absolute filesystem path."""
+        info = await self.resolve(file_id)
+        if info is None:
+            return None
+        return self._safe_resolve(Path(upload_dir), info.stored_path)
+
+    # -- internal -----------------------------------------------------------
+
+    async def _save_index(self) -> None:
+        data = {
+            fid: {
+                "original_name": fi.original_name,
+                "stored_path": fi.stored_path,
+                "size_bytes": fi.size_bytes,
+            }
+            for fid, fi in self._files.items()
+        }
+        try:
+            await asyncio.to_thread(
+                self._index_path.write_text,
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.exception("Failed to save file index")
+
+    def _load_index(self) -> None:
+        if not self._index_path.exists():
+            return
+        try:
+            raw = json.loads(self._index_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            logger.exception("Failed to load file index")
+            return
+        for fid, d in raw.items():
+            self._files[fid] = FileInfo(
+                file_id=fid,
+                original_name=d.get("original_name", ""),
+                stored_path=d.get("stored_path", ""),
+                size_bytes=d.get("size_bytes", 0),
+            )

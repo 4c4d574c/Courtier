@@ -111,7 +111,8 @@ class Settings(BaseSettings):
     cec_model_name: str = "ChineseErrorCorrector3-4B"
     cec_max_length: int = Field(default=16383, alias="cec_max_length")
     cec_user_dict: str = Field(
-        default="./src/doccorrector/user_dict.txt", alias="cec_user_dict"
+        default=str(_PROJECT_ROOT / "packages" / "domains" / "docaudit" / "plugins" / "doccorrector" / "user_dict.txt"),
+        alias="cec_user_dict",
     )
     cec_allowed_patterns: str = Field(
         default="看一看,想一想,试一试,人人,一一", alias="cec_allowed_patterns"
@@ -124,16 +125,16 @@ class Settings(BaseSettings):
     minio_secret_key: str = Field(default="", description="MinIO secret key")
     minio_secure: bool = Field(default=False, description="MinIO 是否使用 HTTPS")
     cache_dir: str = str(_PROJECT_ROOT / "uploads" / ".cache")
-    minio_bucket_docs: str = "docaudit-docs"
-    minio_bucket_library: str = "docaudit-library"
-    minio_bucket_resources: str = "docaudit-resources"
-    minio_bucket_documents: str = "docaudit-documents"
+    minio_bucket_docs: str = "courtier-docs"
+    minio_bucket_library: str = "courtier-library"
+    minio_bucket_resources: str = "courtier-resources"
+    minio_bucket_documents: str = "courtier-documents"
 
     es_hosts: str = ""
     es_username: str = ""
     es_password: str = ""
-    es_index_chunks: str = "docaudit_chunks"
-    es_index_results: str = "docaudit_results"
+    es_index_chunks: str = "courtier_chunks"
+    es_index_results: str = "courtier_results"
 
     logger_level: str = Field(default="INFO", alias="logger_level")
 
@@ -149,7 +150,7 @@ class Settings(BaseSettings):
     )
 
     otel_service_name: str = Field(
-        default="docaudit-agent",
+        default="courtier",
         alias="otel_service_name",
         description="OpenTelemetry service name",
     )
@@ -302,7 +303,7 @@ class CourtierConfig:
     domain_names: list[str] = field(default_factory=list)
 
     # Default locale
-    locale: str = "en-US"
+    locale: str = "zh-CN"
 
     # Loaded domain packages (populated by discover())
     _domains: list[_DomainPackageImpl] = field(default_factory=list, repr=False)

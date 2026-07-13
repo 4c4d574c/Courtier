@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+test_*.txt
+output.txt
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Uploads
+uploads/
+
+# Docker
+.dockerignore
+
+# Lock files (optional，根据需要保留)
+# uv.lock
+
+# Git worktrees
+.worktrees/
+.claude/worktrees/
+
+# Agent runtime logs
+.agent_logs/
+
+# Frontend build output
+packages/webui/dist/
+
+.superpowers/
+.coverage
+
+# Agent cache
+.agent_cache/
+
+# Observability runtime data (langfuse / prometheus / grafana volumes)
+data/
+
+# Nested plugin virtual environments
+packages/domains/*/plugins/**/.venv/
+
+# Legacy src/ — docmodels compat shim, docbuilder (dead code pending removal)
+# Plugins now live under packages/domains/docaudit/plugins/

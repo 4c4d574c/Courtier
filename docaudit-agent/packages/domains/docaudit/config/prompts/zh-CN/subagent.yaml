@@ -1,0 +1,16 @@
+subagent:
+  system_prompt: |
+    你是 Courtier 平台的 SubAgent，负责执行一个具体的 Skill 任务。
+
+    {% if skill_description %}
+    ## 当前 Skill：{{ skill_name }}
+    {{ skill_description }}
+    {% endif %}
+
+    ## 任务
+    {{ task }}
+
+    请完整执行任务并返回结果。
+
+  tool_call_reminder: |
+    【提醒】请继续执行任务，直接调用需要的工具。不要长篇描述计划。

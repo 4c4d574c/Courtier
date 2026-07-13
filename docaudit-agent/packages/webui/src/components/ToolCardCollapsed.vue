@@ -1,0 +1,161 @@
+<template>
+  <div
+    class="tool-card-row"
+    role="button"
+    tabindex="0"
+    @click="$emit('toggle')"
+    @keydown.enter.prevent="$emit('toggle')"
+    @keydown.space.prevent="$emit('toggle')"
+  >
+    <span class="tool-card-title">
+      <span
+        :class="[
+          'tool-card-name',
+          { 'tool-card-name--cancelled': tool.status === 'cancelled' },
+        ]"
+        >{{ displayName }}</span
+      >
+      <span v-if="badgeLabel" :class="['tool-card-badge', badgeClass]">
+        {{ badgeLabel }}
+      </span>
+    </span>
+    <div class="tool-card-meta">
+      <span v-if="tool.status === 'running'" class="tool-card-running-badge">
+        {{ tool.progress || "执行中…" }}
+      </span>
+      <span
+        v-else-if="tool.status === 'pending'"
+        class="tool-card-running-badge"
+        >等待中</span
+      >
+      <span
+        v-if="tool.status === 'running' && tool.startTime"
+        class="tool-card-time"
+        >{{ liveDuration.toFixed(1) }}s</span
+      >
+      <span v-else-if="tool.duration" class="tool-card-time"
+        >{{ tool.duration.toFixed(1) }}s</span
+      >
+      <span class="tool-card-expand-icon" @click.stop="$emit('toggle')">▼</span>
+    </div>
+  </div>
+  <div v-if="tool.skillDescription" class="tool-card-description">
+    {{ tool.skillDescription }}
+  </div>
+  <div v-if="!hasIssues" class="tool-card-data">
+    <DataChip
+      v-for="(chip, i) in parsedChips"
+      :key="i"
+      :label="chip.label"
+      :value="chip.value"
+    />
+  </div>
+  <div v-if="hasIssues" class="tool-card-issues">
+    <span class="issue-count err">{{ errorCount }} 项错误</span>
+    <span class="issue-count warn">{{ warnCount }} 项警告</span>
+    <span class="issue-count ok">{{ okCount }} 项通过</span>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, onMounted, onUnmounted, watch } from "vue";
+import type { ToolResult } from "../types/agent";
+import { displayToolName } from "../utils/toolCalls";
+import DataChip from "./DataChip.vue";
+
+interface Props {
+  tool: ToolResult;
+}
+
+const props = defineProps<Props>();
+const liveDuration = ref(props.tool.duration ?? 0);
+let timer: ReturnType<typeof setInterval> | null = null;
+
+function startTimer() {
+  if (timer !== null) clearInterval(timer);
+  timer = null;
+  if (props.tool.status !== "running" || !props.tool.startTime) return;
+  liveDuration.value = (Date.now() - props.tool.startTime) / 1000;
+  // FUTURE: switch to requestAnimationFrame for smoother updates and
+  // pause the timer when the document/tab loses visibility.
+  timer = setInterval(() => {
+    if (props.tool.startTime) {
+      liveDuration.value = (Date.now() - props.tool.startTime) / 1000;
+    } else {
+      clearTimer();
+    }
+  }, 100);
+}
+
+function clearTimer() {
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
+  }
+}
+
+onMounted(() => {
+  if (props.tool.status === "running" && props.tool.startTime) {
+    startTimer();
+  }
+});
+
+watch(
+  () => [props.tool.status, props.tool.startTime] as const,
+  ([status, startTime]) => {
+    if (status === "running" && startTime) {
+      startTimer();
+    } else {
+      clearTimer();
+    }
+  },
+);
+
+onUnmounted(clearTimer);
+defineEmits<{
+  toggle: [];
+}>();
+
+const displayName = computed(() => {
+  const name = displayToolName(props.tool);
+  return props.tool.skill ? `${props.tool.skill} (${name})` : name;
+});
+
+const badgeLabel = computed(() => {
+  if (props.tool.status === "cancelled") return "已中断";
+  if (props.tool.callKind === "subagent_run") return "子代理运行";
+  if (props.tool.callScope === "subagent") return "子代理工具";
+  if (props.tool.skill) return "技能";
+  return "";
+});
+
+const badgeClass = computed(() => {
+  if (props.tool.status === "cancelled") return "tool-card-badge--cancelled";
+  if (props.tool.callKind === "subagent_run")
+    return "tool-card-badge--subagent-run";
+  if (props.tool.callScope === "subagent")
+    return "tool-card-badge--subagent-tool";
+  if (props.tool.skill) return "tool-card-badge--skill";
+  return "";
+});
+
+const parsedChips = computed(() => {
+  if (!props.tool.summary) return [];
+  const chips: { label: string; value: string }[] = [];
+  const pairs = props.tool.summary.split(",");
+  for (const pair of pairs) {
+    const parts = pair.split(":").map((s) => s.trim());
+    if (parts.length === 2) {
+      chips.push({ label: parts[0], value: parts[1] });
+    }
+  }
+  return chips;
+});
+
+const hasIssues = computed(
+  () => props.tool.status === "warning" || props.tool.status === "error",
+);
+const errorCount = computed(() => (props.tool.status === "error" ? 1 : 0));
+const warnCount = computed(() => (props.tool.status === "warning" ? 1 : 0));
+const okCount = computed(() => (props.tool.status === "done" ? 1 : 0));
+</script>

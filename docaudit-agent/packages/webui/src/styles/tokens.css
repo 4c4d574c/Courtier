@@ -1,0 +1,60 @@
+/* ═══════════════════════════════════════════════════════════════════
+   DocAudit — Editorial Warm / Paper — Tokens & Reset
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --seal: #b71c2e;
+  --seal-deep: #8b1523;
+  --seal-faded: rgba(183, 28, 46, 0.14);
+  --seal-glow: rgba(183, 28, 46, 0.22);
+  --gold: #8b6914;
+  --gold-pale: #a07818;
+  --ink: #2d2520;
+  --ink-dim: #6b6058;
+  --ink-faint: #9c9088;
+  --paper: #faf7f2;
+  --paper-lift: #ffffff;
+  --paper-high: #f2ede5;
+  --divider: #e8e0d4;
+  --divider-red: rgba(183, 28, 46, 0.18);
+  --ok: #5a8a4a;
+  --ok-dim: #3d5d32;
+  --warn: #b87a0e;
+  --err: #b71c2e;
+  --accent-parse: #8a7c5c;
+  --accent-format: #6a7b7b;
+  --accent-content: #7b6345;
+  --accent-plagiarism: #7b5b6a;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  /* Editorial / decorative */
+  --paper-grain: rgba(45, 37, 32, 0.015);
+  --seal-rule: rgba(183, 28, 46, 0.25);
+  --seal-rule-light: rgba(183, 28, 46, 0.1);
+  --thought-tint: rgba(45, 37, 32, 0.02);
+  --thought-border: rgba(45, 37, 32, 0.1);
+  --thought-divider: rgba(45, 37, 32, 0.06);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: #f2ede8;
+  height: 100vh;
+  overflow: hidden;
+  font-family: "Noto Sans SC", system-ui, sans-serif;
+  color: var(--ink);
+}
+
+#app {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

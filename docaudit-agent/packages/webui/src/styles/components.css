@@ -1,0 +1,1215 @@
+/* ═══════════════════════════════════════════════════════════════════
+   DocAudit — Components: chat, steps, tool cards, thought, verdict
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Chat message bubble ────────────────────────────── */
+.chat-message {
+  display: flex;
+}
+.chat-message--user {
+  justify-content: flex-end;
+}
+.chat-bubble {
+  max-width: 72%;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+.chat-message--user .chat-bubble {
+  background: var(--seal-faded);
+  color: var(--ink);
+  border-bottom-right-radius: 4px;
+}
+.chat-file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 4px 10px;
+  background: var(--paper);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+
+/* Step header */
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.step-num {
+  font-family: "Noto Serif SC", serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--seal);
+  min-width: 20px;
+}
+.step-divider {
+  width: 28px;
+  height: 1px;
+  background: var(--seal-faded);
+}
+.step-label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.06em;
+}
+/* Tool result card */
+.tool-card {
+  margin-left: 30px;
+  padding: 10px 16px;
+  border-radius: 3px;
+  position: relative;
+  background: var(--paper-lift);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.tool-card:hover {
+  background: var(--paper-high);
+}
+.tool-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+}
+.tool-card.ok::before {
+  background: var(--ok);
+}
+.tool-card.warn::before {
+  background: var(--warn);
+}
+.tool-card.err::before {
+  background: var(--err);
+}
+.tool-card.running::before {
+  background: var(--accent-parse);
+  animation: pulse-border 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.tool-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tool-card-name {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.tool-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tool-card-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--divider);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+}
+.tool-card-badge--subagent-run {
+  color: var(--seal);
+  border-color: var(--divider-red);
+  background: var(--seal-faded);
+}
+.tool-card-badge--subagent-tool {
+  color: var(--gold-pale);
+  border-color: rgba(139, 105, 20, 0.22);
+  background: rgba(139, 105, 20, 0.08);
+}
+.tool-card-badge--skill {
+  color: var(--accent-content);
+  border-color: rgba(123, 99, 69, 0.22);
+  background: rgba(123, 99, 69, 0.08);
+}
+.tool-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tool-card-time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.tool-card-expand-icon {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 12px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+  transition:
+    color 0.2s,
+    transform 0.2s;
+}
+.tool-card.expanded .tool-card-expand-icon {
+  color: var(--gold-pale);
+  transform: rotate(180deg);
+}
+.tool-card-data {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.data-chip {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 14px;
+  color: var(--ink-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.data-chip .val {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Warning card issues */
+.tool-card-issues {
+  margin-top: 8px;
+  display: flex;
+  gap: 16px;
+}
+.issue-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 15px;
+  font-weight: 600;
+}
+.issue-count.err {
+  color: var(--err);
+}
+.issue-count.warn {
+  color: var(--warn);
+}
+.issue-count.ok {
+  color: var(--ok);
+}
+
+/* Expanded detail */
+.tool-card-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+  overflow: hidden;
+}
+
+.subagent-group {
+  margin-left: 30px;
+  padding: 12px 0 12px 14px;
+  border-left: 1px dashed var(--divider-red);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.subagent-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.subagent-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 2px;
+}
+.subagent-group-title {
+  font-family: "Noto Serif SC", serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--seal);
+  letter-spacing: 0.04em;
+}
+.subagent-group-meta {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.subagent-group .tool-card {
+  margin-left: 0;
+}
+.subagent-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.subagent-group-body > .tool-card,
+.subagent-timeline .tool-card {
+  margin-left: 14px;
+}
+.subagent-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 14px;
+  border-left: 1px solid var(--divider);
+}
+.tool-card--subagent-wrapper {
+  background: var(--paper);
+  border: 1px solid var(--divider-red);
+}
+.tool-card--subagent-tool {
+  background: rgba(255, 255, 255, 0.72);
+}
+.tool-card--skill {
+  background: rgba(123, 99, 69, 0.04);
+}
+
+/* Structured data table */
+.structured-data {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+.structured-data .sd-key {
+  color: var(--ink-faint);
+  margin-right: 8px;
+}
+.structured-data .sd-val {
+  color: var(--ink);
+}
+.structured-data .sd-row {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.structured-data .sd-truncated-hint {
+  margin-top: 8px;
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+/* Markdown content */
+.markdown-content {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--ink-dim);
+}
+.markdown-content :is(h1, h2, h3, h4) {
+  font-family: "Noto Serif SC", serif;
+  color: var(--ink);
+  margin: 10px 0 4px;
+}
+.markdown-content h2 {
+  font-size: 17px;
+}
+.markdown-content h3 {
+  font-size: 15px;
+}
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+.markdown-content li {
+  margin: 2px 0;
+}
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.markdown-content th {
+  font-family: "Noto Sans SC", sans-serif;
+  background: var(--paper-high);
+  color: var(--ink);
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--divider);
+  font-weight: 500;
+}
+.markdown-content td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--divider);
+  color: var(--ink-dim);
+}
+.markdown-content strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.markdown-content code {
+  font-family: "JetBrains Mono", monospace;
+  background: var(--paper-high);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 13px;
+}
+.markdown-content pre {
+  background: var(--paper-high);
+  padding: 10px;
+  border-radius: 2px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+/* ── Streaming markdown rendering ─────────────────────
+   The trailing span is embedded *inside* the last block element
+   (e.g. <p>...<span class="streaming-trailing">...</span></p>),
+   keeping the DOM structure stable across all updates. */
+
+.markdown-body {
+  contain: layout style; /* isolate layout recalc */
+}
+
+.streaming-trailing {
+  display: inline;
+  font: inherit;
+  color: inherit;
+}
+
+/* ── Streaming trailing inside thought / conclusion contexts ── */
+.thought-text .streaming-trailing,
+.subagent-thoughts .streaming-trailing,
+.subagent-conclusion .streaming-trailing,
+.conclusion-text .streaming-trailing {
+  color: var(--ink-dim);
+}
+
+/* Verdict */
+.verdict {
+  margin-top: 8px;
+  margin-left: 30px;
+  padding: 10px 0 10px 16px;
+  border-left: 2px solid var(--seal-rule);
+  position: relative;
+  background: var(--thought-tint);
+  border-radius: 0 4px 4px 0;
+}
+.verdict::before {
+  content: "结";
+  position: absolute;
+  left: -12px;
+  top: 10px;
+  font-family: "Noto Serif SC", serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--seal);
+  background: var(--paper);
+  padding: 0 5px;
+}
+.verdict-text {
+  font-family: "Noto Serif SC", serif;
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--ink-dim);
+}
+.verdict-text em {
+  color: var(--err);
+  font-style: normal;
+}
+.verdict-text strong {
+  color: var(--gold-pale);
+  font-weight: 600;
+}
+
+/* ── Conclusion ─────────────────────────────────────── */
+.conclusion {
+  margin-top: 16px;
+  position: relative;
+  /* Outer frame */
+  border: 2px solid var(--divider);
+  border-radius: 6px;
+  background: var(--paper-lift);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  flex-shrink: 0; /* prevent flex parent from squeezing this when thought blocks expand */
+}
+/* Decorative top rule */
+.conclusion::before {
+  content: "";
+  display: block;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--seal-deep) 0%,
+    var(--seal) 20%,
+    var(--seal-faded) 60%,
+    transparent 100%
+  );
+}
+/* Collapsible header — matches thought-segment-header pattern */
+.conclusion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 14px;
+  background: linear-gradient(
+    180deg,
+    var(--paper-lift) 0%,
+    var(--paper-high) 100%
+  );
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--thought-divider);
+}
+.conclusion-header:hover {
+  background: linear-gradient(
+    180deg,
+    var(--paper-high) 0%,
+    var(--divider) 100%
+  );
+}
+.conclusion-header-label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.04em;
+}
+/* Small seal icon next to label */
+.conclusion-header-label::before {
+  content: "审";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--seal);
+  border-radius: 3px;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--seal);
+  transform: rotate(-2deg);
+  flex-shrink: 0;
+}
+.conclusion-header-toggle {
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-family: "Noto Sans SC", sans-serif;
+  transition: color 0.2s;
+}
+.conclusion-header:hover .conclusion-header-toggle {
+  color: var(--seal);
+}
+.conclusion-header--streaming .conclusion-header-label {
+  animation: breathe-text 2.4s ease-in-out infinite;
+}
+/* Inner seal-style border */
+.conclusion-inner {
+  padding: 20px 24px;
+  margin: 3px;
+  border: 1px solid var(--divider);
+  border-radius: 3px;
+  background: var(--paper);
+}
+.conclusion-label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--seal);
+  letter-spacing: 0.12em;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.conclusion-text {
+  font-family: "Noto Serif SC", serif;
+  font-size: 17px;
+  line-height: 2;
+  color: var(--ink);
+}
+.conclusion-stats {
+  padding: 12px 24px;
+  border-top: 1px solid var(--seal-rule-light);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+}
+.conclusion-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.conclusion-stat-dim {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+.conclusion-stat-val {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 14px;
+}
+.conclusion-stat-val--warn {
+  color: var(--warn);
+}
+.conclusion-stat-sep {
+  color: var(--ink-faint);
+  opacity: 0.4;
+  font-size: 10px;
+}
+
+/* ——— Thinking dot & streaming header animation ——— */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--seal);
+  animation: pulse-dot 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.thought-segment-header--streaming .thought-segment-label,
+.subagent-reasoning-header--streaming .subagent-reasoning-label {
+  animation: breathe-text 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe-text {
+  0%,
+  100% {
+    color: var(--ink);
+  }
+  50% {
+    color: var(--seal);
+  }
+}
+
+/* Collapsible panel: shared by thought segments, subagent reasoning */
+.thought-segment,
+.subagent-reasoning {
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--thought-tint);
+  box-shadow: var(--shadow-sm);
+}
+.thought-segment {
+  margin-left: 30px;
+}
+.subagent-reasoning {
+  margin-left: 14px;
+}
+
+/* Collapsible header — shared across collapsible UI widgets */
+.thought-segment-header,
+.subagent-reasoning-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(
+    180deg,
+    var(--paper-lift) 0%,
+    var(--paper-high) 100%
+  );
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--thought-divider);
+}
+.thought-segment-header:hover,
+.subagent-reasoning-header:hover {
+  background: linear-gradient(
+    180deg,
+    var(--paper-high) 0%,
+    var(--divider) 100%
+  );
+}
+.thought-segment-header {
+  padding: 6px 14px;
+}
+.subagent-reasoning-header {
+  padding: 5px 14px;
+}
+
+.thought-segment-label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: 0.04em;
+}
+.subagent-reasoning-label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.04em;
+}
+.thought-segment-toggle,
+.subagent-reasoning-toggle {
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-family: "Noto Sans SC", sans-serif;
+  transition: color 0.2s;
+}
+.thought-segment-header:hover .thought-segment-toggle,
+.subagent-reasoning-header:hover .subagent-reasoning-toggle {
+  color: var(--seal);
+}
+
+/* Streaming status badge */
+.thought-status-badge {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 12px;
+  color: var(--seal);
+  background: var(--seal-faded);
+  padding: 1px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.thought-segment-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: linear-gradient(180deg, var(--paper-lift) 0%, var(--paper) 100%);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.thought-segment + .step-items,
+.step-items + .thought-segment {
+  margin-top: 6px;
+}
+
+.subagent-group .subagent-reasoning + .tool-card--subagent-wrapper,
+.subagent-group .subagent-error + .tool-card--subagent-wrapper,
+.subagent-group .subagent-conclusion + .tool-card--subagent-wrapper,
+.subagent-group .subagent-conclusion + .subagent-error,
+.subagent-group .subagent-reasoning + .subagent-conclusion,
+.subagent-group .subagent-tool-list + .subagent-conclusion,
+.subagent-group .subagent-reasoning + .subagent-tool-list,
+.subagent-group .tool-card--subagent-wrapper + .subagent-tool-list {
+  margin-top: 0;
+}
+
+/* Individual thought blocks */
+.thought-block {
+  padding: 8px 0 8px 14px;
+  border-left: 2px solid var(--thought-border);
+  position: relative;
+  transition: border-color 0.3s;
+}
+.thought-block:hover {
+  border-left-color: rgba(45, 37, 32, 0.22);
+}
+.thought-text {
+  font-size: 14px;
+  color: var(--ink-dim);
+  line-height: 1.8;
+  font-family: "Noto Sans SC", sans-serif;
+}
+/* ── Dot separator ──────────────────────────────────── */
+.dot-sep {
+  color: var(--ink-faint);
+}
+
+/* ── Subagent status bar ─────────────────────────────────── */
+.subagent-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 15px;
+  border-left: 3px solid var(--paper-high);
+  background: linear-gradient(
+    90deg,
+    var(--seal-faded) 0%,
+    var(--paper-lift) 12%,
+    var(--paper-lift) 100%
+  );
+  border-radius: 0 6px 6px 0;
+  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.15s,
+    border-color 0.2s;
+  box-shadow: var(--shadow-sm);
+}
+.subagent-status-bar:hover {
+  background: linear-gradient(
+    90deg,
+    var(--seal-faded) 0%,
+    var(--paper-high) 12%,
+    var(--paper-high) 100%
+  );
+  border-left-color: var(--divider);
+}
+.subagent-status-bar.running {
+  border-left-color: var(--seal);
+}
+.subagent-status-bar.running:hover {
+  border-left-color: var(--seal);
+}
+.subagent-status-bar.completed {
+  border-left-color: var(--ok);
+}
+.subagent-status-bar.completed:hover {
+  border-left-color: var(--ok);
+}
+.subagent-status-bar.error {
+  border-left-color: var(--err);
+}
+.subagent-status-bar.error:hover {
+  border-left-color: var(--err);
+}
+.subagent-status-bar:focus-visible,
+.subagent-reasoning-header:focus-visible,
+.subagent-conclusion-header:focus-visible {
+  outline: 2px solid var(--seal);
+  outline-offset: 2px;
+}
+.subagent-kind-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--divider-red);
+  background: var(--seal-faded);
+  color: var(--seal);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.subagent-status-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--seal);
+  border-radius: 50%;
+  animation: pulse-border 1.5s infinite;
+}
+.subagent-status-icon {
+  font-size: 14px;
+}
+.subagent-status-icon--done {
+  color: var(--ok);
+}
+.subagent-status-icon--error {
+  color: var(--err);
+}
+.subagent-status-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.subagent-status-label {
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+.subagent-status-meta {
+  color: var(--ink-faint);
+  font-size: 13px;
+  margin-left: auto;
+}
+.subagent-group-toggle {
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-family: "Noto Sans SC", sans-serif;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.subagent-task {
+  padding: 8px 14px 8px 18px;
+  font-size: 14px;
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+  font-family: "Noto Serif SC", serif;
+  font-style: italic;
+  border-left: 2px solid var(--divider);
+  margin-left: 12px;
+  line-height: 1.7;
+}
+.subagent-conclusion {
+  margin-left: 14px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--thought-tint);
+  box-shadow: var(--shadow-sm);
+}
+.subagent-conclusion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 14px;
+  background: linear-gradient(
+    180deg,
+    var(--paper-lift) 0%,
+    var(--paper-high) 100%
+  );
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--thought-divider);
+}
+.subagent-conclusion-header:hover {
+  background: linear-gradient(
+    180deg,
+    var(--paper-high) 0%,
+    var(--divider) 100%
+  );
+}
+.subagent-conclusion-label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.04em;
+}
+.subagent-conclusion-toggle {
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-family: "Noto Sans SC", sans-serif;
+  transition: color 0.2s;
+}
+.subagent-conclusion-header:hover .subagent-conclusion-toggle {
+  color: var(--seal);
+}
+.subagent-conclusion-body {
+  padding: 12px;
+  background: linear-gradient(180deg, var(--paper-lift) 0%, var(--paper) 100%);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Subagent thought block — slightly smaller than parent */
+.thought-block--subagent {
+  border-left-color: rgba(45, 37, 32, 0.06);
+  padding: 6px 0 6px 12px;
+}
+.thought-block--subagent .thought-text {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* Subagent reasoning body background */
+.subagent-reasoning-body {
+  background: linear-gradient(180deg, var(--thought-tint) 0%, transparent 100%);
+  padding: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.subagent-error {
+  padding: 6px 12px 6px 20px;
+  font-size: 14px;
+  color: var(--err);
+  margin-left: 9px;
+  margin-bottom: 4px;
+}
+
+/* ── Session error / stopped cards ──────────────────────── */
+.session-error-card,
+.session-stopped-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-top: 8px;
+  border-left: 3px solid var(--err);
+  background: var(--paper);
+}
+.session-stopped-card {
+  border-left-color: var(--warn);
+}
+.session-error-icon,
+.session-stopped-icon {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.session-error-icon {
+  color: var(--err);
+}
+.session-stopped-icon {
+  color: var(--warn);
+}
+.session-error-title,
+.session-stopped-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.session-error-title {
+  color: var(--err);
+}
+.session-stopped-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--warn);
+}
+.session-error-detail,
+.session-stopped-detail {
+  font-size: 14px;
+  color: var(--ink-dim);
+  margin-top: 3px;
+}
+
+/* Cancelled tool styling */
+.tool-card-name--cancelled {
+  text-decoration: line-through;
+  color: var(--ink-faint);
+}
+.tool-card-badge--cancelled {
+  background: var(--paper-high);
+  color: var(--ink-faint);
+}
+
+/* ── Animations ─────────────────────────────────────── */
+
+/* Entrance transition: fade + slide up */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* List entrance transition for tool cards / subagent nodes */
+.list-enter-active,
+.list-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.list-move {
+  transition: transform 0.25s ease;
+}
+
+/* Expand/collapse height transition using CSS grid (single child only) */
+.expand-enter-active,
+.expand-leave-active {
+  transition:
+    grid-template-rows 0.25s ease,
+    opacity 0.25s ease;
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.expand-enter-active > *,
+.expand-leave-active > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Expand/collapse height transition using max-height (multi child) */
+.expand-height-enter-active,
+.expand-height-leave-active {
+  transition:
+    max-height 0.25s ease,
+    opacity 0.25s ease;
+  max-height: 4000px;
+  overflow: hidden;
+}
+
+.expand-height-enter-from,
+.expand-height-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .fade-slide-enter-active,
+  .fade-slide-leave-active,
+  .list-enter-active,
+  .list-leave-active,
+  .expand-enter-active,
+  .expand-leave-active,
+  .expand-height-enter-active,
+  .expand-height-leave-active {
+    transition: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+.pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.tool-card-running-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--seal-faded);
+  color: var(--seal);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  animation: pulse 2s ease-in-out infinite;
+}
+.tool-card-running-badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  background: var(--seal);
+  border-radius: 50%;
+  animation: pulse-border 1.5s infinite;
+}
+
+.tool-card-description {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  margin-top: 6px;
+  padding-left: 2px;
+}
+
+/* ── Welcome / Empty State ─────────────────────────── */
+.welcome-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 32px;
+  text-align: center;
+  gap: 16px;
+}
+.welcome-icon {
+  width: 64px;
+  height: 64px;
+  border: 2px solid var(--seal);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Noto Serif SC", serif;
+  font-size: 30px;
+  color: var(--seal);
+  background: var(--paper-high);
+}
+.welcome-title {
+  font-family: "Noto Serif SC", serif;
+  font-size: 22px;
+  color: var(--ink);
+  font-weight: 600;
+  margin: 0;
+}
+.welcome-desc {
+  color: var(--ink-faint);
+  font-size: 15px;
+  margin: 0;
+}
+.welcome-examples {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.welcome-example {
+  padding: 6px 14px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+.welcome-example:hover {
+  border-color: var(--seal);
+  color: var(--seal);
+}
+
+/* ── Loading State ─────────────────────────────────── */
+.loading-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 32px;
+  gap: 16px;
+}
+.loading-pulse {
+  width: 12px;
+  height: 12px;
+  background: var(--seal);
+  border-radius: 50%;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.loading-text {
+  color: var(--ink-faint);
+  font-size: 15px;
+  margin: 0;
+}

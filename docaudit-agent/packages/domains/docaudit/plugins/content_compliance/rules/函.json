@@ -1,0 +1,9 @@
+{
+  "doc_type": "函",
+  "subtypes": {
+    "函": [
+      {"id": "LET_001", "name": "正文须有商洽或询问事项", "check_scope": "正文", "type": "required", "pattern": "(函告|商请|询问|请予|兹函|现函|关于)", "message": "正文中缺少商洽或询问事项"},
+      {"id": "LET_002", "name": "结尾须有函结语", "check_scope": "结尾", "check_length": 200, "type": "required", "pattern": "(请函复|特此函达|专此函达|敬请函复|盼复)", "message": "结尾缺少函的结语"}
+    ]
+  }
+}

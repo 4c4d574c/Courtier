@@ -1,0 +1,25 @@
+name: format_audit
+version: "1.0.0"
+api: "1.0"
+description: "Document format audit — validates formatting against GB/T 9704-2012 templates"
+timeout_ms: 180000
+
+capabilities:
+  tools:
+    - name: check_format
+      display_name: 格式审查
+      description: "Check document format compliance against rule templates"
+      input_contract:
+        type: object
+        properties:
+          doc:
+            type: object
+            description: "Parsed document dict (parse_document tool output)"
+          doc_type:
+            type: string
+            description: "Document type (e.g. 通知, 函, 请示)"
+            default: "通知"
+        required: [doc]
+  system_prompt: |
+    # 格式审核
+    检查文档格式是否符合 GB/T 9704-2012 标准。

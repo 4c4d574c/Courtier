@@ -1,0 +1,36 @@
+{
+  "doc_type": "通知",
+  "subtypes": {
+    "发布性通知": [
+      {"id": "NOTIF_PUB_001", "name": "开头须含文件全称", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "《[^》]+》", "message": "开头缺少发布文件全称（书名号）"},
+      {"id": "NOTIF_PUB_002", "name": "开头须含发布动词", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(发布|印发)", "message": "开头缺少'发布'或'印发'动词"},
+      {"id": "NOTIF_PUB_003", "name": "开头须含执行要求", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(请遵照执行|请认真贯彻执行|遵照执行)", "message": "开头缺少执行要求，如'请遵照执行'"},
+      {"id": "NOTIF_PUB_004", "name": "结尾须含执行要求结语", "check_scope": "结尾", "check_length": 300, "type": "required", "pattern": "(请遵照执行|请认真贯彻执行|遵照执行)", "message": "结尾缺少执行要求结语"}
+    ],
+    "批转性通知": [
+      {"id": "NOTIF_APP_001", "name": "开头须含被批转文件全称", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "《[^》]+》", "message": "开头缺少被批转文件全称（书名号）"},
+      {"id": "NOTIF_APP_002", "name": "开头须含表态", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(同意|原则同意)", "message": "开头缺少'同意'或'原则同意'表态"},
+      {"id": "NOTIF_APP_003", "name": "开头须含批转字样", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "批转", "message": "开头缺少'批转'字样"},
+      {"id": "NOTIF_APP_004", "name": "结尾须含执行要求", "check_scope": "结尾", "check_length": 300, "type": "required", "pattern": "(参照执行|认真贯彻执行|研究执行|遵照执行)", "message": "结尾缺少执行要求"}
+    ],
+    "转发性通知": [
+      {"id": "NOTIF_FWD_001", "name": "开头须含被转发文件全称", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "《[^》]+》", "message": "开头缺少被转发文件全称（书名号）"},
+      {"id": "NOTIF_FWD_002", "name": "开头须含转发字样", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "转发", "message": "开头缺少'转发'字样"},
+      {"id": "NOTIF_FWD_003", "name": "结尾须含执行要求", "check_scope": "结尾", "check_length": 300, "type": "required", "pattern": "(遵照执行|认真贯彻执行|参考执行)", "message": "结尾缺少执行要求"},
+      {"id": "NOTIF_FWD_004", "name": "开头禁止表态同意", "check_scope": "开头", "check_length": 300, "type": "forbidden", "pattern": "同意批转", "message": "不能对转发文件表态'同意'"}
+    ],
+    "指示性通知": [
+      {"id": "NOTIF_DIR_001", "name": "开头须含发文缘由", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(为了|根据|鉴于|针对)", "message": "开头缺少发文缘由（如'为了'、'根据'）"},
+      {"id": "NOTIF_DIR_002", "name": "开头须含过渡语", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(通知如下|作如下通知|特通知如下)", "message": "开头缺少过渡语'通知如下'"},
+      {"id": "NOTIF_DIR_003", "name": "结尾须含执行要求", "check_scope": "结尾", "check_length": 300, "type": "required", "pattern": "(请认真贯彻执行|本通知自.*起执行|以上通知，请.*执行)", "message": "结尾缺少执行或贯彻要求"}
+    ],
+    "任免性通知": [
+      {"id": "NOTIF_APPNT_001", "name": "开头须含任免依据", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(经研究决定|经.*研究|经党委研究|经会议决定)", "message": "开头缺少任免依据说明"},
+      {"id": "NOTIF_APPNT_002", "name": "开头须含任免动词", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(任命|聘任|免去|解聘|任免)", "message": "开头缺少任免动词"}
+    ],
+    "事务性通知": [
+      {"id": "NOTIF_AFF_001", "name": "开头须含目的或依据", "check_scope": "开头", "check_length": 300, "type": "required", "pattern": "(根据|为了|按照|鉴于)", "message": "开头缺少目的或依据说明"},
+      {"id": "NOTIF_AFF_002", "name": "结尾须含结语或要求", "check_scope": "结尾", "check_length": 300, "type": "required", "pattern": "(特此通知|请准时参加|请.*出席|请.*落实)", "message": "结尾缺少结语或具体要求"}
+    ]
+  }
+}

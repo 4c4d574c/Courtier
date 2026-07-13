@@ -1,0 +1,10 @@
+{
+  "doc_type": "报告",
+  "subtypes": {
+    "报告": [
+      {"id": "RPT_001", "name": "须有报告事项过渡语", "check_scope": "正文", "type": "required", "pattern": "(报告如下|特报告如下|现报告如下|现将.*报告如下)", "message": "正文中缺少报告事项过渡语"},
+      {"id": "RPT_002", "name": "须有报告结语", "check_scope": "结尾", "check_length": 200, "type": "required", "pattern": "(特此报告|专此报告|以上报告|现予报告)", "message": "结尾缺少报告结语"},
+      {"id": "RPT_003", "name": "不得夹带请示事项", "check_scope": "全文", "type": "forbidden", "pattern": "(妥否，请批示|以上请示|请审批|当否，请批复)", "message": "报告中不得夹带请示事项"}
+    ]
+  }
+}

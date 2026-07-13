@@ -1,0 +1,271 @@
+"""OrchestratorAgent — composes domain agents for the full audit pipeline."""
+
+from __future__ import annotations
+
+import copy
+import json
+import logging
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
+
+from ..core.execution_result import ExecutionResult
+from ..core.model import ModelClient
+from ..core.state import AgentState
+from ..hooks.chain import HookChain
+from ..permissions.gate import PermissionGate
+from ..skills import SkillRegistry
+from ..tools.builtin.get_artifact import GetArtifactTool
+from ..tools.builtin.list_artifacts import ListArtifactsTool
+from ..tools.builtin.skill import SkillTool
+from ..tools.protocol import ToolProgress, ToolProtocol
+from .base import Agent, AgentResult
+from courtier.prompts.engine import PromptEngine
+
+if TYPE_CHECKING:
+    from ..runtime import AgentRuntime
+    from ..runtime.handle import AgentHandle
+
+logger = logging.getLogger(__name__)
+
+
+class OrchestratorAgent(Agent):
+    """Composes domain agents for the full audit pipeline.
+
+    Flow: LLM-driven planning with atomic tools (parse, list_artifacts, etc.).
+    Domain skills are dispatched as first-class sub-agents through the
+    AgentRuntime rather than through a ``load_skill`` tool adapter.
+    """
+
+    def __init__(
+        self,
+        model: ModelClient | None = None,
+        hooks: HookChain | None = None,
+        permissions: PermissionGate | None = None,
+        selected_auditors: list[str] | None = None,
+        plugin_system: Any = None,
+        tool_registry: Any = None,
+        skill_registry: SkillRegistry | None = None,
+        agent_runtime: AgentRuntime | None = None,
+        drudge_md_content: str | None = None,
+        prompt_engine: PromptEngine | None = None,
+        agent_name: str = "Courtier Orchestrator",
+    ) -> None:
+        self._audit_results: dict[str, Any] = {}
+        self._agent_runtime = agent_runtime
+
+        if model is None:
+            raise ValueError(
+                "OrchestratorAgent requires a ModelClient instance. "
+                "For testing, pass MockModelClient(tool_calls=[...]) explicitly."
+            )
+        _model = model
+
+        tools: list[ToolProtocol] = [
+            ListArtifactsTool(),
+            GetArtifactTool(),
+        ]
+
+        skill_catalog = ""
+        if skill_registry is not None:
+            if agent_runtime is None:
+                raise ValueError(
+                    "OrchestratorAgent requires an AgentRuntime when a SkillRegistry is provided."
+                )
+            skill_tools = self._build_skill_tools(skill_registry, agent_runtime)
+            tools.extend(skill_tools)
+            skill_catalog = skill_registry.build_catalog()
+
+        # Build skill list for template rendering
+        skill_list = []
+        if skill_registry is not None:
+            for skill in skill_registry.list_enabled():
+                skill_list.append({
+                    "name": skill.name,
+                    "description": skill.description,
+                })
+
+        if prompt_engine is not None:
+            role = prompt_engine.render(
+                "orchestrator.system_prompt",
+                agent_name=agent_name,
+                available_skills=skill_list,
+            )
+            workflow_rules = prompt_engine.render(
+                "orchestrator.workflow_rules",
+            )
+        else:
+            # Fallback for tests that don't provide PromptEngine
+            role = (
+                f"You are {agent_name}. "
+                "Your job is to understand user needs and call appropriate Skills."
+            )
+            if skill_catalog:
+                role += f"\n\nAvailable Skills:\n{skill_catalog}"
+            workflow_rules = ""
+
+        super().__init__(
+            name="OrchestratorAgent",
+            role=role,
+            tools=tools,
+            model=_model,
+            hooks=hooks,
+            permissions=permissions,
+            tool_registry=tool_registry,
+            drudge_md_content=drudge_md_content,
+            prompt_engine=prompt_engine,
+            agent_name=agent_name,
+        )
+        self._prompt_pipeline.set_rules(workflow_rules)
+
+    @staticmethod
+    def _build_skill_tools(
+        skill_registry: SkillRegistry,
+        runtime: AgentRuntime,
+    ) -> list[SkillTool]:
+        """Build a SkillTool for every enabled skill in the registry."""
+        return [
+            SkillTool(skill=skill, runtime=runtime, output_artifact_type=skill.output_artifact_type)
+            for skill in skill_registry.list_enabled()
+        ]
+
+    async def run(
+        self,
+        task: str | None = None,
+        input: Any | None = None,
+        context: dict[str, str] | None = None,
+        on_step: Callable[[str, str], Awaitable[None]] | None = None,
+        on_token: Callable[[str], Awaitable[None]] | None = None,
+        on_content_token: Callable[[str], Awaitable[None]] | None = None,
+        on_tool_result: (
+            Callable[[str, ExecutionResult, str], Awaitable[None]] | None
+        ) = None,
+        on_tool_start: Callable[[str], Awaitable[None]] | None = None,
+        on_tool_progress: Callable[[str, ToolProgress], Awaitable[None]] | None = None,
+        on_subagent_event: Callable[..., Awaitable[None]] | None = None,
+        context_manager: Any | None = None,
+        state: AgentState | None = None,
+        audit_logger: Any | None = None,
+        artifact_store: Any | None = None,
+        artifact_context: list[dict[str, Any]] | None = None,
+        model_config: dict[str, str] | None = None,
+        session_id: str = "",
+    ) -> AgentResult:
+        """Run the full audit pipeline."""
+        if input is not None:
+            task = input.task
+            input_context: dict[str, str] = {}
+            for field_name, field_value in input.model_dump().items():
+                if field_value is not None and field_name not in (
+                    "task",
+                    "explicit_inputs",
+                ):
+                    if isinstance(field_value, str):
+                        input_context[field_name] = field_value
+                    else:
+                        try:
+                            input_context[field_name] = json.dumps(
+                                field_value, ensure_ascii=False, default=str
+                            )
+                        except Exception:
+                            input_context[field_name] = str(field_value)[:500]
+            if context:
+                merged = dict(context)
+                merged.update(input_context)
+                context = merged
+            else:
+                context = input_context
+
+        if task is None:
+            raise ValueError("Either 'task' or 'input' must be provided")
+
+        file_path = (context or {}).get("file_path", "")
+        if not file_path:
+            raise ValueError("context must include 'file_path'")
+
+        self._audit_results = {}
+
+        # Build dispatch context — file_path is available for the LLM to call
+        # parse_document as the first tool call.
+        dispatch_context = dict(context) if context else {}
+
+        # Create a root runtime handle so that every SkillTool spawn shares
+        # the same budget, depth limit, and cycle detection tree.
+        from ..runtime.handle import AgentHandle
+
+        root_handle: AgentHandle | None = None
+        skill_names = self._runtime_skill_names()
+        if self._agent_runtime is not None and skill_names:
+            root_handle = AgentHandle.create(
+                agent_name="orchestrator",
+                agent_type="orchestrator",
+                task=task,
+                budget=self._agent_runtime.default_budget,
+                artifact_context=artifact_context or [],
+            )
+
+        # Forward sub-agent event streaming and parent handle to SkillTool instances.
+        self._attach_skill_callbacks(
+            on_subagent_event=on_subagent_event,
+            parent_handle=root_handle,
+        )
+
+        # LLM-driven audit planning and dispatch (agent_loop)
+        result = await super().run(
+            task=task,
+            input=None,
+            context=dispatch_context,
+            on_step=on_step,
+            on_token=on_token,
+            on_content_token=on_content_token,
+            on_tool_result=on_tool_result,
+            on_tool_start=on_tool_start,
+            on_tool_progress=on_tool_progress,
+            context_manager=context_manager,
+            state=state,
+            audit_logger=audit_logger,
+            artifact_store=artifact_store,
+            artifact_context=artifact_context,
+            model_config=model_config,
+            session_id=session_id,
+        )
+
+        # Collect audit results from direct skill tool calls.
+        for name, data in result.get_named_tool_results().items():
+            if name in skill_names and data is not None:
+                self._audit_results[name] = data
+
+        return result
+
+    def _attach_skill_callbacks(
+        self,
+        *,
+        on_subagent_event: Callable[..., Awaitable[None]] | None,
+        parent_handle: AgentHandle | None = None,
+    ) -> None:
+        """Wire sub-agent event callbacks and parent handle into every SkillTool."""
+        for tool in self.tool_registry.list_tools():
+            if isinstance(tool, SkillTool):
+                tool.set_callbacks(on_subagent_event=on_subagent_event)
+                tool.set_parent_handle(parent_handle)
+
+    def _runtime_skill_names(self) -> set[str]:
+        """Return the set of skill names registered as runtime tools."""
+        return {
+            tool.name
+            for tool in self.tool_registry.list_tools()
+            if isinstance(tool, SkillTool)
+        }
+
+    @property
+    def skill_names(self) -> list[str]:
+        """Names of skills registered as runtime tools, in registry order."""
+        return [
+            tool.name
+            for tool in self.tool_registry.list_tools()
+            if isinstance(tool, SkillTool)
+        ]
+
+    @property
+    def audit_results(self) -> dict[str, Any]:
+        """Aggregated results from all auditors, keyed by auditor name."""
+        return copy.deepcopy(self._audit_results)
