@@ -205,6 +205,7 @@ class PluginProcess:
     _health_task: asyncio.Task | None = field(default=None, repr=False)
     _stderr_task: asyncio.Task | None = field(default=None, repr=False)
     _started_at: float = field(default=0.0, repr=False)
+    _crash_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     @property
     def client(self) -> JSONRPCClient:
@@ -660,56 +661,57 @@ class ProcessManager:
 
     async def _on_crash(self, proc: PluginProcess) -> None:
         """Handle a plugin subprocess crash — cleanup, then attempt restart."""
-        # Guard against re-entrancy: when the process exits during _start_one,
-        # on_disconnect fires immediately AND wait_for_register raises, causing
-        # two concurrent _on_crash calls.  Only the first one should proceed.
-        if proc.state not in (
-            PluginState.ACTIVE,
-            PluginState.REGISTERING,
-            PluginState.LOADING,
-        ):
-            return  # Already handled or shutting down
-        # Atomically mark CRASHED to prevent re-entrant calls from passing the
-        # guard above.
-        proc.state = PluginState.CRASHED
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CRASHED.value).set(
-            1
-        )
+        async with proc._crash_lock:
+            # Guard against re-entrancy: when the process exits during _start_one,
+            # on_disconnect fires immediately AND wait_for_register raises, causing
+            # two concurrent _on_crash calls.  Only the first one should proceed.
+            if proc.state not in (
+                PluginState.ACTIVE,
+                PluginState.REGISTERING,
+                PluginState.LOADING,
+            ):
+                return  # Already handled or shutting down
+            # Atomically mark CRASHED to prevent re-entrant calls from passing the
+            # guard above.
+            proc.state = PluginState.CRASHED
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CRASHED.value).set(
+                1
+            )
 
-        # Cancel in-flight requests BEFORE unregistering so callers get a
-        # clear PluginCrashedError instead of cryptic "tool not found" or
-        # "agent not found" errors after the extension entries are removed.
-        if proc._client is not None:
-            try:
-                await proc._client.cancel_pending()
-            except Exception:
-                logger.debug(
-                    "Error cancelling pending requests for crashed plugin '%s'",
-                    proc.name,
-                    exc_info=True,
-                )
+            # Cancel in-flight requests BEFORE unregistering so callers get a
+            # clear PluginCrashedError instead of cryptic "tool not found" or
+            # "agent not found" errors after the extension entries are removed.
+            if proc._client is not None:
+                try:
+                    await proc._client.cancel_pending()
+                except Exception:
+                    logger.debug(
+                        "Error cancelling pending requests for crashed plugin '%s'",
+                        proc.name,
+                        exc_info=True,
+                    )
 
-        # Always unregister before any crash handling so registries never
-        # retain stale entries — this must run before the circuit breaker
-        # return below.
-        self._extension_registry.on_unregister(proc.name)
+            # Always unregister before any crash handling so registries never
+            # retain stale entries — this must run before the circuit breaker
+            # return below.
+            self._extension_registry.on_unregister(proc.name)
 
-        # Circuit breaker: if the plugin crashed within seconds of reaching
-        # ACTIVE, it's a deterministic startup failure -- skip restart.
-        if proc._started_at > 0:
-            uptime = asyncio.get_event_loop().time() - proc._started_at
-            if uptime < _IMMEDIATE_CRASH_WINDOW:
-                proc.state = PluginState.FATAL
-                PLUGIN_STATE.labels(
-                    plugin_name=proc.name, state=PluginState.FATAL.value
-                ).set(1)
-                logger.error(
-                    "Plugin '%s' crashed %.1fs after startup (< %.0fs window), marking FATAL",
-                    proc.name,
-                    uptime,
-                    _IMMEDIATE_CRASH_WINDOW,
-                )
-                return
+            # Circuit breaker: if the plugin crashed within seconds of reaching
+            # ACTIVE, it's a deterministic startup failure -- skip restart.
+            if proc._started_at > 0:
+                uptime = asyncio.get_event_loop().time() - proc._started_at
+                if uptime < _IMMEDIATE_CRASH_WINDOW:
+                    proc.state = PluginState.FATAL
+                    PLUGIN_STATE.labels(
+                        plugin_name=proc.name, state=PluginState.FATAL.value
+                    ).set(1)
+                    logger.error(
+                        "Plugin '%s' crashed %.1fs after startup (< %.0fs window), marking FATAL",
+                        proc.name,
+                        uptime,
+                        _IMMEDIATE_CRASH_WINDOW,
+                    )
+                    return
 
         logger.error(
             "Plugin '%s' crashed (restart %d/%d)",

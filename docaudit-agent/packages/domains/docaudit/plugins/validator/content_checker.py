@@ -17,16 +17,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Literal
+from typing import Any, Literal, cast
 
+from content_compliance.core import ComplianceResult, Violation
+from courtier.config import Settings as _Settings
+from courtier.db import AsyncDatabase, CRUDRepository
+from courtier.db.tables import Rule, RuleDomain
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from courtier.config import Settings as _Settings
-from content_compliance.core import ComplianceResult, Violation
-from courtier.db import AsyncDatabase, CRUDRepository
-from courtier.db.tables import Rule, RuleDomain
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +100,9 @@ _VALIDATION_SYSTEM_PROMPT = """\
 你是一个公文内容合规审查专家。
 
 根据给定规则逐条检查公文正文。对每条违规输出 JSON：
-{"results": [{"rule_id": "规则编号", "violat_dsc": "违规定性(<=20字)", "origin_text": "违规原文摘录(<=30字)", "severity": "error|warning|info", "cor_suggest": "修正建议(<=20字)"}]}
+{"results": [{"rule_id": "规则编号", "violat_dsc": "违规定性(<=20字)",
+"origin_text": "违规原文摘录(<=30字)", "severity": "error|warning|info",
+"cor_suggest": "修正建议(<=20字)"}]}
 
 无违规返回 {"results": []}"""
 
@@ -219,7 +220,7 @@ async def _call_llm_json(
     if extra_body is not None:
         kwargs["extra_body"] = extra_body
 
-    response = await client.chat.completions.create(**kwargs)
+    response = await client.chat.completions.create(**cast(Any, kwargs))
 
     content = response.choices[0].message.content
     logger.debug(
@@ -245,7 +246,7 @@ async def _call_llm_json(
 
     # 尝试解析，失败时尝试修复截断的 JSON
     try:
-        return json.loads(content)
+        return cast(dict[Any, Any], json.loads(content))
     except json.JSONDecodeError:
         repaired = _try_repair_truncated_json(content)
         if repaired is not None:
@@ -289,7 +290,7 @@ def _try_repair_truncated_json(text: str) -> dict | None:
     text = text.rstrip(",\n\r\t ") + close_chars
 
     try:
-        return json.loads(text)
+        return cast(dict[Any, Any], json.loads(text))
     except json.JSONDecodeError:
         return None
 
@@ -324,7 +325,7 @@ class ContentChecker:
         llm_base_url: str = "",
         llm_api_key: str = "",
         llm_model: str = "",
-        temperature: float = 0.0,
+        temperature: float | None = None,
         extra_body: dict[str, object] | None = None,
     ) -> None:
         # Resolve LLM defaults from Settings lazily so that pydantic
@@ -333,8 +334,7 @@ class ContentChecker:
         llm_base_url = llm_base_url or s.llm_base_url
         llm_api_key = llm_api_key or s.llm_api_key
         llm_model = llm_model or s.llm_model
-        if temperature == 0.0:
-            temperature = s.llm_temperature
+        self._temperature = temperature if temperature is not None else s.llm_temperature
         self._own_db = db is None
         if db is not None:
             self.db = db
@@ -347,7 +347,6 @@ class ContentChecker:
             api_key=llm_api_key,
         )
         self._model = llm_model
-        self._temperature = temperature
         # Default to disabling Qwen thinking mode to avoid empty content responses.
         # The thinking tokens consume the max_tokens budget, leaving content empty.
         # vLLM may require chat_template_kwargs nesting to propagate to the template.
@@ -426,8 +425,8 @@ class ContentChecker:
         session: AsyncSession,
     ) -> tuple[list[str], dict[str, str]]:
         """Core rule-loading logic using a provided session."""
-        rule_domain_repo = CRUDRepository(RuleDomain)
-        rules_repo = CRUDRepository(Rule)
+        rule_domain_repo: CRUDRepository[Any, Any, Any] = CRUDRepository(RuleDomain)
+        rules_repo: CRUDRepository[Any, Any, Any] = CRUDRepository(Rule)
 
         domains = await rule_domain_repo.list(session, name=domain_name)
         if not domains:
@@ -532,10 +531,10 @@ class ContentChecker:
         # 合并结果并按 origin_text 去重（重叠区域可能被两个块同时检出）
         all_violations: list[dict] = []
         seen_origins: set[str] = set()
-        exceptions: list[Exception] = []
+        exceptions: list[BaseException] = []
 
         for result in chunk_results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.error("块校验异常：%s", result)
                 exceptions.append(result)
                 continue
@@ -578,7 +577,7 @@ class ContentChecker:
             RuntimeError: 当在已有事件循环的上下文中调用此方法时。
         """
         try:
-            loop = asyncio.get_running_loop()
+            _ = asyncio.get_running_loop()
         except RuntimeError:
             logger.info("开始同步内容校验")
             return asyncio.run(self.check_async(paragraphs))

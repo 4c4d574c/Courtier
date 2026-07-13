@@ -8,6 +8,7 @@ directory without any code changes in those modules.
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 from dataclasses import dataclass
@@ -53,9 +54,13 @@ class StructuredLogHandler(logging.Handler):
         self._log_dir.mkdir(parents=True, exist_ok=True)
         self._file_path = self._log_dir / "structured_events.jsonl"
         self._file = self._file_path.open("a", encoding="utf-8")
+        atexit.register(self.close)
 
     def emit(self, record: logging.LogRecord) -> None:
         """Serialize *record* as one JSON line and append to the file."""
+        lock = self.lock
+        if lock is None:
+            return
         try:
             entry = StructuredLogEntry(
                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -67,7 +72,7 @@ class StructuredLogHandler(logging.Handler):
                 line=record.lineno,
                 exc_text=self._format_exc(record),
             )
-            with self.lock:
+            with lock:
                 self._file.write(
                     json.dumps(
                         _serialize_dataclass(entry),
@@ -81,7 +86,11 @@ class StructuredLogHandler(logging.Handler):
 
     def close(self) -> None:
         """Flush and close the underlying file."""
-        with self.lock:
+        lock = self.lock
+        if lock is None:
+            super().close()
+            return
+        with lock:
             if not self._file.closed:
                 self._file.flush()
                 self._file.close()

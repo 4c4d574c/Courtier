@@ -6,6 +6,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 import bcrypt
 import jwt
@@ -84,7 +85,11 @@ async def verify_jwt(
         token = request.query_params["token"]
 
     if token is None:
-        raise HTTPException(401, "缺少认证信息，请在 Authorization header 中提供 Bearer token，或通过 ?token= 查询参数传递")
+        raise HTTPException(
+            401,
+            "缺少认证信息，请在 Authorization header 中提供 Bearer token，"
+            "或通过 ?token= 查询参数传递",
+        )
 
     payload = verify_token(
         token,
@@ -98,7 +103,7 @@ def hash_password(password: str, rounds: int | None = None) -> str:
     if rounds is None:
         from courtier.config import get_settings
         rounds = get_settings().bcrypt_rounds
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=rounds)).decode()
+    return cast(str, bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=rounds)).decode())
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -125,20 +130,30 @@ def generate_refresh_token() -> tuple[str, str, datetime]:
 
 
 async def rotate_refresh_token(old_hash: str, session) -> tuple[str, datetime, int] | None:
-    from sqlalchemy import select
+    from sqlalchemy import select, update
 
     from courtier.db.tables.refresh_token import RefreshTokenTable
 
     result = await session.execute(
         select(RefreshTokenTable).where(
             RefreshTokenTable.token_hash == old_hash,
-            RefreshTokenTable.revoked == False,
         )
     )
     stored = result.scalar_one_or_none()
     if stored is None:
         return None
     if stored.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        return None
+
+    # Refresh-token reuse detection: if this token was already revoked, an
+    # attacker may have used it. Revoke the whole user's token family and
+    # reject the request so the legitimate user is forced to re-authenticate.
+    if stored.revoked:
+        await session.execute(
+            update(RefreshTokenTable)
+            .where(RefreshTokenTable.user_id == stored.user_id)
+            .values(revoked=True)
+        )
         return None
 
     stored.revoked = True

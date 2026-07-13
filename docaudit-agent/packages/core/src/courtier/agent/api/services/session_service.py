@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 
 async def list_sessions(
-    store: Any, current_user: str, is_admin: bool = False
+    store: Any,
+    current_user: str,
+    is_admin: bool = False,
+    skip: int = 0,
+    limit: int = 100,
 ) -> list[dict[str, Any]]:
     """List sessions visible to the current user, most recent first."""
-    return await store.list_all(current_user=current_user, is_admin=is_admin)
+    return cast(list[dict[str, Any]], await store.list_all(
+        current_user=current_user, is_admin=is_admin, skip=skip, limit=limit
+    ))
 
 
 async def get_session(
@@ -19,7 +25,7 @@ async def get_session(
     session = await store.get_owned(session_id, current_user, is_admin)
     if session is None:
         return None
-    return session.to_detail_dict()
+    return cast(dict[str, Any], session.to_detail_dict())
 
 
 async def delete_session(
@@ -29,4 +35,4 @@ async def delete_session(
     session = await store.get_owned(session_id, current_user, is_admin)
     if session is None:
         return False
-    return await store.delete(session_id)
+    return cast(bool, await store.delete(session_id))

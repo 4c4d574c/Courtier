@@ -24,10 +24,13 @@ class LoadTemplateTool:
             },
             "template_id": {
                 "type": "integer",
-                "description": "Optional specific template ID. If omitted, loads the default template.",
+                "description": (
+                    "Optional specific template ID. If omitted, loads the default "
+                    "template."
+                ),
             },
         },
-        "required": ["doc_type", "template_id"],
+        "required": ["doc_type"],
     }
 
     def __init__(self, db: Any = None) -> None:

@@ -29,10 +29,12 @@ class SessionStore:
         self._dir = Path(storage_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._sessions: dict[str, SessionRecord] = {}
-        # asyncio.Lock protects in-memory dict operations.  File I/O
-        # (_persist / _load) is deliberately outside the lock to avoid
-        # blocking concurrent operations while writing to disk.
+        # asyncio.Lock protects in-memory dict operations.
         self._lock = asyncio.Lock()
+        # _persist_lock serializes disk writes so concurrent updates cannot
+        # leave the JSON file with an older snapshot after a newer one was
+        # already committed to memory.
+        self._persist_lock = asyncio.Lock()
 
     # -- CRUD ----------------------------------------------------------------
 
@@ -65,7 +67,8 @@ class SessionStore:
         )
         async with self._lock:
             self._sessions[session_id] = session
-        await self._persist(session)
+        async with self._persist_lock:
+            await self._persist(session)
         return session
 
     async def get(self, session_id: str) -> SessionRecord | None:
@@ -89,11 +92,16 @@ class SessionStore:
         return session
 
     async def list_all(
-        self, current_user: str = "", is_admin: bool = False
+        self,
+        current_user: str = "",
+        is_admin: bool = False,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Return all sessions as summary dicts, most recent first.
+        """Return sessions as summary dicts, most recent first.
 
-        Non-admin users only see sessions they own.
+        Non-admin users only see sessions they own.  ``skip``/``limit``
+        are applied after filtering and sorting.
         """
         sessions: list[SessionRecord] = []
         async with self._lock:
@@ -112,6 +120,10 @@ class SessionStore:
             sessions = [s for s in sessions if s.owner == current_user]
 
         sessions.sort(key=lambda s: s.created_at, reverse=True)
+        if skip:
+            sessions = sessions[skip:]
+        if limit is not None and limit >= 0:
+            sessions = sessions[:limit]
         return [s.to_summary_dict() for s in sessions]
 
     async def delete(self, session_id: str) -> bool:
@@ -143,6 +155,8 @@ class SessionStore:
                 session, **{k: v for k, v in kwargs.items() if hasattr(session, k)}
             )
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
         return session
 
@@ -154,6 +168,8 @@ class SessionStore:
                 return
             session = replace(session, steps=session.steps + [step])
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
 
     async def add_thought(self, session_id: str, thought) -> None:
@@ -181,6 +197,8 @@ class SessionStore:
             new_steps[-1] = updated_step
             session = replace(session, steps=new_steps)
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
 
     async def add_turn(self, session_id: str, task: str) -> None:
@@ -198,6 +216,8 @@ class SessionStore:
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
             )
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
 
     async def finalize_turn_conclusion(
@@ -233,6 +253,8 @@ class SessionStore:
 
             session = replace(session, turn_conclusions=conclusions)
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
         return session
 
@@ -248,6 +270,8 @@ class SessionStore:
             new_steps[-1] = updated_step
             session = replace(session, steps=new_steps)
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
 
     async def finalize_step(
@@ -283,6 +307,8 @@ class SessionStore:
                 break
             session = replace(session, steps=new_steps)
             self._sessions[session_id] = session
+
+        async with self._persist_lock:
             await self._persist(session)
 
     # -- Internal -------------------------------------------------------------
@@ -299,11 +325,10 @@ class SessionStore:
         data["turn_step_starts"] = session.turn_step_starts
         data["turn_conclusions"] = session.turn_conclusions
         try:
-            await asyncio.to_thread(
-                file_path.write_text,
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            tmp_path = file_path.with_suffix(".json.tmp")
+            await asyncio.to_thread(tmp_path.write_text, text, encoding="utf-8")
+            await asyncio.to_thread(tmp_path.rename, file_path)
         except Exception:
             logger.exception("Failed to persist session %s", session.id)
 

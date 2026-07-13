@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from ..middleware.auth import get_current_user
 from ..rate_limiter import limiter
 from ..services.agent_service import build_audit_agent, build_chat_agent
-from ..services.session_service import list_sessions, get_session, delete_session
+from ..services.session_service import delete_session, get_session, list_sessions
 from ..services.stream_service import generate_sse_stream, reconstruct_state
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ async def _resolve_audit_file_or_404(
     upload_dir: str,
 ) -> Path:
     """Resolve a file_id to an existing path or raise HTTPException(404)."""
-    file_path = await file_store.resolve_path(file_id, upload_dir)
+    file_path = cast(Path | None, await file_store.resolve_path(file_id, upload_dir))
     if file_path is None or not file_path.exists():
         raise HTTPException(404, f"文件不存在: {file_id}")
     return file_path
@@ -61,6 +61,8 @@ async def handle_sessions(
     task: Optional[str] = Query(default=None),
     fileId: Optional[str] = Query(default=None),
     sessionId: Optional[str] = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
     current_user_payload: dict = Depends(get_current_user),
 ):
     """List all sessions, create a new one, or continue an existing one.
@@ -76,7 +78,9 @@ async def handle_sessions(
 
     # List mode: no query params
     if task is None and fileId is None and sessionId is None:
-        return await list_sessions(session_store, current_user, is_admin)
+        return await list_sessions(
+            session_store, current_user, is_admin, skip=skip, limit=limit
+        )
 
     # Both modes need at least a task
     if not task:
@@ -125,7 +129,11 @@ async def handle_sessions(
         else:
             # Chat mode continuation
             agent, context_manager, model_name = await _build_agent_or_500(
-                lambda: build_chat_agent(settings, cache_store=request.app.state.cache_store, prompt_engine=request.app.state.prompt_engine),
+                lambda: build_chat_agent(
+                    settings,
+                    cache_store=request.app.state.cache_store,
+                    prompt_engine=request.app.state.prompt_engine,
+                ),
                 session_id,
                 "chat",
             )
@@ -164,7 +172,11 @@ async def handle_sessions(
             # Chat mode
             file_name = ""
             agent, context_manager, model_name = await _build_agent_or_500(
-                lambda: build_chat_agent(settings, cache_store=request.app.state.cache_store, prompt_engine=request.app.state.prompt_engine),
+                lambda: build_chat_agent(
+                    settings,
+                    cache_store=request.app.state.cache_store,
+                    prompt_engine=request.app.state.prompt_engine,
+                ),
                 session_id,
                 "chat",
             )

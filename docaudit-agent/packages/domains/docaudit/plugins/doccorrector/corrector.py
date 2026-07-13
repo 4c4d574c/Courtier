@@ -14,6 +14,7 @@ import difflib
 import logging
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 from openai import OpenAI
@@ -142,9 +143,9 @@ def _pycorrector_check(text: str) -> list[dict]:
     """用 pycorrector 做额外检测（可选，依赖 torch，缺失时静默跳过）"""
     errors: list[dict] = []
     try:
-        from pycorrector.pyrorrect import pyrorrect as _pr
+        from pycorrector import Corrector as _Corrector
 
-        _, details = _pr.PyCorrector().correct(text)
+        _, details = _Corrector().correct(text)
         for detail in details:
             err_type = detail.get("type", "")
             if err_type in (" redundancy", "redundancy", "重复"):
@@ -568,7 +569,8 @@ class ErrorCorrect:
 
         # ── 阶段三：规则补充 ──────────────────────────────────
         for item in results:
-            source = item.get("source", "")
+            source = cast(str, item["source"])
+            errors = cast(list[dict[str, Any]], item["errors"])
             # 重复字检测
             dup_errors = _detect_duplicate_chars(source)
             # 全角半角检测
@@ -580,19 +582,19 @@ class ErrorCorrect:
             # 正向纠错：检测截断的人名（如"王洪"→"王小洪"）
             trunc_errors = _find_truncated_forms(source, self._protected_words)
             # 合并并按位置排序
-            item["errors"].extend(dup_errors)
-            item["errors"].extend(fw_errors)
-            item["errors"].extend(punc_errors)
-            item["errors"].extend(py_errors)
-            item["errors"].extend(trunc_errors)
-            item["errors"].sort(key=lambda e: e.get("position", 0))
+            errors.extend(dup_errors)
+            errors.extend(fw_errors)
+            errors.extend(punc_errors)
+            errors.extend(py_errors)
+            errors.extend(trunc_errors)
+            errors.sort(key=lambda e: e.get("position", 0))
 
         # ── 阶段五：冲突消解（两层：原文区间 + 纠错后文本完整性）──
         for item in results:
-            source = item.get("source", "")
+            source = cast(str, item["source"])
             protected_ranges = _build_protected_ranges(source, self._protected_words)
             item["errors"] = _resolve_conflicts(
-                item["errors"],
+                cast(list[dict[str, Any]], item["errors"]),
                 source,
                 self._protected_words,
                 protected_ranges,
