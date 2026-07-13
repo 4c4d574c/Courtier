@@ -69,6 +69,10 @@ class MaterializerRegistry:
         registry.register(
             "docaudit.paragraph_list", "dict", lambda artifact: artifact.data
         )
+        registry.register(
+            "docaudit.paragraph_list",
+            "list_dict", lambda artifact: artifact.data.get("paragraphs", [])
+        )
         return registry
 
     def register(self, artifact_type: str, materialize_as: str, fn: Any) -> None:

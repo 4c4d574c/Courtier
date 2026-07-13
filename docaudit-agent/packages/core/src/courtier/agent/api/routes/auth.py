@@ -119,45 +119,23 @@ async def login(request: Request, body: LoginRequest, response: Response):
     """
     settings = request.app.state.settings
 
-    # Fallback: if no database configured, use settings-based admin login.
-    # This preserves the old behavior for tests and environments without a DB.
+    # No database configured: settings-based admin login for tests/legacy only.
+    # When a database is configured we never fall back to environment-variable
+    # credentials, because that bypasses password hashing and account status.
     if not settings.mysql_url:
         admin_username = _fallback_login(body, settings)
         return _fallback_login_response(admin_username, settings)
 
     db = get_db()
-    user = None
-    db_error = False
-
-    # Try database lookup first.  Fall back to settings-based admin auth only
-    # when the database is unreachable.
-    try:
-        async with db.session() as session:
-            result = await session.execute(
-                select(UserTable).where(UserTable.username == body.username)
-            )
-            user = result.scalar_one_or_none()
-    except Exception as e:
-        logger.warning(
-            "Database unavailable, falling back to settings-based auth: %s", e
+    async with db.session() as session:
+        result = await session.execute(
+            select(UserTable).where(UserTable.username == body.username)
         )
-        db_error = True
-
-    if db_error:
-        # Database unreachable — fall back to settings-based auth for admin user
-        admin_username = _fallback_login(body, settings)
-        return _fallback_login_response(admin_username, settings)
+        user = result.scalar_one_or_none()
 
     if user is None:
-        # User not found in DB.  Allow admin to fall back to settings-based
-        # auth (covers first-boot scenarios where bootstrap hasn't run yet),
-        # but reject unknown usernames with a generic error.
-        if body.username == getattr(settings, "admin_user", "admin"):
-            admin_username = _fallback_login(body, settings)
-            return _fallback_login_response(admin_username, settings)
         raise HTTPException(401, "用户名或密码错误")
 
-    # User exists in database — enforce password + status checks
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "用户名或密码错误")
     if user.status == UserStatus.pending:

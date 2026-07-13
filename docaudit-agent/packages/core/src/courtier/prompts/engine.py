@@ -208,7 +208,7 @@ class PromptEngine:
         self._bundle = bundle or PromptBundle(locale="en-US")
         self._env = Environment(
             loader=BaseLoader(),
-            autoescape=False,
+            autoescape=True,
             trim_blocks=True,
             lstrip_blocks=True,
         )

@@ -59,8 +59,9 @@ def _split_run_at(run: etree._Element, offset: int) -> etree._Element | None:
 
     # Split the <w:t> element that contains the boundary.
     split_t = t_elements[split_t_idx]
-    before_text = split_t.text[:split_local_offset]
-    after_text = split_t.text[split_local_offset:]
+    split_text = split_t.text or ""
+    before_text = split_text[:split_local_offset]
+    after_text = split_text[split_local_offset:]
 
     before_t = etree.Element(f"{{{NS['w']}}}t")
     before_t.text = before_text

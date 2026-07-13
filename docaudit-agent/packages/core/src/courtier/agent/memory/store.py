@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import quote, unquote
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,12 @@ class FileMemoryStore(MemoryStore):
 
     @staticmethod
     def _sanitize(name: str) -> str:
-        return re.sub(r"[^\w\-]", "_", name).strip("_").lower() or "default"
+        """Encode a namespace/key into a safe, reversible file path segment.
+
+        Percent-encoding keeps every distinct (namespace, key) pair unique,
+        avoiding the collisions caused by the old regex-based replacement.
+        """
+        return quote(name, safe="")
 
     def _ns_dir(self, namespace: str) -> Path:
         d = self._root_dir / self._sanitize(namespace)
@@ -82,7 +87,7 @@ class FileMemoryStore(MemoryStore):
         ns_dir = self._ns_dir(namespace)
 
         def _list() -> list[str]:
-            return [p.stem for p in ns_dir.glob("*.json") if p.is_file()]
+            return [unquote(p.stem) for p in ns_dir.glob("*.json") if p.is_file()]
 
         return await asyncio.to_thread(_list)
 

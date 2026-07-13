@@ -397,5 +397,17 @@ async def generate_sse_stream(
                 await _inject_token_counts(payload, session_store, session_id)
                 yield f"data: {_sse_json(payload)}\n\n"
     finally:
+        # Cancel the runner when the SSE consumer disconnects so the agent
+        # loop does not keep running and filling the queue indefinitely.
+        task_ref.cancel()
+        try:
+            await asyncio.wait_for(task_ref, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+        except Exception:
+            logger.exception(
+                "Unhandled error while cancelling runner for session %s",
+                session_id,
+            )
         if active_tasks is not None:
             active_tasks.pop(session_id, None)

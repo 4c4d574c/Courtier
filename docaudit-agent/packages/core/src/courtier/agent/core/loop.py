@@ -298,6 +298,10 @@ async def agent_loop(
                 audit_logger=audit_logger,
             )
 
+            # Capture the tool calls that were actually executed before
+            # add_observation clears them, so downstream tracking and guard
+            # checks see the calls made this turn.
+            executed_tool_calls = current_state.tool_calls
             current_state = current_state.add_observation(tuple(results))
 
             # Record tool execution spans and metrics
@@ -323,6 +327,14 @@ async def agent_loop(
                     tool_name=record.tool_name,
                     seconds=record.duration_ms / 1000.0,
                 )
+
+            # Update loop-tracking lists using the executed calls. This must
+            # happen before the guard checks below so they see the current turn.
+            update_null_tracking(results, recent_null_results)
+            update_tool_call_history(executed_tool_calls, recent_tool_calls_history)
+            consecutive_exploratory = update_exploratory_tracking(
+                executed_tool_calls, consecutive_exploratory,
+            )
 
             # Gap 10: business artifact no-progress guard — track whether
             # new business (non-debug) artifacts have been produced.
@@ -372,12 +384,6 @@ async def agent_loop(
                 consecutive_exploratory,
             )
             if terminated:
-                # Update tracking lists before breaking
-                update_null_tracking(results, recent_null_results)
-                update_tool_call_history(current_state.tool_calls, recent_tool_calls_history)
-                consecutive_exploratory = update_exploratory_tracking(
-                    current_state.tool_calls, consecutive_exploratory,
-                )
                 current_state = current_state.model_copy(
                     update={
                         "status": "completed",
@@ -392,17 +398,11 @@ async def agent_loop(
                 )
                 break
 
-            update_null_tracking(results, recent_null_results)
-            update_tool_call_history(current_state.tool_calls, recent_tool_calls_history)
-            consecutive_exploratory = update_exploratory_tracking(
-                current_state.tool_calls, consecutive_exploratory,
-            )
-
             # Gap 4: emit terminal_tool_called when a terminal tool was invoked
             if consecutive_exploratory == 0 and artifact_store is not None and tool_registry is not None:
                 ready_tools_set = set(_get_ready_terminal_tools(tool_registry, artifact_store))
                 called_terminal = [
-                    tc.name for tc in current_state.tool_calls
+                    tc.name for tc in executed_tool_calls
                     if tc.name in ready_tools_set
                 ]
                 if called_terminal:
