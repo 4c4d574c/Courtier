@@ -19,6 +19,8 @@ _QUOTE_RE = re.compile(
 
 _FUZZY_MAX_LEN = 4
 _MAX_QUERY_CHARS = 500
+_MAX_SKIP = 10_000
+_MAX_LIMIT = 100
 _LOW_SIGNAL_QUERY_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 _FALLBACK_PREVIEW_CHARS = 300
 
@@ -244,11 +246,23 @@ class SearchDocumentsTool:
         try:
             from courtier.es.client import search_chunks
 
+            skip = kwargs.get("skip", 0)
+            limit = kwargs.get("limit", 10)
+            if not isinstance(skip, int) or skip < 0 or skip > _MAX_SKIP:
+                return ToolResult(
+                    success=False,
+                    error=f"skip 必须是 0 到 {_MAX_SKIP} 之间的整数",
+                )
+            if not isinstance(limit, int) or limit < 1 or limit > _MAX_LIMIT:
+                return ToolResult(
+                    success=False,
+                    error=f"limit 必须是 1 到 {_MAX_LIMIT} 之间的整数",
+                )
             raw = await asyncio.to_thread(
                 search_chunks,
                 query_body=es_body,
-                skip=kwargs.get("skip", 0),
-                limit=kwargs.get("limit", 10),
+                skip=skip,
+                limit=limit,
             )
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))

@@ -20,6 +20,10 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.5
 DEFAULT_IQR_MULTIPLIER = 1.5
 DEFAULT_MIN_SUBSTRING_LENGTH = 20
 
+# Safety limits to prevent CPU/memory exhaustion on untrusted inputs.
+MAX_LIBRARY_DOCS = 500
+MAX_DOC_CHARS = 100_000
+
 @dataclass(frozen=True)
 class PlagiarismResult:
     """Result of plagiarism detection for a single document."""
@@ -58,6 +62,18 @@ def compute_similarity_and_match(
 
 # ======================== 文档库预处理 ========================
 
+def _limit_docs(docs: list[str]) -> list[str]:
+    """Limit library size and document length to avoid quadratic blowup."""
+    if len(docs) > MAX_LIBRARY_DOCS:
+        logger.warning(
+            "Library has %d docs; truncating to %d for plagiarism check",
+            len(docs),
+            MAX_LIBRARY_DOCS,
+        )
+        docs = docs[:MAX_LIBRARY_DOCS]
+    return [doc[:MAX_DOC_CHARS] for doc in docs]
+
+
 def build_library_distribution(
     library_docs: list[str],
     min_sim: float = 0.0,
@@ -75,6 +91,7 @@ def build_library_distribution(
     Returns:
         numpy 数组，包含所有内部相似度分数
     """
+    library_docs = _limit_docs(library_docs)
     n = len(library_docs)
     similarities: list[float] = []
     for i in range(n):
@@ -179,6 +196,9 @@ def detect_plagiarism(
         raise ValueError("new_doc must not be empty")
     if not library_docs:
         raise ValueError("library_docs must not be empty")
+
+    new_doc = new_doc[:MAX_DOC_CHARS]
+    library_docs = _limit_docs(library_docs)
 
     # 1. 若未提供内部相似度分布，则自动计算
     if library_similarities is None:

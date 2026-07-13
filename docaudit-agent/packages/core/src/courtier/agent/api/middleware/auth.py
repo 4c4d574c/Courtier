@@ -14,6 +14,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
 
+# Allowed JWT signing algorithms. Keep this list minimal and explicit to prevent
+# algorithm-confusion and ``none``-algorithm attacks.
+ALLOWED_JWT_ALGORITHMS: frozenset[str] = frozenset({"HS256"})
+
 security = HTTPBearer(auto_error=False)
 
 
@@ -46,6 +50,8 @@ def create_token(
 
 def verify_token(token: str, secret: str, algorithm: str = "HS256") -> dict:
     """验证 JWT token，返回 payload。验证失败抛出 HTTPException。"""
+    if algorithm not in ALLOWED_JWT_ALGORITHMS:
+        raise HTTPException(500, "不支持的 JWT 签名算法")
     try:
         payload = jwt.decode(
             token, secret, algorithms=[algorithm], options={"require": ["exp"]}
@@ -142,7 +148,10 @@ async def rotate_refresh_token(old_hash: str, session) -> tuple[str, datetime, i
     return raw, expires_at, user_id
 
 
-async def get_current_user(request: Request, credentials) -> dict:
+async def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> dict:
     """FastAPI dependency: returns full user claims dict {sub, uid, role}."""
     settings = request.app.state.settings
     secret = get_jwt_secret(settings)
@@ -153,5 +162,8 @@ async def get_current_user(request: Request, credentials) -> dict:
         token = request.query_params["token"]
     if token is None:
         raise HTTPException(401, "缺少认证信息")
-    payload = verify_token(token, secret, algorithm=getattr(settings, "jwt_algorithm", "HS256"))
+    algorithm = getattr(settings, "jwt_algorithm", "HS256")
+    if algorithm not in ALLOWED_JWT_ALGORITHMS:
+        raise HTTPException(500, "不支持的 JWT 签名算法")
+    payload = verify_token(token, secret, algorithm=algorithm)
     return payload

@@ -40,6 +40,28 @@ from .scanner import PluginScanResult
 
 logger = logging.getLogger(__name__)
 
+# Environment variables that may be resolved from ${ENV:VAR_NAME} references in
+# plugin manifests. Restricting this list prevents a plugin manifest from
+# exfiltrating database/LLM/cloud credentials from the host process.
+_ALLOWED_MANIFEST_ENV_VARS: frozenset[str] = frozenset({
+    "PATH",
+    "HOME",
+    "USER",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "PYTHONPATH",
+    "PYTHONUNBUFFERED",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "COURTIER_UPLOAD_DIR",
+    "DOCAUDIT_UPLOAD_DIR",
+    "UPLOAD_DIR",
+    "COURTIER_REPO_ROOT",
+})
+
 
 def _resolve_plugin_entry_path(plugin_dir: Path, entry: str) -> Path:
     """Resolve a plugin entry point path and validate it stays within the plugin dir."""
@@ -136,10 +158,21 @@ _IMMEDIATE_CRASH_WINDOW = 5.0
 
 
 def _resolve_env(value: str) -> str:
-    """Resolve ${ENV:VAR_NAME} references in a string value."""
+    """Resolve ${ENV:VAR_NAME} references in a string value.
+
+    Only variables explicitly listed in _ALLOWED_MANIFEST_ENV_VARS are
+    resolved; all other references are left unchanged so secrets cannot be
+    pulled into the plugin environment via manifest configuration.
+    """
 
     def _replace(match: re.Match) -> str:
         var_name = match.group(1)
+        if var_name not in _ALLOWED_MANIFEST_ENV_VARS:
+            logger.warning(
+                "Blocked manifest env reference to non-whitelisted variable: %s",
+                var_name,
+            )
+            return match.group(0)
         return os.environ.get(var_name, "")
 
     return _ENV_REF_RE.sub(_replace, value)

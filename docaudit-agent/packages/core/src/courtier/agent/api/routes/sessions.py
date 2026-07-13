@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ..middleware.auth import verify_jwt
+from ..middleware.auth import get_current_user
 from ..rate_limiter import limiter
 from ..services.agent_service import build_audit_agent, build_chat_agent
 from ..services.session_service import list_sessions, get_session, delete_session
@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _is_admin(user: str, settings) -> bool:
-    return user == getattr(settings, "admin_user", "admin")
+def _is_admin(payload: dict) -> bool:
+    return payload.get("role") == "admin"
 
 
 async def _resolve_audit_file_or_404(
@@ -61,7 +61,7 @@ async def handle_sessions(
     task: Optional[str] = Query(default=None),
     fileId: Optional[str] = Query(default=None),
     sessionId: Optional[str] = Query(default=None),
-    current_user: str = Depends(verify_jwt),
+    current_user_payload: dict = Depends(get_current_user),
 ):
     """List all sessions, create a new one, or continue an existing one.
 
@@ -71,12 +71,12 @@ async def handle_sessions(
     """
     settings = request.app.state.settings
     session_store = request.app.state.session_store
+    current_user = current_user_payload["sub"]
+    is_admin = _is_admin(current_user_payload)
 
     # List mode: no query params
     if task is None and fileId is None and sessionId is None:
-        return await list_sessions(
-            session_store, current_user, _is_admin(current_user, settings)
-        )
+        return await list_sessions(session_store, current_user, is_admin)
 
     # Both modes need at least a task
     if not task:
@@ -90,7 +90,7 @@ async def handle_sessions(
     if sessionId:
         # Continue existing session
         existing = await session_store.get_owned(
-            sessionId, current_user, _is_admin(current_user, settings)
+            sessionId, current_user, is_admin
         )
         if existing is None:
             raise HTTPException(404, "Session not found")
@@ -215,13 +215,15 @@ async def handle_sessions(
 
 @router.get("/sessions/{session_id}")
 async def get_session_detail(
-    session_id: str, request: Request, current_user: str = Depends(verify_jwt)
+    session_id: str, request: Request, current_user_payload: dict = Depends(get_current_user)
 ):
     """Get full detail for a historical session."""
     session_store = request.app.state.session_store
-    settings = request.app.state.settings
     result = await get_session(
-        session_store, session_id, current_user, _is_admin(current_user, settings)
+        session_store,
+        session_id,
+        current_user_payload["sub"],
+        _is_admin(current_user_payload),
     )
     if result is None:
         raise HTTPException(404, "Session not found")
@@ -230,13 +232,15 @@ async def get_session_detail(
 
 @router.delete("/sessions/{session_id}")
 async def delete_session_handler(
-    session_id: str, request: Request, current_user: str = Depends(verify_jwt)
+    session_id: str, request: Request, current_user_payload: dict = Depends(get_current_user)
 ):
     """Delete a historical session."""
     session_store = request.app.state.session_store
-    settings = request.app.state.settings
     if not await delete_session(
-        session_store, session_id, current_user, _is_admin(current_user, settings)
+        session_store,
+        session_id,
+        current_user_payload["sub"],
+        _is_admin(current_user_payload),
     ):
         raise HTTPException(404, "Session not found")
     return {"status": "ok"}

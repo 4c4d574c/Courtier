@@ -41,7 +41,7 @@ class FileStore:
     async def register(
         self, original_name: str, stored_path: str, size_bytes: int
     ) -> FileInfo:
-        file_id = f"file_{secrets.token_hex(4)}"
+        file_id = f"file_{secrets.token_hex(16)}"
         info = FileInfo(
             file_id=file_id,
             original_name=original_name,
