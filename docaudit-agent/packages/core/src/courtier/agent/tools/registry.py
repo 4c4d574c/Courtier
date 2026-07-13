@@ -216,10 +216,13 @@ class ToolRegistry:
 
         # Some tools (e.g. the subagent adapter) already return the unified
         # ExecutionResult.  Legacy tools return ToolResult.
+        # Narrow the union once to avoid attribute-access confusion downstream.
         is_execution_result = isinstance(result, ExecutionResult)
+        exec_result: ExecutionResult | None = result if is_execution_result else None
+        tool_result: ToolResult | None = None if is_execution_result else result
 
         # Preserve the original data before cache_store replaces it with a $ref marker.
-        original_data = result.raw_data if is_execution_result else result.data
+        original_data = exec_result.raw_data if exec_result is not None else tool_result.data  # type: ignore[union-attr]
 
         # Persist successful results (unless tool opts out).
         # Use artifact_store for persistence — it now handles both disk I/O
@@ -227,38 +230,40 @@ class ToolRegistry:
         skip = getattr(tool, "skip_persist", False)
         persist_store = artifact_store or cache_store
         if (
-            not is_execution_result
+            tool_result is not None
             and persist_store is not None
-            and result.success
-            and result.data is not None
+            and tool_result.success
+            and tool_result.data is not None
             and not skip
         ):
-            if isinstance(result.data, dict) and result.data.get("__persisted_output__"):
+            tr = tool_result  # narrower type for static analysis
+            if isinstance(tr.data, dict) and tr.data.get("__persisted_output__"):
                 pass
             else:
-                source_ref_id = result.metadata.get("source_ref_id")
-                source_query = result.metadata.get("source_query")
-                label = result.metadata.get("label")
+                source_ref_id = tr.metadata.get("source_ref_id")
+                source_query = tr.metadata.get("source_query")
+                label = tr.metadata.get("label")
                 persist_result = await persist_store.persist(
-                    result.data, tool.name,
+                    tr.data, tool.name,
                     tool_registry=self,
                     source_ref_id=source_ref_id,
                     source_query=source_query,
                     label=label,
                 )
-                result = result.model_copy(update={"data": persist_result.data})
+                tool_result = tr.model_copy(update={"data": persist_result.data})
+            result = tool_result
 
         metadata_updates: dict[str, Any] = {}
         if artifact_bindings:
             metadata_updates["artifact_bindings"] = artifact_bindings
 
         if metadata_updates:
-            if is_execution_result:
+            if exec_result is not None:
                 from dataclasses import replace
-                result = replace(result, metadata={**result.metadata, **metadata_updates})
-            else:
-                result = result.model_copy(
-                    update={"metadata": {**result.metadata, **metadata_updates}}
+                result = replace(exec_result, metadata={**exec_result.metadata, **metadata_updates})
+            elif tool_result is not None:
+                result = tool_result.model_copy(
+                    update={"metadata": {**tool_result.metadata, **metadata_updates}}
                 )
 
         # Register tool output as typed artifact.

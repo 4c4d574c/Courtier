@@ -11,6 +11,7 @@ from .models import (
     ArtifactMetadata,
     ProjectionDiagnostic,
     ProjectionQuality,
+    ProjectorLayer,
     ProjectorSpec,
     stable_content_hash,
     validate_artifact_data,

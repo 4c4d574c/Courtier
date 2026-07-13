@@ -50,7 +50,7 @@ class SkillTool:
         self.skill = skill.name
         self.output_artifact_type = output_artifact_type
         self.description = skill.description or f"执行 Skill: {skill.name}"
-        default_mode = getattr(skill, "default_mode", "subagent")
+        self.default_mode = getattr(skill, "default_mode", "subagent")
         self.parameters = {
             "type": "object",
             "properties": {

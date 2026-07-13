@@ -81,3 +81,45 @@ def normalize_args_for_dedup(args: dict) -> str:
     """
     stripped = {k: v for k, v in args.items() if k not in ("label", "_timestamp", "_request_id")}
     return json.dumps(stripped, sort_keys=True, ensure_ascii=False)
+
+
+def truncate_data(data: Any, max_tokens: int) -> Any:
+    """Truncate data to fit within *max_tokens* (roughly 4 chars/token).
+
+    Preserves type: scalars are sliced, lists are truncated with a marker,
+    and dicts include only top-level keys that fit.
+    """
+    chars = max_tokens * 4
+    if isinstance(data, str):
+        return data[:chars]
+    if isinstance(data, list):
+        serialized = json.dumps(data, ensure_ascii=False)
+        if len(serialized) <= chars:
+            return data
+        list_result: list[Any] = []
+        for item in data:
+            if len(json.dumps(list_result + [item], ensure_ascii=False)) > chars:
+                list_result.append(
+                    {"_truncated": True, "omitted_count": len(data) - len(list_result)}
+                )
+                break
+            list_result.append(item)
+        return list_result
+    if isinstance(data, dict):
+        serialized = json.dumps(data, ensure_ascii=False)
+        if len(serialized) <= chars:
+            return data
+        dict_result: dict[str, Any] = {"_truncated": True}
+        for key, value in data.items():
+            candidate = {**dict_result, key: value}
+            if len(json.dumps(candidate, ensure_ascii=False)) > chars:
+                dict_result["_omitted_keys"] = list(
+                    set(data.keys())
+                    - set(dict_result.keys())
+                    - {"_truncated", "_omitted_keys"}
+                )
+                dict_result.setdefault("_total_keys", len(data))
+                break
+            dict_result[key] = value
+        return dict_result
+    return str(data)[:chars]

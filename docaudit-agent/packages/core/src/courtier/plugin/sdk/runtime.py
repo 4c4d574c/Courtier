@@ -619,6 +619,8 @@ class PluginRuntime:
         so writing text-mode ``sys.stdout`` can cause encoding mismatches
         or buffering inconsistencies across platforms.
         """
+        if self._writer is None:
+            raise RuntimeError("Plugin not started — call run() before sending messages")
         try:
             self._writer.write((line + "\n").encode("utf-8"))
             self._writer.flush()

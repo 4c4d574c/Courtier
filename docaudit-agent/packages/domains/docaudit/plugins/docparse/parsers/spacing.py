@@ -367,10 +367,7 @@ def compute_paragraph_spacing(
     # as a paragraph break even if the vertical gap is small.  Threshold
     # (40pt) exceeds the standard 2-char indent (32pt) with OCR jitter
     # margin, so normal indent→continuation is not broken apart.
-    if img_width > 0:
-        _x0_break_px: float = 40.0 / scale_x
-    else:
-        _x0_break_px: float = float("inf")
+    _x0_break_px: float = 40.0 / scale_x if img_width > 0 else float("inf")
 
     # Sort boxes by Y coordinate, keeping original indices
     indexed_boxes = list(enumerate(rec_boxes))

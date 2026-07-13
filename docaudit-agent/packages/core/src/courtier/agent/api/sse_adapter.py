@@ -360,9 +360,12 @@ class SSEAdapter:
         elif kind == "tool_result" and handle_id:
             run = self._current_subagents.get(handle_id)
             if run and event.tool_name:
+                raw_status = event.tool_status or "done"
+                valid_statuses = {"pending", "running", "done", "ok", "error", "warning"}
+                status = raw_status if raw_status in valid_statuses else "done"
                 tool = SubagentToolRecord(
                     name=event.tool_name,
-                    status=event.tool_status or "done",
+                    status=status,  # type: ignore[arg-type]
                     duration=event.tool_duration or 0.0,
                     summary=event.tool_summary or "",
                     handle_id=event.handle_id,

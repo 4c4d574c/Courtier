@@ -163,7 +163,7 @@ class HookChain:
             if h is handler:
                 del entries[i]
                 return
-        obs = self._observers.get(event, [])
+        obs: list[HookObserver] = self._observers.get(event, [])
         for i, h in enumerate(obs):
             if h is handler:
                 del obs[i]

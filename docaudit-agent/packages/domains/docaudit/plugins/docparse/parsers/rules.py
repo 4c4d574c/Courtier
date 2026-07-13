@@ -479,15 +479,16 @@ class StructureRuleEngine:
             classified = self._try_footer_field(line, text)
             if classified:
                 result.append(classified)
-                if classified.field == "issuing_office" and DISTRIBUTION_DATE_PATTERN.search(text):
+                if classified.field == "issuing_office":
                     date_match = DISTRIBUTION_DATE_PATTERN.search(text)
-                    result.append(ClassifiedLine(
-                        line_no=line.get("line_no", 0),
-                        text=date_match.group(),
-                        field="distribution_date",
-                        confidence=CONFIDENCE_BASE + CONFIDENCE_REGEX + CONFIDENCE_REGION,
-                        line_data=line,
-                    ))
+                    if date_match:
+                        result.append(ClassifiedLine(
+                            line_no=line.get("line_no", 0),
+                            text=date_match.group(),
+                            field="distribution_date",
+                            confidence=CONFIDENCE_BASE + CONFIDENCE_REGEX + CONFIDENCE_REGION,
+                            line_data=line,
+                        ))
             else:
                 result.append(ClassifiedLine(
                     line_no=line.get("line_no", 0),

@@ -10,7 +10,6 @@ from typing import Any, TYPE_CHECKING
 from .audit_logger import AuditLogger
 from .loop_audit import write_audit_turn
 from .loop_phases import think_phase, execute_tools_phase
-from .loop_utils import fmt_size
 from .loop_guards import (
     check_explore_loop,
     check_business_artifact_progress,

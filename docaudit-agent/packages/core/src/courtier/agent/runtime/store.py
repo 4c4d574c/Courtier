@@ -158,43 +158,9 @@ class DiskResultBackend(ResultBackend):
 
     @staticmethod
     def _truncate_data(data: Any, max_tokens: int) -> Any:
-        chars = max_tokens * 4
-        if isinstance(data, str):
-            return data[:chars]
-        if isinstance(data, list):
-            serialized = json.dumps(data, ensure_ascii=False)
-            if len(serialized) <= chars:
-                return data
-            # Preserve list type: truncate to items that fit within the budget,
-            # with a marker indicating truncation.
-            result: list[Any] = []
-            for item in data:
-                if len(json.dumps(result + [item], ensure_ascii=False)) > chars:
-                    result.append(
-                        {"_truncated": True, "omitted_count": len(data) - len(result)}
-                    )
-                    break
-                result.append(item)
-            return result
-        if isinstance(data, dict):
-            serialized = json.dumps(data, ensure_ascii=False)
-            if len(serialized) <= chars:
-                return data
-            # Preserve dict type: include top-level keys that fit, with marker.
-            result: dict[str, Any] = {"_truncated": True}
-            for key, value in data.items():
-                candidate = {**result, key: value}
-                if len(json.dumps(candidate, ensure_ascii=False)) > chars:
-                    result["_omitted_keys"] = list(
-                        set(data.keys())
-                        - set(result.keys())
-                        - {"_truncated", "_omitted_keys"}
-                    )
-                    result.setdefault("_total_keys", len(data))
-                    break
-                result[key] = value
-            return result
-        return str(data)[:chars]
+        """Truncate data to fit within *max_tokens* (roughly 4 chars/token)."""
+        from ..core.loop_utils import truncate_data
+        return truncate_data(data, max_tokens)
 
 
 class ResultStore:

@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from ..db import get_db, get_db_session, user_repo
+from courtier.db.tables.user import ProfileUpdate, UserTable
+
+from ..db import get_db, user_repo
 from ..middleware.auth import get_current_user, hash_password, verify_password
 from ..rate_limiter import limiter
-from courtier.db.tables.user import UserTable, ProfileUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +79,7 @@ async def update_profile(
         if user is None:
             raise HTTPException(404, "用户不存在")
 
-        update_data = {}
+        update_data: dict[str, Any] = {}
         if body.email is not None:
             update_data["email"] = body.email
 
@@ -86,10 +88,12 @@ async def update_profile(
                 raise HTTPException(400, "修改密码时需要提供当前密码")
             if not verify_password(body.current_password, user.password_hash):
                 raise HTTPException(400, "当前密码错误")
-            update_data["password_hash"] = hash_password(body.new_password)
+            update_data["new_password"] = hash_password(body.new_password)
 
         if not update_data:
             raise HTTPException(400, "没有提供需要更新的字段")
 
         updated = await user_repo.update(session, user.id, ProfileUpdate(**update_data))
+        if updated is None:
+            raise HTTPException(404, "用户不存在")
         return _profile_to_dict(updated)

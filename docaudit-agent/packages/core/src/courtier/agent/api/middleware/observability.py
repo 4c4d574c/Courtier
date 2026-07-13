@@ -12,7 +12,7 @@ import time
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from courtier.agent.telemetry.metrics import AGENT_REQUESTS_TOTAL
+from courtier.agent.telemetry.metrics import AGENT_REQUESTS_TOTAL, AGENT_LATENCY_SECONDS
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
@@ -33,5 +33,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             agent_name="http",
             status=status,
         ).inc()
+        AGENT_LATENCY_SECONDS.labels(
+            agent_name="http",
+        ).observe(duration)
 
         return response

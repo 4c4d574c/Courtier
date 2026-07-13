@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 
-from ..db import get_db, get_db_session, user_repo
-from ..middleware.auth import get_current_user, hash_password, verify_jwt
+from courtier.db.tables.user import UserRole, UserStatus, UserTable
+
+from ..db import get_db, user_repo
+from ..middleware.auth import get_current_user, hash_password
 from ..rate_limiter import limiter
-from courtier.db.tables.user import UserTable, UserRole, UserStatus
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ async def update_user(
         if user is None:
             raise HTTPException(404, "用户不存在")
 
-        update_data = {}
+        update_data: dict[str, Any] = {}
         if body.role is not None:
             try:
                 update_data["role"] = UserRole(body.role)
@@ -112,7 +113,7 @@ async def update_user(
             except ValueError:
                 raise HTTPException(400, f"无效状态: {body.status}")
         if body.password is not None:
-            update_data["password_hash"] = hash_password(body.password)
+            update_data["password"] = hash_password(body.password)
         if body.email is not None:
             update_data["email"] = body.email
 
@@ -121,6 +122,8 @@ async def update_user(
 
         from courtier.db.tables.user import UserUpdate
         updated = await user_repo.update(session, user_id, UserUpdate(**update_data))
+        if updated is None:
+            raise HTTPException(404, "用户不存在")
         return _user_to_dict(updated)
 
 

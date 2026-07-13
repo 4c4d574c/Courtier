@@ -6,7 +6,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import cast
+from typing import Any, cast
 
 import bcrypt
 import jwt
@@ -49,7 +49,7 @@ def create_token(
     return jwt.encode(payload, secret, algorithm=algorithm)
 
 
-def verify_token(token: str, secret: str, algorithm: str = "HS256") -> dict:
+def verify_token(token: str, secret: str, algorithm: str = "HS256") -> dict[str, Any]:
     """验证 JWT token，返回 payload。验证失败抛出 HTTPException。"""
     if algorithm not in ALLOWED_JWT_ALGORITHMS:
         raise HTTPException(500, "不支持的 JWT 签名算法")
@@ -96,7 +96,10 @@ async def verify_jwt(
         secret,
         algorithm=getattr(settings, "jwt_algorithm", "HS256"),
     )
-    return payload["sub"]
+    sub = payload.get("sub")
+    if not isinstance(sub, str):
+        raise HTTPException(401, "Token 中缺少有效的 sub 字段")
+    return sub
 
 
 def hash_password(password: str, rounds: int | None = None) -> str:

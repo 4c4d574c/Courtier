@@ -176,7 +176,6 @@ class _PersistenceBackend:
         # Try primary backend first (e.g. ES), fall back to disk.
         data: Any = None
         metadata: dict[str, Any] = {"backend": "disk", "ref_id": ref_id}
-        error: str | None = None
 
         if self._primary_backend is not None:
             try:
@@ -185,10 +184,12 @@ class _PersistenceBackend:
                 )
                 if "error" not in primary_result:
                     return primary_result
-            except Exception:
+                metadata["primary_error"] = primary_result.get("error")
+            except Exception as exc:
                 logger.debug(
                     "Primary backend read failed for %s, falling back to disk", ref_id,
                 )
+                metadata["primary_error"] = f"primary_backend_failed: {exc}"
 
         # Disk fallback
         data = self.load(ref_id)
@@ -224,40 +225,8 @@ class _PersistenceBackend:
     @staticmethod
     def _truncate_data(data: Any, max_tokens: int) -> Any:
         """Truncate data to fit within *max_tokens* (roughly 4 chars/token)."""
-        chars = max_tokens * 4
-        if isinstance(data, str):
-            return data[:chars]
-        if isinstance(data, list):
-            serialized = json.dumps(data, ensure_ascii=False)
-            if len(serialized) <= chars:
-                return data
-            result: list[Any] = []
-            for item in data:
-                if len(json.dumps(result + [item], ensure_ascii=False)) > chars:
-                    result.append(
-                        {"_truncated": True, "omitted_count": len(data) - len(result)}
-                    )
-                    break
-                result.append(item)
-            return result
-        if isinstance(data, dict):
-            serialized = json.dumps(data, ensure_ascii=False)
-            if len(serialized) <= chars:
-                return data
-            result: dict[str, Any] = {"_truncated": True}
-            for key, value in data.items():
-                candidate = {**result, key: value}
-                if len(json.dumps(candidate, ensure_ascii=False)) > chars:
-                    result["_omitted_keys"] = list(
-                        set(data.keys())
-                        - set(result.keys())
-                        - {"_truncated", "_omitted_keys"}
-                    )
-                    result.setdefault("_total_keys", len(data))
-                    break
-                result[key] = value
-            return result
-        return str(data)[:chars]
+        from .loop_utils import truncate_data
+        return truncate_data(data, max_tokens)
 
     # -- Helper methods -------------------------------------------------------
 
@@ -609,9 +578,9 @@ class _PersistenceBackend:
             # task description (e.g. "审计文档：$ref:parse_document:1") instead
             # of passing it as a standalone parameter value.
             if self._EMBEDDED_REF_PATTERN.search(value):
-                resolved = self._resolve_embedded_refs(value, depth)
-                if resolved is not None:
-                    return resolved
+                resolved_val = self._resolve_embedded_refs(value, depth)
+                if resolved_val is not None:
+                    return resolved_val
             return value
 
         if isinstance(value, dict):
@@ -619,15 +588,15 @@ class _PersistenceBackend:
             if value.get("__persisted_output__"):
                 ref_id = value.get("ref_id")
                 if ref_id:
-                    result = self._load_and_adapt(ref_id, schema)
-                    if result is not None:
-                        return self._resolve_value(result, schema, depth + 1)
+                    loaded = self._load_and_adapt(ref_id, schema)
+                    if loaded is not None:
+                        return self._resolve_value(loaded, schema, depth + 1)
                     return ref_id  # Keep ref_id string on failure
 
-            resolved: dict[str, Any] = {}
+            resolved_dict: dict[str, Any] = {}
             for k, v in value.items():
-                resolved[k] = self._resolve_value(v, schema, depth + 1)
-            return resolved
+                resolved_dict[k] = self._resolve_value(v, schema, depth + 1)
+            return resolved_dict
 
         if isinstance(value, list):
             return [self._resolve_value(item, schema, depth + 1) for item in value]

@@ -46,6 +46,9 @@ class OCRPageResult:
 class OCREngine(Protocol):
     """Protocol for OCR backend implementations."""
 
+    def __init__(self, api_url: str) -> None:
+        ...
+
     def recognize(self, image_path: str) -> OCRPageResult:
         """Run OCR on an image file and return structured results."""
         ...

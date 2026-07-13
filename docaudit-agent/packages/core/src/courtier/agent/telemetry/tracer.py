@@ -15,11 +15,11 @@ from datetime import datetime, timezone
 from typing import Any, Generator, Optional
 
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.trace import Status, StatusCode, SpanKind
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 _RESOURCE = Resource.create({
     "service.name": os.getenv("OTEL_SERVICE_NAME", "courtier"),
@@ -203,12 +203,15 @@ class AgentTracer:
                 )
             try:
                 yield span
-            except Exception as e:
+            except Exception:
                 span.set_attribute("gen_ai.tool.status", "error")
-                span.set_attribute("gen_ai.tool.error", _safe_str(e, 500))
-                span.record_exception(e)
-                span.set_status(Status(StatusCode.ERROR, str(e)[:1000]))
+                span.record_exception(
+                    Exception("tool execution failed")
+                )
+                span.set_status(Status(StatusCode.ERROR, "tool execution failed"))
                 raise
+            finally:
+                span.set_attribute("gen_ai.tool.duration_seconds", time.time() - start)
 
     def set_tool_result(
         self,
