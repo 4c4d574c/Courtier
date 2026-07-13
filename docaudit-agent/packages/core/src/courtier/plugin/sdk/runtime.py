@@ -176,15 +176,6 @@ class HostServiceClient:
             future.set_result(data)
 
 
-def _run_coro(coro):
-    """Run a coroutine in a dedicated event loop (used from thread pool)."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log any unhandled exception from a concurrently processed request."""
     try:
@@ -234,6 +225,7 @@ class PluginRuntime:
         self._host_service_client: HostServiceClient | None = None
         self._host_artifact_store: Any = None
         self._runtime_context: dict[str, str] = {}
+        self._stdin_transport: asyncio.Transport | None = None
 
     def register_tool(self, tool_instance: Any) -> dict[str, Any]:
         """Register a tool instance and auto-extract contract metadata.
@@ -438,24 +430,32 @@ class PluginRuntime:
         """Read lines from stdin using asyncio streams (binary mode)."""
         loop = asyncio.get_event_loop()
         reader = asyncio.StreamReader()
-        await loop.connect_read_pipe(
+        transport = await loop.connect_read_pipe(
             lambda: asyncio.StreamReaderProtocol(reader),
             sys.stdin.buffer,
         )
-        while self._running:
-            line = await reader.readline()
-            if not line:
-                break
-            line_str = line.decode("utf-8").strip()
-            if not line_str:
-                continue
-            # Process requests concurrently so long-running tool.execute
-            # calls don't block other requests.
-            logger.info("READ line: %s", _sanitize_rpc_log(line_str))
-            task = asyncio.create_task(self._process_line_safe(line_str))
-            self._pending_tasks.add(task)
-            task.add_done_callback(self._pending_tasks.discard)
-            task.add_done_callback(_log_task_exception)
+        self._stdin_transport = transport
+        try:
+            while self._running:
+                line = await reader.readline()
+                if not line:
+                    break
+                line_str = line.decode("utf-8").strip()
+                if not line_str:
+                    continue
+                # Process requests concurrently so long-running tool.execute
+                # calls don't block other requests.
+                logger.info("READ line: %s", _sanitize_rpc_log(line_str))
+                task = asyncio.create_task(self._process_line_safe(line_str))
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
+                task.add_done_callback(_log_task_exception)
+        finally:
+            if transport is not None:
+                try:
+                    transport.close()
+                except Exception:
+                    logger.debug("Error closing stdin transport", exc_info=True)
 
     async def _process_line(self, line: str) -> None:
         """Process a single JSON-RPC line."""
@@ -542,21 +542,10 @@ class PluginRuntime:
             # so unwrap to the underlying function first.
             _fn = handler.__func__ if hasattr(handler, "__func__") else handler
             if inspect.iscoroutinefunction(_fn):
-                result = handler(params)
-                # Run in thread executor to prevent synchronous blocking calls
-                # inside the handler from freezing the event loop.
-                logger.info(
-                    "Running %s handler in thread executor (req=%d)",
-                    method,
-                    req_id,
-                )
-                loop = asyncio.get_running_loop()
-                value = await loop.run_in_executor(None, _run_coro, result)
-                logger.info(
-                    "Thread executor %s completed (req=%d)",
-                    method,
-                    req_id,
-                )
+                # Async handler — await directly in the running event loop so
+                # cancellation propagates and the handler can use the same
+                # loop-local state (e.g. asyncio.Queue, locks) as the runtime.
+                value = await handler(params)
                 self._send_response(req_id, value)
             else:
                 # Synchronous handler — offload to thread pool to avoid

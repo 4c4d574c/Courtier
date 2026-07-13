@@ -85,45 +85,58 @@ class JSONRPCClient:
 
     async def _read_loop(self) -> None:
         """Continuously read lines from stdin, dispatch to pending futures."""
-        while not self._closed:
-            try:
-                line = await self._reader.readline()
-            except (ValueError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
-                break
-            except Exception:
-                logger.warning(
-                    "Unexpected exception in %s read loop, closing connection",
-                    self.plugin_name, exc_info=True,
-                )
-                break
+        try:
+            while not self._closed:
+                try:
+                    line = await self._reader.readline()
+                except (ValueError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+                    break
+                except Exception:
+                    logger.warning(
+                        "Unexpected exception in %s read loop, closing connection",
+                        self.plugin_name, exc_info=True,
+                    )
+                    break
 
-            if not line:  # EOF — subprocess exited
-                self._fail_all_pending(PluginCrashedError(self.plugin_name))
-                # Notify ProcessManager for crash recovery
-                if self._on_disconnect is not None:
-                    try:
-                        await self._on_disconnect()
-                    except Exception:
-                        logger.debug(
-                            "on_disconnect callback failed for plugin '%s'",
-                            self.plugin_name, exc_info=True,
-                        )
-                break
+                if not line:  # EOF — subprocess exited
+                    self._fail_all_pending(PluginCrashedError(self.plugin_name))
+                    # Notify ProcessManager for crash recovery
+                    if self._on_disconnect is not None:
+                        try:
+                            await self._on_disconnect()
+                        except Exception:
+                            logger.debug(
+                                "on_disconnect callback failed for plugin '%s'",
+                                self.plugin_name, exc_info=True,
+                            )
+                    break
 
-            try:
-                line_str = line.decode("utf-8").strip()
-            except UnicodeDecodeError:
-                continue
+                try:
+                    line_str = line.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    continue
 
-            if not line_str:
-                continue
+                if not line_str:
+                    continue
 
-            try:
-                data = json.loads(line_str)
-            except json.JSONDecodeError:
-                continue
+                try:
+                    data = json.loads(line_str)
+                except json.JSONDecodeError:
+                    continue
 
-            await self._dispatch(data)
+                await self._dispatch(data)
+        finally:
+            # Ensure every exit path (network errors, unexpected exceptions,
+            # EOF) fails pending futures and triggers crash recovery.
+            self._fail_all_pending(PluginCrashedError(self.plugin_name))
+            if self._on_disconnect is not None:
+                try:
+                    await self._on_disconnect()
+                except Exception:
+                    logger.debug(
+                        "on_disconnect callback failed for plugin '%s'",
+                        self.plugin_name, exc_info=True,
+                    )
 
     async def _dispatch(self, data: dict) -> None:
         """Route an incoming message to a pending future or notification handler.
@@ -196,10 +209,12 @@ class JSONRPCClient:
         self._send_line(msg)
 
     def _send_line(self, line: str) -> None:
-        try:
-            self._writer.write((line + "\n").encode("utf-8"))
-        except Exception:
-            logger.debug("Failed to write to plugin '%s'", self.plugin_name, exc_info=True)
+        """Write a line to the plugin subprocess.
+
+        Raises on write failure so host-request responses do not silently
+        disappear when the plugin has crashed.
+        """
+        self._writer.write((line + "\n").encode("utf-8"))
 
     def _handle_notification(self, data: dict) -> None:
         """Handle an incoming notification."""

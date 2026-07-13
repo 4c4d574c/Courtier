@@ -50,7 +50,7 @@ class FileStore:
         )
         async with self._lock:
             self._files[file_id] = info
-        await self._save_index()
+            await self._save_index()
         return info
 
     async def resolve(self, file_id: str) -> FileInfo | None:

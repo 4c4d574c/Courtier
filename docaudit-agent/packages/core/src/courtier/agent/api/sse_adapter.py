@@ -195,6 +195,19 @@ class SSEAdapter:
         self._tool_start_times[tool_name] = _time.time()
         await self._emit_sse({"type": "tool_start", "name": tool_name})
 
+    def emit_tool_progress(self, tool_name: str, progress: ToolProgress) -> None:
+        """Synchronous helper for streaming tool progress into the SSE queue.
+
+        This is called from sync tool-progress callbacks.  It uses
+        ``put_nowait`` so the agent loop is never blocked; if the queue is
+        full the event is dropped rather than growing memory unbounded.
+        """
+        line = f"data: {json.dumps({'type': 'tool_progress', 'name': tool_name, 'progress': progress}, ensure_ascii=False)}\n\n"
+        try:
+            self._queue.put_nowait(("event", line))
+        except asyncio.QueueFull:
+            logger.debug("SSE queue full; dropping tool_progress event for %s", tool_name)
+
     async def on_tool_progress(self, tool_name: str, progress: ToolProgress) -> None:
         await self._check_pause()
         await self._emit_sse(

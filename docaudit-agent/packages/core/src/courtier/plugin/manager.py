@@ -823,11 +823,25 @@ class ProcessManager:
                 ).set(1)
 
     async def _kill_process(self, proc: PluginProcess) -> None:
-        """Force kill a plugin subprocess."""
+        """Force kill a plugin subprocess with a timeout."""
         if proc._process and proc._process.returncode is None:
             try:
                 proc._process.kill()
-                await proc._process.wait()
+                await asyncio.wait_for(proc._process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Plugin '%s' did not exit after SIGKILL; sending SIGKILL again",
+                    proc.name,
+                )
+                try:
+                    proc._process.kill()
+                    await asyncio.wait_for(proc._process.wait(), timeout=2.0)
+                except Exception:
+                    logger.debug(
+                        "Error force-killing plugin '%s' after timeout",
+                        proc.name,
+                        exc_info=True,
+                    )
             except Exception:
                 logger.debug(
                     "Error force-killing plugin '%s' (pid may have already exited)",

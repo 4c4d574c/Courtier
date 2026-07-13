@@ -270,7 +270,7 @@ async def generate_sse_stream(
     All dependencies are passed as keyword arguments so the function is
     testable without a FastAPI request context.
     """
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     adapter = SSEAdapter(
         queue,
         session_store,
@@ -310,9 +310,7 @@ async def generate_sse_stream(
                 on_token=adapter.on_token,
                 on_content_token=adapter.on_content_token,
                 on_tool_start=adapter.on_tool_start,
-                on_tool_progress=lambda name, p: asyncio.create_task(
-                    adapter.on_tool_progress(name, p)
-                ),
+                on_tool_progress=lambda name, p: adapter.emit_tool_progress(name, p),
                 on_tool_result=adapter.on_tool_result,
                 on_subagent_event=adapter.on_subagent_event,
                 model_config=model_config,
