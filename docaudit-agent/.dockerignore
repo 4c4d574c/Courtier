@@ -37,9 +37,10 @@ data/
 .agent_logs/
 uploads/
 
-# Plugin virtual environments
-packages/domains/*/plugins/*/.venv/
-plugins/*/.venv/
+# Plugin virtual environments (nested under category/plugin, e.g.
+# packages/domains/docaudit/plugins/common/parse/.venv)
+packages/domains/*/plugins/**/.venv/
+plugins/**/.venv/
 
 # Test outputs
 test_*.txt

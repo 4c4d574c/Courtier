@@ -120,6 +120,7 @@ def generate_refresh_token() -> tuple[str, str, datetime]:
 
 async def rotate_refresh_token(old_hash: str, session) -> tuple[str, datetime, int] | None:
     from sqlalchemy import select
+
     from courtier.db.tables.refresh_token import RefreshTokenTable
 
     result = await session.execute(

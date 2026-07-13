@@ -123,7 +123,15 @@ Configure which domain packages to load via environment variables:
 # .env
 COURTIER_DOMAIN_PACKAGES=docaudit
 COURTIER_LOCALE=zh-CN
+
+# Explicit repository root (Docker sets this to /app automatically)
+COURTIER_REPO_ROOT=/app
+
+# Upload directory seen by sandboxed plugin tools
+COURTIER_UPLOAD_DIR=/app/uploads
 ```
+
+`COURTIER_REPO_ROOT` controls the base path for default upload, cache, audit-log, and user-dict directories. If unset, the platform attempts to auto-detect the repository root from the source layout.
 
 Add a new domain by creating a package under `packages/domains/` and adding its name to `COURTIER_DOMAIN_PACKAGES`.
 

@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from courtier.db.db_manager import AsyncDatabase, CRUDRepository
-from courtier.db.tables.user import UserTable, UserCreate, UserUpdate, UserRole, UserStatus
 from courtier.db.tables.refresh_token import RefreshTokenTable
+from courtier.db.tables.user import UserCreate, UserRole, UserStatus, UserTable, UserUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,8 @@ async def bootstrap_admin_user() -> None:
     Gracefully skips if the database is unreachable — the admin user will
     need to be created manually or by a subsequent successful startup.
     """
+    from courtier.agent.api.middleware.auth import hash_password
     from courtier.config import Settings
-    import bcrypt
 
     settings = Settings()
     if not settings.admin_user or not settings.admin_password:
@@ -64,12 +64,9 @@ async def bootstrap_admin_user() -> None:
                 logger.info("Admin user %s already exists, skipping bootstrap", settings.admin_user)
                 return
 
-            password_hash = bcrypt.hashpw(
-                settings.admin_password.encode(), bcrypt.gensalt(rounds=settings.bcrypt_rounds)
-            ).decode()
             user = UserTable(
                 username=settings.admin_user,
-                password_hash=password_hash,
+                password_hash=hash_password(settings.admin_password),
                 role=UserRole.admin,
                 status=UserStatus.active,
             )

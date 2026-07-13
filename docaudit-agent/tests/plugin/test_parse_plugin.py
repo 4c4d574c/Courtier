@@ -1,8 +1,6 @@
 """Test parse plugin entry point handler logic."""
-import json
 import asyncio
-import sys
-from pathlib import Path
+import json
 
 import pytest
 
@@ -53,7 +51,7 @@ async def test_parse_plugin_unknown_tool():
 
     await plugin.run()
 
-    responses = [json.loads(l) for l in output_lines if '"id"' in l]
+    responses = [json.loads(line) for line in output_lines if '"id"' in line]
     resp = next(r for r in responses if r.get("id") == 1)
     assert resp["result"]["success"] is False
     assert "Unknown tool" in resp["result"]["error"]
@@ -67,6 +65,7 @@ class TestParseDocumentSandbox:
         monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
         # Force a fresh import so the tool picks up the env var
         import importlib
+
         import plugins.common.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
@@ -83,6 +82,7 @@ class TestParseDocumentSandbox:
         monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
 
         import importlib
+
         import plugins.common.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
@@ -98,10 +98,12 @@ class TestParseDocumentSandbox:
 
     @pytest.mark.asyncio
     async def test_rejects_missing_upload_dir(self, monkeypatch):
+        monkeypatch.delenv("COURTIER_UPLOAD_DIR", raising=False)
         monkeypatch.delenv("DOCAUDIT_UPLOAD_DIR", raising=False)
         monkeypatch.delenv("UPLOAD_DIR", raising=False)
 
         import importlib
+
         import plugins.common.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
@@ -110,3 +112,36 @@ class TestParseDocumentSandbox:
         result = await tool.execute(file_path="/tmp/test.pdf")
         assert result.success is False
         assert "not configured" in result.error
+
+    @pytest.mark.asyncio
+    async def test_prefers_courtier_upload_dir_over_legacy(self, tmp_path, monkeypatch):
+        """COURTIER_UPLOAD_DIR takes precedence over DOCAUDIT_UPLOAD_DIR."""
+        courtier_root = tmp_path / "courtier_uploads"
+        legacy_root = tmp_path / "legacy_uploads"
+        courtier_root.mkdir()
+        legacy_root.mkdir()
+
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(courtier_root))
+        monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(legacy_root))
+        monkeypatch.delenv("UPLOAD_DIR", raising=False)
+
+        import importlib
+
+        import plugins.common.parse.tools as tools_mod
+
+        importlib.reload(tools_mod)
+
+        tool = tools_mod.ParseTool()
+
+        # File inside the COURTIER upload dir should pass sandbox (parse will fail).
+        valid = courtier_root / "doc.pdf"
+        valid.write_bytes(b"%PDF-1.4 fake pdf content")
+        result = await tool.execute(file_path=str(valid))
+        assert "Access denied" not in (result.error or "")
+
+        # File inside the legacy dir only should be denied.
+        outside = legacy_root / "doc.pdf"
+        outside.write_bytes(b"%PDF-1.4 fake pdf content")
+        result = await tool.execute(file_path=str(outside))
+        assert result.success is False
+        assert "Access denied" in result.error

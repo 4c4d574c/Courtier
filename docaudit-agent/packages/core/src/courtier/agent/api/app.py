@@ -4,29 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import Response
 
 from courtier.agent.telemetry.tracer import init_telemetry
-from .middleware.observability import ObservabilityMiddleware
+
+from ...agent.artifacts.registry import SessionArtifactStoreRegistry
+from ...agent.artifacts.store import ArtifactStore
+from ..tools.registry import ToolRegistry
 from .file_store import FileStore
+from .middleware.observability import ObservabilityMiddleware
 from .rate_limiter import limiter
 from .routes import router as api_router
 from .routes.admin_users import router as admin_router
 from .routes.auth import router as auth_router
 from .routes.profile import router as profile_router
 from .session_store import SessionStore
-from ..tools.registry import ToolRegistry
-from ...agent.artifacts.registry import SessionArtifactStoreRegistry
-from ...agent.artifacts.store import ArtifactStore
 
 logger = logging.getLogger(__name__)
 
@@ -178,8 +180,8 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     app.include_router(profile_router)
 
     # Serve built frontend static assets in production/Docker images.
-    # The Dockerfile copies packages/webui/dist to /app/static.
-    static_dir = Path("/app/static")
+    # The Dockerfile copies packages/webui/dist to $COURTIER_REPO_ROOT/static.
+    static_dir = Path(os.environ.get("COURTIER_REPO_ROOT", ".")) / "static"
     if static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 

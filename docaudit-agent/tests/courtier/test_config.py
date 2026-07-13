@@ -1,5 +1,6 @@
 """Tests for CourtierConfig and DomainPackage protocol."""
 
+import importlib
 from pathlib import Path
 
 from courtier.config import CourtierConfig
@@ -25,6 +26,30 @@ class TestCourtierConfig:
         monkeypatch.setenv("COURTIER_LOCALE", "en-US")
         config = CourtierConfig.from_env(repo_root=Path("/tmp"))
         assert config.locale == "en-US"
+
+    def test_from_env_reads_repo_root_env(self, monkeypatch):
+        """COURTIER_REPO_ROOT env var is used when repo_root arg is omitted."""
+        monkeypatch.setenv("COURTIER_REPO_ROOT", "/tmp/explicit-root")
+        config = CourtierConfig.from_env()
+        assert config.repo_root == Path("/tmp/explicit-root")
+
+    def test_default_project_root_uses_env_var(self, monkeypatch):
+        """_default_project_root() honors COURTIER_REPO_ROOT."""
+        import courtier.config as config_module
+
+        monkeypatch.setenv("COURTIER_REPO_ROOT", "/tmp/env-root")
+        # Reload the module so the helper sees the new env var.
+        importlib.reload(config_module)
+        assert config_module._default_project_root() == Path("/tmp/env-root")
+
+    def test_default_project_root_falls_back_to_detected(self, monkeypatch):
+        """_default_project_root() falls back to file-based detection."""
+        import courtier.config as config_module
+
+        monkeypatch.delenv("COURTIER_REPO_ROOT", raising=False)
+        importlib.reload(config_module)
+        root = config_module._default_project_root()
+        assert (root / "pyproject.toml").exists()
 
     def test_discover_loads_docaudit_domain(self):
         """Integration test: discover the real docaudit domain package."""

@@ -78,12 +78,14 @@ async def build_audit_agent(
     if skills_dir:
         resolved_skills_dir = skills_dir
     else:
-        try:
-            courtier_cfg = CourtierConfig.from_env()
-            courtier_cfg.discover()
-            resolved_skills_dir = str(courtier_cfg.domains[0].skills_path)
-        except Exception:
-            resolved_skills_dir = "packages/domains/docaudit/skills"
+        courtier_cfg = CourtierConfig.from_env()
+        courtier_cfg.discover()
+        if not courtier_cfg.domains:
+            raise ValueError(
+                "No domain packages configured. Set COURTIER_DOMAIN_PACKAGES "
+                "or pass an explicit skills_dir to build_audit_agent()."
+            )
+        resolved_skills_dir = str(courtier_cfg.domains[0].skills_path)
 
     skill_registry = SkillRegistry(resolved_skills_dir)
     skill_registry.scan()

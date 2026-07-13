@@ -137,7 +137,7 @@ The agent runtime follows a Think → Act → Observe loop. Sessions stream even
 
 ## Notes
 
-- The `Dockerfile` still references a `ui-vue/` frontend build stage. The actual frontend is `tui/`; update the Dockerfile before using it for production builds.
-- The plugin system expects a `plugins/` directory at the backend project root with `plugins/common/` and `plugins/audit/` subdirectories. Each plugin has its own `plugin.yaml` manifest and may have its own `.venv`.
-- Skill documents live in `skills/*.md`. Each Skill declares its required tools in YAML frontmatter; the body is the sub-agent's system prompt. The `SkillRegistry` scans and pre-compiles them at startup. OrchestratorAgent calls `load_skill(skill="name", task="...")` to run one.
-- `.env.example` ships with placeholder credentials and LLM endpoints; copy it to `.env` and replace all values for real use.
+- The `Dockerfile` builds the frontend from `packages/webui/` and copies the dist output to `/app/static`. The old `ui-vue/` / `tui/` references are obsolete.
+- The plugin system expects domain plugins under `packages/domains/<domain>/plugins/`. The docaudit domain provides `plugins/common/` and `plugins/audit/`. Each plugin has its own `plugin.yaml` manifest and may have its own `.venv`.
+- Skill documents live under domain packages at `packages/domains/<domain>/skills/*.md`. Each Skill declares its required tools in YAML frontmatter; the body is the sub-agent's system prompt. The `SkillRegistry` scans and pre-compiles them at startup. OrchestratorAgent calls `load_skill(skill="name", task="...")` to run one.
+- `.env.example` ships with placeholder credentials and LLM endpoints; copy it to `.env` and replace all values for real use. Key Courtier-specific variables include `COURTIER_REPO_ROOT`, `COURTIER_DOMAIN_PACKAGES`, and `COURTIER_UPLOAD_DIR`.

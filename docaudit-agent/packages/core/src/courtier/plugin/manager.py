@@ -17,15 +17,24 @@ from typing import Any
 
 from courtier.agent.core.context_manager import ContextManager
 from courtier.agent.telemetry.metrics import PLUGIN_STATE
+from courtier.config import get_settings
 
 from .client import JSONRPCClient, PluginCrashedError
 from .manifest import PluginManifest
-from .protocol import (INTERNAL_ERROR, INVALID_PARAMS,
-                       METHOD_ARTIFACT_STORE_GET, METHOD_ARTIFACT_STORE_LIST,
-                       METHOD_ARTIFACT_STORE_PUT, METHOD_CACHE_LOAD,
-                       METHOD_CACHE_MICRO_COMPACT, METHOD_CACHE_PERSIST,
-                       METHOD_CACHE_RESOLVE, METHOD_HOST_SERVICES,
-                       METHOD_NOT_FOUND, METHOD_RUNTIME_CONTEXT)
+from .protocol import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    METHOD_ARTIFACT_STORE_GET,
+    METHOD_ARTIFACT_STORE_LIST,
+    METHOD_ARTIFACT_STORE_PUT,
+    METHOD_CACHE_LOAD,
+    METHOD_CACHE_MICRO_COMPACT,
+    METHOD_CACHE_PERSIST,
+    METHOD_CACHE_RESOLVE,
+    METHOD_HOST_SERVICES,
+    METHOD_NOT_FOUND,
+    METHOD_RUNTIME_CONTEXT,
+)
 from .registry import ExtensionRegistry
 from .scanner import PluginScanResult
 
@@ -302,18 +311,16 @@ class ProcessManager:
         existing = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{project_root}:{existing}" if existing else project_root
 
-        # Expose project root so plugins can resolve relative paths correctly.
+        # Expose the repo root so plugins can resolve relative paths correctly.
         # The plugin subprocess CWD is the plugin directory, not the project
         # root, so Path.resolve() against a relative path yields a wrong result.
-        env["COURTIER_PROJECT_ROOT"] = project_root
-        env["DOCAUDIT_PROJECT_ROOT"] = project_root  # deprecated fallback
+        # Prefer the explicit COURTIER_REPO_ROOT env var if already set.
+        repo_root = os.environ.get("COURTIER_REPO_ROOT", project_root)
+        env["COURTIER_REPO_ROOT"] = repo_root
 
         # Expose upload directory so sandboxed tools (parse_document,
         # annotate_document) can validate paths against the safe root.
-        from courtier.config import Settings
-
-        settings = Settings()
-        upload_dir = str(Path(settings.upload_dir).resolve())
+        upload_dir = str(Path(get_settings().upload_dir).resolve())
         env["COURTIER_UPLOAD_DIR"] = upload_dir
         env["DOCAUDIT_UPLOAD_DIR"] = upload_dir  # deprecated fallback
 

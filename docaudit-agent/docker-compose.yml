@@ -121,12 +121,13 @@ services:
   #   env_file:
   #     - .env
   #   environment:
+  #     - COURTIER_REPO_ROOT=/app
+  #     - COURTIER_DOMAIN_PACKAGES=docaudit
   #     - MYSQL_URL=${MYSQL_URL}
   #     - DOCPARSE_OCR_API_URL=http://ppocr:8006/ocr
   #     - MINIO_ENDPOINT=minio:9000
   #     - ES_HOSTS=http://elasticsearch:9200
   #     - UV_NO_SYNC=1
-  #     - PYTHONPATH=/app:/app/src
   #     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
   #     - OTEL_SERVICE_NAME=courtier
   #     - OTEL_TRACES_SAMPLER=${OTEL_TRACES_SAMPLER:-always_on}
@@ -134,8 +135,7 @@ services:
   #     - OTEL_LOG_LEVEL=${OTEL_LOG_LEVEL:-INFO}
   #     - DEPLOYMENT_ENVIRONMENT=${DEPLOYMENT_ENVIRONMENT:-production}
   #   volumes:
-  #     - ${UPLOADS_DIR:-./uploads}:/app/uploads
-  #     - ${PROGRAMS_DIR:-./programs}:/app/programs
+  #     - ${UPLOAD_DIR:-./uploads}:/app/uploads
   #   networks:
   #     - courtier
 

@@ -1,11 +1,9 @@
 """Tests for agent_service wiring."""
 
 import pytest
-
 from courtier.agent.agents.orch import OrchestratorAgent
 from courtier.agent.api.services.agent_service import build_audit_agent
 from courtier.agent.runtime import AgentRuntime
-from courtier.agent.tools.builtin.get_artifact import GetArtifactTool
 from courtier.agent.tools.registry import ToolRegistry
 
 
@@ -55,3 +53,16 @@ async def test_build_audit_agent_uses_disk_result_store_when_es_not_configured()
     )
 
     assert agent._agent_runtime.artifact_store is not None
+
+
+@pytest.mark.asyncio
+async def test_build_audit_agent_requires_configured_domain(monkeypatch):
+    """When no domain packages are configured, build_audit_agent raises."""
+    monkeypatch.setenv("COURTIER_DOMAIN_PACKAGES", "")
+    monkeypatch.setenv("COURTIER_REPO_ROOT", "/tmp")
+
+    with pytest.raises(ValueError, match="No domain packages configured"):
+        await build_audit_agent(
+            settings=_DummySettings(),
+            tool_registry=ToolRegistry(),
+        )

@@ -49,5 +49,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:8000/metrics >/dev/null || exit 1
 
 ENV COURTIER_REPO_ROOT=/app
+ENV UV_NO_SYNC=1
 
 CMD ["uv", "run", "python", "-m", "uvicorn", "courtier.agent.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

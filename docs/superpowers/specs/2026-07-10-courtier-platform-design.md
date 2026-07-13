@@ -325,10 +325,10 @@ COURTIER_DOMAIN_PACKAGES=docaudit,contract-review
 | Wheel 包缺少领域运行时资源 | 将 `config/` 转为 Python package（`__init__.py`），Hatch 随 `packages/domains/docaudit` 自动纳入 `config/` 与 `skills/` |
 | Dockerfile 以 root 运行且无健康检查 | 新增非 root `courtier` 用户、`COURTIER_REPO_ROOT`、`HEALTHCHECK` |
 | `BCRYPT_ROUNDS` 设置未被使用 | `hash_password()` 与 admin bootstrap 均使用 `settings.bcrypt_rounds` |
-| 插件环境变量仍使用 `DOCAUDIT_` 前缀 | 主推 `COURTIER_PROJECT_ROOT` / `COURTIER_UPLOAD_DIR`，保留旧名做兼容回退 |
-| README/CLAUDE.md 启动示例 PYTHONPATH 不完整 | README 示例已补齐 `packages/domains/docaudit` |
+| 插件环境变量仍使用 `DOCAUDIT_` 前缀 | 主推 `COURTIER_REPO_ROOT` / `COURTIER_UPLOAD_DIR`，保留旧名做兼容回退 |
+| README/CLAUDE.md 启动示例与配置文档不完整 | README 示例已补齐 `packages/domains/docaudit`，并补充 `COURTIER_REPO_ROOT` / `COURTIER_UPLOAD_DIR` 说明；根目录 CLAUDE.md 更新 Dockerfile 与插件路径说明 |
 | Prometheus 抓取已注释的 `app` 服务 | 注释掉 `courtier` scrape job，避免服务未启动时告警 |
 | 缺少 Alembic 迁移健康检查 | 新增 `tests/test_alembic_smoke.py`，离线验证 revision graph |
 | 开发依赖缺少格式化/类型工具 | `pyproject.toml` dev 组新增 `black`、`isort`、`ruff`、`mypy` 及对应配置 |
 
-以上修复保持测试套件 813 passed / 6 skipped、wheel 构建、前端构建、插件扫描 VALID:8 / BLOCKED:0 的基线不变。
+以上修复保持测试套件 821 passed / 6 skipped、wheel 构建、前端构建、插件扫描 VALID:8 / BLOCKED:0 的基线不变。
