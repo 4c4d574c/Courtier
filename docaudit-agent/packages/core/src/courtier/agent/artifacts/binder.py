@@ -50,7 +50,10 @@ class ContractBinder:
             })
             return ToolResult(
                 success=True,
-                data={"arguments": {}, "artifact_bindings": {}},
+                data={
+                    "arguments": dict(explicit_kwargs),
+                    "artifact_bindings": {},
+                },
             )
 
         resolver = ProjectionResolver(create_default_projector_registry())
@@ -77,7 +80,7 @@ class ContractBinder:
             artifact_store=self._artifact_store,
             features=self._policy.features,
         )
-        arguments: dict[str, Any] = {}
+        arguments: dict[str, Any] = dict(explicit_kwargs)
         artifact_bindings: dict[str, str] = {}
         validation_errors: list[str] = []
         for name, plan in resolution.plans.items():

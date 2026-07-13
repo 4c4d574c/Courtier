@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -52,6 +53,7 @@ class OrchestratorAgent(Agent):
     ) -> None:
         self._audit_results: dict[str, Any] = {}
         self._agent_runtime = agent_runtime
+        self._skill_callback_lock = asyncio.Lock()
 
         if model is None:
             raise ValueError(
@@ -204,10 +206,11 @@ class OrchestratorAgent(Agent):
             )
 
         # Forward sub-agent event streaming and parent handle to SkillTool instances.
-        self._attach_skill_callbacks(
-            on_subagent_event=on_subagent_event,
-            parent_handle=root_handle,
-        )
+        async with self._skill_callback_lock:
+            self._attach_skill_callbacks(
+                on_subagent_event=on_subagent_event,
+                parent_handle=root_handle,
+            )
 
         # LLM-driven audit planning and dispatch (agent_loop)
         result = await super().run(
@@ -242,11 +245,18 @@ class OrchestratorAgent(Agent):
         on_subagent_event: Callable[..., Awaitable[None]] | None,
         parent_handle: AgentHandle | None = None,
     ) -> None:
-        """Wire sub-agent event callbacks and parent handle into every SkillTool."""
+        """Wire sub-agent event callbacks and parent handle into every SkillTool.
+
+        Each call creates a fresh shallow copy of the SkillTool and re-registers
+        it, so concurrent/reused Orchestrator runs do not overwrite each other's
+        callbacks or mutate a shared registry instance.
+        """
         for tool in self.tool_registry.list_tools():
             if isinstance(tool, SkillTool):
-                tool.set_callbacks(on_subagent_event=on_subagent_event)
-                tool.set_parent_handle(parent_handle)
+                copied = copy.copy(tool)
+                copied.set_callbacks(on_subagent_event=on_subagent_event)
+                copied.set_parent_handle(parent_handle)
+                self.tool_registry.register(copied, force=True)
 
     def _runtime_skill_names(self) -> set[str]:
         """Return the set of skill names registered as runtime tools."""

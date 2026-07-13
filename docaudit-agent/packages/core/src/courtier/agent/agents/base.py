@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import platform
 import time
@@ -163,6 +164,8 @@ class Agent:
         for tool in tools or []:
             self.tool_registry.register(tool)
 
+        self._sync_lock = asyncio.Lock()
+
         # Build system prompt (six-section s10 pattern)
         self._prompt_pipeline = PromptPipeline()
 
@@ -277,17 +280,18 @@ class Agent:
             raise ValueError("Either 'task' or 'input' must be provided")
 
         # Incremental sync: discover plugin tools registered after construction
-        if self._shared_tool_registry is not None:
-            existing = {t.name for t in self.tool_registry.list_tools()}
-            for tool in self._shared_tool_registry.list_tools():
-                if tool.name not in existing:
-                    self.tool_registry.register(tool)
+        async with self._sync_lock:
+            if self._shared_tool_registry is not None:
+                existing = {t.name for t in self.tool_registry.list_tools()}
+                for tool in self._shared_tool_registry.list_tools():
+                    if tool.name not in existing:
+                        self.tool_registry.register(tool)
 
-        # ContextManager.get_ref_instructions() mentions list_artifacts and
-        # get_artifact in every agent's system prompt, so ensure they are
-        # actually callable when a context_manager is provided.
-        if context_manager is not None:
-            self._ensure_builtin_artifact_tools()
+            # ContextManager.get_ref_instructions() mentions list_artifacts and
+            # get_artifact in every agent's system prompt, so ensure they are
+            # actually callable when a context_manager is provided.
+            if context_manager is not None:
+                self._ensure_builtin_artifact_tools()
 
         # Refresh tool names in the system prompt after syncing plugins
         all_tools = self.tool_registry.list_tools()
@@ -316,7 +320,8 @@ class Agent:
                     "messages": tuple(messages),
                     "tool_calls": (),
                     "tool_results": (),
-                    "current_step": 0,
+                    "current_step": state.current_step,
+                    "max_steps": state.max_steps,
                     "termination_reason": None,
                 },
             )

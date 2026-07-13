@@ -255,5 +255,5 @@ class HookChain:
             agent_name=self._agent_name,
             session_id=self._session_id,
             current_step=state.current_step,
-            metadata=self._metadata,
+            metadata=dict(self._metadata),
         )

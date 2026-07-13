@@ -53,6 +53,10 @@ class Projector:
                     )
                     for err in schema_errors
                 )
+                raise ValueError(
+                    f"Projector {self.spec.name} produced invalid data for "
+                    f"{self.spec.target_type}: {'; '.join(schema_errors)}"
+                )
         metadata = ArtifactMetadata(
             created_by=self.spec.name,
             source_refs=(artifact.artifact_id,),

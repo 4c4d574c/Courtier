@@ -131,7 +131,8 @@ async def agent_loop(
     context_manager: three-layer context budget control (optional).
     """
     tracer = AgentTracer()
-    agent_name = getattr(state, "agent_name", "unknown")
+    if not agent_name:
+        agent_name = getattr(state, "agent_name", "") or "unknown"
     # Extract task from the first user message in conversation history
     _task = ""
     for msg in state.messages:

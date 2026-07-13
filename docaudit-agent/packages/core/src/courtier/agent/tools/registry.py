@@ -40,6 +40,7 @@ class ToolRegistry:
         self._producer_cache: dict[str, list[str]] | None = None
         self._result_store = result_store
         self._summarizer = summarizer
+        self._policy_lock = asyncio.Lock()
 
     @property
     def policy(self) -> ProjectionPolicy:
@@ -150,7 +151,8 @@ class ToolRegistry:
         # --- Enforce runtime policy ---
         runtime_policy = getattr(tool, "runtime_policy", None)
         if runtime_policy is not None:
-            refused = self._check_runtime_policy(name, runtime_policy, kwargs)
+            async with self._policy_lock:
+                refused = self._check_runtime_policy(name, runtime_policy, kwargs)
             if refused is not None:
                 return await self._to_execution_result(name, refused)
 
@@ -197,7 +199,12 @@ class ToolRegistry:
 
         def on_progress(progress: ToolProgress) -> None:
             if on_tool_progress is not None:
-                on_tool_progress(name, progress)
+                result = on_tool_progress(name, progress)
+                if asyncio.iscoroutine(result):
+                    task = asyncio.create_task(result)
+                    task.add_done_callback(
+                        lambda t: t.exception() if not t.cancelled() else None
+                    )
 
         result = await tool.execute(
             on_progress=on_progress,
@@ -348,12 +355,33 @@ class ToolRegistry:
             fields, tool_name, explicit_kwargs, producers=producers,
         )
 
+    def _resolve_persisted_data(self, data: Any) -> Any | None:
+        """Load real data when *data* is a ``__persisted_output__`` marker.
+
+        Returns the original *data* if it is not a persisted marker.  Returns
+        ``None`` when the referenced cache file cannot be read so callers can
+        skip registering a stale marker as an artifact.
+        """
+        import json
+        from pathlib import Path
+
+        if not isinstance(data, dict) or not data.get("__persisted_output__"):
+            return data
+        filepath = data.get("file")
+        if not filepath:
+            return data
+        try:
+            return json.loads(Path(filepath).read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "Failed to load persisted output from %s: %s", filepath, exc
+            )
+            return None
+
     def _register_output_artifact_simple(
         self, *, tool_name: str, artifact_type: str,
         result: ToolResult | ExecutionResult, artifact_store: ArtifactStore,
     ) -> None:
-        import json
-        from pathlib import Path
         if not result.success:
             return
         data = result.raw_data if isinstance(result, ExecutionResult) else result.data
@@ -366,12 +394,9 @@ class ToolRegistry:
         ref_id = f"$ref:{tool_name}:latest"
         if isinstance(data, dict) and data.get("__persisted_output__"):
             ref_id = data.get("ref_id", ref_id)
-            filepath = data.get("file")
-            if filepath:
-                try:
-                    data = json.loads(Path(filepath).read_text(encoding="utf-8"))
-                except (FileNotFoundError, json.JSONDecodeError, OSError):
-                    pass
+            data = self._resolve_persisted_data(data)
+            if data is None:
+                return
         artifact_store.register_cached_ref(
             ref_id=ref_id, artifact_type=artifact_type,
             created_by=tool_name, data=data,
@@ -411,8 +436,6 @@ class ToolRegistry:
         This is the fallback path for tools that never declared an artifact type.
         It uses the same ``register_cached_ref`` mechanism as the explicit path.
         """
-        import json
-        from pathlib import Path
         if not result.success:
             return
         data = result.raw_data if isinstance(result, ExecutionResult) else result.data
@@ -421,12 +444,9 @@ class ToolRegistry:
         ref_id = f"$ref:{tool_name}:latest"
         if isinstance(data, dict) and data.get("__persisted_output__"):
             ref_id = data.get("ref_id", ref_id)
-            filepath = data.get("file")
-            if filepath:
-                try:
-                    data = json.loads(Path(filepath).read_text(encoding="utf-8"))
-                except (FileNotFoundError, json.JSONDecodeError, OSError):
-                    pass
+            data = self._resolve_persisted_data(data)
+            if data is None:
+                return
         # Fallback artifacts are projection-allowed so downstream tools
         # can discover them via list_artifacts.
         is_fallback = artifact_type == "core.cached_output"

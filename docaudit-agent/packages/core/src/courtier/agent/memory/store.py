@@ -36,6 +36,7 @@ class FileMemoryStore(MemoryStore):
         self._root_dir = Path(root_dir).resolve()
         self._root_dir.mkdir(parents=True, exist_ok=True)
         self._dirs_created: set[str] = {str(self._root_dir)}
+        self._lock = asyncio.Lock()
 
     @staticmethod
     def _sanitize(name: str) -> str:
@@ -58,55 +59,62 @@ class FileMemoryStore(MemoryStore):
         return self._ns_dir(namespace) / f"{self._sanitize(key)}.json"
 
     async def get(self, key: str, namespace: str = "session") -> Any | None:
-        path = self._key_path(key, namespace)
-        exists = await asyncio.to_thread(path.exists)
-        if not exists:
-            return None
-        try:
-            text = await asyncio.to_thread(path.read_text, encoding="utf-8")
-            return json.loads(text)
-        except json.JSONDecodeError:
-            logger.error("Corrupted memory file: %s", path)
-            return None
-        except OSError:
-            logger.exception("Cannot read memory file: %s", path)
-            return None
+        async with self._lock:
+            path = self._key_path(key, namespace)
+            exists = await asyncio.to_thread(path.exists)
+            if not exists:
+                return None
+            try:
+                text = await asyncio.to_thread(path.read_text, encoding="utf-8")
+                return json.loads(text)
+            except json.JSONDecodeError:
+                logger.error("Corrupted memory file: %s", path)
+                return None
+            except OSError:
+                logger.exception("Cannot read memory file: %s", path)
+                return None
 
     async def set(self, key: str, value: Any, namespace: str = "session") -> None:
-        path = self._key_path(key, namespace)
-        text = json.dumps(value, ensure_ascii=False, default=_json_default)
-        await asyncio.to_thread(path.write_text, text, encoding="utf-8")
+        async with self._lock:
+            path = self._key_path(key, namespace)
+            text = json.dumps(value, ensure_ascii=False, default=_json_default)
+            tmp_path = path.with_suffix(".json.tmp")
+            await asyncio.to_thread(tmp_path.write_text, text, encoding="utf-8")
+            await asyncio.to_thread(tmp_path.rename, path)
 
     async def delete(self, key: str, namespace: str = "session") -> None:
-        path = self._key_path(key, namespace)
-        exists = await asyncio.to_thread(path.exists)
-        if exists:
-            await asyncio.to_thread(path.unlink)
+        async with self._lock:
+            path = self._key_path(key, namespace)
+            exists = await asyncio.to_thread(path.exists)
+            if exists:
+                await asyncio.to_thread(path.unlink)
 
     async def list_keys(self, namespace: str = "session") -> list[str]:
-        ns_dir = self._ns_dir(namespace)
+        async with self._lock:
+            ns_dir = self._ns_dir(namespace)
 
-        def _list() -> list[str]:
-            return [unquote(p.stem) for p in ns_dir.glob("*.json") if p.is_file()]
+            def _list() -> list[str]:
+                return [unquote(p.stem) for p in ns_dir.glob("*.json") if p.is_file()]
 
-        return await asyncio.to_thread(_list)
+            return await asyncio.to_thread(_list)
 
     async def clear_namespace(self, namespace: str = "session") -> None:
-        ns_dir = self._ns_dir(namespace)
-        ns_dir_str = str(ns_dir)
+        async with self._lock:
+            ns_dir = self._ns_dir(namespace)
+            ns_dir_str = str(ns_dir)
 
-        def _clear() -> None:
-            for p in ns_dir.glob("*.json"):
-                if p.is_file():
-                    p.unlink()
-            # Remove empty directory after clearing all files
-            try:
-                remaining = list(ns_dir.iterdir())
-                if not remaining:
-                    ns_dir.rmdir()
-            except OSError:
-                pass
+            def _clear() -> None:
+                for p in ns_dir.glob("*.json"):
+                    if p.is_file():
+                        p.unlink()
+                # Remove empty directory after clearing all files
+                try:
+                    remaining = list(ns_dir.iterdir())
+                    if not remaining:
+                        ns_dir.rmdir()
+                except OSError:
+                    pass
 
-        await asyncio.to_thread(_clear)
-        # Remove from cache so it will be recreated if needed
-        self._dirs_created.discard(ns_dir_str)
+            await asyncio.to_thread(_clear)
+            # Remove from cache so it will be recreated if needed
+            self._dirs_created.discard(ns_dir_str)
