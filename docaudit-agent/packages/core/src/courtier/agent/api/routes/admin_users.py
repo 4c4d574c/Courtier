@@ -75,7 +75,9 @@ async def list_users(
 
 
 @router.get("/users/{user_id}")
+@limiter.limit("30/minute")
 async def get_user(
+    request: Request,
     user_id: int,
     admin: dict = Depends(require_admin),
 ):
@@ -89,7 +91,9 @@ async def get_user(
 
 
 @router.patch("/users/{user_id}")
+@limiter.limit("30/minute")
 async def update_user(
+    request: Request,
     user_id: int,
     body: UpdateUserRequest,
     admin: dict = Depends(require_admin),
@@ -149,7 +153,9 @@ async def list_approvals(
 
 
 @router.post("/approvals/{user_id}/approve")
+@limiter.limit("30/minute")
 async def approve_user(
+    request: Request,
     user_id: int,
     admin: dict = Depends(require_admin),
 ):
@@ -167,7 +173,9 @@ async def approve_user(
 
 
 @router.post("/approvals/{user_id}/reject")
+@limiter.limit("30/minute")
 async def reject_user(
+    request: Request,
     user_id: int,
     admin: dict = Depends(require_admin),
 ):

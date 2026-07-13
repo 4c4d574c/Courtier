@@ -72,9 +72,11 @@ async def bootstrap_admin_user() -> None:
             )
             session.add(user)
             logger.info("Bootstrapped admin user: %s", settings.admin_user)
-    except Exception:
+    except Exception as exc:
+        exc_name = type(exc).__name__
         logger.warning(
-            "Failed to bootstrap admin user (database may not be ready yet). "
+            "Failed to bootstrap admin user (database may not be ready yet): %s: %s. "
             "The application will still start, but admin login requires a "
-            "running database with the users table."
+            "running database with the users table.",
+            exc_name, exc,
         )

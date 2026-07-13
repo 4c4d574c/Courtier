@@ -23,6 +23,15 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _log_persist_error(task: "asyncio.Task[Any]") -> None:
+    """Log any unhandled exception from a fire-and-forget disk persist task."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Disk persist task failed: %s", exc, exc_info=exc)
+
+
 class ArtifactStore:
     """Typed artifact registry with built-in disk persistence for one agent run.
 
@@ -256,9 +265,10 @@ class ArtifactStore:
             except RuntimeError:
                 loop = None
             if loop is not None:
-                loop.create_task(
+                task = loop.create_task(
                     self._backend.persist(data, created_by, force=True)
                 )
+                task.add_done_callback(_log_persist_error)
             else:
                 logger.debug(
                     "No running event loop; skipping disk persist for %s", ref_id

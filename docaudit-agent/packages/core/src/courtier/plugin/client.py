@@ -105,7 +105,7 @@ class JSONRPCClient:
                         try:
                             await self._on_disconnect()
                         except Exception:
-                            logger.debug(
+                            logger.warning(
                                 "on_disconnect callback failed for plugin '%s'",
                                 self.plugin_name, exc_info=True,
                             )
@@ -114,6 +114,10 @@ class JSONRPCClient:
                 try:
                     line_str = line.decode("utf-8").strip()
                 except UnicodeDecodeError:
+                    logger.warning(
+                        "UTF-8 decode failed for plugin '%s' stdout line",
+                        self.plugin_name,
+                    )
                     continue
 
                 if not line_str:
@@ -122,6 +126,10 @@ class JSONRPCClient:
                 try:
                     data = json.loads(line_str)
                 except json.JSONDecodeError:
+                    logger.warning(
+                        "JSON decode failed for plugin '%s': %.200s",
+                        self.plugin_name, line_str,
+                    )
                     continue
 
                 await self._dispatch(data)
@@ -293,7 +301,7 @@ class JSONRPCClient:
             self._writer.write((notif.model_dump_json() + "\n").encode("utf-8"))
             await self._writer.drain()
         except Exception:
-            logger.debug(
+            logger.warning(
                 "Failed to send notification '%s' to plugin '%s'",
                 method, self.plugin_name, exc_info=True,
             )

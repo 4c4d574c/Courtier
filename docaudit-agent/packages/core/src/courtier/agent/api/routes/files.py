@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request, UploadFile
 
+from ..rate_limiter import limiter
+
 router = APIRouter()
 
 
 @router.post("/files")
+@limiter.limit("10/minute")
 async def upload_file(request: Request, file: UploadFile):
     """Upload a document file, return a fileId for use in session creation."""
     from ..services.file_service import upload_file as upload_file_service

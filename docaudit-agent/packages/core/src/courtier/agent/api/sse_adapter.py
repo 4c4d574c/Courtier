@@ -313,7 +313,7 @@ class SSEAdapter:
             return
 
         kind = event.kind
-        handle_id = event.handle_id or event.subagent_name
+        handle_id = event.handle_id if event.handle_id is not None else event.subagent_name
         parent_handle_id = event.parent_handle_id
 
         # -- State capture for historical rendering --
@@ -616,7 +616,10 @@ class SSEAdapter:
 
     async def _emit_sse(self, data: dict[str, Any]) -> None:
         line = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-        await self._queue.put(("event", line))
+        try:
+            self._queue.put_nowait(("event", line))
+        except asyncio.QueueFull:
+            logger.warning("SSE queue full, dropping event: %s", data.get("type", "unknown"))
 
     #: Max top-level keys in a dict before truncation in structured detail.
     _MAX_STRUCTURED_KEYS = 30

@@ -65,36 +65,53 @@ class ContentViolationList(BaseModel):
 
 # ======================== Prompt 构建 ========================
 
-_CLASSIFICATION_SYSTEM_PROMPT = """\
-你是一个公文文本领域分类专家。
+# Default domain list — serves as fallback when the database is unavailable.
+# In production the ContentChecker SHOULD load domain names from the RuleDomain
+# table at initialization to keep the prompt in sync with the actual ruleset.
+_DEFAULT_DOMAINS = [
+    ("农业农村", "农业、农村、农民、乡村振兴、粮食安全相关"),
+    ("审计监督", "审计、督查、监察、廉政相关"),
+    ("文化旅游", "文化、旅游、文物、体育、广播电视相关"),
+    ("生态环境", "环境保护、生态建设、污染防治、气候变化相关"),
+    ("经济调控", "宏观经济、产业政策、区域发展、统计相关"),
+    ("教育育才", "教育、人才培养、学校、学术研究相关"),
+    ("应急管理", "安全生产、防灾减灾、消防救援、突发事件相关"),
+    ("财政金融", "财政、税收、金融、预算、债务相关"),
+    ("通用规范", "跨领域通用规范、公文格式、行文规则相关"),
+    ("政务综合", "综合性政务、行政事务、政府自身建设相关"),
+    ("卫生健康", "医疗卫生、公共卫生、药品监管、计生相关"),
+    ("产业信息", "工业、信息化、数字经济、通信相关"),
+    ("民生保障", "民政、社保、就业、住房、养老、救助相关"),
+    ("资源规划", "自然资源、国土规划、矿产资源、测绘地理相关"),
+    ("公共安全", "公安、司法、国家安全、反恐、社会治安相关"),
+    ("科技创新", "科技、创新、知识产权、高新技术企业相关"),
+    ("商贸流通", "商贸、市场、物流、消费、外贸、口岸相关"),
+    ("交通运输", "交通、公路、铁路、民航、水运、邮政相关"),
+    ("城乡建设", "城市建设、市政、房地产、工程质量相关"),
+    ("水利防汛", "水利、防汛抗旱、水资源、河湖管理相关"),
+]
 
-根据输入的公文正文内容，判断它属于以下哪个行政领域：
-- 农业农村：农业、农村、农民、乡村振兴、粮食安全相关
-- 审计监督：审计、督查、监察、廉政相关
-- 文化旅游：文化、旅游、文物、体育、广播电视相关
-- 生态环境：环境保护、生态建设、污染防治、气候变化相关
-- 经济调控：宏观经济、产业政策、区域发展、统计相关
-- 教育育才：教育、人才培养、学校、学术研究相关
-- 应急管理：安全生产、防灾减灾、消防救援、突发事件相关
-- 财政金融：财政、税收、金融、预算、债务相关
-- 通用规范：跨领域通用规范、公文格式、行文规则相关
-- 政务综合：综合性政务、行政事务、政府自身建设相关
-- 卫生健康：医疗卫生、公共卫生、药品监管、计生相关
-- 产业信息：工业、信息化、数字经济、通信相关
-- 民生保障：民政、社保、就业、住房、养老、救助相关
-- 资源规划：自然资源、国土规划、矿产资源、测绘地理相关
-- 公共安全：公安、司法、国家安全、反恐、社会治安相关
-- 科技创新：科技、创新、知识产权、高新技术企业相关
-- 商贸流通：商贸、市场、物流、消费、外贸、口岸相关
-- 交通运输：交通、公路、铁路、民航、水运、邮政相关
-- 城乡建设：城市建设、市政、房地产、工程质量相关
-- 水利防汛：水利、防汛抗旱、水资源、河湖管理相关
 
-请以 JSON 格式输出，包含以下字段：
-- domain_name: 领域名称（字符串，必须从上述列表中选取）
-- confidence: 置信度（high / medium / low）
-- match_reason: 判定理由（简述依据）
-"""
+def _build_classification_prompt(domains: list[tuple[str, str]] | None = None) -> str:
+    """Build the classification system prompt from a domain list.
+
+    Callers should pass domains loaded from the RuleDomain database table.
+    Falls back to _DEFAULT_DOMAINS when no domains are provided.
+    """
+    items = domains or _DEFAULT_DOMAINS
+    domain_lines = "\n".join(f"- {name}：{desc}" for name, desc in items)
+    return (
+        "你是一个公文文本领域分类专家。\n\n"
+        "根据输入的公文正文内容，判断它属于以下哪个行政领域：\n"
+        f"{domain_lines}\n\n"
+        "请以 JSON 格式输出，包含以下字段：\n"
+        "- domain_name: 领域名称（字符串，必须从上述列表中选取）\n"
+        "- confidence: 置信度（high / medium / low）\n"
+        "- match_reason: 判定理由（简述依据）\n"
+    )
+
+
+_CLASSIFICATION_SYSTEM_PROMPT = _build_classification_prompt()
 
 _VALIDATION_SYSTEM_PROMPT = """\
 你是一个公文内容合规审查专家。

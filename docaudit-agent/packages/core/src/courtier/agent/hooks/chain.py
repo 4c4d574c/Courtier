@@ -159,15 +159,13 @@ class HookChain:
         is not found (idempotent).
         """
         entries = self._handlers.get(event, [])
-        for i, (_, _, h, _) in enumerate(entries):
-            if h is handler:
-                del entries[i]
+        if entries:
+            self._handlers[event] = [e for e in entries if e[2] is not handler]
+            if len(self._handlers[event]) != len(entries):
                 return
         obs: list[HookObserver] = self._observers.get(event, [])
-        for i, h in enumerate(obs):
-            if h is handler:
-                del obs[i]
-                return
+        if obs:
+            self._observers[event] = [h for h in obs if h is not handler]
 
     # ------------------------------------------------------------------
     # Dispatch

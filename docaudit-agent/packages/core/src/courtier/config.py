@@ -15,10 +15,27 @@ from courtier.prompts.engine import PromptBundle, PromptEngine
 
 logger = logging.getLogger(__name__)
 
-# Resolve paths relative to this module's location
-# config.py is at: packages/core/src/courtier/config.py (5 levels from repo root)
-_ENV_FILE = str(Path(__file__).resolve().parent.parent.parent.parent.parent / ".env")
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+def _find_project_root() -> Path:
+    """Walk upward from this file to locate the project root via sentinel files.
+
+    Searches for pyproject.toml or CLAUDE.md as markers of the repo root.
+    Falls back to the 5-level-parent heuristic if no sentinel is found.
+    """
+    current = Path(__file__).resolve().parent
+    for _ in range(10):  # Max 10 levels up
+        if (current / "pyproject.toml").exists() or (current / "CLAUDE.md").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    # Fallback to the original heuristic
+    return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+_PROJECT_ROOT = _find_project_root()
+_ENV_FILE = str(_PROJECT_ROOT / ".env")
 
 
 def _default_project_root() -> Path:

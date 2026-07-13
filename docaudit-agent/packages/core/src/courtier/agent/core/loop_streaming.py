@@ -35,22 +35,41 @@ async def generate_with_streaming_fallback(
         )
     else:
         response = await model.generate(messages, tools=tools)
+        _consecutive_callback_failures = 0
+        _MAX_CONSECUTIVE_FAILURES = 10
         if response.reasoning_content:
             for token in _split_tokens(response.reasoning_content):
                 try:
                     await on_token(token)
+                    _consecutive_callback_failures = 0
                 except Exception:
+                    _consecutive_callback_failures += 1
                     logger.warning(
                         "Token callback on_token failed for token: %r", token
                     )
+                    if _consecutive_callback_failures >= _MAX_CONSECUTIVE_FAILURES:
+                        logger.error(
+                            "Token callback on_token failed %d consecutive times; stopping",
+                            _consecutive_callback_failures,
+                        )
+                        break
         if response.content and on_content_token:
+            _consecutive_callback_failures = 0
             for token in _split_tokens(response.content):
                 try:
                     await on_content_token(token)
+                    _consecutive_callback_failures = 0
                 except Exception:
+                    _consecutive_callback_failures += 1
                     logger.warning(
                         "Token callback on_content_token failed for token: %r", token
                     )
+                    if _consecutive_callback_failures >= _MAX_CONSECUTIVE_FAILURES:
+                        logger.error(
+                            "Token callback on_content_token failed %d consecutive times; stopping",
+                            _consecutive_callback_failures,
+                        )
+                        break
 
     tokens_streamed = bool(response.content and not response.tool_calls)
     return response, tokens_streamed

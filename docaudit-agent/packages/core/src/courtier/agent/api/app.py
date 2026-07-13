@@ -156,12 +156,16 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     )
 
     # Routes
-    # NOTE: /metrics is added directly to the app (not api_router) to bypass
-    # JWT authentication. In production this endpoint MUST be firewall-restricted
-    # or protected by a reverse-proxy rule (e.g. IP allowlist or basic auth).
+    # /metrics is Prometheus-only and optional; protect with a shared
+    # secret token when PROMETHEUS_METRICS_TOKEN is set in the environment.
     @app.get("/metrics")
-    async def metrics():
-        """Prometheus metrics endpoint — no auth required."""
+    async def metrics(request: Request):
+        """Prometheus metrics endpoint — optionally token-protected."""
+        expected = os.getenv("PROMETHEUS_METRICS_TOKEN", "").strip()
+        if expected:
+            token = request.query_params.get("token", "")
+            if token != expected:
+                return Response("Unauthorized", status_code=401)
         return Response(
             generate_latest(),
             media_type=CONTENT_TYPE_LATEST,
@@ -169,6 +173,11 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     # Auth routes — public (no JWT required)
     app.include_router(auth_router)
+
+    # Health check — no auth, used by Docker HEALTHCHECK and load balancers
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
 
     # API routes — JWT-protected via Depends in the router
     app.include_router(api_router)

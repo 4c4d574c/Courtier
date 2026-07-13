@@ -154,7 +154,7 @@ class _PersistenceBackend:
                     metadata={"tool_name": tool_name, "label": label},
                 )
             except Exception:
-                logger.debug(
+                logger.warning(
                     "Primary backend persist failed for %s (data still on disk)", ref_id,
                 )
 
@@ -186,7 +186,7 @@ class _PersistenceBackend:
                     return primary_result
                 metadata["primary_error"] = primary_result.get("error")
             except Exception as exc:
-                logger.debug(
+                logger.warning(
                     "Primary backend read failed for %s, falling back to disk", ref_id,
                 )
                 metadata["primary_error"] = f"primary_backend_failed: {exc}"

@@ -102,6 +102,9 @@ def check_business_artifact_progress(
         return initial_business_count, turns_since_last_business_artifact, False
 
     current_business = _count_business_artifacts(artifact_store)
+    if current_business < 0:
+        # Artifact store error — can't determine progress, skip this check
+        return initial_business_count, turns_since_last_business_artifact, False
     if current_business <= initial_business_count:
         turns_since_last_business_artifact += 1
     else:
@@ -174,4 +177,4 @@ def _count_business_artifacts(artifact_store: Any) -> int:
         ])
     except Exception:
         logger.warning("Failed to count active non-debug artifacts", exc_info=True)
-        return 0
+        return -1  # Sentinel: caller should distinguish "error" from "truly zero"

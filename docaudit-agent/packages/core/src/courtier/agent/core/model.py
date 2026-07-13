@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import logging
 import re
@@ -38,50 +37,26 @@ def _parse_tool_arguments(raw: str) -> dict[str, Any]:
             try:
                 result = json.loads(fixed)
             except json.JSONDecodeError:
-                pass  # fall through to literal_eval
+                pass  # fall through to parse-error return
             else:
                 if isinstance(result, dict):
                     logger.debug("Tool call arguments parsed after ref-quote fix")
                     return result
-        # Guard against excessively large input for literal_eval.
-        # Reduced from 100k to 10k — ast.literal_eval can still consume
-        # CPU/memory on crafted inputs.  See model.py:_parse_tool_arguments
-        # for additional context on the fallback strategy.
-        if len(raw) > 10_000:
-            logger.warning(
-                "Tool call arguments too large for literal_eval fallback (%d chars)",
-                len(raw),
-            )
-            return {"_parse_error": True, "raw": raw, "raw_len": len(raw)}
-        # Guard against deeply nested structures (DoS via recursion).
-        if _max_nesting_depth(raw) > 100:
-            logger.warning(
-                "Tool call arguments too deeply nested for literal_eval fallback"
-            )
-            return {"_parse_error": True, "raw": raw}
-        try:
-            result = ast.literal_eval(raw)
-        except RecursionError:
-            logger.warning(
-                "Recursion limit exceeded parsing tool call arguments: %s",
-                raw[:200],
-            )
-            return {"_parse_error": True, "raw": raw}
-        except (ValueError, SyntaxError):
-            logger.warning("Failed to parse tool call arguments: %s", raw[:200])
-            return {"_parse_error": True, "raw": raw}
-        if not isinstance(result, dict):
-            logger.warning(
-                "literal_eval returned non-dict type %s: %s",
-                type(result).__name__,
-                raw[:200],
-            )
-            return {
-                "_parse_error": True,
-                "raw": raw,
-                "eval_type": type(result).__name__,
-            }
-        logger.debug("Tool call arguments parsed via literal_eval fallback")
+        # Attempt common JSON repairs before giving up: single quotes → double quotes,
+        # trailing commas, unquoted keys.  This replaces the ast.literal_eval fallback
+        # which was never designed as a security boundary for untrusted LLM output.
+        repaired = _repair_json(raw)
+        if repaired != raw:
+            try:
+                result = json.loads(repaired)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(result, dict):
+                    logger.debug("Tool call arguments parsed after JSON repair")
+                    return result
+        logger.warning("Failed to parse tool call arguments: %s", raw[:200])
+        return {"_parse_error": True, "raw": raw}
     if not isinstance(result, dict):
         logger.warning(
             "Parsed tool call arguments is not a dict (type=%s): %s",
@@ -137,6 +112,23 @@ def _fix_unescaped_ref_quotes(raw: str) -> str:
                 chars[end] = '\\"'
                 offset += 2  # Each replacement adds one char (" -> \")
     return ''.join(chars)
+
+
+def _repair_json(raw: str) -> str:
+    """Apply common JSON repairs to LLM-generated text.
+
+    Handles: single-quoted strings → double-quoted, unquoted keys → quoted,
+    trailing commas before closing brackets/braces.
+    This is a safer alternative to ast.literal_eval for untrusted input.
+    """
+    repaired = raw.strip()
+    # Replace single quotes with double quotes (careful with apostrophes)
+    repaired = re.sub(r"(?<!\\)'", '"', repaired)
+    # Quote unquoted keys: word followed by colon (not inside strings)
+    repaired = re.sub(r'([{,]\s*)(\w+)(\s*:)', r'\1"\2"\3', repaired)
+    # Remove trailing commas before ] or }
+    repaired = re.sub(r',(\s*[}\]])', r'\1', repaired)
+    return repaired
 
 
 # Matches $ref:word_chars:digits that is NOT already inside quotes.

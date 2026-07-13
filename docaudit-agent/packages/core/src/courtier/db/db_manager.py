@@ -150,7 +150,10 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         load_options: 可选的 SQLAlchemy loader options 列表
                       (e.g. [selectinload(Model.relation)]), 用于避免 N+1 查询。
         """
-        # Clamp to safe defaults when no limit is specified
+        # Clamp to safe defaults when no limit is specified.
+        # limit=0 is treated as "return empty list" (callers wanting no rows).
+        if limit is not None and limit <= 0:
+            return []
         effective_limit = limit if limit is not None else self._DEFAULT_LIMIT
         effective_limit = min(effective_limit, self._MAX_LIMIT)
 

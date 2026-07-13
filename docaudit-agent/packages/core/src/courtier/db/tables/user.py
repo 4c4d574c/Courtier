@@ -33,6 +33,8 @@ class UserTable(Base):
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), nullable=False, default=UserRole.auditor, comment="角色：admin / auditor")
     status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus), nullable=False, default=UserStatus.pending, comment="状态：active / disabled / pending")
     avatar_url: Mapped[str] = mapped_column(String(256), nullable=False, default="", comment="头像URL")
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="连续登录失败次数")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None, comment="账户锁定到期时间")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, comment="更新时间")
 

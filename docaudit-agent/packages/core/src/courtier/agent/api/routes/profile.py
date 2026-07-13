@@ -88,7 +88,7 @@ async def update_profile(
                 raise HTTPException(400, "修改密码时需要提供当前密码")
             if not verify_password(body.current_password, user.password_hash):
                 raise HTTPException(400, "当前密码错误")
-            update_data["new_password"] = hash_password(body.new_password)
+            update_data["password"] = hash_password(body.new_password)
 
         if not update_data:
             raise HTTPException(400, "没有提供需要更新的字段")

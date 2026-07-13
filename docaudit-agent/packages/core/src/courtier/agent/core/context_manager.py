@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -303,6 +304,11 @@ class ContextManager:
             # enough conversational context to recover gracefully.
             keep_recent = min(8, len(messages))
             fallback_compacted = list(messages[-keep_recent:])
+            # Truncate message content to avoid context overflow
+            _MAX_FALLBACK_CONTENT = 4000
+            for msg in fallback_compacted:
+                if msg.content and len(msg.content) > _MAX_FALLBACK_CONTENT:
+                    msg.content = msg.content[:_MAX_FALLBACK_CONTENT] + "...[truncated]"
             self.state.has_compacted = True
             self.state.last_summary = f"[压缩失败，回退到最近 {keep_recent} 条消息]"
             self.state.compact_count += 1
@@ -384,13 +390,13 @@ class ContextManager:
         other = 0
         for msg in messages:
             text = msg.content or ""
-            text_cjk = sum(1 for c in text if "一" <= c <= "鿿")
+            text_cjk = sum(1 for c in text if _is_cjk(c))
             cjk += text_cjk
             other += len(text) - text_cjk
             if msg.tool_calls:
                 for tc in msg.tool_calls:
                     args_json = json.dumps(tc.arguments, ensure_ascii=False)
-                    args_cjk = sum(1 for c in args_json if "一" <= c <= "鿿")
+                    args_cjk = sum(1 for c in args_json if _is_cjk(c))
                     cjk += args_cjk
                     other += len(args_json) - args_cjk
 
@@ -412,6 +418,20 @@ class ContextManager:
             "旧工具结果可能被微压缩为 _omitted 占位符。"
             "普通业务流程不应依赖恢复这些调试内容。"
         )
+
+
+def _is_cjk(c: str) -> bool:
+    """Return True if *c* is a CJK character (Unicode Han script).
+
+    Uses unicodedata.name() for accurate detection across all CJK blocks
+    (Basic, Extension A-F, Compatibility, Supplement), replacing the previous
+    narrow range check U+4E00–U+9FFF.
+    """
+    try:
+        name = unicodedata.name(c, "")
+        return name.startswith("CJK")
+    except ValueError:
+        return False
 
 
 def _deduplicate_reminders(messages: list[Message]) -> list[Message]:

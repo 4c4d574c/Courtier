@@ -331,6 +331,7 @@ class SessionStore:
             await asyncio.to_thread(tmp_path.rename, file_path)
         except Exception:
             logger.exception("Failed to persist session %s", session.id)
+            session._dirty = True  # Mark dirty so caller can retry or alert
 
     def _load(self, session_id: str) -> SessionRecord | None:
         file_path = self._dir / f"{session_id}.json"

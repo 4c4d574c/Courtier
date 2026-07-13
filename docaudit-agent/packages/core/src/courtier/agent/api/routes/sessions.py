@@ -226,6 +226,7 @@ async def handle_sessions(
 
 
 @router.get("/sessions/{session_id}")
+@limiter.limit("30/minute")
 async def get_session_detail(
     session_id: str, request: Request, current_user_payload: dict = Depends(get_current_user)
 ):
@@ -243,6 +244,7 @@ async def get_session_detail(
 
 
 @router.delete("/sessions/{session_id}")
+@limiter.limit("10/minute")
 async def delete_session_handler(
     session_id: str, request: Request, current_user_payload: dict = Depends(get_current_user)
 ):

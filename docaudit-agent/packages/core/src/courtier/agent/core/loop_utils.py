@@ -66,7 +66,7 @@ def fmt_size(chars: int) -> str:
 def similarity(a: str, b: str) -> float:
     """Compute string similarity ratio using difflib (0.0–1.0)."""
     if not a and not b:
-        return 1.0
+        return 0.0  # Two empty strings carry no signal for loop detection
     if not a or not b:
         return 0.0
     return difflib.SequenceMatcher(None, a, b).ratio()

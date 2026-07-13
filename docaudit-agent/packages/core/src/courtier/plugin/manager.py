@@ -871,7 +871,7 @@ def _build_runtime_context() -> dict[str, str]:
         if drudge_md_path.exists():
             ctx["drudge_md"] = drudge_md_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        pass
+        logger.warning("Failed to read DRUDGE.md at %s", drudge_md_path)
 
     # Artifact system instructions for plugin tools
     ctx["artifact_instructions"] = (

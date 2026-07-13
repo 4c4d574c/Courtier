@@ -80,8 +80,11 @@ class ParseTool:
 
     output_artifact_type: str | None = "docaudit.parsed_document"
 
+    _MAX_CACHE_SIZE = 64
+
     def __init__(self) -> None:
         self._cache: dict[str, ToolResult] = {}
+        self._cache_keys: list[str] = []  # LRU tracking (most recent last)
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
@@ -102,8 +105,10 @@ class ParseTool:
                 )
             safe_root = Path(safe_root_raw).resolve()
 
-            # Return cached result for same file path
+            # Return cached result for same file path (LRU: move to end)
             if raw_path in self._cache:
+                self._cache_keys.remove(raw_path)
+                self._cache_keys.append(raw_path)
                 return self._cache[raw_path]
 
             p = Path(raw_path)
@@ -134,7 +139,14 @@ class ParseTool:
             doc = parse(str(resolved))
             data = _sanitize(doc.model_dump())
             result = ToolResult(success=True, data=data)
+            # LRU eviction: remove oldest if at capacity
+            if raw_path not in self._cache and len(self._cache) >= self._MAX_CACHE_SIZE:
+                oldest = self._cache_keys.pop(0)
+                self._cache.pop(oldest, None)
             self._cache[raw_path] = result
+            if raw_path in self._cache_keys:
+                self._cache_keys.remove(raw_path)
+            self._cache_keys.append(raw_path)
             return result
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))

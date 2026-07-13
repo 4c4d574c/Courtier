@@ -178,10 +178,9 @@ class HostServiceClient:
 
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log any unhandled exception from a concurrently processed request."""
-    try:
-        exc = task.exception()
-    except asyncio.CancelledError:
+    if task.cancelled():
         return
+    exc = task.exception()
     if exc is not None:
         logger.error(
             "Unhandled exception in plugin request task: %s", exc, exc_info=exc
@@ -625,4 +624,5 @@ class PluginRuntime:
             self._writer.write((line + "\n").encode("utf-8"))
             self._writer.flush()
         except Exception:
-            logger.exception("Failed to write to stdout")
+            logger.exception("Failed to write to stdout; marking runtime as stopped")
+            self._running = False

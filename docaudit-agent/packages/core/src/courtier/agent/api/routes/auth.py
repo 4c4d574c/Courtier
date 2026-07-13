@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -36,7 +37,7 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=64)
+    username: str = Field(..., min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_\-\.@]+$')
     password: str = Field(..., min_length=8, max_length=128)
     email: str = Field(default="", max_length=128)
 
@@ -134,10 +135,36 @@ async def login(request: Request, body: LoginRequest, response: Response):
         user = result.scalar_one_or_none()
 
     if user is None:
+        # Dummy bcrypt to normalize timing and prevent username enumeration
+        _DUMMY_HASH = "$2b$12$LJ3m4ys3GZfnYMz8kVsKaOTSxGHLfEhCgJwN5B6Hm3VlOUlS3wFJq"
+        verify_password(body.password, _DUMMY_HASH)
         raise HTTPException(401, "用户名或密码错误")
 
+    # Check account lockout before verifying password
+    now = datetime.now(timezone.utc)
+    if user.locked_until is not None and user.locked_until > now:
+        remaining = int((user.locked_until - now).total_seconds())
+        raise HTTPException(403, f"账号已被临时锁定，请在 {remaining} 秒后重试")
+
+    _MAX_FAILED_ATTEMPTS = 10
+    _LOCKOUT_DURATION = timedelta(minutes=15)
+
     if not verify_password(body.password, user.password_hash):
+        # Track failed attempt and potentially lock account
+        async with db.session() as session:
+            merged = await session.merge(user)
+            merged.failed_login_attempts += 1
+            if merged.failed_login_attempts >= _MAX_FAILED_ATTEMPTS:
+                merged.locked_until = now + _LOCKOUT_DURATION
+                logger.warning("Account locked: %s (%d failed attempts)", merged.username, merged.failed_login_attempts)
         raise HTTPException(401, "用户名或密码错误")
+
+    # Successful login — reset failure counters
+    if user.failed_login_attempts > 0 or user.locked_until is not None:
+        async with db.session() as session:
+            merged = await session.merge(user)
+            merged.failed_login_attempts = 0
+            merged.locked_until = None
     if user.status == UserStatus.pending:
         raise HTTPException(403, "账号尚未通过审批，请等待管理员审核")
     if user.status == UserStatus.disabled:
@@ -236,6 +263,7 @@ async def refresh(request: Request, response: Response):
 
 
 @router.post("/logout")
+@limiter.limit("10/minute")
 async def logout(request: Request, response: Response):
     """登出 — 撤销 refresh token，清除 cookie。"""
     raw_token = request.cookies.get(REFRESH_COOKIE)

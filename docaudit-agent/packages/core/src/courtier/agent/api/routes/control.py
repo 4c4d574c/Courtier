@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..middleware.auth import get_current_user
+from ..rate_limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ def _is_admin(payload: dict) -> bool:
 
 
 @router.post("/pause")
+@limiter.limit("10/minute")
 async def pause_session(
     request: Request,
     current_user_payload: dict = Depends(get_current_user),
@@ -32,6 +34,7 @@ async def pause_session(
 
 
 @router.post("/resume")
+@limiter.limit("10/minute")
 async def resume_session(
     request: Request,
     current_user_payload: dict = Depends(get_current_user),
@@ -45,6 +48,7 @@ async def resume_session(
 
 
 @router.post("/stop")
+@limiter.limit("10/minute")
 async def stop_session(
     request: Request,
     sessionId: Optional[str] = Query(default=None),
@@ -83,7 +87,8 @@ async def stop_session(
         except asyncio.CancelledError:
             pass
         except asyncio.TimeoutError:
-            pass
+            logger.warning("Timeout awaiting cancellation for session %s; forcing cleanup", sessionId)
+            active_tasks.pop(sessionId, None)
         except Exception:
             logger.exception("Error awaiting cancellation for session %s", sessionId)
         return {"status": "ok", "sessionId": sessionId, "stopped": True}
@@ -101,7 +106,8 @@ async def stop_session(
         try:
             await asyncio.wait_for(task, timeout=5.0)
         except (asyncio.CancelledError, asyncio.TimeoutError):
-            pass
+            logger.warning("Timeout awaiting cancellation for session %s; forcing cleanup", sid)
+            active_tasks.pop(sid, None)
         except Exception:
             logger.exception("Error awaiting cancellation for session %s", sid)
         stopped.append(sid)
