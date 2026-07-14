@@ -106,14 +106,14 @@ cp .env.example .env
 uv run alembic upgrade head
 
 # Validate the domain package
-PYTHONPATH=courtier:libs/shared:libs/docaudit \
+PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
   uv run courtier validate-domain domains/docaudit/
 ```
 
 ### Run the API Server
 
 ```bash
-PYTHONPATH=courtier:libs/shared:libs/docaudit \
+PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
   uv run python -m uvicorn courtier.agent.api.app:create_app \
   --factory --host 0.0.0.0 --port 8000
 ```

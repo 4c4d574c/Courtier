@@ -1,28 +1,28 @@
 services:
-  # db:
-  #   container_name: courtier-mysql
-  #   image: mysql:8.4
-  #   restart: unless-stopped
-  #   environment:
-  #     - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?Required}
-  #     - TZ=Asia/Shanghai
-  #   command:
-  #     --max_connections=1000
-  #     --character-set-server=utf8mb4
-  #     --collation-server=utf8mb4_unicode_ci
-  #     --tls_version="TLSv1.2,TLSv1.3"
-  #     --max_allowed_packet=1048576000
-  #   volumes:
-  #     - ${DATA_DIR:-./data}/mysql:/var/lib/mysql
-  #   ports:
-  #     - "127.0.0.1:3366:3306"
-  #   networks:
-  #     - courtier
-  #   healthcheck:
-  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 30
+  db:
+    container_name: courtier-mysql
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?Required}
+      - TZ=Asia/Shanghai
+    command:
+      --max_connections=1000
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --tls_version="TLSv1.2,TLSv1.3"
+      --max_allowed_packet=1048576000
+    volumes:
+      - ${DATA_DIR:-./data}/mysql:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3366:3306"
+    networks:
+      - courtier
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
 
   # ppocr:
   #   image: ppocr:v0.0.1
@@ -53,21 +53,21 @@ services:
   #   networks:
   #     - courtier   # 将 ppocr 也加入同一网络，便于服务间通信（如需要）
 
-  # minio:
-  #   image: minio:RELEASE.2024-11-07T00-52-20Z
-  #   container_name: courtier-minio
-  #   restart: unless-stopped
-  #   command: server /data --console-address ":9001"
-  #   environment:
-  #     - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Required}
-  #     - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Required}
-  #   volumes:
-  #     - ${DATA_DIR:-./data}/minio:/data
-  #   ports:
-  #     - "127.0.0.1:9000:9000"
-  #     - "127.0.0.1:9001:9001"
-  #   networks:
-  #     - courtier
+  minio:
+    image: minio/minio:latest
+    container_name: courtier-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Required}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Required}
+    volumes:
+      - ${DATA_DIR:-./data}/minio:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    networks:
+      - courtier
 
   elasticsearch:
     container_name: courtier-es
@@ -170,6 +170,7 @@ services:
       - CLICKHOUSE_MIGRATION_URL=clickhouse://default:default@langfuse-clickhouse:9000/default
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=default
+      - CLICKHOUSE_CLUSTER_ENABLED=false
       - REDIS_URL=redis://langfuse-redis:6379
       - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
       - SALT=${LANGFUSE_SALT:-salt}
@@ -222,7 +223,6 @@ services:
       - CLICKHOUSE_PASSWORD=default
     volumes:
       - ${DATA_DIR:-./data}/langfuse-ch:/var/lib/clickhouse
-      - ./clickhouse-config.xml:/etc/clickhouse-server/config.d/keeper.xml:ro
     networks:
       - courtier
     healthcheck:

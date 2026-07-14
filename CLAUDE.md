@@ -28,7 +28,8 @@ cp .env.example .env
 # Edit .env with real MySQL/MinIO/Elasticsearch/LLM credentials.
 
 # Run the API server
-PYTHONPATH=courtier uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000
+PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
+  uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 The FastAPI app is created by the factory `create_app()` in `courtier/agent/api/app.py`. Note: the repo root `README.md` and `Dockerfile` refer to a `main.py` entry point that does not currently exist; start the server via the `app:create_app` factory instead.
