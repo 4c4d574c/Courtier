@@ -40,6 +40,35 @@ from .scanner import PluginScanResult
 
 logger = logging.getLogger(__name__)
 
+
+def _build_plugin_pythonpath(
+    plugin_dir: Path, project_root: Path, existing_pythonpath: str = ""
+) -> str:
+    """Build the PYTHONPATH for a plugin subprocess.
+
+    Includes the project root, shared libraries, and the plugin's domain
+    package directory (for domain plugins) so imports like ``docmodels``
+    resolve correctly.
+    """
+    parts = [str(project_root)]
+
+    parts.append(str(project_root / "libs" / "shared"))
+    parts.append(str(project_root / "libs" / "docaudit"))
+
+    try:
+        plugins_root = project_root / "plugins"
+        rel = plugin_dir.resolve().relative_to(plugins_root)
+        if rel.parts and rel.parts[0] != "shared":
+            domain_name = rel.parts[0]
+            parts.append(str(project_root / "domains" / domain_name))
+    except ValueError:
+        pass
+
+    if existing_pythonpath:
+        parts.append(existing_pythonpath)
+
+    return ":".join(parts)
+
 # Environment variables that may be resolved from ${ENV:VAR_NAME} references in
 # plugin manifests. Restricting this list prevents a plugin manifest from
 # exfiltrating database/LLM/cloud credentials from the host process.
@@ -352,16 +381,15 @@ class ProcessManager:
             _project_root_path = _project_root_path.parent
         project_root = str(_project_root_path)
 
-        # Build PYTHONPATH with project root + libs directories
+        # Build PYTHONPATH with project root + libs directories.
         # Plugins import from libs/shared (docparse, docannot) and
-        # libs/docaudit (validator, content_compliance, doccorrector)
-        _libs_shared = str(_project_root_path / "libs" / "shared")
-        _libs_docaudit = str(_project_root_path / "libs" / "docaudit")
-        _pythonpath_parts = [project_root, _libs_shared, _libs_docaudit]
+        # libs/docaudit (validator, content_compliance, doccorrector).
+        # Domain plugins also need the domain package directory so models
+        # such as docmodels are importable.
         existing = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
-        if existing:
-            _pythonpath_parts.append(existing)
-        env["PYTHONPATH"] = ":".join(_pythonpath_parts)
+        env["PYTHONPATH"] = _build_plugin_pythonpath(
+            proc.plugin_dir, _project_root_path, existing
+        )
 
         # Expose the repo root so plugins can resolve relative paths correctly.
         # The plugin subprocess CWD is the plugin directory, not the project

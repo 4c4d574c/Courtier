@@ -5,7 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from courtier.plugin.manager import PluginProcess, PluginState, ProcessManager, _resolve_plugin_entry_path
+from courtier.plugin.manager import (
+    PluginProcess,
+    PluginState,
+    ProcessManager,
+    _build_plugin_pythonpath,
+    _resolve_plugin_entry_path,
+)
 from courtier.plugin.scanner import PluginScanResult, ScanStatus
 from courtier.plugin.manifest import PluginManifest
 
@@ -151,6 +157,50 @@ class TestResolvePluginEntryPath:
     def test_accepts_safe_relative_path(self, tmp_path):
         result = _resolve_plugin_entry_path(tmp_path, "entry.py")
         assert result == tmp_path / "entry.py"
+
+
+class TestBuildPluginPythonpath:
+    def test_includes_project_root_and_libs(self, tmp_path):
+        project_root = tmp_path / "courtier"
+        plugin_dir = project_root / "plugins" / "shared" / "parse"
+        plugin_dir.mkdir(parents=True)
+
+        result = _build_plugin_pythonpath(plugin_dir, project_root)
+        parts = result.split(":")
+
+        assert str(project_root) in parts
+        assert str(project_root / "libs" / "shared") in parts
+        assert str(project_root / "libs" / "docaudit") in parts
+
+    def test_adds_domain_package_for_domain_plugins(self, tmp_path):
+        project_root = tmp_path / "courtier"
+        plugin_dir = project_root / "plugins" / "docaudit" / "audit" / "format_audit"
+        plugin_dir.mkdir(parents=True)
+
+        result = _build_plugin_pythonpath(plugin_dir, project_root)
+        parts = result.split(":")
+
+        assert str(project_root / "domains" / "docaudit") in parts
+
+    def test_skips_domain_package_for_shared_plugins(self, tmp_path):
+        project_root = tmp_path / "courtier"
+        plugin_dir = project_root / "plugins" / "shared" / "parse"
+        plugin_dir.mkdir(parents=True)
+
+        result = _build_plugin_pythonpath(plugin_dir, project_root)
+        parts = result.split(":")
+
+        assert str(project_root / "domains" / "shared") not in parts
+
+    def test_appends_existing_pythonpath(self, tmp_path):
+        project_root = tmp_path / "courtier"
+        plugin_dir = project_root / "plugins" / "shared" / "parse"
+        plugin_dir.mkdir(parents=True)
+
+        result = _build_plugin_pythonpath(plugin_dir, project_root, "/existing/path")
+        parts = result.split(":")
+
+        assert parts[-1] == "/existing/path"
 
 
 # TODO: Add a health_check integration test that verifies ProcessManager.health_check()
