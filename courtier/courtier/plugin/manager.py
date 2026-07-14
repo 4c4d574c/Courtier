@@ -38,7 +38,20 @@ from .protocol import (
 from .registry import ExtensionRegistry
 from .scanner import PluginScanResult
 
-logger = logging.getLogger(__name__)
+def _find_project_root(plugin_dir: Path) -> Path:
+    """Walk up from plugin_dir to find the project root.
+
+    The project root is identified by the presence of both ``pyproject.toml``
+    and a ``courtier/`` package directory. Plugin directories themselves
+    contain ``pyproject.toml`` but not ``courtier/``, so the search continues
+    upward past them.
+    """
+    path = plugin_dir.resolve()
+    while path != path.parent:
+        if (path / "pyproject.toml").is_file() and (path / "courtier").is_dir():
+            return path
+        path = path.parent
+    return plugin_dir.resolve()
 
 
 def _build_plugin_pythonpath(
@@ -68,6 +81,9 @@ def _build_plugin_pythonpath(
         parts.append(existing_pythonpath)
 
     return ":".join(parts)
+
+
+logger = logging.getLogger(__name__)
 
 # Environment variables that may be resolved from ${ENV:VAR_NAME} references in
 # plugin manifests. Restricting this list prevents a plugin manifest from
@@ -370,15 +386,8 @@ class ProcessManager:
         # Add project root to PYTHONPATH so plugins can import from
         # libs/ (courtier.* and domain libs).
         # Walk up from plugin_dir to find project root (identified by
-        # pyproject.toml or courtier/ directory).
-        _plugin_dir = proc.plugin_dir.resolve()
-        _project_root_path = _plugin_dir
-        while _project_root_path != _project_root_path.parent:
-            if (_project_root_path / "pyproject.toml").is_file() or (
-                _project_root_path / "courtier"
-            ).is_dir():
-                break
-            _project_root_path = _project_root_path.parent
+        # pyproject.toml and a courtier/ package directory).
+        _project_root_path = _find_project_root(proc.plugin_dir)
         project_root = str(_project_root_path)
 
         # Build PYTHONPATH with project root + libs directories.

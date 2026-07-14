@@ -10,6 +10,7 @@ from courtier.plugin.manager import (
     PluginState,
     ProcessManager,
     _build_plugin_pythonpath,
+    _find_project_root,
     _resolve_plugin_entry_path,
 )
 from courtier.plugin.scanner import PluginScanResult, ScanStatus
@@ -157,6 +158,27 @@ class TestResolvePluginEntryPath:
     def test_accepts_safe_relative_path(self, tmp_path):
         result = _resolve_plugin_entry_path(tmp_path, "entry.py")
         assert result == tmp_path / "entry.py"
+
+
+class TestFindProjectRoot:
+    def test_finds_root_past_plugin_pyproject(self, tmp_path):
+        """Plugin directories have pyproject.toml but must not stop the search."""
+        project_root = tmp_path / "courtier"
+        plugin_dir = project_root / "plugins" / "docaudit" / "audit" / "format_audit"
+        plugin_dir.mkdir(parents=True)
+        (project_root / "pyproject.toml").write_text("[project]\n")
+        (project_root / "courtier").mkdir()
+        (plugin_dir / "pyproject.toml").write_text("[project]\n")
+
+        result = _find_project_root(plugin_dir)
+        assert result == project_root
+
+    def test_falls_back_to_plugin_dir_when_no_root_found(self, tmp_path):
+        plugin_dir = tmp_path / "plugins" / "shared" / "parse"
+        plugin_dir.mkdir(parents=True)
+
+        result = _find_project_root(plugin_dir)
+        assert result == plugin_dir
 
 
 class TestBuildPluginPythonpath:
