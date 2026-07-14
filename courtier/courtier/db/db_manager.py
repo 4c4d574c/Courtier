@@ -5,7 +5,7 @@ from typing import Any, Generic, Type, TypeVar
 from contextlib import asynccontextmanager
 
 from pydantic import BaseModel
-from sqlalchemy import select, update, delete, insert, and_, func, Select
+from sqlalchemy import select, update, delete, insert, and_, func, Select, make_url, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
@@ -23,6 +23,42 @@ CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)
 UpdateSchemaType = TypeVar("UpdateSchemaType", bound=BaseModel)
 
 
+async def ensure_database_exists(db_url: str) -> None:
+    """Create the target database if it does not exist.
+
+    Supports ``mysql+asyncmy`` URLs. Silently skips for empty URLs or
+    non-asyncmy drivers.
+
+    Raises:
+        Exception: If the database server is reachable but creation fails.
+    """
+    if not db_url:
+        return
+
+    url = make_url(db_url)
+    if url.drivername not in ("mysql+asyncmy",):
+        logger.debug("Skipping database auto-creation for driver: %s", url.drivername)
+        return
+
+    if not url.database:
+        return
+
+    # Connect to the server without specifying a database.
+    server_url = url.set(database="")
+    engine = create_async_engine(str(server_url), isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(
+                text(
+                    f"CREATE DATABASE IF NOT EXISTS `{url.database}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                )
+            )
+        logger.info("Ensured database exists: %s", url.database)
+    finally:
+        await engine.dispose()
+
+
 class AsyncDatabase:
     """数据库连接与会话管理器"""
 
@@ -34,6 +70,10 @@ class AsyncDatabase:
             expire_on_commit=False,
             autoflush=False,
         )
+
+    async def ensure_database(self) -> None:
+        """Ensure the configured database exists before connecting."""
+        await ensure_database_exists(str(self.engine.url))
 
     async def create_all(self):
         async with self.engine.begin() as conn:

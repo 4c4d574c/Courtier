@@ -63,7 +63,9 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         if start_plugins:
             await app.state.plugin_system.start()
         init_telemetry()
-        from .db import bootstrap_admin_user
+        from .db import bootstrap_admin_user, get_db
+        db = get_db()
+        await db.ensure_database()
         await bootstrap_admin_user()
         try:
             yield
