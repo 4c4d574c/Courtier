@@ -16,11 +16,12 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Add packages and src paths so we can import courtier modules
+# Add monorepo source paths so we can import courtier modules and domains.
 _project_root = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(_project_root, "packages", "core", "src"))
-sys.path.insert(0, os.path.join(_project_root, "packages", "domains", "docaudit"))
-sys.path.insert(0, os.path.join(_project_root, "src"))
+sys.path.insert(0, _project_root)
+sys.path.insert(0, os.path.join(_project_root, "domains", "docaudit"))
+sys.path.insert(0, os.path.join(_project_root, "libs", "shared"))
+sys.path.insert(0, os.path.join(_project_root, "libs", "docaudit"))
 
 from courtier.db.tables import Base  # noqa: E402
 
