@@ -44,8 +44,14 @@ async def ensure_database_exists(db_url: str) -> None:
         return
 
     # Connect to the server without specifying a database.
+    # Use render_as_string(hide_password=False) because str(URL) masks
+    # the password with '***' in SQLAlchemy 2.0, causing authentication
+    # failures when the URL is passed back to create_async_engine.
     server_url = url.set(database="")
-    engine = create_async_engine(str(server_url), isolation_level="AUTOCOMMIT")
+    engine = create_async_engine(
+        server_url.render_as_string(hide_password=False),
+        isolation_level="AUTOCOMMIT",
+    )
     try:
         async with engine.connect() as conn:
             await conn.execute(
@@ -73,7 +79,9 @@ class AsyncDatabase:
 
     async def ensure_database(self) -> None:
         """Ensure the configured database exists before connecting."""
-        await ensure_database_exists(str(self.engine.url))
+        await ensure_database_exists(
+            self.engine.url.render_as_string(hide_password=False)
+        )
 
     async def create_all(self):
         async with self.engine.begin() as conn:
