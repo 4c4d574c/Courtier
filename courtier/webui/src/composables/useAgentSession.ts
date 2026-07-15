@@ -159,6 +159,34 @@ export function useAgentSession() {
     state.observedSinceLastStep = false;
   }
 
+  function restoreSession(loaded: Session) {
+    disconnect();
+    currentSessionId.value = loaded.id || "";
+    session.id = loaded.id || "";
+    session.task = loaded.task || "";
+    session.modelName = loaded.modelName || "";
+    session.status = loaded.status || "completed";
+    session.turns = loaded.turns || [];
+    session.steps = loaded.steps || [];
+    session.thoughts = loaded.thoughts || [];
+    session.stats = loaded.stats || { tokensIn: 0, tokensOut: 0, elapsed: 0 };
+    session.conclusion = loaded.conclusion;
+    session.errorMessage = loaded.errorMessage;
+    session.stopReason = loaded.stopReason;
+    session.createdAt = loaded.createdAt || Date.now();
+    state.currentTurn = null;
+    state.currentTurnIndex = 0;
+    state.currentStepIndex = 0;
+    state.segmentIndex = 0;
+    state.currentSegmentType = "observe";
+    state.currentThoughtTurn = 0;
+    state.observedSinceLastStep = false;
+    state.thoughtIdCounter = 0;
+    state.toolIdCounter = 0;
+    state.subagentThoughtCounters = {};
+    state.pendingSubagents = [];
+  }
+
   async function stop() {
     try {
       await api.stop(session.id || undefined);
@@ -189,6 +217,7 @@ export function useAgentSession() {
     session,
     connect,
     newSession,
+    restoreSession,
     stop,
     isRunning,
     turnVersion,
