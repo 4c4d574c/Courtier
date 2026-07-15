@@ -1,5 +1,14 @@
 import type { Session, Thought, Turn } from "../types/agent";
-import type { ChatFileRecord, ChatMessageItem } from "../types/chat";
+import type {
+  ChatFileRecord,
+  ChatMessageItem,
+  ChatUserMessageItem,
+  ChatFileItem,
+  ChatThinkingItem,
+  ChatAssistantMessageItem,
+  ChatErrorItem,
+  ChatStoppedItem,
+} from "../types/chat";
 import { MESSAGES } from "../constants/messages";
 import { thoughtsForStep } from "./sessionUtils";
 
@@ -72,6 +81,87 @@ export function fileMimeType(name: string): string {
   }
 }
 
+function buildUserItem(turn: Turn, baseId: string): ChatUserMessageItem {
+  return {
+    type: "user",
+    id: `${baseId}-user`,
+    content: turn.message.text,
+  };
+}
+
+function buildFileItem(
+  turn: Turn,
+  baseId: string,
+  records: ChatFileRecord[],
+): ChatFileItem | null {
+  if (!turn.message.fileName) return null;
+  const record = findFileRecord(records, turn.message.fileId, turn.message.fileName);
+  return {
+    type: "file",
+    id: `${baseId}-file`,
+    name: turn.message.fileName,
+    url: record?.url ?? "",
+    mimeType: record ? fileMimeType(record.name) : "application/octet-stream",
+  };
+}
+
+function buildThinkingItem(
+  turn: Turn,
+  baseId: string,
+  allThoughts: Thought[],
+): ChatThinkingItem | null {
+  const thoughts = collectTurnThoughts(turn, allThoughts);
+  if (thoughts.length === 0) return null;
+  return {
+    type: "thinking",
+    id: `${baseId}-thinking`,
+    content: thoughts.map((t) => t.text).join("\n\n"),
+    isOpen: true,
+  };
+}
+
+function buildAssistantItem(
+  turn: Turn,
+  baseId: string,
+  sessionConclusion: string | undefined,
+  isRunning: boolean,
+  isLastTurn: boolean,
+): ChatAssistantMessageItem | null {
+  const conclusion = turn.conclusion ?? sessionConclusion;
+  if (!conclusion && !(isRunning && isLastTurn)) return null;
+  return {
+    type: "assistant",
+    id: `${baseId}-assistant`,
+    content: conclusion ?? "",
+  };
+}
+
+function buildStatusItem(
+  session: Session,
+  baseId: string,
+  isRunning: boolean,
+  isLastTurn: boolean,
+): ChatErrorItem | ChatStoppedItem | null {
+  if (!isLastTurn) return null;
+  if (session.errorMessage) {
+    return {
+      type: "error",
+      id: `${baseId}-error`,
+      title: MESSAGES.SESSION_ERROR_TITLE,
+      detail: session.errorMessage,
+    };
+  }
+  if (session.stopReason === "user" && !isRunning) {
+    return {
+      type: "stopped",
+      id: `${baseId}-stopped`,
+      title: MESSAGES.SESSION_STOPPED,
+      detail: MESSAGES.SESSION_STOPPED_DETAIL,
+    };
+  }
+  return null;
+}
+
 export function buildChatMessages(
   session: Session,
   fileRecords: ChatFileRecord[],
@@ -83,63 +173,25 @@ export function buildChatMessages(
     const baseId = `turn-${turnIndex}`;
     const isLastTurn = turnIndex === session.turns.length - 1;
 
-    items.push({
-      type: "user",
-      id: `${baseId}-user`,
-      content: turn.message.text,
-    });
+    items.push(buildUserItem(turn, baseId));
 
-    if (turn.message.fileName) {
-      const record = findFileRecord(
-        fileRecords,
-        turn.message.fileId,
-        turn.message.fileName,
-      );
-      items.push({
-        type: "file",
-        id: `${baseId}-file`,
-        name: turn.message.fileName,
-        url: record?.url ?? "",
-        mimeType: record ? fileMimeType(record.name) : "application/octet-stream",
-      });
-    }
+    const fileItem = buildFileItem(turn, baseId, fileRecords);
+    if (fileItem) items.push(fileItem);
 
-    const thoughts = collectTurnThoughts(turn, session.thoughts);
-    if (thoughts.length > 0) {
-      items.push({
-        type: "thinking",
-        id: `${baseId}-thinking`,
-        content: thoughts.map((t) => t.text).join("\n\n"),
-        isOpen: true,
-      });
-    }
+    const thinkingItem = buildThinkingItem(turn, baseId, session.thoughts);
+    if (thinkingItem) items.push(thinkingItem);
 
-    const conclusion = turn.conclusion ?? session.conclusion;
-    if (conclusion || (isRunning && isLastTurn)) {
-      items.push({
-        type: "assistant",
-        id: `${baseId}-assistant`,
-        content: conclusion ?? "",
-      });
-    }
+    const assistantItem = buildAssistantItem(
+      turn,
+      baseId,
+      session.conclusion,
+      isRunning,
+      isLastTurn,
+    );
+    if (assistantItem) items.push(assistantItem);
 
-    if (isLastTurn) {
-      if (session.errorMessage) {
-        items.push({
-          type: "error",
-          id: `${baseId}-error`,
-          title: MESSAGES.SESSION_ERROR_TITLE,
-          detail: session.errorMessage,
-        });
-      } else if (session.stopReason === "user" && !isRunning) {
-        items.push({
-          type: "stopped",
-          id: `${baseId}-stopped`,
-          title: MESSAGES.SESSION_STOPPED,
-          detail: MESSAGES.SESSION_STOPPED_DETAIL,
-        });
-      }
-    }
+    const statusItem = buildStatusItem(session, baseId, isRunning, isLastTurn);
+    if (statusItem) items.push(statusItem);
   });
 
   return items;

@@ -124,6 +124,97 @@ try {
   assert.equal(fileMimeType("photo.jpg"), "image/jpeg");
   assert.equal(fileMimeType("doc.docx"), "application/octet-stream");
 
+  // Thinking item from session.thoughts matching turn and stepIndex
+  const thoughtSession = {
+    ...baseSession,
+    turns: [
+      {
+        message: { role: "user", text: "思考测试", timestamp: 1 },
+        steps: [
+          {
+            index: 10,
+            numeral: "1",
+            label: "step",
+            skill: "s",
+            tools: [],
+            turnIndex: 0,
+          },
+        ],
+      },
+    ],
+    thoughts: [
+      {
+        id: 1,
+        text: "正在分析...",
+        turn: 1,
+        turnIndex: 0,
+        stepIndex: 10,
+        timestamp: 1,
+      },
+    ],
+  };
+  const thoughtMsgs = buildChatMessages(thoughtSession, []);
+  assert.equal(thoughtMsgs.length, 2);
+  assert.equal(thoughtMsgs[0].type, "user");
+  assert.equal(thoughtMsgs[1].type, "thinking");
+  assert.equal(thoughtMsgs[1].content, "正在分析...");
+  assert.equal(thoughtMsgs[1].isOpen, true);
+
+  // Error item from completed session with errorMessage
+  const errorSession = {
+    ...baseSession,
+    status: "error",
+    errorMessage: "引擎异常",
+    turns: [
+      {
+        message: { role: "user", text: "报错测试", timestamp: 1 },
+        steps: [],
+      },
+    ],
+  };
+  const errorMsgs = buildChatMessages(errorSession, []);
+  assert.equal(errorMsgs.length, 2);
+  assert.equal(errorMsgs[0].type, "user");
+  assert.equal(errorMsgs[1].type, "error");
+  assert.equal(errorMsgs[1].title, "会话异常终止");
+  assert.equal(errorMsgs[1].detail, "引擎异常");
+
+  // Stopped item from completed session with stopReason: "user"
+  const stoppedSession = {
+    ...baseSession,
+    status: "completed",
+    stopReason: "user",
+    turns: [
+      {
+        message: { role: "user", text: "停止测试", timestamp: 1 },
+        steps: [],
+      },
+    ],
+  };
+  const stoppedMsgs = buildChatMessages(stoppedSession, []);
+  assert.equal(stoppedMsgs.length, 2);
+  assert.equal(stoppedMsgs[0].type, "user");
+  assert.equal(stoppedMsgs[1].type, "stopped");
+  assert.equal(stoppedMsgs[1].title, "会话已中断");
+  assert.equal(stoppedMsgs[1].detail, "由用户手动停止");
+
+  // Running session's last turn with no conclusion produces assistant placeholder
+  const runningSession = {
+    ...baseSession,
+    status: "running",
+    turns: [
+      {
+        message: { role: "user", text: "运行测试", timestamp: 1 },
+        steps: [],
+      },
+    ],
+  };
+  const runningMsgs = buildChatMessages(runningSession, []);
+  assert.equal(runningMsgs.length, 2);
+  assert.equal(runningMsgs[0].type, "user");
+  assert.equal(runningMsgs[1].type, "assistant");
+  assert.equal(runningMsgs[1].content, "");
+
   console.log("chatMessages verification passed");
 } finally {
   rmSync(outDir, { recursive: true, force: true });
