@@ -70,6 +70,12 @@ watch(
 );
 
 watch(
+  () => props.messages,
+  () => nextTick(scrollToBottom),
+  { deep: true },
+);
+
+watch(
   () => props.isRunning,
   () => nextTick(scrollToBottom),
 );
