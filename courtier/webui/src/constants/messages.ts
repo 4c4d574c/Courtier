@@ -63,6 +63,7 @@ export const MESSAGES = {
   CHAT_USER_MANAGE: "用户管理",
   CHAT_APPROVALS: "注册审批",
   CHAT_PREVIEW_DOWNLOAD: "下载",
+  CHAT_PREVIEW_CLOSE: "关闭预览",
   CHAT_PREVIEW_UNSUPPORTED: "当前文件格式不支持浏览器预览，请下载后查看。",
 } as const;
 
