@@ -175,7 +175,7 @@ export function useAgentSession() {
     session.stopReason = loaded.stopReason;
     session.createdAt = loaded.createdAt || Date.now();
     state.currentTurn = null;
-    state.currentTurnIndex = 0;
+    state.currentTurnIndex = loaded.turns?.length ?? 0;
     state.currentStepIndex = 0;
     state.segmentIndex = 0;
     state.currentSegmentType = "observe";
