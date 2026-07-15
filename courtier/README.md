@@ -113,9 +113,13 @@ PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
 ### Run the API Server
 
 ```bash
-PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
-  uv run python -m uvicorn courtier.agent.api.app:create_app \
-  --factory --host 0.0.0.0 --port 8000
+uv run main.py
+```
+
+Custom host/port or reload:
+
+```bash
+uv run main.py --host 127.0.0.1 --port 8080 --reload
 ```
 
 API docs: `http://localhost:8000/docs`
