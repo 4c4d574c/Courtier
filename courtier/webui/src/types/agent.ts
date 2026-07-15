@@ -87,6 +87,7 @@ export interface Message {
   role: 'user'
   text: string
   fileName?: string
+  fileId?: string
   timestamp: number
 }
 
