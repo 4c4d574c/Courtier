@@ -44,6 +44,26 @@ export const MESSAGES = {
   QUICK_FORMAT: "格式审核",
   QUICK_CONTENT: "内容审核",
   QUICK_FULL: "全面审核",
+  /** Chat UI */
+  CHAT_NEW_SESSION: "新会话",
+  CHAT_HISTORY_TITLE: "历史会话",
+  CHAT_NO_HISTORY: "暂无历史会话",
+  CHAT_SEND: "发送",
+  CHAT_STOP: "停止",
+  CHAT_UPLOADING: "上传中...",
+  CHAT_ATTACH: "上传文档",
+  CHAT_PLACEHOLDER: "输入审核任务描述，例如：审核这份通知的格式规范",
+  CHAT_THINKING: "思考过程",
+  CHAT_THINKING_ACTIVE: "分析中…",
+  CHAT_MODEL: "模型",
+  CHAT_THEME_TOGGLE: "切换主题",
+  CHAT_TOGGLE_SIDEBAR: "展开/收起侧边栏",
+  CHAT_SETTINGS: "个人设置",
+  CHAT_LOGOUT: "退出登录",
+  CHAT_USER_MANAGE: "用户管理",
+  CHAT_APPROVALS: "注册审批",
+  CHAT_PREVIEW_DOWNLOAD: "下载",
+  CHAT_PREVIEW_UNSUPPORTED: "当前文件格式不支持浏览器预览，请下载后查看。",
 } as const;
 
 /** Tool status to Chinese display label mapping. */
