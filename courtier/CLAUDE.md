@@ -60,8 +60,10 @@ Python 3.12+ 必需。使用 `uv` 管理依赖和虚拟环境。
 uv sync
 
 # 运行 API 服务
-PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
-  uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000
+uv run main.py
+
+# 自定义监听地址或启用热重载
+uv run main.py --host 127.0.0.1 --port 8080 --reload
 
 # 运行所有测试
 uv run pytest
