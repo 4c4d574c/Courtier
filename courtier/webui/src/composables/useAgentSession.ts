@@ -85,7 +85,7 @@ export function useAgentSession() {
     state.subagentThoughtCounters = {};
 
     const turn: Turn = {
-      message: { role: "user", text: task, fileName, timestamp: Date.now() },
+      message: { role: "user", text: task, fileId, fileName, timestamp: Date.now() },
       steps: [],
     };
     session.turns.push(turn);
