@@ -58,21 +58,20 @@ const examples = [
   { label: MESSAGES.QUICK_FULL, task: "全面审核这份文档" },
 ];
 
-const { containerRef, mount, unmount, forceScrollToBottom, scrollToBottom } =
-  useAutoScroll();
+const { containerRef, mount, unmount, scrollToBottom } = useAutoScroll();
 
 onMounted(() => mount());
 onUnmounted(() => unmount());
 
 watch(
-  () => props.messages.length,
-  () => nextTick(forceScrollToBottom),
-);
-
-watch(
-  () => props.messages,
+  // Lightweight trigger: deep-watching the whole array would re-traverse
+  // every message on each streamed token. Track count + last content size.
+  () => {
+    const msgs = props.messages;
+    const last = msgs[msgs.length - 1] as { content?: string } | undefined;
+    return `${msgs.length}:${last?.content?.length ?? 0}`;
+  },
   () => nextTick(scrollToBottom),
-  { deep: true },
 );
 
 watch(

@@ -40,6 +40,8 @@ try {
     normalizeSession,
     displayToolName,
     buildStepToolGroups,
+    isDeprecatedTool,
+    parseDeprecatedReplacement,
   } = toolCalls
 
   const parentTool = normalizeToolResult({
@@ -196,6 +198,24 @@ try {
   assert.equal(normalizedSession.turns[0].steps[0].tools[0].subagentName, null)
   assert.notEqual(normalizedSession.steps[0], legacyStep)
   assert.equal('callKind' in legacyStep.tools[0], false)
+
+  // Deprecated tool detection
+  const deprecatedTool = normalizeToolResult({
+    id: 'tool-d1',
+    name: 'old_check_format',
+    skillDescription: '[DEPRECATED (use check_format_v2)] 旧版格式检查',
+    status: 'done',
+  })
+  assert.equal(isDeprecatedTool(deprecatedTool), true)
+  assert.equal(parseDeprecatedReplacement(deprecatedTool), 'check_format_v2')
+
+  const plainTool = normalizeToolResult({
+    id: 'tool-d2',
+    name: 'check_format',
+    status: 'done',
+  })
+  assert.equal(isDeprecatedTool(plainTool), false)
+  assert.equal(parseDeprecatedReplacement(plainTool), undefined)
 
   console.log('toolCalls verification passed')
 } finally {

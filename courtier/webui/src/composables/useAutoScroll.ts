@@ -25,8 +25,18 @@ export function useAutoScroll() {
 
   function mount() {
     const el = containerRef.value;
-    if (!el) return;
-    el.addEventListener("scroll", onScroll);
+    if (el) {
+      el.addEventListener("scroll", onScroll);
+      return;
+    }
+    // The container may render later (v-if) — attach once it appears,
+    // otherwise the listener would never be registered.
+    const stop = watch(containerRef, (newEl) => {
+      if (newEl) {
+        newEl.addEventListener("scroll", onScroll);
+        stop();
+      }
+    });
   }
 
   function unmount() {

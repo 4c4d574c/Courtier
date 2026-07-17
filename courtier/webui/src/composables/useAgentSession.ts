@@ -27,6 +27,10 @@ export function useAgentSession() {
   const turnVersion = ref(0);
   let reconnectCount = 0;
   const MAX_RECONNECTS = 3;
+  // Incremented on every connect()/disconnect() — a pending createEventSource
+  // promise from a superseded connect is closed instead of being attached,
+  // preventing zombie streams when connect/stop race each other.
+  let connectGeneration = 0;
 
   const state: MutableState = {
     currentTurn: null,
@@ -52,6 +56,7 @@ export function useAgentSession() {
 
   function connect(task: string, fileId?: string, fileName?: string) {
     disconnect();
+    const generation = ++connectGeneration;
     reconnectCount = 0;
     const isNewSession = !currentSessionId.value;
 
@@ -98,13 +103,22 @@ export function useAgentSession() {
         sessionId: currentSessionId.value || undefined,
       })
       .then((es: EventSource) => {
+        if (generation !== connectGeneration) {
+          // Superseded by a newer connect()/disconnect() — do not attach
+          // a zombie stream.
+          es.close();
+          return;
+        }
         es.onmessage = (e) => {
           reconnectCount = 0;
           try {
             const event: AgentEvent = JSON.parse(e.data);
+            if (import.meta.env.DEV) {
+              console.debug("[SSE]", event.type, event);
+            }
             handlers.handleSessionEvent(event);
           } catch (_err) {
-            console.warn("Failed to parse SSE data:", _err);
+            console.warn("Failed to handle SSE data:", _err, e.data);
             session.errorMessage = "数据解析错误，请刷新页面重试";
           }
         };
@@ -114,6 +128,9 @@ export function useAgentSession() {
             es.close();
             return;
           }
+          // The access cookie may have expired during a long stream — try to
+          // rotate it so the browser's automatic reconnect can re-authenticate.
+          void api.refreshToken().catch(() => {});
           reconnectCount++;
           if (reconnectCount >= MAX_RECONNECTS) {
             session.status = "error";
@@ -126,6 +143,7 @@ export function useAgentSession() {
         eventSource.value = es;
       })
       .catch((err: unknown) => {
+        if (generation !== connectGeneration) return;
         const msg = err instanceof Error ? err.message : "连接失败";
         session.status = "error";
         session.errorMessage = `无法连接审核引擎：${msg}`;
@@ -198,7 +216,42 @@ export function useAgentSession() {
     disconnect();
   }
 
+  async function forkSession(nodeId?: string, reason?: string) {
+    if (!session.id) return;
+    try {
+      const result = await api.forkSession(session.id, nodeId, reason);
+      const loaded = await api.loadSession(session.id);
+      if (loaded) {
+        restoreSession(loaded);
+      }
+      return result;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      session.errorMessage = `分支失败：${msg}`;
+      console.warn("forkSession failed:", err);
+    }
+  }
+
+  async function rewindSession(nodeId: string) {
+    if (!session.id) return;
+    try {
+      const result = await api.rewindSession(session.id, nodeId);
+      const loaded = await api.loadSession(session.id);
+      if (loaded) {
+        restoreSession(loaded);
+      }
+      return result;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      session.errorMessage = `回退失败：${msg}`;
+      console.warn("rewindSession failed:", err);
+    }
+  }
+
   function disconnect() {
+    // Invalidate any pending createEventSource resolution so a superseded
+    // connect cannot attach its stream afterwards.
+    connectGeneration++;
     eventSource.value?.close();
     eventSource.value = null;
   }
@@ -216,9 +269,12 @@ export function useAgentSession() {
   return {
     session,
     connect,
+    disconnect,
     newSession,
     restoreSession,
     stop,
+    forkSession,
+    rewindSession,
     isRunning,
     turnVersion,
   };

@@ -29,10 +29,11 @@ streamingMarked.use({ renderer });
 const INLINE_CONTAINER_TYPES = new Set(["paragraph", "heading", "tablecell"]);
 
 function hasInlineTokens(token: Token): token is Token & { tokens: Token[] } {
+  const inlineTokens = (token as { tokens?: unknown }).tokens;
   return (
     INLINE_CONTAINER_TYPES.has(token.type) &&
-    Array.isArray((token as any).tokens) &&
-    (token as any).tokens.length > 0
+    Array.isArray(inlineTokens) &&
+    inlineTokens.length > 0
   );
 }
 
@@ -147,7 +148,7 @@ export function createStreamingRenderer() {
     let trailingText = "";
 
     if (hasInlineTokens(lastBlock)) {
-      const inlineTokens = (lastBlock as any).tokens as Token[];
+      const inlineTokens = lastBlock.tokens;
       const lastInline = inlineTokens[inlineTokens.length - 1];
 
       if (lastInline.type === "text") {
@@ -176,7 +177,7 @@ export function createStreamingRenderer() {
       }
     } else {
       // Non-inline block — trailing as raw text.
-      trailingText = (lastBlock as any).raw ?? "";
+      trailingText = lastBlock.raw ?? "";
       if (trailingText) {
         completeHtml += `<p>${TRAILING_OPEN}${escapeHtml(trailingText)}${TRAILING_CLOSE}</p>`;
       }

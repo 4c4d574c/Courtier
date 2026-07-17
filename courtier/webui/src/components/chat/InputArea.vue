@@ -16,7 +16,7 @@
       <input
         ref="fileInput"
         type="file"
-        accept=".pdf,.docx,.bmp,.jpg,.jpeg,.png,.gif,.tif,.tiff"
+        :accept="ALLOWED_EXTS"
         style="display: none"
         @change="handleFileChange"
       />
@@ -63,6 +63,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick } from "vue";
+import { ALLOWED_EXTS, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } from "../../constants/fileUpload";
 import { MESSAGES } from "../../constants/messages";
 
 interface Props {
@@ -86,7 +87,6 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
 const canSubmit = computed(() => task.value.trim().length > 0);
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 function autoResize() {
   const el = textareaRef.value;
@@ -96,7 +96,7 @@ function autoResize() {
 }
 
 function handleEnter(event: KeyboardEvent) {
-  if (event.shiftKey) return;
+  if (event.shiftKey || event.isComposing) return;
   event.preventDefault();
   handleClick();
 }
@@ -120,6 +120,13 @@ function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
   if (!file) return;
+  // The accept attribute is only a picker hint — enforce the whitelist here.
+  const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    fileError.value = `不支持的文件类型：${ext}`;
+    target.value = "";
+    return;
+  }
   if (file.size > MAX_FILE_SIZE) {
     fileError.value = MESSAGES.FILE_TOO_LARGE((file.size / 1024 / 1024).toFixed(1));
     target.value = "";

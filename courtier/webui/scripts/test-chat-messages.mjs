@@ -122,7 +122,10 @@ try {
 
   // MIME helper
   assert.equal(fileMimeType("photo.jpg"), "image/jpeg");
-  assert.equal(fileMimeType("doc.docx"), "application/octet-stream");
+  assert.equal(
+    fileMimeType("doc.docx"),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  );
 
   // Thinking item from session.thoughts matching turn and stepIndex
   const thoughtSession = {
@@ -214,6 +217,30 @@ try {
   assert.equal(runningMsgs[0].type, "user");
   assert.equal(runningMsgs[1].type, "assistant");
   assert.equal(runningMsgs[1].content, "");
+
+  // Guard events become guard chat items in the last turn
+  const guardSession = {
+    ...baseSession,
+    turns: [
+      {
+        message: { role: "user", text: "护栏测试", timestamp: 1 },
+        steps: [],
+      },
+    ],
+    guardEvents: [
+      { type: "guard_triggered", layer: "input", guardName: "SensitiveInputGuard", action: "block", reason: "敏感内容" },
+      { type: "guard_triggered", layer: "output", guardName: "PolicyGuard", action: "log" },
+    ],
+  };
+  const guardMsgs = buildChatMessages(guardSession, []);
+  assert.equal(guardMsgs.length, 3);
+  assert.equal(guardMsgs[0].type, "user");
+  assert.equal(guardMsgs[1].type, "guard");
+  assert.equal(guardMsgs[1].guardName, "SensitiveInputGuard");
+  assert.equal(guardMsgs[1].action, "block");
+  assert.equal(guardMsgs[1].layer, "input");
+  assert.equal(guardMsgs[2].type, "guard");
+  assert.equal(guardMsgs[2].action, "log");
 
   console.log("chatMessages verification passed");
 } finally {

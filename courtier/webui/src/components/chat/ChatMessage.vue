@@ -22,6 +22,13 @@
     :title="item.title"
     :detail="item.detail"
   />
+  <GuardMessage
+    v-else-if="item.type === 'guard'"
+    :layer="item.layer"
+    :guard-name="item.guardName"
+    :action="item.action"
+    :reason="item.reason"
+  />
 </template>
 
 <script setup lang="ts">
@@ -31,6 +38,7 @@ import AssistantMessage from "./AssistantMessage.vue";
 import ThinkingCard from "./ThinkingCard.vue";
 import FileCard from "./FileCard.vue";
 import ChatStatusMessage from "./ChatStatusMessage.vue";
+import GuardMessage from "./GuardMessage.vue";
 
 interface Props {
   item: ChatMessageItem;

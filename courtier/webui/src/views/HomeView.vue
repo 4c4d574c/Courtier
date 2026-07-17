@@ -1,7 +1,7 @@
 <template>
   <ChatLayout
     :title="title"
-    :model-name="session.modelName"
+    :session="session"
     :messages="messages"
     :sessions="historySessions"
     :history-loading="historyLoading"
@@ -24,6 +24,8 @@
     @close-preview="closePreview"
     @submit="handleSubmit"
     @stop="stop"
+    @fork-session="handleFork"
+    @rewind-session="handleRewind"
   />
 </template>
 
@@ -41,8 +43,17 @@ import ChatLayout from "../components/chat/ChatLayout.vue";
 
 const router = useRouter();
 const { user, logout } = useAuth();
-const { session, connect, newSession, restoreSession, stop, isRunning } =
-  useAgentSession();
+const {
+  session,
+  connect,
+  disconnect,
+  newSession,
+  restoreSession,
+  stop,
+  forkSession,
+  rewindSession,
+  isRunning,
+} = useAgentSession();
 const {
   sessions: historySessions,
   loading: historyLoading,
@@ -91,7 +102,6 @@ async function handleSubmit(task: string, file?: File) {
     } catch (e: unknown) {
       uploadError.value = e instanceof Error ? e.message : "上传失败";
       if (fileUrl) URL.revokeObjectURL(fileUrl);
-      uploading.value = false;
       return;
     } finally {
       uploading.value = false;
@@ -130,6 +140,15 @@ async function handleLogout() {
   router.push("/login");
 }
 
+async function handleFork(nodeId: string) {
+  // forkSession/rewindSession handle errors internally (session.errorMessage).
+  await forkSession(nodeId, "用户手动分支");
+}
+
+async function handleRewind(nodeId: string) {
+  await rewindSession(nodeId);
+}
+
 function toggleTheme() {
   const html = document.documentElement;
   const current = html.getAttribute("data-theme") || "light";
@@ -144,6 +163,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  // Close the SSE stream — otherwise it keeps writing into this (now
+  // orphaned) session state until the backend finishes.
+  disconnect();
   revokeUploadedFiles();
 });
 </script>

@@ -13,10 +13,12 @@
     <div class="chat-layout-main">
       <ChatHeader
         :title="title"
-        :model-name="modelName"
+        :model-name="session.modelName"
         :username="username"
         :user-role="userRole"
+        :model-events="session.modelEvents"
         @toggle-sidebar="$emit('toggle-sidebar')"
+        @toggle-debug="debugOpen = !debugOpen"
         @toggle-theme="$emit('toggle-theme')"
         @logout="$emit('logout')"
       />
@@ -27,7 +29,7 @@
         @preview="$emit('preview-file', $event)"
       />
       <InputArea
-        :model-name="modelName"
+        :model-name="session.modelName"
         :uploading="uploading"
         :error="uploadError"
         :is-running="isRunning"
@@ -35,6 +37,17 @@
         @stop="$emit('stop')"
       />
     </div>
+    <DebugPanel
+      :open="debugOpen"
+      :model-events="session.modelEvents"
+      :hint-events="session.hintEvents"
+      :loop-completed="session.loopCompleted"
+      :tree-json="session.treeJson"
+      :current-node-id="session.currentNodeId"
+      @close="debugOpen = false"
+      @fork="$emit('fork-session', $event)"
+      @rewind="$emit('rewind-session', $event)"
+    />
     <FilePreviewDrawer
       :is-open="drawerOpen"
       :file="currentFile"
@@ -44,17 +57,19 @@
 </template>
 
 <script setup lang="ts">
-import type { SessionSummary } from "../../types/agent";
+import { ref } from "vue";
+import type { Session, SessionSummary } from "../../types/agent";
 import type { ChatFileItem, ChatMessageItem } from "../../types/chat";
 import ChatSidebar from "./ChatSidebar.vue";
 import ChatHeader from "./ChatHeader.vue";
 import ChatArea from "./ChatArea.vue";
 import InputArea from "./InputArea.vue";
 import FilePreviewDrawer from "./FilePreviewDrawer.vue";
+import DebugPanel from "./DebugPanel.vue";
 
 interface Props {
   title: string;
-  modelName: string;
+  session: Session;
   messages: ChatMessageItem[];
   sessions: SessionSummary[];
   historyLoading: boolean;
@@ -81,7 +96,11 @@ defineEmits<{
   "close-preview": [];
   submit: [task: string, file?: File];
   stop: [];
+  "fork-session": [nodeId: string];
+  "rewind-session": [nodeId: string];
 }>();
+
+const debugOpen = ref(false);
 </script>
 
 <style scoped>
@@ -90,6 +109,7 @@ defineEmits<{
   height: 100vh;
   overflow: hidden;
   background: var(--chat-bg-body);
+  position: relative;
 }
 
 .chat-layout-main {

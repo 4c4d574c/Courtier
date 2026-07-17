@@ -36,7 +36,7 @@
               class="chat-sidebar-item-dot"
               :class="session.status"
             ></span>
-            {{ formatDate(session.createdAt) }}
+            {{ formatDateTime(session.createdAt) }}
           </span>
           <button
             class="chat-sidebar-item-delete"
@@ -77,6 +77,7 @@
 import { computed } from "vue";
 import type { SessionSummary } from "../../types/agent";
 import { MESSAGES } from "../../constants/messages";
+import { formatDateTime } from "../../utils/date";
 
 interface Props {
   sessions: SessionSummary[];
@@ -94,13 +95,6 @@ defineEmits<{
 }>();
 
 const isAdmin = computed(() => props.userRole === "admin");
-
-function formatDate(ts: number): string {
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(
-    d.getMinutes(),
-  ).padStart(2, "0")}`;
-}
 </script>
 
 <style scoped>

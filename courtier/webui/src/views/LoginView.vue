@@ -65,7 +65,9 @@ async function handleLogin() {
   loading.value = true;
   try {
     await login(username.value, password.value);
-    const redirect = (route.query.redirect as string) || "/";
+    // Only allow in-app redirects (block scheme-relative/external URLs).
+    const raw = (route.query.redirect as string) || "/";
+    const redirect = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
     router.push(redirect);
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : "登录失败";

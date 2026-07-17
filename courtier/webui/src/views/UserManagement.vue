@@ -1,6 +1,9 @@
 <template>
   <div class="admin-page">
     <h1 class="admin-heading">用户管理</h1>
+    <p v-if="actionMsg.text" class="action-msg" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
+      {{ actionMsg.text }}
+    </p>
     <div class="admin-toolbar">
       <input
         v-model="search"
@@ -54,8 +57,10 @@
           <td class="td-actions">
             <select
               :value="u.role"
+              :disabled="isSelf(u)"
+              :title="isSelf(u) ? '不能修改自己的角色' : ''"
               @change="
-                changeRole(u, ($event.target as HTMLSelectElement).value)
+                changeRole(u, ($event.target as HTMLSelectElement).value as AdminUser['role'])
               "
               class="action-select"
             >
@@ -64,15 +69,17 @@
             </select>
             <select
               :value="u.status"
+              :disabled="isSelf(u)"
+              :title="isSelf(u) ? '不能修改自己的状态' : ''"
               @change="
-                changeStatus(u, ($event.target as HTMLSelectElement).value)
+                changeStatus(u, ($event.target as HTMLSelectElement).value as AdminUser['status'])
               "
               class="action-select"
             >
               <option value="active">活跃</option>
               <option value="disabled">禁用</option>
             </select>
-            <button @click="resetPassword(u)" class="action-btn">
+            <button @click="openResetModal(u)" class="action-btn">
               重置密码
             </button>
           </td>
@@ -87,21 +94,37 @@
         下一页
       </button>
     </div>
+
+    <div v-if="pwModal.open" class="modal-backdrop" @click.self="pwModal.open = false">
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3 class="modal-title">为 {{ pwModal.username }} 重置密码</h3>
+        <input
+          v-model="pwModal.password"
+          type="password"
+          class="modal-input"
+          placeholder="新密码（至少8位）"
+          @keydown.enter="confirmResetPassword"
+        />
+        <p v-if="pwModal.error" class="action-msg msg-err">{{ pwModal.error }}</p>
+        <div class="modal-actions">
+          <button class="action-btn" @click="confirmResetPassword" :disabled="pwModal.loading">
+            {{ pwModal.loading ? "提交中..." : "确认" }}
+          </button>
+          <button class="action-btn" @click="pwModal.open = false">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted, onUnmounted } from "vue";
 import { api } from "../api/client";
+import type { AdminUser } from "../api/client";
+import { useAuth } from "../composables/useAuth";
+import { formatDate } from "../utils/date";
 
-interface AdminUser {
-  id: number;
-  username: string;
-  email: string;
-  role: string;
-  status: string;
-  created_at: string;
-}
+const { user } = useAuth();
 
 const users = ref<AdminUser[]>([]);
 const search = ref("");
@@ -111,10 +134,17 @@ const page = ref(1);
 const total = ref(0);
 const pageSize = 20;
 const loading = ref(false);
+const actionMsg = reactive({ text: "", ok: false });
 
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(total.value / pageSize)),
 );
+
+const currentUserId = computed(() => user.value?.id);
+
+function isSelf(u: AdminUser): boolean {
+  return u.id === currentUserId.value;
+}
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 function debouncedSearch() {
@@ -124,6 +154,8 @@ function debouncedSearch() {
     fetchUsers();
   }, 300);
 }
+
+onUnmounted(() => clearTimeout(searchTimer));
 
 async function fetchUsers() {
   loading.value = true;
@@ -138,7 +170,8 @@ async function fetchUsers() {
     users.value = res.items;
     total.value = res.total;
   } catch (e: unknown) {
-    console.error("Failed to fetch users:", e);
+    actionMsg.text = e instanceof Error ? e.message : "获取用户列表失败";
+    actionMsg.ok = false;
   } finally {
     loading.value = false;
   }
@@ -158,42 +191,114 @@ function statusLabel(s: string): string {
   return map[s] || s;
 }
 
-function formatDate(d: string): string {
-  if (!d) return "-";
-  return new Date(d).toLocaleDateString("zh-CN");
+function reportError(e: unknown, fallback: string) {
+  actionMsg.text = e instanceof Error ? e.message : fallback;
+  actionMsg.ok = false;
 }
 
-async function changeRole(u: AdminUser, role: string) {
+async function changeRole(u: AdminUser, role: AdminUser["role"]) {
   try {
     await api.updateUser(u.id, { role });
     u.role = role;
+    actionMsg.text = `已将 ${u.username} 的角色改为${role === "admin" ? "管理员" : "审计员"}`;
+    actionMsg.ok = true;
   } catch (e: unknown) {
-    console.error("Failed to update role:", e);
+    reportError(e, "修改角色失败");
   }
 }
 
-async function changeStatus(u: AdminUser, status: string) {
+async function changeStatus(u: AdminUser, status: AdminUser["status"]) {
   try {
     await api.updateUser(u.id, { status });
     u.status = status;
+    actionMsg.text = `已将 ${u.username} 的状态改为${statusLabel(status)}`;
+    actionMsg.ok = true;
   } catch (e: unknown) {
-    console.error("Failed to update status:", e);
+    reportError(e, "修改状态失败");
   }
 }
 
-async function resetPassword(u: AdminUser) {
-  const newPw = prompt(`为 ${u.username} 输入新密码（至少8位）：`);
-  if (!newPw) return;
-  if (newPw.length < 8) {
-    alert("密码至少8位");
+const pwModal = reactive({
+  open: false,
+  userId: 0,
+  username: "",
+  password: "",
+  loading: false,
+  error: "",
+});
+
+function openResetModal(u: AdminUser) {
+  pwModal.open = true;
+  pwModal.userId = u.id;
+  pwModal.username = u.username;
+  pwModal.password = "";
+  pwModal.error = "";
+}
+
+async function confirmResetPassword() {
+  if (pwModal.password.length < 8) {
+    pwModal.error = "密码至少8位";
     return;
   }
+  pwModal.loading = true;
   try {
-    await api.updateUser(u.id, { password: newPw });
+    await api.updateUser(pwModal.userId, { password: pwModal.password });
+    pwModal.open = false;
+    actionMsg.text = `已为 ${pwModal.username} 重置密码`;
+    actionMsg.ok = true;
   } catch (e: unknown) {
-    console.error("Failed to reset password:", e);
+    pwModal.error = e instanceof Error ? e.message : "重置密码失败";
+  } finally {
+    pwModal.loading = false;
   }
 }
 
 onMounted(fetchUsers);
 </script>
+
+<style scoped>
+.action-msg {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.msg-ok {
+  color: var(--ok);
+}
+.msg-err {
+  color: var(--err);
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal {
+  background: var(--chat-bg-card, #fff);
+  border-radius: 8px;
+  padding: 24px;
+  width: 360px;
+  max-width: 90vw;
+}
+.modal-title {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+.modal-input {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #d6d0c4;
+  border-radius: 6px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+</style>

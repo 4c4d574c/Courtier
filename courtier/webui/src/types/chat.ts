@@ -39,13 +39,23 @@ export interface ChatStoppedItem {
   detail?: string;
 }
 
+export interface ChatGuardItem {
+  type: "guard";
+  id: string;
+  layer: string;
+  guardName: string;
+  action: "allow" | "log" | "block";
+  reason?: string;
+}
+
 export type ChatMessageItem =
   | ChatUserMessageItem
   | ChatAssistantMessageItem
   | ChatThinkingItem
   | ChatFileItem
   | ChatErrorItem
-  | ChatStoppedItem;
+  | ChatStoppedItem
+  | ChatGuardItem;
 
 export interface ChatFileRecord {
   fileId: string;

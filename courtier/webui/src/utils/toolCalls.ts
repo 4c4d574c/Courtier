@@ -38,11 +38,16 @@ export function displayItemKey(item: StepToolDisplayItem): string {
   return item.type === "tool" ? `tool-${item.tool.id}` : `subagent-${item.key}`;
 }
 
-let _fallbackId = 0;
+function generateFallbackToolId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `tool-legacy-${crypto.randomUUID()}`;
+  }
+  return `tool-legacy-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export function normalizeToolResult(tool: ToolResultInput): ToolResult {
   return {
-    id: tool.id || `tool-legacy-${++_fallbackId}`,
+    id: tool.id || generateFallbackToolId(),
     name: tool.name,
     skill: tool.skill ?? "",
     skillDescription: tool.skillDescription ?? "",
@@ -144,6 +149,20 @@ export function displayToolName(tool: ToolResult): string {
   return tool.name.startsWith(prefix)
     ? tool.name.slice(prefix.length)
     : tool.name;
+}
+
+export function isDeprecatedTool(tool: ToolResult): boolean {
+  const text = `${tool.name} ${tool.skillDescription ?? ""}`;
+  return text.includes("[DEPRECATED");
+}
+
+export function parseDeprecatedReplacement(
+  tool: ToolResult,
+): string | undefined {
+  const text = tool.skillDescription || tool.name || "";
+  const match = text.match(/\[DEPRECATED(?:\s*\(use\s+([^)]+)\))?\]/i);
+  if (!match) return undefined;
+  return match[1];
 }
 
 function buildSubagentChildItems(sa: SubagentRun): {

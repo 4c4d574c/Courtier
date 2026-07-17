@@ -8,9 +8,18 @@ import type {
   ChatAssistantMessageItem,
   ChatErrorItem,
   ChatStoppedItem,
+  ChatGuardItem,
 } from "../types/chat";
 import { MESSAGES } from "../constants/messages";
+import { MIME_TYPES } from "../constants/fileUpload";
 import { thoughtsForStep } from "./sessionUtils";
+
+const MIME_TYPE_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(MIME_TYPES).map(([ext, mimes]) => [
+    ext,
+    mimes[0] || "application/octet-stream",
+  ]),
+);
 
 export function deriveConversationTitle(session: Session): string {
   if (session.task?.trim()) {
@@ -60,25 +69,8 @@ function findFileRecord(
 }
 
 export function fileMimeType(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "pdf":
-      return "application/pdf";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "png":
-      return "image/png";
-    case "gif":
-      return "image/gif";
-    case "bmp":
-      return "image/bmp";
-    case "tif":
-    case "tiff":
-      return "image/tiff";
-    default:
-      return "application/octet-stream";
-  }
+  const ext = `.${name.split(".").pop()?.toLowerCase() || ""}`;
+  return MIME_TYPE_MAP[ext] || "application/octet-stream";
 }
 
 function buildUserItem(turn: Turn, baseId: string): ChatUserMessageItem {
@@ -162,6 +154,22 @@ function buildStatusItem(
   return null;
 }
 
+function buildGuardItems(
+  session: Session,
+  baseId: string,
+  isLastTurn: boolean,
+): ChatGuardItem[] {
+  if (!isLastTurn || !session.guardEvents?.length) return [];
+  return session.guardEvents.map((event, index) => ({
+    type: "guard",
+    id: `${baseId}-guard-${index}`,
+    layer: event.layer || "unknown",
+    guardName: event.guardName || "UnknownGuard",
+    action: event.action || "log",
+    reason: event.reason,
+  }));
+}
+
 export function buildChatMessages(
   session: Session,
   fileRecords: ChatFileRecord[],
@@ -192,6 +200,9 @@ export function buildChatMessages(
 
     const statusItem = buildStatusItem(session, baseId, isRunning, isLastTurn);
     if (statusItem) items.push(statusItem);
+
+    const guardItems = buildGuardItems(session, baseId, isLastTurn);
+    items.push(...guardItems);
   });
 
   return items;

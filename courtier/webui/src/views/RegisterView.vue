@@ -93,8 +93,14 @@ const error = ref("");
 const loading = ref(false);
 const submitted = ref(false);
 
+const USERNAME_PATTERN = /^[a-zA-Z0-9_\-.@]+$/;
+
 async function handleRegister() {
   error.value = "";
+  if (!USERNAME_PATTERN.test(username.value)) {
+    error.value = "用户名只能包含字母、数字、下划线、连字符、点和 @";
+    return;
+  }
   if (password.value !== confirmPassword.value) {
     error.value = "两次密码不一致";
     return;

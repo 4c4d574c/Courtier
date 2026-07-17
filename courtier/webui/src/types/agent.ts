@@ -98,6 +98,36 @@ export interface Turn {
   conclusion?: string
 }
 
+/** OpenAI-compatible message stored in a conversation tree node */
+export interface ConversationTreeMessage {
+  role: string
+  content?: string | null
+  tool_calls?: Array<{
+    id: string
+    function: { name: string; arguments: string }
+  }>
+  tool_call_id?: string | null
+  name?: string | null
+  source?: string | null
+}
+
+/** A single node in the conversation tree */
+export interface ConversationTreeNode {
+  node_id: string
+  parent_id: string | null
+  turn_index: number
+  messages: ConversationTreeMessage[]
+  tool_results: string[]
+  metadata: Record<string, unknown>
+  children: string[]
+}
+
+/** Serialized conversation tree returned by the backend */
+export interface ConversationTree {
+  root_id: string | null
+  nodes: Record<string, ConversationTreeNode>
+}
+
 /** Full session */
 export interface Session {
   id: string
@@ -116,6 +146,14 @@ export interface Session {
     elapsed: number
   }
   createdAt: number
+  /** Runtime/debug events captured during the session */
+  guardEvents?: RuntimeEvent[]
+  hintEvents?: RuntimeEvent[]
+  modelEvents?: RuntimeEvent[]
+  loopCompleted?: RuntimeEvent
+  /** Serialized conversation tree for branching/replay */
+  treeJson?: ConversationTree | null
+  currentNodeId?: string | null
 }
 
 /** History list item (lightweight) */
@@ -130,9 +168,26 @@ export interface SessionSummary {
   modelName?: string
 }
 
+/** Runtime event emitted by backend for guard/model/hint/loop lifecycle */
+export interface RuntimeEvent {
+  type: 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed'
+  layer?: string
+  guardName?: string
+  action?: 'allow' | 'log' | 'block'
+  reason?: string
+  hintType?: string
+  text?: string
+  model?: string
+  backend?: string
+  strategy?: string
+  status?: string
+  terminationReason?: string
+  totalSteps?: number
+}
+
 /** SSE event from backend */
 export interface AgentEvent {
-  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token'
+  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed'
   detail?: string
   text?: string
   name?: string
@@ -167,4 +222,20 @@ export interface AgentEvent {
     message: string
     detail: Record<string, unknown> | null
   }
+  layer?: string
+  guardName?: string
+  action?: 'allow' | 'log' | 'block'
+  reason?: string
+  hintType?: string
+  model?: string
+  backend?: string
+  strategy?: string
+  terminationReason?: string
+  totalSteps?: number
+  /** Structured think payload: tool names announced for the current step. */
+  toolCalls?: string[]
+  /** Structured think payload: marks a free-form text response. */
+  textResponse?: boolean
+  /** Structured act payload: tool names being executed. */
+  tools?: string[]
 }

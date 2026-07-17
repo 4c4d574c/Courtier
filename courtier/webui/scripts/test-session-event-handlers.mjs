@@ -15,7 +15,7 @@ try {
   execFileSync(
     resolve(rootDir, "node_modules/.bin/esbuild"),
     [
-      resolve(rootDir, "src/composables/sessionEventHandlers.ts"),
+      resolve(rootDir, "src/composables/sessionEventHandlers/index.ts"),
       "--bundle",
       "--format=esm",
       "--platform=node",
@@ -343,6 +343,52 @@ try {
 
     handlers.handleSessionEvent({ type: "stopped" });
     assert.equal(session.steps[0].tools[0].status, "cancelled");
+  }
+
+  // New Pi-architecture events are captured on session
+  {
+    const { handlers, session } = makeDeps();
+    handlers.handleSessionEvent({
+      type: "guard_triggered",
+      layer: "input",
+      guardName: "SensitiveInputGuard",
+      action: "block",
+      reason: "敏感内容",
+    });
+    assert.equal(session.guardEvents?.length, 1);
+    assert.equal(session.guardEvents[0].action, "block");
+
+    handlers.handleSessionEvent({
+      type: "hint_injected",
+      hintType: "terminal_ready",
+      text: "业务工具已就绪",
+    });
+    assert.equal(session.hintEvents?.length, 1);
+    assert.equal(session.hintEvents[0].hintType, "terminal_ready");
+
+    handlers.handleSessionEvent({
+      type: "model_selected",
+      model: "qwen3.6-27b",
+      backend: "openai",
+      strategy: "primary",
+    });
+    handlers.handleSessionEvent({
+      type: "model_fallback",
+      model: "qwen3.6-27b",
+      backend: "local_backup",
+      reason: "timeout",
+    });
+    assert.equal(session.modelEvents?.length, 2);
+    assert.equal(session.modelEvents[1].type, "model_fallback");
+    assert.equal(session.modelEvents[1].backend, "local_backup");
+
+    handlers.handleSessionEvent({
+      type: "loop_completed",
+      status: "completed",
+      terminationReason: "max_steps",
+      totalSteps: 5,
+    });
+    assert.equal(session.loopCompleted?.totalSteps, 5);
   }
 
   console.log("sessionEventHandlers verification passed");

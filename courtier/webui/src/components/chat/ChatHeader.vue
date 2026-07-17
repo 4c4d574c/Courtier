@@ -15,6 +15,23 @@
     <h1 class="chat-header-title" :title="title">{{ title }}</h1>
     <div class="chat-header-right">
       <span v-if="modelName" class="chat-header-model">{{ modelName }}</span>
+      <span
+        v-if="latestFallback"
+        class="chat-header-fallback"
+        :title="`已切换至备用模型 ${latestFallback.backend}${latestFallback.reason ? '：' + latestFallback.reason : ''}`"
+      >
+        {{ latestFallback.backend }}
+      </span>
+      <button
+        class="chat-header-icon"
+        type="button"
+        title="调试面板"
+        @click="$emit('toggle-debug')"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2a4 4 0 0 1 4 4v1h3a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-1v4h1a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-3a4 4 0 0 1-8 0H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1h1v-4H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h3a4 4 0 0 1 4-4z" />
+        </svg>
+      </button>
       <button
         class="chat-header-icon"
         type="button"
@@ -53,23 +70,36 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { MESSAGES } from "../../constants/messages";
+import type { RuntimeEvent } from "../../types/agent";
 
 interface Props {
   title: string;
   modelName?: string;
   username?: string;
   userRole?: string;
+  modelEvents?: RuntimeEvent[];
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits<{
   "toggle-sidebar": [];
+  "toggle-debug": [];
   "toggle-theme": [];
   logout: [];
 }>();
 
 const menuOpen = ref(false);
 const isAdmin = computed(() => props.userRole === "admin");
+
+const latestFallback = computed(() => {
+  if (!props.modelEvents?.length) return null;
+  for (let i = props.modelEvents.length - 1; i >= 0; i--) {
+    if (props.modelEvents[i].type === "model_fallback") {
+      return props.modelEvents[i];
+    }
+  }
+  return null;
+});
 
 function logout() {
   menuOpen.value = false;
@@ -136,6 +166,15 @@ function logout() {
   padding: 4px 8px;
   border: 1px solid var(--chat-border);
   border-radius: 999px;
+}
+
+.chat-header-fallback {
+  font-size: 12px;
+  color: #f59e0b;
+  padding: 4px 8px;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.08);
 }
 
 .chat-header-icon {
