@@ -7,8 +7,8 @@ import tempfile
 import pytest
 
 from courtier.agent.agents.base import Agent
-from courtier.agent.api.sse_adapter import SSEAdapter
 from courtier.agent.api.session_store import SessionStore
+from courtier.agent.api.sse_adapter import SSEAdapter
 from courtier.agent.core.model import MockModelClient, ToolCall
 from courtier.agent.tools.builtin.echo import EchoTool
 from courtier.agent.tools.registry import ToolRegistry
@@ -44,7 +44,7 @@ async def test_echo_tool_result_event_sequence(store):
         model=model,
     )
 
-    result = await agent.run(
+    await agent.run(
         "echo hello",
         on_step=adapter.on_step,
         on_token=adapter.on_token,

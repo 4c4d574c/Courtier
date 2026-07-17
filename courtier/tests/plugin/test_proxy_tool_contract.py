@@ -1,5 +1,4 @@
 """Test that ProxyTool correctly reads contract fields from plugin tool spec."""
-import pytest
 from courtier.plugin.proxies import ProxyTool
 
 

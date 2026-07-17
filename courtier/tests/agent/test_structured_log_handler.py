@@ -8,8 +8,8 @@ import threading
 
 import pytest
 
-from courtier.agent.core.structured_log_handler import StructuredLogHandler, StructuredLogEntry
 from courtier.agent.core.logging_config import reset_logging
+from courtier.agent.core.structured_log_handler import StructuredLogEntry, StructuredLogHandler
 
 
 @pytest.fixture(autouse=True)

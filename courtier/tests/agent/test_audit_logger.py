@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+
 import pytest
-from pathlib import Path
 
 from courtier.agent.core.audit_logger import (
     AuditLogger,
@@ -14,11 +14,9 @@ from courtier.agent.core.audit_logger import (
     TurnRecord,
 )
 from courtier.agent.core.loop import agent_loop
-from courtier.agent.core.model import ModelResponse, ToolCall
+from courtier.agent.core.model import ToolCall
 from courtier.agent.core.state import AgentState
 from courtier.agent.testing import MockModelClient
-from courtier.agent.tools.protocol import ToolResult
-from courtier.agent.tools.registry import ToolRegistry
 
 
 class TestAuditLoggerUnit:

@@ -10,19 +10,20 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-
-from ..core.audit_logger import AuditLogger
-from ..core.loop import agent_loop
-from ..core.state import AgentState, AgentStatus, Message
-from ..core.model import ModelClient
-from ..tools.protocol import ToolProtocol, ToolProgress
-from ..tools.registry import ToolRegistry
-from ..hooks.chain import HookChain
-from ..permissions.gate import PermissionGate
-from ..prompts.pipeline import PromptPipeline
-from ..memory.store import MemoryStore
 from courtier.agent.core.execution_result import ExecutionResult
 from courtier.prompts.engine import PromptEngine
+
+from ..core.audit_logger import AuditLogger
+from ..core.event_bus import EventBus
+from ..core.loop import agent_loop
+from ..core.model import BackendModelClient, ModelClient
+from ..core.state import AgentState, AgentStatus, Message
+from ..hooks.chain import HookChain
+from ..memory.store import MemoryStore
+from ..permissions.gate import PermissionGate
+from ..prompts.pipeline import PromptPipeline
+from ..tools.protocol import ToolProgress, ToolProtocol
+from ..tools.registry import ToolRegistry
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ class Agent:
         role: str,
         tools: list[ToolProtocol] | None = None,
         model: ModelClient | None = None,
+        backend: Any | None = None,
         memory: MemoryStore | None = None,
         hooks: HookChain | None = None,
         permissions: PermissionGate | None = None,
@@ -131,12 +133,24 @@ class Agent:
     ) -> None:
         self.name = name
         self.role = role
-        if model is None:
+        if model is not None and backend is not None:
             raise ValueError(
-                f"Agent '{name}' requires an explicit model; received None. "
-                f"Use MockModelClient for tests or provide a real ModelClient."
+                f"Agent '{name}' received both 'model' and 'backend'; provide only one."
             )
-        self.model = model
+        if model is None and backend is None:
+            raise ValueError(
+                f"Agent '{name}' requires an explicit model or backend; received None. "
+                f"Use MockModelClient for tests or provide a real ModelClient/ModelBackend."
+            )
+        if backend is not None:
+            self.model: ModelClient = BackendModelClient(
+                backend=backend,
+                model=getattr(backend, "_model", "unknown"),
+                temperature=getattr(backend, "_temperature", 0.7),
+            )
+        elif model is not None:
+            # The guard above guarantees model is set when backend is None.
+            self.model = model
         self.memory = memory
         self.hooks = hooks or HookChain()
         self.permissions = permissions or PermissionGate()
@@ -145,7 +159,7 @@ class Agent:
         # Plugin tools registered after agent construction are discovered
         # via incremental sync on each run() call.
         if tool_registry is not None:
-            self._shared_tool_registry = tool_registry
+            self._shared_tool_registry: ToolRegistry | None = tool_registry
             self.tool_registry = ToolRegistry()
             for tool in tool_registry.list_tools():
                 self.tool_registry.register(tool)
@@ -238,6 +252,8 @@ class Agent:
         artifact_context: list[dict[str, Any]] | None = None,
         model_config: dict[str, str] | None = None,
         session_id: str = "",
+        event_bus: EventBus | None = None,
+        use_tree: bool = False,
     ) -> AgentResult:
         """Entry point: receive task, run agent loop, return result.
 
@@ -249,6 +265,9 @@ class Agent:
         on_tool_progress(tool_name, progress): called with tool progress updates.
         context_manager: optional ContextManager for three-layer context budget control.
         state: optional existing AgentState for multi-turn continuation.
+        event_bus: optional publish/subscribe bus for AgentEvent instances.
+        use_tree: when True and no prior state is given, initialise a
+            ``ConversationTree`` so the session supports branching/replay.
         """
         # 从 SubAgentInput 提取 task 和 context
         if input is not None:
@@ -329,11 +348,12 @@ class Agent:
             current_state = AgentState.initial(
                 task=task,
                 system_prompt=system_prompt,
+                use_tree=use_tree,
             )
 
         from courtier.agent.telemetry.metrics import (
-            record_agent_request,
             record_agent_latency,
+            record_agent_request,
         )
 
         start = time.time()
@@ -355,15 +375,15 @@ class Agent:
                 artifact_store=artifact_store,
                 session_id=session_id,
                 agent_name=self.name,
+                event_bus=event_bus,
             )
         except Exception:
             record_agent_request(agent_name=self.name, status="error")
             raise
         elapsed = time.time() - start
-        record_agent_request(
-            agent_name=self.name,
-            status=final_state.status if final_state.status != "error" else "error",
-        )
+        # record_agent_request is emitted once inside agent_loop for every
+        # terminal path; the except branch above covers failures that escape
+        # the loop. Only latency is recorded here to avoid double counting.
         record_agent_latency(agent_name=self.name, seconds=elapsed)
         return AgentResult.from_state(final_state, include_state=True)
 
@@ -380,8 +400,8 @@ class Agent:
             return
 
         # Lazy import to avoid circular dependencies at module load time.
-        from ..tools.builtin.list_artifacts import ListArtifactsTool
         from ..tools.builtin.get_artifact import GetArtifactTool
+        from ..tools.builtin.list_artifacts import ListArtifactsTool
 
         if "list_artifacts" not in existing:
             self.tool_registry.register(ListArtifactsTool())

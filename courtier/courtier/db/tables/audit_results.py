@@ -58,7 +58,10 @@ class ContentAuditResultTable(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<ContentAuditResult {self.id} (doc={self.document_id}, violations={self.violation_count})>"
+        return (
+            f"<ContentAuditResult {self.id} (doc={self.document_id}, "
+            f"violations={self.violation_count})>"
+        )
 
 
 class PlagiarismAuditResultTable(Base):
@@ -85,7 +88,10 @@ class PlagiarismAuditResultTable(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<PlagiarismAuditResult {self.id} (doc={self.document_id}, is_plagiarism={self.is_plagiarism})>"
+        return (
+            f"<PlagiarismAuditResult {self.id} (doc={self.document_id}, "
+            f"is_plagiarism={self.is_plagiarism})>"
+        )
 
 
 class CorrectionAuditResultTable(Base):
@@ -107,7 +113,10 @@ class CorrectionAuditResultTable(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<CorrectionAuditResult {self.id} (doc={self.document_id}, corrections={self.correction_count})>"
+        return (
+            f"<CorrectionAuditResult {self.id} (doc={self.document_id}, "
+            f"corrections={self.correction_count})>"
+        )
 
 
 class WritingStyleAuditResultTable(Base):
@@ -132,4 +141,7 @@ class WritingStyleAuditResultTable(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<WritingStyleAuditResult {self.id} (doc={self.document_id}, is_valid={self.is_valid})>"
+        return (
+            f"<WritingStyleAuditResult {self.id} (doc={self.document_id}, "
+            f"is_valid={self.is_valid})>"
+        )

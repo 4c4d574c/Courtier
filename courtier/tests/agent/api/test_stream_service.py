@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from courtier.agent.api.services.stream_service import (
     deserialize_messages,
     serialize_messages,

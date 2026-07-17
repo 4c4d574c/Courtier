@@ -1,5 +1,6 @@
 """Tests for SubAgentStreamEvent."""
 import pytest
+
 from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
 
@@ -71,3 +72,10 @@ class TestSubAgentStreamEvent:
         assert event.tool_summary is None
         assert event.task is None
         assert event.result is None
+        assert event.scope_id is None
+
+    def test_scope_id_is_preserved(self):
+        event = SubAgentStreamEvent(
+            kind="start", subagent_name="parser", scope_id="scope-1"
+        )
+        assert event.scope_id == "scope-1"

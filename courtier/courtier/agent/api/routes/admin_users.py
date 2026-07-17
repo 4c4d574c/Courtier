@@ -99,6 +99,13 @@ async def update_user(
     admin: dict = Depends(require_admin),
 ):
     """管理员更新用户信息（角色、状态、密码、邮箱）。"""
+    # Prevent an admin from locking themselves out of the system: role/status
+    # changes on one's own account are rejected before touching the database.
+    # (Password/email self-changes are allowed — same as the profile page.)
+    if user_id == admin.get("uid") and (
+        body.role is not None or body.status is not None
+    ):
+        raise HTTPException(400, "不能修改自己的角色或状态")
     db = get_db()
     async with db.session() as session:
         user = await user_repo.get(session, user_id)
@@ -117,15 +124,16 @@ async def update_user(
             except ValueError:
                 raise HTTPException(400, f"无效状态: {body.status}")
         if body.password is not None:
-            update_data["password"] = hash_password(body.password)
+            # ORM 列名为 password_hash；直接传 dict 给 update()，
+            # 避免经 UserUpdate 包装后生成 .values(password=...) 的编译错误。
+            update_data["password_hash"] = hash_password(body.password)
         if body.email is not None:
             update_data["email"] = body.email
 
         if not update_data:
             raise HTTPException(400, "没有提供需要更新的字段")
 
-        from courtier.db.tables.user import UserUpdate
-        updated = await user_repo.update(session, user_id, UserUpdate(**update_data))
+        updated = await user_repo.update(session, user_id, update_data)
         if updated is None:
             raise HTTPException(404, "用户不存在")
         return _user_to_dict(updated)
@@ -142,7 +150,9 @@ async def list_approvals(
     """获取待审批用户列表（status=pending）。"""
     db = get_db()
     async with db.session() as session:
-        users = await user_repo.list(session, skip=skip, limit=limit, status=UserStatus.pending.value, order_by="id")
+        users = await user_repo.list(
+            session, skip=skip, limit=limit, status=UserStatus.pending.value, order_by="id"
+        )
         total = await user_repo.count(session, status=UserStatus.pending.value)
         return {
             "items": [_user_to_dict(u) for u in users],

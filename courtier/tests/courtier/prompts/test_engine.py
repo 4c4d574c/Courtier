@@ -4,13 +4,13 @@ import logging
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from courtier.prompts.engine import (
     FALLBACK_TEMPLATES,
     RESERVED_TEMPLATE_KEYS,
     PromptBundle,
     PromptEngine,
+)
+from courtier.prompts.engine import (
     logger as engine_logger,
 )
 

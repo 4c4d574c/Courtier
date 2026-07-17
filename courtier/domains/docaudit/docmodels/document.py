@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from typing import Literal
+
 from pydantic import BaseModel, Field
+
 
 class Position(BaseModel):
     """Represents a rectangular region on the page."""

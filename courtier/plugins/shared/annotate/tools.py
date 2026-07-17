@@ -49,6 +49,7 @@ class AnnotateDocumentTool:
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
             import os
+
             from docannot._annotate import annotate
             from docannot._rule import Rule
 

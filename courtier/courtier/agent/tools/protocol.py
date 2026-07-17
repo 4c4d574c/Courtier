@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import (TYPE_CHECKING, Any, Callable, Protocol, TypedDict,
-                    runtime_checkable)
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Callable, Protocol, TypedDict, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +31,24 @@ class ToolProgress(TypedDict):
 
 
 OnToolProgress = Callable[[ToolProgress], None]
+
+
+@dataclass(frozen=True)
+class ToolInfo:
+    """Declarative metadata for a registered tool.
+
+    ``ToolInfo`` is separate from ``ToolProtocol`` so versioning and
+    deprecation information can be attached without changing the execution
+    interface.
+    """
+
+    name: str
+    version: str = "1.0.0"
+    api_version: str = "1.0"
+    description: str = ""
+    parameters: dict[str, Any] = field(default_factory=dict)
+    deprecated: bool = False
+    replaced_by: str | None = None
 
 
 @runtime_checkable
@@ -89,3 +107,13 @@ class ToolWithRuntimePolicy(Protocol):
     skip_persist: bool
     runtime_policy: Any | None
     output_schema: dict | None
+
+
+@runtime_checkable
+class ToolVersioned(Protocol):
+    """Optional: tools that declare a version and API version."""
+
+    version: str
+    api_version: str
+    deprecated: bool
+    replaced_by: str | None

@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
-from sqlalchemy import String, Integer, DateTime, Boolean
+from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
+
+if TYPE_CHECKING:
+    from .page import PageTable
+
 
 class DocumentCreate(BaseModel):
     """创建文档时的数据模型"""
@@ -32,10 +37,18 @@ class DocumentTable(Base):
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(String(512), nullable=False, default="", comment="文件所属用户的id值")
-    doc_id: Mapped[str] = mapped_column(String(512), nullable=False, default="", comment="文件的内容的md5值")
-    total_page_num: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="文件总页数")
-    save_path: Mapped[str] = mapped_column(String(512), nullable=False, default="默认路径", comment="保存路径")
+    user_id: Mapped[str] = mapped_column(
+        String(512), nullable=False, default="", comment="文件所属用户的id值"
+    )
+    doc_id: Mapped[str] = mapped_column(
+        String(512), nullable=False, default="", comment="文件的内容的md5值"
+    )
+    total_page_num: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="文件总页数"
+    )
+    save_path: Mapped[str] = mapped_column(
+        String(512), nullable=False, default="默认路径", comment="保存路径"
+    )
     reconstructed_path: Mapped[str | None] = mapped_column(
         String(512), nullable=True, default=None,
         comment="重建/转换后的docx MinIO存储路径"
@@ -46,7 +59,9 @@ class DocumentTable(Base):
     )
 
     # 关系
-    pages: Mapped[list["PageTable"]] = relationship(back_populates="document", cascade="all, delete-orphan")  # noqa: F821
+    pages: Mapped[list["PageTable"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Document {self.id} (doc_id={self.doc_id})>"

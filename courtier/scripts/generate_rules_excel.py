@@ -1,6 +1,7 @@
 import re
+
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 DOMAIN_MAP = {
     "GOV": "GOV",
@@ -47,7 +48,6 @@ def extract_rules(md_path):
 
     rules = []
     current_domain = None
-    current_section = None
 
     lines = content.split("\n")
     i = 0
@@ -58,13 +58,11 @@ def extract_rules(md_path):
         if domain_match:
             code = domain_match.group(2)
             current_domain = DOMAIN_MAP.get(code, code)
-            current_section = None
             i += 1
             continue
 
         if line.startswith("## 通用禁止规则"):
             current_domain = "GENERAL"
-            current_section = None
             i += 1
             continue
 
@@ -75,7 +73,6 @@ def extract_rules(md_path):
 
         section_match = re.match(r"^### (.+)$", line)
         if section_match and current_domain:
-            current_section = section_match.group(1)
             i += 1
             continue
 

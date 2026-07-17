@@ -48,7 +48,6 @@ def upload_rules(rules: list[dict], base_url: str, delay: float = 0.05):
     url = f"{base_url}/api/v1/rules/create"
     success = 0
     fail = 0
-    skipped = 0
 
     for i, rule in enumerate(rules, 1):
         try:

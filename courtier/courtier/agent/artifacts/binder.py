@@ -5,16 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..tools.protocol import ToolResult
 from .executor import (
     MaterializerRegistry,
     ProjectionExecutor,
     validate_materialized_value,
 )
-from .models import ProjectionPolicy, InputField
+from .models import InputField, ProjectionPolicy
 from .projectors import create_default_projector_registry
 from .resolver import ProjectionResolver, emit_event
 from .store import ArtifactStore
-from ..tools.protocol import ToolResult
 
 logger = logging.getLogger(__name__)
 

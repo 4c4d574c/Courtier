@@ -211,8 +211,10 @@ class PluginRuntime:
     ) -> None:
         self._handlers: dict[str, Callable] = {}
         self._running = False
-        self._reader = None
-        self._writer = None
+        # Duck-typed I/O: asyncio.Queue / BinaryIO / test doubles are injected
+        # for testing; sys.stdin.buffer / sys.stdout.buffer in production.
+        self._reader: Any = None
+        self._writer: Any = None
         self._tool_names: list[str] = tool_names or []
         self._checker_names: list[str] = checker_names or []
         self._pending_caps: list[dict[str, Any]] = []
@@ -224,7 +226,7 @@ class PluginRuntime:
         self._host_service_client: HostServiceClient | None = None
         self._host_artifact_store: Any = None
         self._runtime_context: dict[str, str] = {}
-        self._stdin_transport: asyncio.Transport | None = None
+        self._stdin_transport: asyncio.ReadTransport | None = None
 
     def register_tool(self, tool_instance: Any) -> dict[str, Any]:
         """Register a tool instance and auto-extract contract metadata.
@@ -429,7 +431,9 @@ class PluginRuntime:
         """Read lines from stdin using asyncio streams (binary mode)."""
         loop = asyncio.get_event_loop()
         reader = asyncio.StreamReader()
-        transport = await loop.connect_read_pipe(
+        # connect_read_pipe returns a (transport, protocol) pair; keep the
+        # transport so it can be closed on shutdown.
+        transport, _protocol = await loop.connect_read_pipe(
             lambda: asyncio.StreamReaderProtocol(reader),
             sys.stdin.buffer,
         )

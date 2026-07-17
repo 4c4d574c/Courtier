@@ -9,6 +9,11 @@ import time as _time
 from dataclasses import replace
 from typing import Any
 
+from courtier.agent.core.execution_result import ExecutionResult
+
+from ..core.event_bus import EventBus, EventSubscription
+from ..core.events import AgentEvent
+from ..tools.protocol import ToolProgress, ToolResult, ToolWithDisplay, ToolWithSkill
 from .models import (
     StepRecord,
     SubagentRunRecord,
@@ -20,8 +25,6 @@ from .models import (
     normalize_tool_call_classification,
 )
 from .session_store import SessionStore
-from ..tools.protocol import ToolResult, ToolProgress, ToolWithSkill, ToolWithDisplay
-from courtier.agent.core.execution_result import ExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,8 @@ class SSEAdapter:
         self._verdict_parts: list[str] = []
         self._final_verdict_parts: list[str] = []  # never cleared — used for complete event
         self._tool_registry = tool_registry
+        self._event_bus: EventBus | None = None
+        self._event_bus_task: asyncio.Task | None = None
         # Sub-agent state accumulation for the current step (persisted at observe).
         self._current_subagents: dict[str, SubagentRunRecord] = {}
         self._subagent_parent_map: dict[str, str | None] = {}
@@ -137,6 +142,140 @@ class SSEAdapter:
         self._verdict_parts.clear()
         return verdict
 
+    def start_listening(self, event_bus: EventBus) -> None:
+        """Subscribe to *event_bus* and dispatch events to legacy callbacks.
+
+        This allows the adapter to be driven entirely by events while still
+        producing the legacy SSE output expected by the frontend.
+        """
+        self._event_bus = event_bus
+        self._event_subscription = event_bus.subscribe(session_id=self._session_id)
+        self._event_bus_task = asyncio.create_task(
+            self._event_bus_listener(self._event_subscription)
+        )
+
+    def stop_listening(self) -> None:
+        """Stop the event-bus listener and remove the subscription."""
+        if self._event_bus_task is not None:
+            self._event_bus_task.cancel()
+            self._event_bus_task = None
+        if self._event_bus is not None and hasattr(self, "_event_subscription"):
+            self._event_bus.unsubscribe(self._event_subscription)
+        self._event_bus = None
+
+    async def _event_bus_listener(self, subscription: EventSubscription) -> None:
+        """Background task: read AgentEvents and dispatch to handlers."""
+        try:
+            async for event in subscription:
+                await self._dispatch_event(event)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Event bus listener failed for session %s", self._session_id)
+
+    async def _dispatch_event(self, event: AgentEvent) -> None:
+        """Map an AgentEvent to the corresponding legacy callback."""
+        payload = event.payload
+        event_type = event.type
+
+        if event_type == "state.transition":
+            to = payload.get("to")
+            reason = payload.get("reason", "")
+            if to == "thinking" and reason == "text_response":
+                await self.on_step("think", "text_response")
+            elif to == "observing":
+                await self.on_step("observe", "results_collected")
+            elif to == "act":
+                # Act events carry a structured tools list alongside the
+                # legacy "executing: ..." reason string.
+                await self._check_pause()
+                act_payload: dict[str, Any] = {"type": "act", "detail": reason}
+                if payload.get("tools"):
+                    act_payload["tools"] = payload["tools"]
+                await self._emit_sse(act_payload)
+        elif event_type == "think.tool_calls":
+            # Structured tool-call announcement from the loop (the bare
+            # "tool_calls" transition reason carries no names).
+            names = payload.get("names") or []
+            await self._handle_think_tool_calls([str(n) for n in names])
+        elif event_type == "think.text_response":
+            await self.on_step("think", "text_response")
+        elif event_type == "llm.usage":
+            # Structured path: apply token counts directly instead of the
+            # legacy "prompt,completion" string round-trip.
+            await self._apply_usage(
+                payload.get("prompt_tokens", 0),
+                payload.get("completion_tokens", 0),
+            )
+        elif event_type == "llm.token":
+            text = payload.get("text")
+            if text:
+                await self.on_token(text)
+        elif event_type == "llm.content_token":
+            text = payload.get("text")
+            if text:
+                await self.on_content_token(text)
+        elif event_type == "tool.start":
+            name = payload.get("name")
+            if name:
+                await self.on_tool_start(name)
+        elif event_type == "tool.progress":
+            name = payload.get("name")
+            progress = payload.get("progress")
+            if name and progress is not None:
+                await self.on_tool_progress(name, progress)
+        elif event_type in ("tool.result", "tool.error"):
+            name = payload.get("name")
+            summary = payload.get("summary", "")
+            # Reconstruct a minimal ExecutionResult for the existing handler.
+            success = payload.get("success", event_type == "tool.result")
+            result = ExecutionResult(
+                success=success,
+                actor_type="tool",
+                actor_name=name or "unknown",
+                error=payload.get("error"),
+            )
+            await self.on_tool_result(name or "unknown", result, summary)
+        elif event_type == "guard.triggered":
+            await self._emit_sse({
+                "type": "guard_triggered",
+                "layer": payload.get("layer"),
+                "guardName": payload.get("guard_name"),
+                "action": payload.get("action"),
+                "reason": payload.get("reason"),
+            })
+        elif event_type == "hint.injected":
+            await self._emit_sse({
+                "type": "hint_injected",
+                "hintType": payload.get("hint_type"),
+                "content": payload.get("content"),
+            })
+        elif event_type == "model.selected":
+            await self._emit_sse({
+                "type": "model_selected",
+                "model": payload.get("model"),
+                "backend": payload.get("backend"),
+                "strategy": payload.get("strategy"),
+            })
+        elif event_type == "model.fallback":
+            await self._emit_sse({
+                "type": "model_fallback",
+                "model": payload.get("model"),
+                "backend": payload.get("backend"),
+                "reason": payload.get("reason"),
+            })
+        elif event_type == "loop.completed":
+            await self._emit_sse({
+                "type": "loop_completed",
+                "status": payload.get("status"),
+                "terminationReason": payload.get("termination_reason"),
+                "totalSteps": payload.get("total_steps"),
+            })
+        elif event_type == "subagent.event":
+            sub_event = payload.get("event")
+            if sub_event is not None:
+                await self.on_subagent_event(sub_event)
+
     # -- Callbacks ------------------------------------------------------------
 
     async def on_step(self, event: str, detail: str) -> None:
@@ -202,7 +341,12 @@ class SSEAdapter:
         ``put_nowait`` so the agent loop is never blocked; if the queue is
         full the event is dropped rather than growing memory unbounded.
         """
-        line = f"data: {json.dumps({'type': 'tool_progress', 'name': tool_name, 'progress': progress}, ensure_ascii=False)}\n\n"
+        payload = {
+            "type": "tool_progress",
+            "name": tool_name,
+            "progress": progress,
+        }
+        line = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         try:
             self._queue.put_nowait(("event", line))
         except asyncio.QueueFull:
@@ -318,14 +462,14 @@ class SSEAdapter:
 
         # -- State capture for historical rendering --
         if kind == "start" and handle_id:
-            run = SubagentRunRecord(
+            new_run = SubagentRunRecord(
                 name=event.subagent_name,
                 handle_id=handle_id,
                 parent_handle_id=parent_handle_id,
                 task=event.task or "",
                 status="running",
             )
-            self._current_subagents[handle_id] = run
+            self._current_subagents[handle_id] = new_run
             self._subagent_parent_map[handle_id] = parent_handle_id
 
         elif kind in ("token", "think") and handle_id:
@@ -475,55 +619,67 @@ class SSEAdapter:
     # -- Internal handlers ----------------------------------------------------
 
     async def _handle_think(self, detail: str) -> None:
+        """Legacy entry point: parse the "tool_calls: ..." detail string."""
         if detail.startswith("tool_calls:"):
             names_str = detail[len("tool_calls:") :].strip()
             names = [n.strip() for n in names_str.split(",") if n.strip()]
+            await self._handle_think_tool_calls(names)
+            return
 
+        self._thinking_turn += 1
+        # Create a placeholder step for free-form text responses, mirroring
+        # the frontend runtime.  This keeps parent-level reasoning tokens
+        # that arrive after a tool/sub-agent call in their own step, so
+        # history rendering matches the streaming layout.
+        if (
+            self._current_step is None
+            or self._current_step.tools
+            or self._tool_calls_pending
+        ):
             self._step_index += 1
-            self._reset_subagent_state()
             turn_index = await self._resolve_turn_index()
-            meta = (
-                self._tool_meta_for(names[0])
-                if names
-                else {"skill": "", "display_name": None}
-            )
             self._current_step = StepRecord(
                 index=self._step_index,
-                label=", ".join(names),
-                skill=meta["skill"],
+                label="",
+                skill="",
                 turn_index=turn_index,
                 start_segment_index=self._segment_index,
             )
-            self._tool_start_times = {name: _time.time() for name in names}
-            self._tool_calls_pending = True
+            self._tool_calls_pending = False
             await self._store.add_step(self._session_id, self._current_step)
+        await self._emit_sse(
+            {"type": "think", "detail": "text_response", "textResponse": True}
+        )
 
-            await self._emit_sse(
-                {"type": "think", "detail": f"tool_calls:{','.join(names)}"}
-            )
-        else:
-            self._thinking_turn += 1
-            # Create a placeholder step for free-form text responses, mirroring
-            # the frontend runtime.  This keeps parent-level reasoning tokens
-            # that arrive after a tool/sub-agent call in their own step, so
-            # history rendering matches the streaming layout.
-            if (
-                self._current_step is None
-                or self._current_step.tools
-                or self._tool_calls_pending
-            ):
-                self._step_index += 1
-                turn_index = await self._resolve_turn_index()
-                self._current_step = StepRecord(
-                    index=self._step_index,
-                    label="",
-                    skill="",
-                    turn_index=turn_index,
-                    start_segment_index=self._segment_index,
-                )
-                self._tool_calls_pending = False
-                await self._store.add_step(self._session_id, self._current_step)
-            await self._emit_sse({"type": "think", "detail": "text_response"})
+    async def _handle_think_tool_calls(self, names: list[str]) -> None:
+        """Create a step for announced tool calls and notify the frontend."""
+        self._step_index += 1
+        self._reset_subagent_state()
+        turn_index = await self._resolve_turn_index()
+        meta: dict[str, Any] = (
+            self._tool_meta_for(names[0])
+            if names
+            else {"skill": "", "display_name": None}
+        )
+        self._current_step = StepRecord(
+            index=self._step_index,
+            label=", ".join(names),
+            skill=meta["skill"],
+            turn_index=turn_index,
+            start_segment_index=self._segment_index,
+        )
+        self._tool_start_times = {name: _time.time() for name in names}
+        self._tool_calls_pending = True
+        await self._store.add_step(self._session_id, self._current_step)
+
+        await self._emit_sse(
+            {
+                "type": "think",
+                # Legacy wire field kept for older consumers; prefer toolCalls.
+                "detail": f"tool_calls:{','.join(names)}",
+                "toolCalls": names,
+            }
+        )
 
     async def _handle_observe(self) -> None:
         # Flush accumulated verdict text
@@ -558,6 +714,7 @@ class SSEAdapter:
         await self._emit_sse({"type": "observe"})
 
     async def _handle_usage(self, detail: str) -> None:
+        """Legacy entry point: parse the "prompt,completion" detail string."""
         try:
             tin_str, tout_str = detail.split(",", 1)
             tokens_in = int(tin_str.strip())
@@ -565,7 +722,9 @@ class SSEAdapter:
         except (ValueError, TypeError):
             logger.debug("Unparseable usage detail: %r", detail)
             return
+        await self._apply_usage(tokens_in, tokens_out)
 
+    async def _apply_usage(self, tokens_in: int, tokens_out: int) -> None:
         # Update session token counts
         session = await self._store.get(self._session_id)
         if session:

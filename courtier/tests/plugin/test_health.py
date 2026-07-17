@@ -8,8 +8,6 @@ import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from courtier.plugin.client import JSONRPCClient
 from courtier.plugin.manager import PluginProcess, PluginState, ProcessManager
 from courtier.plugin.manifest import PluginManifest

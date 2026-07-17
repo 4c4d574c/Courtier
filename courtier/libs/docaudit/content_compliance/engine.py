@@ -33,11 +33,15 @@ class RuleEngine:
         match rule.check_scope:
             case "开头":
                 if rule.check_length is None:
-                    raise ValueError(f"Rule '{rule.id}' has check_scope='开头' but check_length is unset")
+                    raise ValueError(
+                        f"Rule '{rule.id}' has check_scope='开头' but check_length is unset"
+                    )
                 return text[: rule.check_length]
             case "结尾":
                 if rule.check_length is None:
-                    raise ValueError(f"Rule '{rule.id}' has check_scope='结尾' but check_length is unset")
+                    raise ValueError(
+                        f"Rule '{rule.id}' has check_scope='结尾' but check_length is unset"
+                    )
                 return text[-rule.check_length :] if len(text) > rule.check_length else text
             case "正文" | "全文":
                 return text

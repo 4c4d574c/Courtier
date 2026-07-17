@@ -149,7 +149,10 @@ class PluginScanner:
                 name=manifest.name,
                 dir=plugin_dir,
                 status=ScanStatus.BLOCKED,
-                error=f"API version incompatible: plugin requires '{manifest.api}', host is '{self.HOST_API_VERSION}'",
+                error=(
+                    f"API version incompatible: plugin requires '{manifest.api}', "
+                    f"host is '{self.HOST_API_VERSION}'"
+                ),
             )
 
         return PluginScanResult(

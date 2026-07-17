@@ -1,4 +1,4 @@
-from content_compliance.core import Violation, ComplianceResult
+from content_compliance.core import ComplianceResult, Violation
 
 
 def test_violation_is_frozen():

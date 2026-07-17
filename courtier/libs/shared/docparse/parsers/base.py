@@ -3,9 +3,8 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
-from pydantic import BaseModel, Field
-
 from docmodels import Document
+from pydantic import BaseModel, Field
 
 
 class ParserConfig(BaseModel):
@@ -53,7 +52,10 @@ class ParserConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> ParserConfig:
-        """Create config from environment variables (fallback when no Settings instance is available)."""
+        """Create config from environment variables.
+
+        Fallback when no Settings instance is available.
+        """
         return cls(
             llm_base_url=os.getenv("LLM_IP", ""),
             llm_api_key=os.getenv("LLM_API_KEY", ""),

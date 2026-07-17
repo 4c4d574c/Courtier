@@ -5,7 +5,7 @@ import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
-from courtier.agent.telemetry.context import inject_context, extract_context
+from courtier.agent.telemetry.context import extract_context, inject_context
 
 
 @pytest.fixture(autouse=True)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-
+from docparse.parsers.page_regions import split_docx_regions, split_pdf_regions
 from docparse.parsers.rule_patterns import (
     ATTACHMENT_NOTE_PATTERN,
     CARBON_COPY_PATTERN,
@@ -25,9 +25,7 @@ from docparse.parsers.rule_patterns import (
     SIGNATORY_PATTERN,
     URGENCY_PATTERN,
 )
-from docparse.parsers.page_regions import split_docx_regions, split_pdf_regions
-from docparse.parsers.rules import StructureRuleEngine, ClassifiedLine, ClassifyResult
-
+from docparse.parsers.rules import ClassifiedLine, ClassifyResult, StructureRuleEngine
 
 # ---------------------------------------------------------------------------
 # Regex pattern tests

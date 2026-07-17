@@ -30,6 +30,7 @@ class AgentHandle:
     ref_ids: list[str] = field(default_factory=list)
     model_config: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    scope_id: str | None = None
 
     @classmethod
     def create(
@@ -48,6 +49,7 @@ class AgentHandle:
         ref_ids: list[str] | None = None,
         model_config: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        scope_id: str | None = None,
     ) -> "AgentHandle":
         """Factory that generates a fresh UUID handle id."""
         return cls(
@@ -64,6 +66,7 @@ class AgentHandle:
             ref_ids=ref_ids or [],
             model_config=model_config or {},
             metadata=metadata or {},
+            scope_id=scope_id,
         )
 
     def child_handle(
@@ -78,6 +81,7 @@ class AgentHandle:
         artifact_context: list[dict[str, Any]] | None = None,
         ref_ids: list[str] | None = None,
         model_config: dict[str, Any] | None = None,
+        scope_id: str | None = None,
     ) -> "AgentHandle":
         """Create a child handle reusing this handle's runtime context."""
         return AgentHandle.create(
@@ -93,4 +97,5 @@ class AgentHandle:
             ref_ids=ref_ids or list(self.ref_ids),
             model_config=model_config or dict(self.model_config),
             metadata={"parent_agent_type": self.agent_type},
+            scope_id=scope_id or self.scope_id,
         )

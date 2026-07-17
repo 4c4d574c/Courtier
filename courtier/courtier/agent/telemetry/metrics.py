@@ -7,7 +7,7 @@ at module import time.  Helper functions provide typed recording.
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 # ── Counters ──────────────────────────────────────────────
 
@@ -42,6 +42,36 @@ SUBAGENT_DISPATCH_TOTAL = Counter(
     ["subagent_name", "status"],
 )
 
+EVENT_BUS_DROPPED_TOTAL = Counter(
+    "event_bus_dropped_total",
+    "Events dropped due to backpressure",
+    ["event_type", "strategy"],
+)
+
+MODEL_ROUTER_FALLBACK_TOTAL = Counter(
+    "model_router_fallback_total",
+    "Model backend fallback events",
+    ["from_backend", "to_backend", "reason"],
+)
+
+STATE_MACHINE_INVALID_TOTAL = Counter(
+    "state_machine_invalid_total",
+    "Invalid state transitions",
+    ["from_status", "to_status"],
+)
+
+PLUGIN_LIFECYCLE_RESTART_TOTAL = Counter(
+    "plugin_lifecycle_restart_total",
+    "Plugin restart attempts",
+    ["provider", "outcome"],
+)
+
+GUARDRAIL_BLOCKED_TOTAL = Counter(
+    "guardrail_blocked_total",
+    "Guardrail block actions",
+    ["layer", "guard_name"],
+)
+
 # ── Histograms ────────────────────────────────────────────
 
 AGENT_LATENCY_SECONDS = Histogram(
@@ -64,6 +94,18 @@ PLUGIN_STATE = Gauge(
     "plugin_state_changes",
     "Current state of each plugin (1=active, 0=other)",
     ["plugin_name", "state"],
+)
+
+CAPABILITY_REGISTRY_SIZE = Gauge(
+    "capability_registry_size",
+    "Number of registered capabilities",
+    ["capability_type"],
+)
+
+CONVERSATION_TREE_BRANCHES = Gauge(
+    "conversation_tree_branches",
+    "Number of leaf nodes in conversation tree",
+    ["session_id"],
 )
 
 # ── Recording helpers ─────────────────────────────────────
@@ -101,3 +143,41 @@ def record_subagent_dispatch(subagent_name: str, status: str) -> None:
     SUBAGENT_DISPATCH_TOTAL.labels(
         subagent_name=subagent_name, status=status
     ).inc()
+
+
+def record_event_bus_dropped(event_type: str, strategy: str) -> None:
+    EVENT_BUS_DROPPED_TOTAL.labels(
+        event_type=event_type, strategy=strategy
+    ).inc()
+
+
+def record_model_router_fallback(
+    from_backend: str, to_backend: str, reason: str
+) -> None:
+    MODEL_ROUTER_FALLBACK_TOTAL.labels(
+        from_backend=from_backend, to_backend=to_backend, reason=reason
+    ).inc()
+
+
+def record_state_machine_invalid(from_status: str, to_status: str) -> None:
+    STATE_MACHINE_INVALID_TOTAL.labels(
+        from_status=from_status, to_status=to_status
+    ).inc()
+
+
+def record_plugin_lifecycle_restart(provider: str, outcome: str) -> None:
+    PLUGIN_LIFECYCLE_RESTART_TOTAL.labels(
+        provider=provider, outcome=outcome
+    ).inc()
+
+
+def record_guardrail_blocked(layer: str, guard_name: str) -> None:
+    GUARDRAIL_BLOCKED_TOTAL.labels(layer=layer, guard_name=guard_name).inc()
+
+
+def set_capability_registry_size(capability_type: str, size: int) -> None:
+    CAPABILITY_REGISTRY_SIZE.labels(capability_type=capability_type).set(size)
+
+
+def set_conversation_tree_branches(session_id: str, branches: int) -> None:
+    CONVERSATION_TREE_BRANCHES.labels(session_id=session_id).set(branches)

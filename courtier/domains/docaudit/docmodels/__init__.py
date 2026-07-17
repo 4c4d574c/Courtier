@@ -18,12 +18,12 @@ from .spec import (
     MainText,
     PageDimensions,
     SpecBody,
+    SpecFont,
     SpecFooter,
     SpecHeader,
     SpecMargin,
     SpecPage,
     SpecPosition,
-    SpecFont,
 )
 
 __all__ = [

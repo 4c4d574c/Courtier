@@ -4,10 +4,10 @@ import pytest
 from pydantic import ValidationError
 
 from courtier.plugin.manifest import (
+    Capabilities,
+    Dependencies,
     PluginManifest,
     RuntimeConfig,
-    Dependencies,
-    Capabilities,
 )
 
 

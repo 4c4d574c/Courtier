@@ -2,7 +2,7 @@
 
 import pytest
 
-from courtier.plugin.proxies import ProxyTool, ProxyChecker
+from courtier.plugin.proxies import ProxyChecker, ProxyTool
 
 
 class MockClient:

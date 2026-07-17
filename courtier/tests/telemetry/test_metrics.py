@@ -2,18 +2,18 @@
 """Tests for Prometheus metrics definitions and recording helpers."""
 
 from courtier.agent.telemetry.metrics import (
-    record_agent_request,
-    record_agent_latency,
-    record_llm_call,
-    record_llm_tokens,
-    record_tool_execution,
-    record_tool_latency,
-    record_subagent_dispatch,
     AGENT_REQUESTS_TOTAL,
     LLM_CALLS_TOTAL,
     LLM_TOKEN_USAGE_TOTAL,
-    TOOL_EXECUTIONS_TOTAL,
     SUBAGENT_DISPATCH_TOTAL,
+    TOOL_EXECUTIONS_TOTAL,
+    record_agent_latency,
+    record_agent_request,
+    record_llm_call,
+    record_llm_tokens,
+    record_subagent_dispatch,
+    record_tool_execution,
+    record_tool_latency,
 )
 
 

@@ -1,10 +1,8 @@
 from pathlib import Path
 
 import pytest
-
-from content_compliance.loaders.json_loader import load_checker_config
 from content_compliance.checkers.rule_based import RuleBasedContentChecker
-
+from content_compliance.loaders.json_loader import load_checker_config
 
 RULES_DIR = Path(__file__).parent.parent.parent / "src" / "content_compliance" / "rules"
 

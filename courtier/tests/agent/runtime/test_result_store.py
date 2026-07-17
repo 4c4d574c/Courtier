@@ -39,7 +39,6 @@ async def test_disk_backend_query_filter(disk_backend):
 
 @pytest.mark.asyncio
 async def test_result_store_uses_fallback_when_primary_fails(tmp_path):
-    from courtier.agent.core.cache_store import CacheStore
 
     class FailingBackend:
         name = "failing"
@@ -65,7 +64,6 @@ async def test_result_store_uses_fallback_when_primary_fails(tmp_path):
 
 @pytest.mark.asyncio
 async def test_result_store_without_primary_uses_fallback(tmp_path):
-    from courtier.agent.core.cache_store import CacheStore
 
     fallback = DiskResultBackend(cache_dir=str(tmp_path))
     store = ResultStore(fallback=fallback)

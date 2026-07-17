@@ -20,12 +20,13 @@ import logging
 from typing import Any, Literal, cast
 
 from content_compliance.core import ComplianceResult, Violation
-from courtier.config import Settings as _Settings
-from courtier.db import AsyncDatabase, CRUDRepository
-from courtier.db.tables import Rule, RuleDomain
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from courtier.config import Settings as _Settings
+from courtier.db import AsyncDatabase, CRUDRepository
+from courtier.db.tables import Rule, RuleDomain
 
 logger = logging.getLogger(__name__)
 

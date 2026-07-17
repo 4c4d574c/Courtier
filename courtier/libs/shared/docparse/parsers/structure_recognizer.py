@@ -7,7 +7,7 @@ multimodal LLM to classify lines into header/body/footer structure.
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from docmodels import (
     Body,

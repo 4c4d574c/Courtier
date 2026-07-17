@@ -1,25 +1,33 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any
+
+from docmodels import Document, Page, Paragraph
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from courtier.db import AsyncDatabase, CRUDRepository
 from courtier.db._utils import _DEFAULT_DB_URL, _ensure_db_url, iter_section_paragraphs
-from sqlalchemy import delete
 from courtier.db.tables import (
-    PageTable,
-    ParagraphTable,
-    ElementTable,
+    DocumentCreate,
     DocumentTable,
+    DocumentUpdate,
+    ElementCreate,
+    ElementTable,
+    ElementUpdate,
+    PageCreate,
+    PageTable,
+    PageUpdate,
+    ParagraphCreate,
+    ParagraphTable,
+    ParagraphUpdate,
     ResourceTable,
 )
 
-from docmodels import Document, Page, Paragraph
-
 logger = logging.getLogger(__name__)
 
-async def save_page(session: AsyncSession, page: Page, doc_id: str):
+async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
     """将 Page 对象保存到数据库。
 
     Args:
@@ -27,9 +35,13 @@ async def save_page(session: AsyncSession, page: Page, doc_id: str):
         page: 要保存的 Page 对象
         doc_id: 所属文档 ID
     """
-    page_repo = CRUDRepository(PageTable)
-    paragraph_repo = CRUDRepository(ParagraphTable)
-    element_repo = CRUDRepository(ElementTable)
+    page_repo: CRUDRepository[PageTable, PageCreate, PageUpdate] = CRUDRepository(PageTable)
+    paragraph_repo: CRUDRepository[ParagraphTable, ParagraphCreate, ParagraphUpdate] = (
+        CRUDRepository(ParagraphTable)
+    )
+    element_repo: CRUDRepository[ElementTable, ElementCreate, ElementUpdate] = (
+        CRUDRepository(ElementTable)
+    )
 
     margin = page.page_content.margin
     page_data = {
@@ -52,7 +64,7 @@ async def save_page(session: AsyncSession, page: Page, doc_id: str):
     # (a) Paragraph has extra fields (elements, alignment) not in the DB
     #     model, and (b) ParagraphCreate requires page_id/section_type/
     #     create_time that Paragraph does not provide.
-    def paragraph_to_dict(p: Paragraph, section_type: str, order_idx: int = 0) -> Dict:
+    def paragraph_to_dict(p: Paragraph, section_type: str, order_idx: int = 0) -> dict[str, Any]:
         return {
             "page_id": page_id,
             "section_type": section_type,
@@ -70,16 +82,17 @@ async def save_page(session: AsyncSession, page: Page, doc_id: str):
     for para, section_type, order_idx in iter_section_paragraphs(page.page_content):
         paragraphs_data.append(paragraph_to_dict(para, section_type, order_idx))
 
+    para_map: dict[tuple[str, int], int] = {}
     if paragraphs_data:
-        await paragraph_repo.bulk_create(session, paragraphs_data)
+        inserted_paragraphs = await paragraph_repo.bulk_create(
+            session, paragraphs_data, returning=True
+        )
+        assert isinstance(inserted_paragraphs, list)
+        for p in inserted_paragraphs:
+            key = (p.section_type, p.order_index)
+            para_map[key] = p.id
 
-    inserted_paragraphs = await paragraph_repo.list(session, page_id=page_id)
-    para_map = {}
-    for p in inserted_paragraphs:
-        key = (p.section_type, p.order_index)
-        para_map[key] = p.id
-
-    elements_data = []
+    elements_data: list[dict[str, Any]] = []
 
     def collect_elements(paragraph: Paragraph, section_type: str, order_idx: int = 0):
         key = (section_type, order_idx)
@@ -140,7 +153,9 @@ async def save_doc(doc: Document, db: AsyncDatabase | None = None, db_url: str =
 
     try:
         async with db.session() as session:
-            doc_repo = CRUDRepository(DocumentTable)
+            doc_repo: CRUDRepository[DocumentTable, DocumentCreate, DocumentUpdate] = (
+                CRUDRepository(DocumentTable)
+            )
 
             existing = await doc_repo.list(
                 session,

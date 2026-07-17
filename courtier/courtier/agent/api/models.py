@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict, cast
 
-SessionStatus = Literal["running", "paused", "completed", "error", "stopped"]
+SessionStatus = Literal["initial", "running", "paused", "completed", "error", "stopped"]
 ToolStatus = Literal["pending", "running", "done", "ok", "error", "warning"]
 ToolCallKind = Literal["tool", "subagent_run"]
 ToolCallScope = Literal["parent", "subagent"]
@@ -141,7 +142,7 @@ class ToolInfo:
     summary: str
     id: str = ""  # client-side tool identifier, e.g. "tool-1"
     detail: Any = (
-        None  # ToolDetail: {"type":"structured","data":{...}} or {"type":"markdown","content":"..."}
+        None  # ToolDetail: structured data or markdown content
     )
     call_kind: ToolCallKind = "tool"
     call_scope: ToolCallScope = "parent"
@@ -259,6 +260,8 @@ class SessionRecord:
     messages_json: str = (
         ""  # serialised AgentState.messages for multi-turn continuation
     )
+    tree_json: str = ""  # serialised ConversationTree for branching/replay
+    current_node_id: str | None = None  # active node within the conversation tree
     owner: str = ""
     # Turn tracking — one entry per user turn for historical rendering.
     # turn_messages: [{"text": str, "timestamp": float}, ...]
@@ -349,6 +352,12 @@ class SessionRecord:
         return turns
 
     def to_detail_dict(self) -> dict[str, Any]:
+        tree_data: dict[str, Any] | None = None
+        if self.tree_json:
+            try:
+                tree_data = json.loads(self.tree_json)
+            except json.JSONDecodeError:
+                tree_data = None
         return {
             "id": self.id,
             "task": self.task,
@@ -380,4 +389,6 @@ class SessionRecord:
             },
             "conclusion": self.conclusion,
             "createdAt": self.created_at,
+            "treeJson": tree_data,
+            "currentNodeId": self.current_node_id,
         }

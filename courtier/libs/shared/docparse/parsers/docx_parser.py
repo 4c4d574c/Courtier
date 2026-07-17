@@ -5,15 +5,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from docx import Document as DocxDocument
-from lxml import etree
-
 from docmodels import (
     Document,
     Margin,
     Page,
     PageContent,
 )
+from docx import Document as DocxDocument
+from lxml import etree
 
 from .base import ParserConfig
 

@@ -77,3 +77,6 @@ packages/domains/*/plugins/**/.venv/
 
 # Legacy src/ — docmodels compat shim, docbuilder (dead code pending removal)
 # Plugins now live under packages/domains/docaudit/plugins/
+
+# WebUI test harness temp output
+.tmp/

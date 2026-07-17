@@ -33,3 +33,11 @@ class SubAgentStreamEvent:
     another sub-agent for nested calls). Non-empty values create a
     hierarchy so the frontend can render nested sub-agents.
     """
+    scope_id: str | None = None
+    """Opaque scope identifier for event isolation.
+
+    Events emitted by a sub-agent carry the scope of their immediate
+    parent. A parent runtime can choose to forward only events whose
+    ``scope_id`` matches the parent's current scope, preventing
+    siblings or nested runs from leaking stream events across contexts.
+    """

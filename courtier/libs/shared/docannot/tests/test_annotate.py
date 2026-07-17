@@ -1,10 +1,8 @@
 from pathlib import Path
 
 import pytest
-from docxnote import DocxDocument
-
 from docannot import Rule, annotate
-
+from docxnote import DocxDocument
 
 SAMPLE_DOCX = Path("tests/assets/doc.docx")
 

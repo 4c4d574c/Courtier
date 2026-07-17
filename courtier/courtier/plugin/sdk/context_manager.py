@@ -7,15 +7,15 @@ mechanisms as the in-process agent loop.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from .protocol import (
-    METHOD_CACHE_PERSIST,
-    METHOD_CACHE_RESOLVE,
-    METHOD_CACHE_MICRO_COMPACT,
-    METHOD_ARTIFACT_STORE_PUT,
     METHOD_ARTIFACT_STORE_GET,
     METHOD_ARTIFACT_STORE_LIST,
+    METHOD_ARTIFACT_STORE_PUT,
+    METHOD_CACHE_MICRO_COMPACT,
+    METHOD_CACHE_PERSIST,
+    METHOD_CACHE_RESOLVE,
 )
 
 
@@ -75,18 +75,26 @@ class PluginContextManager:
 
     async def resolve_refs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Resolve ``$ref:...`` strings in tool arguments using the host cache."""
-        return await self._client.call(
-            METHOD_CACHE_RESOLVE, {"kwargs": kwargs},
-            timeout=self._RESOLVE_TIMEOUT,
+        # JSON-RPC boundary: the host returns the resolved kwargs dict.
+        return cast(
+            dict[str, Any],
+            await self._client.call(
+                METHOD_CACHE_RESOLVE, {"kwargs": kwargs},
+                timeout=self._RESOLVE_TIMEOUT,
+            ),
         )
 
     async def micro_compact(
         self, messages: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Replace old tool-result messages with omitted placeholders."""
-        return await self._client.call(
-            METHOD_CACHE_MICRO_COMPACT, {"messages": messages},
-            timeout=self._MICRO_COMPACT_TIMEOUT,
+        # JSON-RPC boundary: the host returns the compacted message list.
+        return cast(
+            list[dict[str, Any]],
+            await self._client.call(
+                METHOD_CACHE_MICRO_COMPACT, {"messages": messages},
+                timeout=self._MICRO_COMPACT_TIMEOUT,
+            ),
         )
 
     async def compact_if_needed(
@@ -109,21 +117,33 @@ class HostArtifactStore:
 
     async def put(self, artifact: dict[str, Any]) -> dict[str, Any] | None:
         """Store an artifact in the host's per-session ArtifactStore."""
-        return await self._client.call(
-            METHOD_ARTIFACT_STORE_PUT,
-            {"artifact": artifact, "session_id": self._session_id},
+        # JSON-RPC boundary: the host returns the stored artifact dict or None.
+        return cast(
+            dict[str, Any] | None,
+            await self._client.call(
+                METHOD_ARTIFACT_STORE_PUT,
+                {"artifact": artifact, "session_id": self._session_id},
+            ),
         )
 
     async def get(self, artifact_id: str) -> dict[str, Any] | None:
         """Retrieve an artifact by ID from the host."""
-        return await self._client.call(
-            METHOD_ARTIFACT_STORE_GET,
-            {"artifact_id": artifact_id, "session_id": self._session_id},
+        # JSON-RPC boundary: the host returns the artifact dict or None.
+        return cast(
+            dict[str, Any] | None,
+            await self._client.call(
+                METHOD_ARTIFACT_STORE_GET,
+                {"artifact_id": artifact_id, "session_id": self._session_id},
+            ),
         )
 
     async def list_all(self) -> list[dict[str, Any]]:
         """List all artifacts in the host's per-session ArtifactStore."""
-        return await self._client.call(
-            METHOD_ARTIFACT_STORE_LIST,
-            {"session_id": self._session_id},
+        # JSON-RPC boundary: the host returns a list of artifact dicts.
+        return cast(
+            list[dict[str, Any]],
+            await self._client.call(
+                METHOD_ARTIFACT_STORE_LIST,
+                {"session_id": self._session_id},
+            ),
         )

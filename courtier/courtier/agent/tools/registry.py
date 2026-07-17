@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
-from .protocol import OnToolProgress, ToolProgress, ToolProtocol, ToolResult
 from courtier.agent.artifacts.models import (
-    ProjectionPolicy, InputField, RuntimePolicy,
-    build_contract_from_input_fields, derive_upstream_producers,
+    InputField,
+    ProjectionPolicy,
+    RuntimePolicy,
+    build_contract_from_input_fields,
+    derive_upstream_producers,
 )
 from courtier.agent.artifacts.projectors import ProjectorRegistry, create_default_projector_registry
 from courtier.agent.artifacts.resolver import emit_event
 from courtier.agent.artifacts.store import ArtifactStore
 from courtier.agent.core.execution_result import ExecutionResult
+
+from .protocol import (
+    ToolInfo,
+    ToolProgress,
+    ToolProtocol,
+    ToolResult,
+    ToolVersioned,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +42,8 @@ class ToolRegistry:
         summarizer: Any | None = None,
     ) -> None:
         self._tools: dict[str, ToolProtocol] = {}
+        self._versions: dict[str, dict[str, ToolProtocol]] = {}
+        self._tool_info: dict[str, dict[str, ToolInfo]] = {}
         self._tool_call_counts: dict[str, int] = {}
         self._tool_consecutive_counts: dict[str, int] = {}
         self._last_tool_called: str | None = None
@@ -59,35 +71,137 @@ class ToolRegistry:
     def register(self, tool: ToolProtocol, force: bool = False) -> None:
         """Register a tool. Raises ValueError on duplicate name unless force=True.
 
+        If the tool declares a version (via ``ToolVersioned``), it is stored
+        as a specific version entry; the latest non-deprecated version is
+        always exposed through ``get(name)``. Multiple versions of the same
+        name can coexist.
+
         Contract reachability is NOT validated at registration time because
         upstream producers may not have been registered yet (plugin load
         order is non-deterministic).  Call :meth:`validate_all_contracts`
         after all tools and plugins are loaded.
         """
-        if tool.name in self._tools:
-            if force:
-                del self._tools[tool.name]
-            else:
-                raise ValueError(f"Duplicate tool name: {tool.name}")
-        self._tools[tool.name] = tool
+        name = tool.name
+        info = self._extract_tool_info(tool)
+        is_versioned = isinstance(tool, ToolVersioned)
+        existing_versions = self._versions.get(name, {})
+
+        if name in self._tools:
+            if info.version in existing_versions:
+                # Same version registered again: require force.
+                if not force:
+                    raise ValueError(f"Duplicate tool name: {name}")
+            elif not is_versioned:
+                # Unversioned tools keep the old behavior: only one registration.
+                if not force:
+                    raise ValueError(f"Duplicate tool name: {name}")
+
+        self._versions.setdefault(name, {})[info.version] = tool
+        self._tool_info.setdefault(name, {})[info.version] = info
+        self._update_latest(name)
         self._producer_cache = None
 
-    def get(self, name: str) -> ToolProtocol:
-        """Look up a tool by name. Raises KeyError if not found."""
+    def get(self, name: str, version: str | None = None) -> ToolProtocol:
+        """Look up a tool by name and optional version.
+
+        When *version* is None, returns the latest non-deprecated version
+        (or the latest version if all are deprecated). Raises KeyError if
+        the tool or version is not found.
+        """
+        if version is not None:
+            versions = self._versions.get(name, {})
+            if version not in versions:
+                raise KeyError(f"Tool {name!r} version {version!r} not found")
+            return versions[version]
+
         if name not in self._tools:
             raise KeyError(f"Tool not found: {name}")
         return self._tools[name]
 
-    def unregister(self, name: str) -> None:
-        """Remove a tool by name. Raises KeyError if not found."""
+    def unregister(self, name: str, version: str | None = None) -> None:
+        """Remove a tool by name.
+
+        If *version* is provided, only that version is removed; otherwise
+        all versions of the tool are removed.
+        """
         if name not in self._tools:
             raise KeyError(f"Tool not found: {name}")
-        del self._tools[name]
+
+        if version is not None:
+            versions = self._versions.get(name, {})
+            if version in versions:
+                del versions[version]
+                infos = self._tool_info.get(name, {})
+                infos.pop(version, None)
+            if not versions:
+                del self._versions[name]
+                self._tool_info.pop(name, None)
+                del self._tools[name]
+            else:
+                self._update_latest(name)
+        else:
+            del self._tools[name]
+            self._versions.pop(name, None)
+            self._tool_info.pop(name, None)
         self._producer_cache = None
 
     def list_tools(self) -> list[ToolProtocol]:
-        """Return all registered tools."""
+        """Return all latest-version tools."""
         return list(self._tools.values())
+
+    @staticmethod
+    def _extract_tool_info(tool: ToolProtocol) -> ToolInfo:
+        """Extract version metadata from a tool instance."""
+        if isinstance(tool, ToolVersioned):
+            return ToolInfo(
+                name=tool.name,
+                version=tool.version,
+                api_version=tool.api_version,
+                description=tool.description,
+                parameters=dict(tool.parameters),
+                deprecated=tool.deprecated,
+                replaced_by=tool.replaced_by,
+            )
+        return ToolInfo(
+            name=tool.name,
+            description=tool.description,
+            parameters=dict(getattr(tool, "parameters", {})),
+        )
+
+    def _update_latest(self, name: str) -> None:
+        """Update ``_tools[name]`` to the latest non-deprecated version."""
+        versions = self._versions.get(name, {})
+        if not versions:
+            self._tools.pop(name, None)
+            return
+
+        sorted_versions = sorted(versions.keys())
+        # Prefer latest non-deprecated version.
+        for ver in reversed(sorted_versions):
+            info = self._tool_info.get(name, {}).get(ver)
+            if info is None or not info.deprecated:
+                self._tools[name] = versions[ver]
+                return
+        # All versions deprecated: expose the latest anyway.
+        self._tools[name] = versions[sorted_versions[-1]]
+
+    def list_available_versions(self, name: str) -> list[str]:
+        """Return all registered versions for a tool name, sorted."""
+        return sorted(self._versions.get(name, {}).keys())
+
+    def get_tool_info(self, name: str, version: str | None = None) -> ToolInfo | None:
+        """Return metadata for a tool version, or None if absent."""
+        infos = self._tool_info.get(name, {})
+        if version is not None:
+            return infos.get(version)
+        # Return info for the latest version exposed by get(name).
+        tool = self._tools.get(name)
+        if tool is None:
+            return None
+        for ver, t in self._versions.get(name, {}).items():
+            if t is tool:
+                return infos.get(ver)
+        return None
 
     def get_output_schema(self, name: str) -> dict | None:
         """Get the output_schema of a registered tool, or None if not declared."""
@@ -95,13 +209,18 @@ class ToolRegistry:
         return getattr(tool, "output_schema", None)
 
     def get_schemas(
-        self, *, hide_debug_for_task_agents: bool | None = None
+        self,
+        *,
+        hide_debug_for_task_agents: bool | None = None,
+        include_deprecated: bool = True,
     ) -> list[dict[str, Any]]:
         """Return all tool schemas in OpenAI function-calling format.
 
         When hide_debug_for_task_agents is True, tools with runtime_policy
         hidden_from_task_agents_by_default=True are excluded.
         If None, uses the feature flag from ProjectionPolicy.
+        Deprecated tools are annotated in the description and optionally
+        excluded.
         """
         hide_debug = (
             hide_debug_for_task_agents
@@ -109,17 +228,27 @@ class ToolRegistry:
             else self._policy.features.hide_debug_tools_for_task_agents
         )
         schemas = []
-        for tool in self._tools.values():
+        for name, tool in self._tools.items():
             runtime_policy = getattr(tool, "runtime_policy", None)
             if hide_debug and runtime_policy is not None:
                 if getattr(runtime_policy, "hidden_from_task_agents_by_default", False):
                     continue
+
+            info = self.get_tool_info(name)
+            if info is not None and info.deprecated and not include_deprecated:
+                continue
+
+            description = tool.description
+            if info is not None and info.deprecated:
+                replacement = f" (use {info.replaced_by})" if info.replaced_by else ""
+                description = f"[DEPRECATED{replacement}] {description}"
+
             schemas.append(
                 {
                     "type": "function",
                     "function": {
                         "name": tool.name,
-                        "description": tool.description,
+                        "description": description,
                         "parameters": tool.parameters,
                     },
                 }
@@ -217,9 +346,12 @@ class ToolRegistry:
         # Some tools (e.g. the subagent adapter) already return the unified
         # ExecutionResult.  Legacy tools return ToolResult.
         # Narrow the union once to avoid attribute-access confusion downstream.
-        is_execution_result = isinstance(result, ExecutionResult)
-        exec_result: ExecutionResult | None = result if is_execution_result else None
-        tool_result: ToolResult | None = None if is_execution_result else result
+        exec_result: ExecutionResult | None = (
+            result if isinstance(result, ExecutionResult) else None
+        )
+        tool_result: ToolResult | None = (
+            result if not isinstance(result, ExecutionResult) else None
+        )
 
         # Preserve the original data before cache_store replaces it with a $ref marker.
         original_data = exec_result.raw_data if exec_result is not None else tool_result.data  # type: ignore[union-attr]
@@ -328,15 +460,16 @@ class ToolRegistry:
                 ),
                 metadata={"blocked_reason": "max_calls_exceeded"},
             )
-        if max_consecutive is not None and self._tool_consecutive_counts.get(name, 0) > max_consecutive:
+        current_consecutive = self._tool_consecutive_counts.get(name, 0)
+        if max_consecutive is not None and current_consecutive > max_consecutive:
             emit_event("repeated_tool_call_blocked", {
                 "tool": name, "reason": "max_consecutive_calls",
-                "count": self._tool_consecutive_counts[name], "limit": max_consecutive,
+                "count": current_consecutive, "limit": max_consecutive,
             })
             return ToolResult(
                 success=False,
                 error=(
-                    f"Tool '{name}' has been called {self._tool_consecutive_counts[name]} "
+                    f"Tool '{name}' has been called {current_consecutive} "
                     f"consecutive times, exceeding the limit of {max_consecutive}."
                 ),
                 metadata={"blocked_reason": "max_consecutive_exceeded"},
@@ -510,13 +643,16 @@ class ToolRegistry:
         data = original_data if original_data is not None else tool_result.data
         metadata = {"tool_name": tool_name, **tool_result.metadata}
         if self._summarizer is not None and not skip_summarize:
-            return await self._summarizer.from_data(
-                success=tool_result.success,
-                actor_type="tool",
-                actor_name=tool_name,
-                data=data,
-                error=tool_result.error,
-                metadata=metadata,
+            return cast(
+                ExecutionResult,
+                await self._summarizer.from_data(
+                    success=tool_result.success,
+                    actor_type="tool",
+                    actor_name=tool_name,
+                    data=data,
+                    error=tool_result.error,
+                    metadata=metadata,
+                ),
             )
         if not tool_result.success:
             return ExecutionResult.from_error(

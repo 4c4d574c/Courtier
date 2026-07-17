@@ -3,9 +3,9 @@
 import logging
 
 import pytest
+from content_compliance.registry import CheckerRegistry
 
 from courtier.agent.tools.registry import ToolRegistry
-from content_compliance.registry import CheckerRegistry
 from courtier.plugin.registry import ExtensionRegistry
 
 
@@ -189,3 +189,44 @@ class TestExtensionRegistry:
         # Unregister should remove route
         ext_registry.on_unregister("route_plugin")
         assert ext_registry.get_routes() == {}
+
+    def test_register_mirrors_capabilities_into_capability_registry(
+        self, tool_registry, checker_registry
+    ):
+        from courtier.agent.core.capability import CapabilityRegistry
+
+        cap_reg = CapabilityRegistry()
+        ext_registry = ExtensionRegistry(
+            tool_registry=tool_registry,
+            checker_registry=checker_registry,
+            capability_registry=cap_reg,
+        )
+        caps = [
+            {"type": "tool", "name": "cap_tool", "description": "A tool"},
+            {"type": "checker", "name": "cap_checker", "doc_type": "通知"},
+            {"type": "route", "prefix": "/api/cap", "description": "A route"},
+        ]
+
+        ext_registry.on_register("mirror_plugin", MockClient(), caps, system_prompt="")
+
+        assert cap_reg.get("tool", "cap_tool") is not None
+        assert cap_reg.get("checker", "通知") is not None
+        assert cap_reg.get("route", "/api/cap") is not None
+
+    def test_unregister_removes_capabilities_from_capability_registry(
+        self, tool_registry, checker_registry
+    ):
+        from courtier.agent.core.capability import CapabilityRegistry
+
+        cap_reg = CapabilityRegistry()
+        ext_registry = ExtensionRegistry(
+            tool_registry=tool_registry,
+            checker_registry=checker_registry,
+            capability_registry=cap_reg,
+        )
+        caps = [{"type": "tool", "name": "cap_tool", "description": "A tool"}]
+        ext_registry.on_register("mirror_plugin", MockClient(), caps, system_prompt="")
+        assert cap_reg.get("tool", "cap_tool") is not None
+
+        ext_registry.on_unregister("mirror_plugin")
+        assert cap_reg.get("tool", "cap_tool") is None

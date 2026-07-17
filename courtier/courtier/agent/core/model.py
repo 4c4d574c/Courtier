@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+import uuid
 from collections.abc import AsyncGenerator
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Protocol
 
 from openai import AsyncOpenAI
 
-from .streaming import extract_stream_delta, extract_reasoning, buffer_tool_call_delta
+from .streaming import buffer_tool_call_delta, extract_reasoning, extract_stream_delta
+from .tool_call import ToolCall
+
+if TYPE_CHECKING:
+    from .protocol import ChatMessage
 
 logger = logging.getLogger(__name__)
 
@@ -67,24 +73,6 @@ def _parse_tool_arguments(raw: str) -> dict[str, Any]:
     return result
 
 
-def _max_nesting_depth(raw: str) -> int:
-    """Return the maximum brace/bracket nesting depth in *raw*.
-
-    Used as a pre-check before ``ast.literal_eval`` to reject inputs that
-    would cause excessive recursion.
-    """
-    depth = 0
-    max_depth = 0
-    for ch in raw:
-        if ch in "{[":
-            depth += 1
-            if depth > max_depth:
-                max_depth = depth
-        elif ch in "}]":
-            depth -= 1
-    return max_depth
-
-
 def _fix_unescaped_ref_quotes(raw: str) -> str:
     """Fix unescaped quotes around $ref values inside JSON string values.
 
@@ -115,15 +103,21 @@ def _fix_unescaped_ref_quotes(raw: str) -> str:
 
 
 def _repair_json(raw: str) -> str:
-    """Apply common JSON repairs to LLM-generated text.
+    """Apply conservative JSON repairs to LLM-generated text.
 
     Handles: single-quoted strings → double-quoted, unquoted keys → quoted,
     trailing commas before closing brackets/braces.
-    This is a safer alternative to ast.literal_eval for untrusted input.
+
+    The single-quote replacement runs only when the payload contains no
+    double quotes at all (pure single-quote style) — otherwise apostrophes
+    and quoted segments inside string values would be corrupted. Any repair
+    that still fails ``json.loads`` falls back to the ``_parse_error``
+    sentinel, so a bad repair never silently alters valid content.
     """
     repaired = raw.strip()
-    # Replace single quotes with double quotes (careful with apostrophes)
-    repaired = re.sub(r"(?<!\\)'", '"', repaired)
+    if '"' not in repaired:
+        # Pure single-quote style is unambiguous to convert.
+        repaired = re.sub(r"(?<!\\)'", '"', repaired)
     # Quote unquoted keys: word followed by colon (not inside strings)
     repaired = re.sub(r'([{,]\s*)(\w+)(\s*:)', r'\1"\2"\3', repaired)
     # Remove trailing commas before ] or }
@@ -174,7 +168,8 @@ def _parse_xml_tool_calls(content: str) -> tuple[list[ToolCall], str]:
 
         tool_calls.append(
             ToolCall(
-                id=f"call_{len(tool_calls)}",
+                # Unique per call so IDs do not repeat across turns.
+                id=f"call_{uuid.uuid4().hex[:8]}_{len(tool_calls)}",
                 name=func_name,
                 arguments=params,
             )
@@ -221,15 +216,6 @@ def _normalize_response(
         usage=usage,
         raw=raw,
     )
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """A tool call the model wants to execute."""
-
-    id: str
-    name: str
-    arguments: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -492,7 +478,8 @@ class OpenAIModelClient(ModelClient):
         # or structured tool_calls deltas). Fall back to non-streaming.
         if tools and finish_reason == "tool_calls" and not result.tool_calls:
             logger.debug(
-                "Streaming returned tool_calls finish but no tool calls; falling back to non-streaming."
+                "Streaming returned tool_calls finish but no tool calls; "
+                "falling back to non-streaming."
             )
             try:
                 return await self.generate(messages, tools=tools, **kwargs)
@@ -503,6 +490,156 @@ class OpenAIModelClient(ModelClient):
                 raise
 
         return result
+
+
+class BackendModelClient(ModelClient):
+    """Adapter exposing a ``ModelBackend`` through the legacy ``ModelClient`` interface.
+
+    This lets the rest of the codebase keep using ``ModelClient`` while the
+    underlying backend benefits from the normalized ``ChatRequest``/``ChatResponse``
+    protocol, routing, and fallback introduced in Phase 2.
+    """
+
+    def __init__(
+        self,
+        backend: Any,
+        model: str = "unknown",
+        temperature: float = 0.7,
+    ) -> None:
+        self._backend = backend
+        self._model = model
+        self._temperature = temperature
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
+
+    async def close(self) -> None:
+        close = getattr(self._backend, "close", None)
+        if close is not None:
+            await close()
+
+    async def generate(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        **kwargs: Any,
+    ) -> ModelResponse:
+        from .protocol import ChatRequest, ToolSchema
+
+        request = ChatRequest(
+            model=self._model,
+            messages=tuple(_openai_message_to_chat(m) for m in messages),
+            temperature=self._temperature,
+            tools=[ToolSchema(function=dict(t)) for t in tools] if tools else None,
+            metadata=kwargs or None,
+        )
+        response = await self._backend.chat(request)
+        message = response.message
+        return ModelResponse(
+            content=message.content,
+            reasoning_content=None,
+            tool_calls=message.tool_calls or [],
+            finish_reason=response.finish_reason,
+            usage={
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+            if response.usage
+            else None,
+            raw=response.raw,
+        )
+
+    async def generate_stream_full(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        on_token: Any = None,
+        on_content_token: Any = None,
+        **kwargs: Any,
+    ) -> ModelResponse:
+        from .protocol import ChatRequest, TokenChunk, ToolSchema
+
+        request = ChatRequest(
+            model=self._model,
+            messages=tuple(_openai_message_to_chat(m) for m in messages),
+            temperature=self._temperature,
+            tools=[ToolSchema(function=dict(t)) for t in tools] if tools else None,
+            metadata=kwargs or None,
+        )
+
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        finish_reason = "stop"
+        usage = None
+        raw = None
+
+        stream_iter = self._backend.stream(request)
+        # Some backends do not support streaming; fall back to chat().
+        try:
+            if asyncio.iscoroutine(stream_iter):
+                stream_iter = await stream_iter
+        except NotImplementedError:
+            return await self.generate(messages, tools=tools, **kwargs)
+
+        async for chunk in stream_iter:
+            if isinstance(chunk, TokenChunk):
+                if chunk.kind == "reasoning":
+                    reasoning_parts.append(chunk.text)
+                    if on_token:
+                        await on_token(chunk.text)
+                elif chunk.kind == "content":
+                    content_parts.append(chunk.text)
+                    if on_content_token:
+                        await on_content_token(chunk.text)
+            else:
+                finish_reason = chunk.finish_reason
+                usage = chunk.usage
+                tool_calls = chunk.message.tool_calls or []
+                raw = chunk.raw
+
+        return ModelResponse(
+            content="".join(content_parts) if content_parts else None,
+            reasoning_content="".join(reasoning_parts) if reasoning_parts else None,
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            usage={
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "total_tokens": usage.total_tokens,
+            }
+            if usage
+            else None,
+            raw=raw,
+        )
+
+
+def _openai_message_to_chat(message: dict) -> "ChatMessage":
+    from .protocol import ChatMessage
+
+    tool_calls = None
+    if message.get("tool_calls"):
+        tool_calls = [
+            ToolCall(
+                id=tc.get("id", ""),
+                name=tc.get("function", {}).get("name", ""),
+                arguments=tc.get("function", {}).get("arguments", {}),
+            )
+            for tc in message["tool_calls"]
+        ]
+    return ChatMessage(
+        role=message["role"],
+        content=message.get("content"),
+        tool_calls=tool_calls,
+        tool_call_id=message.get("tool_call_id"),
+        name=message.get("name"),
+    )
 
 
 class MockModelClient(ModelClient):

@@ -2,11 +2,11 @@
 """Integration tests for cross-process trace context propagation."""
 
 import pytest
-from opentelemetry import trace, context
+from opentelemetry import context, trace
 from opentelemetry.sdk.trace import TracerProvider
 
-from courtier.agent.telemetry.context import inject_context, extract_context
-from courtier.agent.telemetry.tracer import AgentTracer, init_telemetry
+from courtier.agent.telemetry.context import extract_context, inject_context
+from courtier.agent.telemetry.tracer import AgentTracer
 
 
 @pytest.fixture(autouse=True)

@@ -4,7 +4,6 @@ from typing import Any
 
 from ..engine import RuleConfig
 
-
 _REQUIRED_TOP_KEYS = ("doc_type", "subtypes")
 _REQUIRED_RULE_KEYS = ("id", "name", "check_scope", "type", "pattern", "message")
 

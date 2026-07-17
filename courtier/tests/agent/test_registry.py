@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from courtier.agent.core.execution_result import ExecutionResult
 from courtier.agent.tools.protocol import ToolResult
 from courtier.agent.tools.registry import ToolRegistry
 
@@ -383,3 +382,104 @@ class TestAutoRegisterArtifacts:
         # No artifact should be registered
         artifacts = list(store.list_all())
         assert len(artifacts) == 0
+
+
+class _VersionedTool:
+    name = "versioned_tool"
+    description = "A versioned tool"
+    version = "2.0.0"
+    api_version = "2.0"
+    deprecated = False
+    replaced_by = None
+    parameters: dict = {"type": "object", "properties": {}}
+
+    async def execute(self, **kwargs):
+        return ToolResult(success=True, data={"version": self.version})
+
+
+class _DeprecatedTool:
+    name = "versioned_tool"
+    description = "Old version"
+    version = "1.0.0"
+    api_version = "1.0"
+    deprecated = True
+    replaced_by = "versioned_tool"
+    parameters: dict = {"type": "object", "properties": {}}
+
+    async def execute(self, **kwargs):
+        return ToolResult(success=True, data={"version": self.version})
+
+
+class TestToolRegistryVersioning:
+    def test_register_multiple_versions(self):
+        reg = ToolRegistry()
+        reg.register(_DeprecatedTool())
+        reg.register(_VersionedTool())
+
+        assert reg.list_available_versions("versioned_tool") == ["1.0.0", "2.0.0"]
+        assert reg.get("versioned_tool") is reg.get("versioned_tool", version="2.0.0")
+
+    def test_get_specific_version(self):
+        reg = ToolRegistry()
+        reg.register(_DeprecatedTool())
+        reg.register(_VersionedTool())
+
+        old = reg.get("versioned_tool", version="1.0.0")
+        new = reg.get("versioned_tool", version="2.0.0")
+        assert old.version == "1.0.0"
+        assert new.version == "2.0.0"
+
+    def test_latest_prefers_non_deprecated(self):
+        reg = ToolRegistry()
+        reg.register(_DeprecatedTool())
+        reg.register(_VersionedTool())
+
+        latest = reg.get("versioned_tool")
+        assert latest.version == "2.0.0"
+
+    def test_unregister_specific_version(self):
+        reg = ToolRegistry()
+        reg.register(_DeprecatedTool())
+        reg.register(_VersionedTool())
+
+        reg.unregister("versioned_tool", version="1.0.0")
+        assert reg.list_available_versions("versioned_tool") == ["2.0.0"]
+        with pytest.raises(KeyError):
+            reg.get("versioned_tool", version="1.0.0")
+
+    def test_unversioned_duplicate_still_raises(self):
+        class _UnversionedTool:
+            name = "unversioned"
+            description = "test"
+            parameters: dict = {"type": "object", "properties": {}}
+
+            async def execute(self, **kwargs):
+                return ToolResult(success=True, data="ok")
+
+        reg = ToolRegistry()
+        reg.register(_UnversionedTool())
+        with pytest.raises(ValueError, match="Duplicate"):
+            reg.register(_UnversionedTool())
+
+    def test_get_schemas_deprecation_annotation(self):
+        reg = ToolRegistry()
+        reg.register(_DeprecatedTool())
+
+        schemas = {s["function"]["name"]: s["function"]["description"] for s in reg.get_schemas()}
+        assert "DEPRECATED" in schemas["versioned_tool"]
+        assert "use versioned_tool" in schemas["versioned_tool"]
+
+    def test_get_schemas_can_exclude_deprecated(self):
+        reg = ToolRegistry()
+        reg.register(_DeprecatedTool())
+
+        schemas = reg.get_schemas(include_deprecated=False)
+        assert len(schemas) == 0
+
+    def test_get_tool_info(self):
+        reg = ToolRegistry()
+        reg.register(_VersionedTool())
+        info = reg.get_tool_info("versioned_tool")
+        assert info is not None
+        assert info.version == "2.0.0"
+        assert info.api_version == "2.0"

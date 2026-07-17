@@ -15,7 +15,7 @@ from courtier.agent.core.context_manager import (
     _deduplicate_reminders,
 )
 from courtier.agent.core.state import Message
-from courtier.common.behavioral_rules import PRE_TURN_REMINDER, PERIODIC_REMINDER
+from courtier.common.behavioral_rules import PERIODIC_REMINDER, PRE_TURN_REMINDER
 
 
 @pytest.fixture
@@ -95,7 +95,6 @@ class TestLayer1PersistLargeOutput:
         assert len(mgr._cache.recent_files) == 1
 
     async def test_file_on_disk_matches_data(self, mgr):
-        import json
 
         data = {"text": "x" * 1000}
         result = await mgr.persist_large_output("search_documents", data)

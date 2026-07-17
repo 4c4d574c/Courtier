@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from courtier.db.tables.user import ProfileUpdate, UserTable
+from courtier.db.tables.user import UserTable
 
 from ..db import get_db, user_repo
 from ..middleware.auth import get_current_user, hash_password, verify_password
@@ -58,7 +58,9 @@ async def get_profile(
 class ProfileUpdateRequest(BaseModel):
     email: str | None = Field(default=None, max_length=128, description="邮箱地址")
     current_password: str | None = Field(default=None, description="当前密码（修改密码时必填）")
-    new_password: str | None = Field(default=None, min_length=8, max_length=128, description="新密码")
+    new_password: str | None = Field(
+        default=None, min_length=8, max_length=128, description="新密码"
+    )
 
 
 @router.patch("")
@@ -88,12 +90,12 @@ async def update_profile(
                 raise HTTPException(400, "修改密码时需要提供当前密码")
             if not verify_password(body.current_password, user.password_hash):
                 raise HTTPException(400, "当前密码错误")
-            update_data["password"] = hash_password(body.new_password)
+            update_data["password_hash"] = hash_password(body.new_password)
 
         if not update_data:
             raise HTTPException(400, "没有提供需要更新的字段")
 
-        updated = await user_repo.update(session, user.id, ProfileUpdate(**update_data))
+        updated = await user_repo.update(session, user.id, update_data)
         if updated is None:
             raise HTTPException(404, "用户不存在")
         return _profile_to_dict(updated)

@@ -1,6 +1,6 @@
 """Shared helpers for artifact tool tests."""
 
-from courtier.agent.artifacts.models import ArtifactMetadata, Artifact
+from courtier.agent.artifacts.models import Artifact, ArtifactMetadata
 
 
 def _make(

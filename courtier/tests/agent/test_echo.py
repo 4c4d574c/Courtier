@@ -2,8 +2,8 @@
 
 import pytest
 
-from courtier.agent.tools.builtin.echo import EchoTool
 from courtier.agent.agents.echo import create_echo_agent
+from courtier.agent.tools.builtin.echo import EchoTool
 
 
 class TestEchoTool:

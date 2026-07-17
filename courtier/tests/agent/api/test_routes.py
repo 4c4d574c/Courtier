@@ -45,7 +45,6 @@ def client():
 def mock_chat_agent():
     """Return a chat agent backed by MockModelClient for fast tests."""
     from courtier.agent.agents.base import Agent
-    from courtier.agent.core.model import ModelResponse
     from courtier.agent.testing import MockModelClient
 
     model = MockModelClient(tool_calls=[])
@@ -333,3 +332,43 @@ class TestLoginRateLimit:
             assert resp.status_code == 401
         resp = client.post("/api/auth/login", json=payload)
         assert resp.status_code == 429
+
+
+class TestAccessCookie:
+    """access_token httpOnly cookie — the preferred SSE credential channel."""
+
+    def test_login_sets_access_cookie(self, client):
+        """Login (fallback/no-DB path) must set the access_token cookie."""
+        assert client.cookies.get("access_token")
+
+    def test_sse_auth_via_cookie_without_header(self, client, mock_chat_agent):
+        """SSE requests authenticate via the access_token cookie alone,
+        without an Authorization header or ?token= query param."""
+        agent, _model = mock_chat_agent
+        client.headers.pop("Authorization", None)
+        with patch(
+            "courtier.agent.api.routes.sessions.build_chat_agent",
+            new=AsyncMock(return_value=(agent, None, "test-model")),
+        ):
+            with client.stream("GET", "/api/sessions?task=hello") as resp:
+                assert resp.status_code == 200
+
+    def test_logout_clears_access_cookie(self, client):
+        resp = client.post("/api/auth/logout")
+        assert resp.status_code == 200
+        assert client.cookies.get("access_token") is None
+
+
+class TestAdminSelfGuard:
+    """An admin must not change their own role/status (lockout prevention)."""
+
+    def test_admin_cannot_change_own_role(self, client):
+        # Fallback admin has uid=0; the guard runs before any DB access.
+        resp = client.patch("/api/admin/users/0", json={"role": "auditor"})
+        assert resp.status_code == 400
+        assert "不能修改自己" in resp.json()["detail"]
+
+    def test_admin_cannot_change_own_status(self, client):
+        resp = client.patch("/api/admin/users/0", json={"status": "disabled"})
+        assert resp.status_code == 400
+        assert "不能修改自己" in resp.json()["detail"]

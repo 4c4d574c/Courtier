@@ -1,8 +1,8 @@
 import inspect
 
 import pytest
-
 from content_compliance import (
+    SUBTYPE_TO_DOCTYPE,
     ComplianceResult,
     ContentChecker,
     Violation,
@@ -10,7 +10,6 @@ from content_compliance import (
     init_checkers,
     list_supported_types,
     register,
-    SUBTYPE_TO_DOCTYPE,
 )
 
 

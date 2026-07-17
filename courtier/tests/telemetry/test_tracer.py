@@ -5,7 +5,7 @@ import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
-from courtier.agent.telemetry.tracer import AgentTracer, init_telemetry, get_tracer
+from courtier.agent.telemetry.tracer import AgentTracer, get_tracer, init_telemetry
 
 
 @pytest.fixture(autouse=True)

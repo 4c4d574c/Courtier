@@ -8,10 +8,11 @@ typed artifact registration, projection, and scoped access.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
-from ..core.cache_store import _PersistenceBackend, PersistResult
+from ..core.cache_store import PersistResult, _PersistenceBackend
 from .models import (
     Artifact,
     ArtifactContext,

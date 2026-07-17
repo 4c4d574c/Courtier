@@ -1,5 +1,5 @@
 from content_compliance.core import ComplianceResult
-from content_compliance.registry import CheckerRegistry, get_checker, register, list_supported_types
+from content_compliance.registry import CheckerRegistry, get_checker, list_supported_types, register
 
 
 class FakeChecker:

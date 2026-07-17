@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-from courtier.plugin.sdk.runtime import PluginRuntime, _sanitize_rpc_log
 from courtier.plugin.sdk.protocol import METHOD_TOOL_EXECUTE
+from courtier.plugin.sdk.runtime import PluginRuntime, _sanitize_rpc_log
 
 
 class TestPluginRuntime:
@@ -77,7 +77,11 @@ class TestPluginRuntime:
             json.loads(line) for line in output_lines if '"id"' in line and '"method"' not in line
         ]
         health_resp = next(
-            (r for r in responses if isinstance(r.get("result"), dict) and r["result"].get("status") == "ok"),
+            (
+                r
+                for r in responses
+                if isinstance(r.get("result"), dict) and r["result"].get("status") == "ok"
+            ),
             None,
         )
         assert health_resp is not None, f"No health response found in {responses}"
@@ -255,7 +259,9 @@ class TestPluginCancellation:
             for line in output_lines
             if line.strip() and '"id": 42' in line and '"method"' not in line
         ]
-        assert not any(r.get("result", {}).get("data") == "should not appear" for r in id_42_responses)
+        assert not any(
+            r.get("result", {}).get("data") == "should not appear" for r in id_42_responses
+        )
 
 
 class TestPluginContextManager:

@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from pydantic import BaseModel, Field
-from sqlalchemy import String, Integer, DateTime, Date, ForeignKey
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, utcnow
+
 
 class ResourceCreate(BaseModel):
     """创建资源库条目时的数据模型"""

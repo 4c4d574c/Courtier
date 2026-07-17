@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -306,9 +306,15 @@ class ContextManager:
             fallback_compacted = list(messages[-keep_recent:])
             # Truncate message content to avoid context overflow
             _MAX_FALLBACK_CONTENT = 4000
-            for msg in fallback_compacted:
+            for i, msg in enumerate(fallback_compacted):
                 if msg.content and len(msg.content) > _MAX_FALLBACK_CONTENT:
-                    msg.content = msg.content[:_MAX_FALLBACK_CONTENT] + "...[truncated]"
+                    # Message is frozen — build a truncated copy instead of
+                    # mutating in place (the old assignment raised
+                    # FrozenInstanceError at runtime).
+                    fallback_compacted[i] = replace(
+                        msg,
+                        content=msg.content[:_MAX_FALLBACK_CONTENT] + "...[truncated]",
+                    )
             self.state.has_compacted = True
             self.state.last_summary = f"[压缩失败，回退到最近 {keep_recent} 条消息]"
             self.state.compact_count += 1

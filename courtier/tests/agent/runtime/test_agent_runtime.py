@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from courtier.agent.agents.base import Agent
-from courtier.agent.agents.subagent.config import SubAgentConfig, FailureStrategy
+from courtier.agent.agents.subagent.config import FailureStrategy, SubAgentConfig
 from courtier.agent.core.model import ModelResponse
 from courtier.agent.runtime import AgentRuntime, AgentRuntimeBudget
 from courtier.agent.runtime.handle import AgentHandle
@@ -387,3 +387,79 @@ def test_build_agent_scopes_tools_for_subagent_config():
     built = runtime._build_agent(runtime._configs["scoped_agent"])
     tool_names = {t.name for t in built.tool_registry.list_tools()}
     assert "echo" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_delegate_blackbox_suppresses_intermediate_events(runtime_with_skill_agent):
+    events = []
+
+    async def on_event(event):
+        events.append(event.kind)
+
+    handle = runtime_with_skill_agent.spawn(
+        name="echo_agent", task="say hi", context_mode="blackbox"
+    )
+    await runtime_with_skill_agent.delegate(handle, on_subagent_event=on_event)
+
+    assert "start" in events
+    assert "end" in events
+    assert "token" not in events
+    assert "think" not in events
+    assert "tool_result" not in events
+
+
+@pytest.mark.asyncio
+async def test_delegate_transparent_forwards_intermediate_events(runtime_with_skill_agent):
+    events = []
+
+    async def on_event(event):
+        events.append(event.kind)
+
+    handle = runtime_with_skill_agent.spawn(
+        name="echo_agent", task="say hi", context_mode="transparent"
+    )
+    await runtime_with_skill_agent.delegate(handle, on_subagent_event=on_event)
+
+    assert "start" in events
+    assert "end" in events
+    assert "token" in events
+
+
+@pytest.mark.asyncio
+async def test_events_carry_scope_id(runtime_with_skill_agent):
+    events = []
+
+    async def on_event(event):
+        events.append(event)
+
+    handle = runtime_with_skill_agent.spawn(
+        name="echo_agent", task="say hi", context_mode="transparent"
+    )
+    await runtime_with_skill_agent.delegate(handle, on_subagent_event=on_event)
+
+    assert all(e.scope_id == handle.scope_id for e in events if e.scope_id is not None)
+
+
+@pytest.mark.asyncio
+async def test_event_bus_receives_subagent_events(runtime_with_skill_agent):
+    from courtier.agent.core.events import AgentEvent
+
+    runtime = runtime_with_skill_agent
+    sub = runtime.event_bus.subscribe(event_types={"subagent.event"})
+
+    handle = runtime.spawn(name="echo_agent", task="say hi")
+    await runtime.delegate(handle)
+
+    received = []
+    while not sub.queue.empty():
+        received.append(sub.queue.get_nowait())
+
+    assert any(isinstance(e, AgentEvent) and e.type == "subagent.event" for e in received)
+
+
+def test_spawn_assigns_distinct_scope_ids(runtime_with_skill_agent):
+    h1 = runtime_with_skill_agent.spawn(name="echo_agent", task="a")
+    h2 = runtime_with_skill_agent.spawn(name="echo_agent", task="b")
+    assert h1.scope_id is not None
+    assert h2.scope_id is not None
+    assert h1.scope_id != h2.scope_id

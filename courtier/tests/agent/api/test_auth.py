@@ -3,8 +3,6 @@
 import importlib
 import os
 
-import pytest
-
 from courtier.agent.api.middleware.auth import hash_password, verify_password
 
 

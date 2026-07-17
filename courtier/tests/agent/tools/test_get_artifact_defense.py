@@ -2,10 +2,11 @@
 
 import pytest
 
-from courtier.agent.tools.builtin.get_artifact import GetArtifactTool
 from courtier.agent.artifacts.store import ArtifactStore
+from courtier.agent.tools.builtin.get_artifact import GetArtifactTool
 
-from .conftest import _make as _make_artifact, _noop_progress
+from .conftest import _make as _make_artifact
+from .conftest import _noop_progress
 
 
 class TestGetArtifactDefense:

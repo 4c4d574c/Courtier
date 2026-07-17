@@ -47,6 +47,7 @@ class SessionStore:
         model_name: str = "",
         created_at: float = 0.0,
         owner: str = "",
+        status: str = "running",
     ) -> SessionRecord:
         import time as _time
 
@@ -57,6 +58,7 @@ class SessionStore:
             file_id=file_id,
             file_name=file_name,
             model_name=model_name,
+            status=status,  # type: ignore[arg-type]
             created_at=now,
             owner=owner,
             turn_messages=[
@@ -320,6 +322,8 @@ class SessionStore:
         data["file_name"] = session.file_name
         data["error_detail"] = session.error_detail
         data["messages_json"] = session.messages_json
+        data["tree_json"] = session.tree_json
+        data["current_node_id"] = session.current_node_id
         data["owner"] = session.owner
         data["turn_messages"] = session.turn_messages
         data["turn_step_starts"] = session.turn_step_starts
@@ -330,8 +334,11 @@ class SessionStore:
             await asyncio.to_thread(tmp_path.write_text, text, encoding="utf-8")
             await asyncio.to_thread(tmp_path.rename, file_path)
         except Exception:
+            # Non-fatal: the in-memory session stays authoritative and every
+            # subsequent mutation re-persists the full snapshot.  The log
+            # record is the alert channel (SessionRecord is frozen, so no
+            # per-record dirty flag can be attached here).
             logger.exception("Failed to persist session %s", session.id)
-            session._dirty = True  # Mark dirty so caller can retry or alert
 
     def _load(self, session_id: str) -> SessionRecord | None:
         file_path = self._dir / f"{session_id}.json"
@@ -364,6 +371,8 @@ class SessionStore:
             error_detail=raw.get("error_detail"),
             conclusion=raw.get("conclusion", ""),
             messages_json=raw.get("messages_json", ""),
+            tree_json=raw.get("tree_json", ""),
+            current_node_id=raw.get("current_node_id"),
             owner=raw.get("owner", ""),
             turn_messages=raw.get("turn_messages", []),
             turn_step_starts=raw.get("turn_step_starts", []),

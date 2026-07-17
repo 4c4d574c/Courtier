@@ -8,15 +8,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from ..middleware.auth import get_current_user
+from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _is_admin(payload: dict) -> bool:
-    return payload.get("role") == "admin"
 
 
 @router.post("/pause")
@@ -87,7 +83,10 @@ async def stop_session(
         except asyncio.CancelledError:
             pass
         except asyncio.TimeoutError:
-            logger.warning("Timeout awaiting cancellation for session %s; forcing cleanup", sessionId)
+            logger.warning(
+                "Timeout awaiting cancellation for session %s; forcing cleanup",
+                sessionId,
+            )
             active_tasks.pop(sessionId, None)
         except Exception:
             logger.exception("Error awaiting cancellation for session %s", sessionId)

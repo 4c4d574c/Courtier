@@ -1,5 +1,4 @@
 import pytest
-
 from content_compliance.checkers.rule_based import RuleBasedContentChecker
 from content_compliance.engine import RuleConfig
 

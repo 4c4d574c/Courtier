@@ -10,7 +10,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from courtier.agent.artifacts.store import ArtifactStore
+from courtier.agent.core.capability import CapabilityRegistry
 from courtier.agent.core.context_manager import ContextManager
+from courtier.agent.core.event_bus import EventBus
+from courtier.agent.core.memory_manager import MemoryManager
 from courtier.agent.core.model import ModelClient
 from courtier.agent.core.state import AgentState
 from courtier.agent.skills.config import SkillConfig
@@ -72,12 +75,22 @@ class AgentRuntime:
     summarizer: ResultSummarizer | None = None
     default_budget: AgentRuntimeBudget = field(default_factory=AgentRuntimeBudget)
     session_id: str = ""
+    capability_registry: CapabilityRegistry | None = None
+    event_bus: EventBus | None = None
 
     def __post_init__(self) -> None:
         self._configs: dict[str, AgentConfig] = {}
         self._handles: dict[str, AgentHandle] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._cumulative_runtime: dict[str, float] = {}
+        self._scope_counter: int = 0
+        if self.capability_registry is None:
+            self.capability_registry = CapabilityRegistry(
+                tool_registry=self.tool_registry,
+                skill_registry=self.skill_registry,
+            )
+        if self.event_bus is None:
+            self.event_bus = EventBus()
         store = self.artifact_store or self.cache_store
         if self.summarizer is None and store is not None:
             self.summarizer = ResultSummarizer(artifact_store=store)
@@ -153,7 +166,7 @@ class AgentRuntime:
         name: str,
         task: str,
         parent_handle: AgentHandle | None = None,
-        context_mode: str = "blackbox",
+        context_mode: str = "transparent",
         context: dict[str, str] | None = None,
         artifact_store: Any = None,
         ref_ids: list[str] | None = None,
@@ -188,6 +201,9 @@ class AgentRuntime:
         if artifact_store is not None:
             artifact_context = self._build_artifact_context(artifact_store)
 
+        self._scope_counter += 1
+        scope_id = f"scope-{self._scope_counter}"
+
         handle = AgentHandle.create(
             handle_id=handle_id,
             agent_name=name,
@@ -202,6 +218,7 @@ class AgentRuntime:
             ref_ids=ref_ids,
             model_config=model_config,
             metadata={"session_id": self.session_id},
+            scope_id=scope_id,
         )
 
         self._handles[handle.handle_id] = handle
@@ -240,13 +257,22 @@ class AgentRuntime:
                     "handle_id": handle.handle_id,
                     "parent_handle_id": handle.parent_handle_id,
                     "parent_subagent_name": handle.parent_subagent_name,
+                    "scope_id": handle.scope_id,
                 },
                 parent_subagent_name=handle.parent_subagent_name,
+                scope_id=handle.scope_id,
             ),
         )
 
         scoped_store = self._build_scoped_store(artifact_store)
-        cm = context_manager or ContextManager()
+        if context_manager is not None:
+            cm = context_manager
+        else:
+            cm = MemoryManager(
+                model=self.model,
+                cache_dir=".agent_cache",
+                session_id=self.session_id or "default",
+            )
 
         wrapped_callbacks = self._wrap_callbacks(
             handle=handle,
@@ -264,7 +290,8 @@ class AgentRuntime:
                 actor_name=handle.agent_name,
                 error=(
                     f"Cumulative runtime budget exhausted "
-                    f"({current_cumulative:.1f}s / {handle.budget.max_cumulative_runtime_seconds:.1f}s)"
+                    f"({current_cumulative:.1f}s / "
+                    f"{handle.budget.max_cumulative_runtime_seconds:.1f}s)"
                 ),
                 metadata={"handle_id": handle.handle_id},
             )
@@ -369,8 +396,12 @@ class AgentRuntime:
                     subagent_name=handle.agent_name,
                     handle_id=handle.handle_id,
                     parent_handle_id=handle.parent_handle_id,
-                    detail={"handle_id": handle.handle_id},
+                    detail={
+                        "handle_id": handle.handle_id,
+                        "scope_id": handle.scope_id,
+                    },
                     parent_subagent_name=handle.parent_subagent_name,
+                    scope_id=handle.scope_id,
                 ),
             )
 
@@ -384,7 +415,9 @@ class AgentRuntime:
             except asyncio.CancelledError:
                 pass
 
-    def _build_agent(self, config: AgentConfig, *, exclude_skills: set[str] | None = None) -> "Agent":
+    def _build_agent(
+        self, config: AgentConfig, *, exclude_skills: set[str] | None = None
+    ) -> "Agent":
         """Construct an Agent instance scoped to the config's declared tools and skills.
 
         Skills only see the tools listed in their manifest; legacy SubAgentConfig
@@ -416,7 +449,8 @@ class AgentRuntime:
                     resolved.append(tool)
                 except KeyError:
                     # Backward compat: tool name matching another skill → inject as SkillTool.
-                    if name in skill_names:
+                    # skill_names is only populated when skill_registry exists.
+                    if name in skill_names and self.skill_registry is not None:
                         skill = self.skill_registry.get(name)
                         if skill is not None:
                             resolved.append(
@@ -435,7 +469,7 @@ class AgentRuntime:
 
             # Resolve skills: look up directly in SkillRegistry.
             for name in config.skills:
-                if name in skill_names:
+                if name in skill_names and self.skill_registry is not None:
                     skill = self.skill_registry.get(name)
                     if skill is not None:
                         resolved.append(
@@ -518,39 +552,45 @@ class AgentRuntime:
         """Wrap standard agent callbacks to emit sub-agent stream events.
 
         Original callbacks are preserved and invoked after the event is emitted.
+        Events are scoped to *handle.scope_id* and filtered by
+        *handle.context_mode*: ``blackbox`` only forwards ``start``/``end``,
+        ``transparent`` forwards everything.
         """
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
         if on_subagent_event is None:
             return callbacks
 
-        async def _on_token(token: str) -> None:
-            await on_subagent_event(
-                SubAgentStreamEvent(
-                    kind="token",
-                    subagent_name=handle.agent_name,
-                    handle_id=handle.handle_id,
-                    parent_handle_id=handle.parent_handle_id,
-                    text=token,
-                    detail={"handle_id": handle.handle_id},
-                    parent_subagent_name=handle.parent_subagent_name,
-                )
+        def _event(
+            kind: str,
+            **kwargs: Any,
+        ) -> SubAgentStreamEvent:
+            return SubAgentStreamEvent(
+                kind=kind,  # type: ignore[arg-type]
+                subagent_name=handle.agent_name,
+                handle_id=handle.handle_id,
+                parent_handle_id=handle.parent_handle_id,
+                parent_subagent_name=handle.parent_subagent_name,
+                scope_id=handle.scope_id,
+                **kwargs,
             )
+
+        async def _emit(event: SubAgentStreamEvent) -> None:
+            await self._emit_scoped_event(
+                handle=handle,
+                callback=on_subagent_event,
+                event=event,
+            )
+
+        async def _on_token(token: str) -> None:
+            await _emit(_event("token", text=token, detail={"handle_id": handle.handle_id}))
             original = callbacks.get("on_token")
             if original is not None:
                 await original(token)
 
         async def _on_content_token(token: str) -> None:
-            await on_subagent_event(
-                SubAgentStreamEvent(
-                    kind="conclusion",
-                    subagent_name=handle.agent_name,
-                    handle_id=handle.handle_id,
-                    parent_handle_id=handle.parent_handle_id,
-                    text=token,
-                    detail={"handle_id": handle.handle_id},
-                    parent_subagent_name=handle.parent_subagent_name,
-                )
+            await _emit(
+                _event("conclusion", text=token, detail={"handle_id": handle.handle_id})
             )
             original = callbacks.get("on_content_token")
             if original is not None:
@@ -558,16 +598,8 @@ class AgentRuntime:
 
         async def _on_step(event: str, detail: str) -> None:
             if event == "think":
-                await on_subagent_event(
-                    SubAgentStreamEvent(
-                        kind="think",
-                        subagent_name=handle.agent_name,
-                        handle_id=handle.handle_id,
-                        parent_handle_id=handle.parent_handle_id,
-                        text=detail,
-                        detail={"handle_id": handle.handle_id},
-                        parent_subagent_name=handle.parent_subagent_name,
-                    )
+                await _emit(
+                    _event("think", text=detail, detail={"handle_id": handle.handle_id})
                 )
             original = callbacks.get("on_step")
             if original is not None:
@@ -575,17 +607,13 @@ class AgentRuntime:
 
         async def _on_tool_result(tool_name: str, result: Any, summary: str) -> None:
             success = getattr(result, "success", True)
-            await on_subagent_event(
-                SubAgentStreamEvent(
-                    kind="tool_result",
-                    subagent_name=handle.agent_name,
-                    handle_id=handle.handle_id,
-                    parent_handle_id=handle.parent_handle_id,
+            await _emit(
+                _event(
+                    "tool_result",
                     tool_name=tool_name,
                     tool_status="ok" if success else "error",
                     tool_summary=summary,
                     detail={"handle_id": handle.handle_id},
-                    parent_subagent_name=handle.parent_subagent_name,
                 )
             )
             original = callbacks.get("on_tool_result")
@@ -650,12 +678,53 @@ class AgentRuntime:
                     return tr.raw_data
         return result.content
 
-    @staticmethod
     async def _emit_event(
+        self,
         callback: _OnSubagentEvent | None,
         event: "SubAgentStreamEvent",
     ) -> None:
+        """Emit a sub-agent event to the callback and the shared event bus."""
+        if self.event_bus is not None:
+            from courtier.agent.core.events import AgentEvent
 
+            wrapped = AgentEvent(
+                type="subagent.event",
+                session_id=self.session_id or "default",
+                agent_name=event.subagent_name,
+                turn_index=0,
+                payload={
+                    "subagent_event": event,
+                    "handle_id": event.handle_id,
+                    "parent_handle_id": event.parent_handle_id,
+                    "scope_id": event.scope_id,
+                    "context_mode": getattr(event, "context_mode", "transparent"),
+                },
+            )
+            try:
+                await self.event_bus.publish(wrapped)
+            except Exception:
+                logger.exception("Unhandled exception publishing sub-agent event")
+        if callback is None:
+            return
+        try:
+            await callback(event)
+        except Exception:
+            logger.exception("Unhandled exception in on_subagent_event")
+
+    @staticmethod
+    async def _emit_scoped_event(
+        handle: AgentHandle,
+        callback: _OnSubagentEvent | None,
+        event: "SubAgentStreamEvent",
+    ) -> None:
+        """Emit a sub-agent event only if the handle's context mode allows it.
+
+        ``blackbox`` mode suppresses intermediate events (token, think,
+        tool_result, conclusion) so the parent only observes start/end.
+        ``transparent`` mode forwards everything.
+        """
+        if handle.context_mode == "blackbox" and event.kind not in {"start", "end"}:
+            return
         if callback is None:
             return
         try:

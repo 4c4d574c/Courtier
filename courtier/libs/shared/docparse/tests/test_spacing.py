@@ -1,7 +1,6 @@
 """Tests for improved spacing, indent, and margin calculation module."""
 
 import pytest
-
 from docparse.parsers.spacing import (
     ParagraphBoundary,
     compute_alignment_from_position,
@@ -13,7 +12,6 @@ from docparse.parsers.spacing import (
     compute_paragraph_spacing,
     detect_paragraph_boundaries,
 )
-
 
 # ---------------------------------------------------------------------------
 # TestComputeFontSizeFromOcr

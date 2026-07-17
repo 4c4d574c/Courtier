@@ -43,7 +43,9 @@ def tool_registry():
 async def test_orchestrator_can_run_skill(skill_registry, tool_registry):
     """The orchestrator runs a skill tool call end-to-end and completes."""
     model = MockModelClient(
-        tool_calls=[ToolCall(id="1", name="echo_skill", arguments={"task": "hi", "mode": "subagent"})]
+        tool_calls=[
+            ToolCall(id="1", name="echo_skill", arguments={"task": "hi", "mode": "subagent"})
+        ]
     )
     runtime = AgentRuntime(
         tool_registry=tool_registry,

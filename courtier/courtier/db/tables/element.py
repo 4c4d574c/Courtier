@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
-from sqlalchemy import String, Integer, DateTime, Text, Float, Boolean, ForeignKey
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from .paragraph import ParagraphTable
 
 from .base import Base, utcnow
+
 
 class ElementCreate(BaseModel):
     """创建文本元素时的数据模型"""

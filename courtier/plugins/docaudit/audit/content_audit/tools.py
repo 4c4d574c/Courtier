@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from content_compliance import get_checker, init_checkers, list_supported_types
+
 from courtier.agent.tools.protocol import ToolResult
 from courtier.plugin.types import ComplianceResult
 

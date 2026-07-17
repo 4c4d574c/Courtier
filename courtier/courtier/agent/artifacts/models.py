@@ -100,7 +100,10 @@ def _build_artifact_type_schemas() -> dict[str, ArtifactSchema]:
         schema_version="1.0",
         schema_format="type_hint",
         schema_body={"type": "object"},
-        description="Fallback type for arbitrary JSON objects. Tool contracts should not casually require this.",
+        description=(
+            "Fallback type for arbitrary JSON objects. "
+            "Tool contracts should not casually require this."
+        ),
     )
 
     schemas["core.error_report"] = ArtifactSchema(
@@ -128,7 +131,10 @@ def _build_artifact_type_schemas() -> dict[str, ArtifactSchema]:
         schema_version="1.0",
         schema_format="type_hint",
         schema_body={"type": "object"},
-        description="Fallback type for tool outputs without an explicit artifact type contract.  Always projection-allowed so downstream tools can discover and use the data.",
+        description=(
+            "Fallback type for tool outputs without an explicit artifact type contract.  "
+            "Always projection-allowed so downstream tools can discover and use the data."
+        ),
     )
 
     # -- Docaudit types ------------------------------------------------------

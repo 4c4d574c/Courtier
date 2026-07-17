@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from docmodels import PageContent, Paragraph
+from docmodels import PageContent
 
 from ..calibration import calibrate_line_spacing
 from ..spacing import compute_body_line_spacing

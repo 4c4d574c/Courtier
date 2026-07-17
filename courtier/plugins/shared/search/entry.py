@@ -1,6 +1,7 @@
 """Search plugin — Elasticsearch document chunk search."""
-from courtier.plugin.sdk import PluginRuntime
 from tools import SearchDocumentsTool
+
+from courtier.plugin.sdk import PluginRuntime
 
 
 class SearchPlugin(PluginRuntime):

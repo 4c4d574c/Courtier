@@ -1,13 +1,17 @@
 """Annotate plugin — DOCX keyword-based annotation."""
-from courtier.plugin.sdk import PluginRuntime
 from tools import AnnotateDocumentTool
+
+from courtier.plugin.sdk import PluginRuntime
 
 
 class AnnotatePlugin(PluginRuntime):
     def register_capabilities(self):
         return {
             "capabilities": [],
-            "system_prompt": "# 文档批注\n\n## 能力\n在 DOCX 文档中根据关键词自动添加 Word 批注（comments）。\n",
+            "system_prompt": (
+                "# 文档批注\n\n## 能力\n"
+                "在 DOCX 文档中根据关键词自动添加 Word 批注（comments）。\n"
+            ),
         }
 
     def _setup_handlers(self):

@@ -1,10 +1,10 @@
 import logging
 from pathlib import Path
 
-from .core import ComplianceResult, ContentChecker, Violation
-from .registry import get_checker, list_supported_types, register
 from .checkers.rule_based import RuleBasedContentChecker
+from .core import ComplianceResult, ContentChecker, Violation
 from .loaders.json_loader import load_checker_config
+from .registry import get_checker, list_supported_types, register
 
 logger = logging.getLogger(__name__)
 

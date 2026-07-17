@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..protocol import OnToolProgress, ToolResult
 from courtier.agent.artifacts.models import RuntimePolicy
 from courtier.agent.artifacts.projectors import create_default_projector_registry
+
+from ..protocol import OnToolProgress, ToolResult
 
 if TYPE_CHECKING:
     from ..summary import ToolSummary

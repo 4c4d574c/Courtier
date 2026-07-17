@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, cast
+
+from fastapi import HTTPException
+
+from ...core.conversation_tree import ConversationTree
+
+logger = logging.getLogger(__name__)
 
 
 async def list_sessions(
@@ -36,3 +44,79 @@ async def delete_session(
     if session is None:
         return False
     return cast(bool, await store.delete(session_id))
+
+
+async def fork_session_tree(
+    store: Any,
+    current_user: str,
+    is_admin: bool,
+    session_id: str,
+    node_id: str | None,
+    reason: str,
+) -> dict[str, Any]:
+    """Fork a conversation tree node and persist the new branch."""
+    session = await store.get_owned(session_id, current_user, is_admin)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not session.tree_json:
+        raise HTTPException(status_code=404, detail="Session has no conversation tree")
+
+    try:
+        tree = ConversationTree.from_serialized(json.loads(session.tree_json))
+    except Exception as exc:
+        logger.exception("Failed to deserialize tree for session %s", session_id)
+        raise HTTPException(
+            status_code=500, detail=f"Invalid conversation tree: {exc}"
+        ) from exc
+
+    target_node_id = node_id or session.current_node_id or tree.root_id
+    if target_node_id is None or tree.get(target_node_id) is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    child = tree.fork(target_node_id, reason=reason)
+    await store.update(
+        session_id,
+        tree_json=json.dumps(tree.serialize(), ensure_ascii=False),
+        current_node_id=child.node_id,
+    )
+    return {
+        "new_node_id": child.node_id,
+        "messages": [m.to_openai_dict() for m in child.messages],
+    }
+
+
+async def rewind_session_tree(
+    store: Any,
+    current_user: str,
+    is_admin: bool,
+    session_id: str,
+    node_id: str,
+) -> dict[str, Any]:
+    """Rewind a conversation tree to an existing node and persist it."""
+    session = await store.get_owned(session_id, current_user, is_admin)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not session.tree_json:
+        raise HTTPException(status_code=404, detail="Session has no conversation tree")
+
+    try:
+        tree = ConversationTree.from_serialized(json.loads(session.tree_json))
+    except Exception as exc:
+        logger.exception("Failed to deserialize tree for session %s", session_id)
+        raise HTTPException(
+            status_code=500, detail=f"Invalid conversation tree: {exc}"
+        ) from exc
+
+    if tree.get(node_id) is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    node = tree.rewind(node_id)
+    await store.update(
+        session_id,
+        tree_json=json.dumps(tree.serialize(), ensure_ascii=False),
+        current_node_id=node.node_id,
+    )
+    return {
+        "current_node_id": node.node_id,
+        "messages": [m.to_openai_dict() for m in node.messages],
+    }

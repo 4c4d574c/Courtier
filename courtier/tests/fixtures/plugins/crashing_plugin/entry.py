@@ -21,7 +21,7 @@ if __name__ == "__main__":
     async def main():
         runtime = CrashingPlugin()
         # Start the runtime in background so it sends the register notification
-        runtime_task = asyncio.create_task(runtime.run())
+        _runtime_task = asyncio.create_task(runtime.run())
         # Give the runtime a moment to register
         await asyncio.sleep(0.2)
         # Now exit — the host will see a disconnect immediately after ACTIVE

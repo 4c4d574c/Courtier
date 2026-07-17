@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-
 from docparse.parsers.font_detector import (
     FontDetectionResult,
     detect_font,
     detect_fonts_for_page,
     merge_font_detections,
 )
-
 
 # ---------------------------------------------------------------------------
 # TestDetectFontStandardMapping
@@ -217,7 +215,8 @@ class TestMergeFontDetections:
             )
         ]
         merge_font_detections(lines, detections)
-        # bold is False, which is falsy, so the condition `detection.bold and not line.get("font_weight")`
+        # bold is False, which is falsy, so the condition
+        # `detection.bold and not line.get("font_weight")`
         # evaluates: True and not False -> True, so it WILL overwrite.
         # But the spec says "only overwriting empty fields" — bold=False is a valid value,
         # so existing font_weight=False should be preserved. Let's check the actual behavior:

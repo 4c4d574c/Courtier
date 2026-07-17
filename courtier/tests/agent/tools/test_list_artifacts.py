@@ -2,11 +2,12 @@
 
 import pytest
 
-from courtier.agent.tools.builtin.list_artifacts import ListArtifactsTool
+from courtier.agent.artifacts.models import Artifact, ArtifactMetadata
 from courtier.agent.artifacts.store import ArtifactStore
-from courtier.agent.artifacts.models import ArtifactMetadata, Artifact
+from courtier.agent.tools.builtin.list_artifacts import ListArtifactsTool
 
-from .conftest import _make_simple as _make_artifact, _noop_progress
+from .conftest import _make_simple as _make_artifact
+from .conftest import _noop_progress
 
 
 class TestListArtifactsTool:

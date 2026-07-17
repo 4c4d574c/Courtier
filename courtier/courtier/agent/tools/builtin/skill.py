@@ -8,11 +8,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from ...artifacts.models import RuntimePolicy
 from ...core.execution_result import ExecutionResult
 from ...skills.config import SkillConfig
 from ...tools.protocol import OnToolProgress, ToolResult
 from ...tools.summary import ToolSummary
-from ...artifacts.models import RuntimePolicy
 
 if TYPE_CHECKING:
     from ...runtime import AgentRuntime

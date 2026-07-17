@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from courtier.agent.agents.echo import create_echo_agent
 from courtier.agent.core.state import AgentState
 from courtier.agent.tools.builtin.echo import EchoTool
 from courtier.agent.tools.protocol import ToolResult
 from courtier.agent.tools.registry import ToolRegistry
-from courtier.agent.agents.echo import create_echo_agent
 
 
 @pytest.fixture(autouse=True)

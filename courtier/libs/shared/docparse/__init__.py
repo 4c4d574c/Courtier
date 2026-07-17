@@ -19,6 +19,7 @@ from docmodels import (
     Paragraph,
     Position,
 )
+
 from docparse.parsers import ParserConfig
 from docparse.parsers.registry import parse
 

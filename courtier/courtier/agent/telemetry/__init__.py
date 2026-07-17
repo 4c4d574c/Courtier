@@ -5,18 +5,18 @@ Provides distributed tracing (AgentTracer), Prometheus metrics,
 and W3C TraceContext propagation for cross-process (plugin) tracing.
 """
 
-from .tracer import AgentTracer, init_telemetry, get_tracer
-from .context import inject_context, extract_context
+from .context import extract_context, inject_context
 from .decorators import traced_agent, traced_llm, traced_tool
 from .metrics import (
-    record_agent_request,
     record_agent_latency,
+    record_agent_request,
     record_llm_call,
     record_llm_tokens,
+    record_subagent_dispatch,
     record_tool_execution,
     record_tool_latency,
-    record_subagent_dispatch,
 )
+from .tracer import AgentTracer, get_tracer, init_telemetry
 
 __all__ = [
     "AgentTracer",

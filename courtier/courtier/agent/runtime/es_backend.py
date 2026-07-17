@@ -8,8 +8,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from courtier.es.client import get_es_client
 from courtier.config import Settings
+from courtier.es.client import get_es_client
 
 from .store import ResultBackend, StoredResult
 
@@ -62,7 +62,9 @@ class ElasticsearchResultBackend(ResultBackend):
         except (TypeError, ValueError):
             return str(data)
 
-    async def store(self, result_id: str, data: Any, metadata: dict[str, Any] | None = None) -> StoredResult:
+    async def store(
+        self, result_id: str, data: Any, metadata: dict[str, Any] | None = None
+    ) -> StoredResult:
         meta = metadata or {}
         text = self._data_to_text(data)
         body = {
@@ -134,7 +136,9 @@ class ElasticsearchResultBackend(ResultBackend):
                 }
             },
             "highlight": {
-                "fields": {"data_text": {"fragment_size": max_tokens * 4, "number_of_fragments": size}}
+                "fields": {
+                    "data_text": {"fragment_size": max_tokens * 4, "number_of_fragments": size}
+                }
             },
             "from": from_,
             "size": size,
@@ -159,7 +163,9 @@ class ElasticsearchResultBackend(ResultBackend):
 
     async def exists(self, result_id: str) -> bool:
         try:
-            resp = await asyncio.to_thread(self._client.exists, index=self._index_name, id=result_id)
+            resp = await asyncio.to_thread(
+                self._client.exists, index=self._index_name, id=result_id
+            )
             return bool(resp)
         except Exception as exc:
             logger.warning("ES exists check failed for %s: %s", result_id, exc)

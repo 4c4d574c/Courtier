@@ -7,10 +7,10 @@ this endpoint MUST be firewall-restricted or protected by a reverse-proxy rule.
 
 from fastapi import APIRouter, Depends
 
+from ..middleware.auth import verify_jwt
 from .control import router as control_router
 from .files import router as files_router
 from .sessions import router as sessions_router
-from ..middleware.auth import verify_jwt
 
 router = APIRouter(prefix="/api", dependencies=[Depends(verify_jwt)])
 router.include_router(sessions_router)

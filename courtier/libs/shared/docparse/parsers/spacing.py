@@ -28,7 +28,7 @@ _PARA_BREAK_FACTOR = 1.2       # line-height multiplier for paragraph breaks
 _MIN_PARA_BREAK_PX = 2.0       # minimum gap (px) that constitutes a break
 _PARA_SPACING_FACTOR = 1.5     # median-gap multiplier for spacing detection
 
-from ._constants import PT_TO_MM, MM_TO_PT  # noqa: E402
+from ._constants import MM_TO_PT, PT_TO_MM  # noqa: E402
 
 # A4 page width in points (72 DPI)
 A4_WIDTH_PT: float = 595.28

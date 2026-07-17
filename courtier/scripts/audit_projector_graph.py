@@ -24,8 +24,8 @@ for _sub in ("courtier", "domains/docaudit"):
         sys.path.insert(0, _p)
 
 from courtier.agent.artifacts.projectors import (  # noqa: E402
-    create_default_projector_registry,
     audit_projector_graph,
+    create_default_projector_registry,
 )
 
 

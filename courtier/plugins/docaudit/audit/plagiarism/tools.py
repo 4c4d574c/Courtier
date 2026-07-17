@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from core import detect_plagiarism
+
 from courtier.agent.artifacts.models import InputField
 from courtier.agent.tools.protocol import ToolResult
-from core import detect_plagiarism
 
 
 class DetectPlagiarismTool:

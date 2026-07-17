@@ -12,7 +12,7 @@ import time
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from courtier.agent.telemetry.metrics import AGENT_REQUESTS_TOTAL, AGENT_LATENCY_SECONDS
+from courtier.agent.telemetry.metrics import AGENT_LATENCY_SECONDS, AGENT_REQUESTS_TOTAL
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):

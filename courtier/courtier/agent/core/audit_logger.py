@@ -26,7 +26,7 @@ import logging
 import threading
 import time
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -209,7 +209,11 @@ class AuditLogger:
                 from opentelemetry import trace as otel_trace
                 current_span = otel_trace.get_current_span()
                 span_ctx = current_span.get_span_context() if current_span else None
-                trace_id = format(span_ctx.trace_id, "032x") if span_ctx and span_ctx.is_valid else ""
+                trace_id = (
+                    format(span_ctx.trace_id, "032x")
+                    if span_ctx and span_ctx.is_valid
+                    else ""
+                )
             except Exception:
                 trace_id = ""  # OTel not configured in this context
 

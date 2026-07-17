@@ -414,6 +414,39 @@ class TestSessionRecord:
         assert d["thoughts"][0]["stepIndex"] == 3
         assert d["thoughts"][0]["turnIndex"] == 2
 
+    def test_to_detail_dict_includes_conversation_tree(self):
+        """Session detail exposes treeJson and currentNodeId for the UI."""
+        tree_json = (
+            '{"root_id":"r1","nodes":{'
+            '"r1":{"node_id":"r1","parent_id":null,"turn_index":0,'
+            '"messages":[],"tool_results":[],"metadata":{},"children":[]}}}'
+        )
+        s = SessionRecord(
+            id="sess_abc",
+            task="audit",
+            file_id="/tmp/test.docx",
+            created_at=1748600000.0,
+            tree_json=tree_json,
+            current_node_id="r1",
+        )
+        d = s.to_detail_dict()
+        assert d["currentNodeId"] == "r1"
+        assert d["treeJson"]["root_id"] == "r1"
+        assert d["treeJson"]["nodes"]["r1"]["node_id"] == "r1"
+
+    def test_to_detail_dict_tree_json_invalid_returns_none(self):
+        """Invalid tree_json is surfaced as null rather than crashing."""
+        s = SessionRecord(
+            id="sess_abc",
+            task="audit",
+            file_id="/tmp/test.docx",
+            created_at=1748600000.0,
+            tree_json="not-json",
+        )
+        d = s.to_detail_dict()
+        assert d["treeJson"] is None
+        assert d["currentNodeId"] is None
+
 
 class TestTurnConclusions:
     def test_build_turns_uses_per_turn_conclusions(self):
@@ -480,6 +513,8 @@ class TestSubagentRunRecord:
     def test_round_trip_nested(self):
         from courtier.agent.api.models import (
             SubagentRunRecord as SRR,
+        )
+        from courtier.agent.api.models import (
             SubagentThoughtRecord,
             SubagentToolRecord,
         )

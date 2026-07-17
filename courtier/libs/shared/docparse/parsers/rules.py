@@ -76,7 +76,9 @@ class ClassifyResult:
             if cl.field != "unclassified"
         )
 
-    def low_confidence_lines(self, threshold: float = DEFAULT_CONFIDENCE_THRESHOLD) -> list[ClassifiedLine]:
+    def low_confidence_lines(
+        self, threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
+    ) -> list[ClassifiedLine]:
         """Return lines below the confidence threshold."""
         return [
             cl for cl in self.lines
@@ -545,7 +547,10 @@ class StructureRuleEngine:
             return True
         if not has_font_family and font_size >= scanned_min:
             return True
-        if font_size >= FONT_SIZE_THRESHOLDS["large_relative_factor"] * FONT_SIZE_THRESHOLDS["body_text_standard"]:
+        if font_size >= (
+            FONT_SIZE_THRESHOLDS["large_relative_factor"]
+            * FONT_SIZE_THRESHOLDS["body_text_standard"]
+        ):
             return True
         return False
 

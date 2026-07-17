@@ -12,9 +12,10 @@ Create Date: 2026-07-14 19:38:53.902449
 """
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import mysql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'c8fd52a7316a'
@@ -32,7 +33,9 @@ def upgrade() -> None:
     sa.Column('doc_id', sa.String(length=512), nullable=False, comment='文件的内容的md5值'),
     sa.Column('total_page_num', sa.Integer(), nullable=False, comment='文件总页数'),
     sa.Column('save_path', sa.String(length=512), nullable=False, comment='保存路径'),
-    sa.Column('reconstructed_path', sa.String(length=512), nullable=True, comment='重建/转换后的docx MinIO存储路径'),
+    sa.Column(
+        'reconstructed_path', sa.String(length=512), nullable=True,
+        comment='重建/转换后的docx MinIO存储路径'),
     sa.Column('create_time', sa.DateTime(), nullable=False, comment='创建时间'),
     sa.Column('imported_to_resource', sa.Boolean(), nullable=False, comment='是否已导入资源库'),
     sa.PrimaryKeyConstraint('id')
@@ -74,8 +77,12 @@ def upgrade() -> None:
     sa.Column('file_path', sa.String(length=500), nullable=False, comment='存储路径'),
     sa.Column('file_type', sa.String(length=50), nullable=True, comment='文件类型'),
     sa.Column('size', sa.Integer(), nullable=True, comment='文件大小'),
-    sa.Column('domain_id', sa.String(length=20), nullable=True, comment='所属领域ID（如GOV、AUD等）'),
-    sa.Column('status', sa.String(length=20), nullable=False, comment='状态：uploaded, processed, failed'),
+    sa.Column(
+        'domain_id', sa.String(length=20), nullable=True,
+        comment='所属领域ID（如GOV、AUD等）'),
+    sa.Column(
+        'status', sa.String(length=20), nullable=False,
+        comment='状态：uploaded, processed, failed'),
     sa.Column('created_at', sa.DateTime(), nullable=False, comment='上传时间'),
     sa.Column('updated_at', sa.DateTime(), nullable=False, comment='更新时间'),
     sa.PrimaryKeyConstraint('id')
@@ -87,7 +94,9 @@ def upgrade() -> None:
     sa.Column('user_id', sa.String(length=512), nullable=False),
     sa.Column('domain_name', sa.String(length=100), nullable=False, comment='领域名称'),
     sa.Column('violation_count', sa.Integer(), nullable=False),
-    sa.Column('violations_json', sa.Text(), nullable=False, comment='JSON: [{rule_id, violat_dsc, origin_text, severity, cor_suggest, domain_name}]'),
+    sa.Column(
+        'violations_json', sa.Text(), nullable=False,
+        comment='JSON: [{rule_id, violat_dsc, origin_text, severity, cor_suggest, domain_name}]'),
     sa.Column('create_time', sa.DateTime(), nullable=False, comment='创建时间'),
     sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -97,7 +106,9 @@ def upgrade() -> None:
     sa.Column('document_id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.String(length=512), nullable=False),
     sa.Column('correction_count', sa.Integer(), nullable=False),
-    sa.Column('corrections_json', sa.Text(), nullable=False, comment='JSON: [{source, target, errors}]'),
+    sa.Column(
+        'corrections_json', sa.Text(), nullable=False,
+        comment='JSON: [{source, target, errors}]'),
     sa.Column('create_time', sa.DateTime(), nullable=False, comment='创建时间'),
     sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -109,7 +120,9 @@ def upgrade() -> None:
     sa.Column('doc_type', sa.String(length=50), nullable=False, comment="公文类型，如'通知'"),
     sa.Column('total_pages', sa.Integer(), nullable=False),
     sa.Column('error_count', sa.Integer(), nullable=False),
-    sa.Column('errors_json', sa.Text(), nullable=False, comment='JSON: [{block_name, block_no, error_type, details, page_no}]'),
+    sa.Column(
+        'errors_json', sa.Text(), nullable=False,
+        comment='JSON: [{block_name, block_no, error_type, details, page_no}]'),
     sa.Column('create_time', sa.DateTime(), nullable=False, comment='创建时间'),
     sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -156,8 +169,12 @@ def upgrade() -> None:
     sa.Column('md5', sa.String(length=64), nullable=False, comment='文件 MD5'),
     sa.Column('chunk_count', sa.Integer(), nullable=False, comment='切片数量'),
     sa.Column('char_count', sa.Integer(), nullable=False, comment='总字符数'),
-    sa.Column('status', sa.String(length=32), nullable=False, comment='状态：ready / processing / error'),
-    sa.Column('resource_type', sa.String(length=32), nullable=False, comment='资源类型：manual / original / annotated'),
+    sa.Column(
+        'status', sa.String(length=32), nullable=False,
+        comment='状态：ready / processing / error'),
+    sa.Column(
+        'resource_type', sa.String(length=32), nullable=False,
+        comment='资源类型：manual / original / annotated'),
     sa.Column('document_id', sa.Integer(), nullable=True, comment='关联文档 ID'),
     sa.Column('created_at', sa.DateTime(), nullable=False, comment='创建时间'),
     sa.Column('updated_at', sa.DateTime(), nullable=False, comment='更新时间'),
@@ -169,8 +186,12 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=255), nullable=False, comment='规则名称'),
     sa.Column('description', sa.Text(), nullable=True, comment='规则描述'),
     sa.Column('pattern', sa.Text(), nullable=False, comment='规则模式（正则表达式或其他格式）'),
-    sa.Column('severity', sa.String(length=20), nullable=False, comment='严重程度：error, warning, info'),
-    sa.Column('domain_id', sa.String(length=20), nullable=False, comment='所属领域ID（如GOV、AUD等）'),
+    sa.Column(
+        'severity', sa.String(length=20), nullable=False,
+        comment='严重程度：error, warning, info'),
+    sa.Column(
+        'domain_id', sa.String(length=20), nullable=False,
+        comment='所属领域ID（如GOV、AUD等）'),
     sa.Column('rule_file_id', sa.Integer(), nullable=True, comment='来源文件'),
     sa.Column('is_manual', sa.Boolean(), nullable=False, comment='是否手动添加'),
     sa.Column('created_at', sa.DateTime(), nullable=False, comment='创建时间'),
@@ -193,7 +214,17 @@ def upgrade() -> None:
     op.create_table('paragraphs',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('page_id', sa.Integer(), nullable=False, comment='所属页面ID'),
-    sa.Column('section_type', sa.Enum('header_copy_number', 'header_classification_duration', 'header_urgency_level', 'header_issuing_logo', 'header_issuing_number', 'header_signatory', 'header_ruling_line_pos', 'body_title', 'body_addressee', 'body_main_text', 'body_attachment_note', 'body_issuing_signature', 'body_issue_date', 'body_stamp', 'body_note', 'body_attachments', 'footer_closing_line', 'footer_carbon_copy', 'footer_issuing_office', 'footer_distribution_date', 'footer_page_number'), nullable=False, comment='段落类型'),
+    sa.Column(
+        'section_type',
+        sa.Enum(
+            'header_copy_number', 'header_classification_duration', 'header_urgency_level',
+            'header_issuing_logo', 'header_issuing_number', 'header_signatory',
+            'header_ruling_line_pos', 'body_title', 'body_addressee', 'body_main_text',
+            'body_attachment_note', 'body_issuing_signature', 'body_issue_date', 'body_stamp',
+            'body_note', 'body_attachments', 'footer_closing_line', 'footer_carbon_copy',
+            'footer_issuing_office', 'footer_distribution_date', 'footer_page_number'),
+        nullable=False,
+        comment='段落类型'),
     sa.Column('order_index', sa.Integer(), nullable=False, comment='同一类型内的顺序'),
     sa.Column('space_before', sa.Float(), nullable=False, comment='段前间距'),
     sa.Column('space_after', sa.Float(), nullable=False, comment='段后间距'),
@@ -202,7 +233,11 @@ def upgrade() -> None:
     sa.Column('left_indent', sa.Float(), nullable=False, comment='文本之前缩进(pt)'),
     sa.Column('right_indent', sa.Float(), nullable=False, comment='文本之后缩进(pt)'),
     sa.Column('block_no', sa.Integer(), nullable=False, comment='块序号'),
-    sa.Column('outline_level', sa.Enum('heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'body_text', 'others'), nullable=False, comment='大纲等级'),
+    sa.Column(
+        'outline_level',
+        sa.Enum('heading1', 'heading2', 'heading3', 'heading4', 'heading5', 'body_text', 'others'),
+        nullable=False,
+        comment='大纲等级'),
     sa.Column('create_time', sa.DateTime(), nullable=False, comment='创建时间'),
     sa.ForeignKeyConstraint(['page_id'], ['pages.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -236,8 +271,14 @@ def upgrade() -> None:
                existing_type=mysql.DATETIME(),
                nullable=False,
                existing_comment='创建时间')
-    op.add_column('users', sa.Column('failed_login_attempts', sa.Integer(), server_default=sa.text('0'), nullable=False, comment='连续登录失败次数'))
-    op.add_column('users', sa.Column('locked_until', sa.DateTime(), nullable=True, comment='账户锁定到期时间'))
+    op.add_column(
+        'users',
+        sa.Column(
+            'failed_login_attempts', sa.Integer(), server_default=sa.text('0'),
+            nullable=False, comment='连续登录失败次数'))
+    op.add_column(
+        'users',
+        sa.Column('locked_until', sa.DateTime(), nullable=True, comment='账户锁定到期时间'))
     op.alter_column('users', 'created_at',
                existing_type=mysql.DATETIME(),
                nullable=False,

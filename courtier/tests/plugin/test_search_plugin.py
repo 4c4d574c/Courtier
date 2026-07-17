@@ -1,8 +1,6 @@
 """Test search plugin entry point handler logic."""
-import json
 import asyncio
-import sys
-from pathlib import Path
+import json
 
 import pytest
 
@@ -54,7 +52,7 @@ async def test_search_plugin_unknown_tool():
     await plugin.run()
 
     # Parse responses, find the one with id=1
-    responses = [json.loads(l) for l in output_lines if '"id"' in l]
+    responses = [json.loads(line) for line in output_lines if '"id"' in line]
     resp = next(r for r in responses if r.get("id") == 1)
     assert resp["result"]["success"] is False
     assert "Unknown tool" in resp["result"]["error"]

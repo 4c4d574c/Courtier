@@ -1,4 +1,3 @@
-from pathlib import Path
 
 import pytest
 
@@ -7,6 +6,7 @@ from .conftest import _ensure_plugin_path
 _ensure_plugin_path("annotate")
 
 from plugins.shared.annotate.entry import AnnotatePlugin  # noqa: E402
+
 
 @pytest.mark.asyncio
 async def test_annotate_plugin_registers_tool():
@@ -47,6 +47,7 @@ class TestAnnotatePathSafety:
 
     def test_accepts_base64_source(self, tmp_path):
         import base64
+
         from docannot._annotate import annotate
 
         encoded = base64.b64encode(b"fake docx bytes").decode()

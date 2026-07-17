@@ -20,7 +20,6 @@ import re
 from datetime import datetime
 from typing import Any
 
-
 logger = logging.getLogger(__name__)
 
 # Maximum length for each section to prevent unbounded prompt growth

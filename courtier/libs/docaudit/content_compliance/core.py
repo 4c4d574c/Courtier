@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable, Literal
+from typing import Literal, Protocol, runtime_checkable
 
-from courtier.plugin.types import ComplianceResult, Violation, ContentChecker as _CoreContentChecker
+from courtier.plugin.types import ComplianceResult, Violation
+from courtier.plugin.types import ContentChecker as _CoreContentChecker
 
 CheckScope = Literal["开头", "结尾", "正文", "全文"]
 

@@ -1,6 +1,7 @@
 """Tests for agent_service wiring."""
 
 import pytest
+
 from courtier.agent.agents.orch import OrchestratorAgent
 from courtier.agent.api.services.agent_service import build_audit_agent
 from courtier.agent.runtime import AgentRuntime

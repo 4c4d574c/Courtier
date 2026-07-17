@@ -1,13 +1,12 @@
 """Tests for parser registry and file type detection."""
 
 import pytest
-from lxml import etree
-
 from docparse.parsers.base import ParserConfig
 from docparse.parsers.registry import (
     _file_extension,
     get_parser,
 )
+from lxml import etree
 
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -274,8 +273,8 @@ class TestDocxMultiPage:
     """Test DOCX parser produces multi-page output."""
 
     def test_single_page_docx(self, tmp_path):
-        from docparse.parsers.registry import parse
         from docparse.parsers.base import ParserConfig
+        from docparse.parsers.registry import parse
         from docx import Document as DocxDocument
 
         doc = DocxDocument()
@@ -290,8 +289,8 @@ class TestDocxMultiPage:
         assert result.pages[0].page_no == 0
 
     def test_page_break_produces_multiple_pages(self, tmp_path):
-        from docparse.parsers.registry import parse
         from docparse.parsers.base import ParserConfig
+        from docparse.parsers.registry import parse
         from docx import Document as DocxDocument
 
         doc = DocxDocument()

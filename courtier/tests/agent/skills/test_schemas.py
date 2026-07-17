@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
-
 from skills.schemas import FormatAuditorInput, PlagiarismAuditorInput
-from courtier.agent.agents.input_models import \
-    FormatAuditorInput as BackwardCompatFormatInput
-from courtier.agent.agents.input_models import \
-    PlagiarismAuditorInput as BackwardCompatPlagiarismInput
+
+from courtier.agent.agents.input_models import FormatAuditorInput as BackwardCompatFormatInput
+from courtier.agent.agents.input_models import (
+    PlagiarismAuditorInput as BackwardCompatPlagiarismInput,
+)
 from courtier.agent.agents.subagent.base import SubAgentInput
 
 

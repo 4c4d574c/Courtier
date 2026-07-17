@@ -64,8 +64,12 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
             await app.state.plugin_system.start()
         init_telemetry()
         from .db import bootstrap_admin_user, get_db
-        db = get_db()
-        await db.ensure_database()
+        # DB-less mode (empty MYSQL_URL) is a supported configuration for
+        # tests and local dev — skip engine creation just like
+        # bootstrap_admin_user skips its own DB work in that mode.
+        if settings.mysql_url:
+            db = get_db()
+            await db.ensure_database()
         await bootstrap_admin_user()
         try:
             yield
@@ -109,7 +113,12 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     # Rate limiting
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # Starlette dispatches exception handlers by exception class, so the
+    # slowapi handler's narrower RateLimitExceeded parameter is safe here.
+    app.add_exception_handler(
+        RateLimitExceeded,
+        _rate_limit_exceeded_handler,  # type: ignore[arg-type]
+    )
 
     # Shared state
     app.state.settings = settings
@@ -120,7 +129,7 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         str(Path(settings.upload_dir) / ".file_registry")
     )
     app.state.pause_event = asyncio.Event()
-    app.state.active_tasks: dict[str, asyncio.Task] = {}
+    app.state.active_tasks = {}
     app.state.tool_registry = ToolRegistry()
 
     # Unified artifact store — replaces the old separate CacheStore and

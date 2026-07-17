@@ -1,7 +1,8 @@
 """测试 content_checker 模块的 prompt 和规则格式。"""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class FakeRule:

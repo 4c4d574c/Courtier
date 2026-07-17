@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .protocol import JSONRPCNotification, JSONRPCRequest
@@ -89,7 +89,10 @@ class JSONRPCClient:
             while not self._closed:
                 try:
                     line = await self._reader.readline()
-                except (ValueError, asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+                except (
+                    ValueError, asyncio.IncompleteReadError,
+                    ConnectionResetError, BrokenPipeError
+                ):
                     break
                 except Exception:
                     logger.warning(
@@ -172,7 +175,9 @@ class JSONRPCClient:
                 return
             if "error" in data and data["error"] is not None:
                 err = data["error"]
-                future.set_exception(PluginRPCError(err.get("code", -1), err.get("message", "Unknown error")))
+                future.set_exception(
+                    PluginRPCError(err.get("code", -1), err.get("message", "Unknown error"))
+                )
             else:
                 future.set_result(data)
             return
@@ -188,7 +193,9 @@ class JSONRPCClient:
         params = data.get("params", {})
 
         if self._host_request_handler is None:
-            self._send_error_response(req_id, METHOD_NOT_FOUND, f"Host service '{method}' not available")
+            self._send_error_response(
+                req_id, METHOD_NOT_FOUND, f"Host service '{method}' not available"
+            )
             await self._writer.drain()
             return
 
@@ -235,8 +242,13 @@ class JSONRPCClient:
             if self._register_event is not None:
                 self._register_event.set()
 
-    def _fail_all_pending(self, exc: Exception) -> None:
-        """Reject all pending futures (called on disconnect/crash)."""
+    def _fail_all_pending(self, exc: BaseException) -> None:
+        """Reject all pending futures (called on disconnect/crash).
+
+        Accepts ``BaseException`` because session cancellation fails futures
+        with ``asyncio.CancelledError``, which is not an ``Exception``
+        subclass.
+        """
         for future in self._pending.values():
             if not future.done():
                 future.set_exception(exc)
@@ -332,7 +344,9 @@ class JSONRPCClient:
             raise asyncio.TimeoutError(
                 f"Plugin '{self.plugin_name}' did not send register notification within {timeout}s"
             )
-        return self._register_caps
+        # _handle_notification assigns _register_caps before setting the
+        # event, so it is populated here; fall back to [] defensively.
+        return self._register_caps or []
 
     async def cancel_pending(self) -> None:
         """Cancel all pending requests by notifying the plugin.

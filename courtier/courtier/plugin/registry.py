@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from courtier.agent.core.capability import (
+    Capability,
+    CapabilityRegistry,
+    CapabilityType,
+)
 from courtier.agent.tools.registry import ToolRegistry
 from courtier.plugin.types import CheckerRegistryLike
 
@@ -23,15 +28,21 @@ class ExtensionRegistry:
 
     Route proxies are stored internally and exposed via :meth:`get_routes`
     for FastAPI mounting.
+
+    When a *capability_registry* is supplied, every successfully registered
+    capability is also mirrored as a typed ``Capability`` so the system has a
+    single, queryable catalog of all extensions.
     """
 
     def __init__(
         self,
         tool_registry: ToolRegistry | None = None,
         checker_registry: CheckerRegistryLike | None = None,
+        capability_registry: CapabilityRegistry | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._checker_registry = checker_registry
+        self._capability_registry = capability_registry
         # plugin_name → {cap_type: [names]}
         self._registrations: dict[str, dict[str, list[str]]] = {}
         # Internal registry for route proxies
@@ -54,14 +65,23 @@ class ExtensionRegistry:
             if cap_type == "tool":
                 self._register_tool(plugin_name, client, cap)
                 registrations.setdefault("tool", []).append(cap["name"])
+                self._register_capability(
+                    "tool", cap["name"], plugin_name, cap, instance=None
+                )
 
             elif cap_type == "checker":
                 self._register_checker(plugin_name, client, cap)
                 registrations.setdefault("checker", []).append(cap["doc_type"])
+                self._register_capability(
+                    "checker", cap["doc_type"], plugin_name, cap, instance=None
+                )
 
             elif cap_type == "route":
                 self._register_route(plugin_name, cap)
                 registrations.setdefault("route", []).append(cap["prefix"])
+                self._register_capability(
+                    "route", cap["prefix"], plugin_name, cap, instance=None
+                )
 
             else:
                 logger.warning(
@@ -100,6 +120,8 @@ class ExtensionRegistry:
         """Remove all proxy objects registered by a plugin."""
         regs = self._registrations.pop(plugin_name, {})
         self._system_prompts.pop(plugin_name, None)
+        if self._capability_registry is not None:
+            self._capability_registry.unregister_by_provider(plugin_name)
         if not regs:
             return
 
@@ -171,3 +193,28 @@ class ExtensionRegistry:
             )
         proxy = ProxyRoute(cap)
         self._routes[prefix] = proxy
+
+    def _register_capability(
+        self,
+        type_: CapabilityType,
+        name: str,
+        provider: str,
+        cap: dict,
+        instance: Any | None,
+    ) -> None:
+        """Mirror a plugin capability into the unified CapabilityRegistry."""
+        if self._capability_registry is None:
+            return
+        if type_ not in ("tool", "skill", "agent", "resource", "route", "checker"):
+            return
+
+        capability = Capability(
+            type=type_,
+            name=name,
+            provider=provider,
+            title=cap.get("title") or cap.get("name") or cap.get("prefix") or name,
+            description=cap.get("description", ""),
+            meta={k: v for k, v in cap.items() if k not in {"name", "title", "description"}},
+            instance=instance,
+        )
+        self._capability_registry.register(capability)

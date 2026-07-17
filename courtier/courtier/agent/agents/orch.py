@@ -9,6 +9,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from courtier.prompts.engine import PromptEngine
+
 from ..core.execution_result import ExecutionResult
 from ..core.model import ModelClient
 from ..core.state import AgentState
@@ -20,7 +22,6 @@ from ..tools.builtin.list_artifacts import ListArtifactsTool
 from ..tools.builtin.skill import SkillTool
 from ..tools.protocol import ToolProgress, ToolProtocol
 from .base import Agent, AgentResult
-from courtier.prompts.engine import PromptEngine
 
 if TYPE_CHECKING:
     from ..runtime import AgentRuntime
@@ -151,6 +152,8 @@ class OrchestratorAgent(Agent):
         artifact_context: list[dict[str, Any]] | None = None,
         model_config: dict[str, str] | None = None,
         session_id: str = "",
+        event_bus: Any | None = None,
+        use_tree: bool = False,
     ) -> AgentResult:
         """Run the full audit pipeline."""
         if input is not None:
@@ -230,6 +233,8 @@ class OrchestratorAgent(Agent):
             artifact_context=artifact_context,
             model_config=model_config,
             session_id=session_id,
+            event_bus=event_bus,
+            use_tree=use_tree,
         )
 
         # Collect audit results from direct skill tool calls.

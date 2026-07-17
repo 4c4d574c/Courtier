@@ -11,8 +11,9 @@ import sys
 from pathlib import Path
 
 import uvicorn
-from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
+
+from alembic import command as alembic_command
 
 # Alias for testability.
 uvicorn_run = uvicorn.run

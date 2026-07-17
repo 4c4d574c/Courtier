@@ -7,7 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from courtier.agent.artifacts.models import InputField, RuntimePolicy
 from courtier.agent.tools.protocol import OnToolProgress, ToolResult
-from courtier.agent.tools.summary import summarize_result, ToolSummary
+from courtier.agent.tools.summary import ToolSummary, summarize_result
 from courtier.plugin.types import ComplianceResult, Violation
 
 

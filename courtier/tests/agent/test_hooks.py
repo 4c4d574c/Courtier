@@ -5,17 +5,16 @@ import logging
 
 import pytest
 
+from courtier.agent.core.model import ToolCall
 from courtier.agent.core.state import AgentState
 from courtier.agent.hooks.chain import (
-    HookChain,
-    HookHandle,
-    HookObserver,
     POST_OBSERVE,
     PRE_SEARCH,
     PRE_THINK,
+    HookChain,
+    HookHandle,
 )
 from courtier.agent.permissions.gate import PermissionGate
-from courtier.agent.core.model import ToolCall
 
 
 class TestHookChain:
@@ -292,9 +291,17 @@ class TestHookChain:
         state = AgentState.initial(task="test")
         order: list[str] = []
 
-        async def a(ctx): order.append("a"); return ctx.state
-        async def b(ctx): order.append("b"); return ctx.state
-        async def c(ctx): order.append("c"); return ctx.state
+        async def a(ctx):
+            order.append("a")
+            return ctx.state
+
+        async def b(ctx):
+            order.append("b")
+            return ctx.state
+
+        async def c(ctx):
+            order.append("c")
+            return ctx.state
 
         chain.register("test_event", a, priority=0)
         chain.register("test_event", b, priority=0)

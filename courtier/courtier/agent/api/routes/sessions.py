@@ -1,4 +1,4 @@
-"""Session routes — list, get, delete, and SSE streaming."""
+"""Session routes — list, get, delete, branch, and SSE streaming."""
 
 from __future__ import annotations
 
@@ -9,20 +9,23 @@ from typing import Any, Awaitable, Callable, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
-from ..middleware.auth import get_current_user
+from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
 from ..services.agent_service import build_audit_agent, build_chat_agent
-from ..services.session_service import delete_session, get_session, list_sessions
+from ..services.session_service import (
+    delete_session,
+    fork_session_tree,
+    get_session,
+    list_sessions,
+    rewind_session_tree,
+)
 from ..services.stream_service import generate_sse_stream, reconstruct_state
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _is_admin(payload: dict) -> bool:
-    return payload.get("role") == "admin"
 
 
 async def _resolve_audit_file_or_404(
@@ -35,6 +38,36 @@ async def _resolve_audit_file_or_404(
     if file_path is None or not file_path.exists():
         raise HTTPException(404, f"文件不存在: {file_id}")
     return file_path
+
+
+async def _resolve_audit_file_owned_or_404(
+    file_store: Any,
+    file_id: str,
+    upload_dir: str,
+    current_user: str,
+    is_admin: bool,
+) -> Path:
+    """Resolve a file_id and verify ownership before returning its path."""
+    file_info = cast(Any | None, await file_store.resolve(file_id))
+    if file_info is None:
+        raise HTTPException(404, f"文件不存在: {file_id}")
+    if not is_admin and file_info.owner and file_info.owner != current_user:
+        raise HTTPException(403, "无权访问该文件")
+    file_path = cast(Path | None, await file_store.resolve_path(file_id, upload_dir))
+    if file_path is None or not file_path.exists():
+        raise HTTPException(404, f"文件不存在: {file_id}")
+    return file_path
+
+
+def _resolve_skills_dir(courtier_config: Any) -> str:
+    """Return the skills directory of the first configured domain package.
+
+    Raises HTTPException(500) if no domain packages are configured.
+    """
+    domains = getattr(courtier_config, "domains", None) or []
+    if not domains:
+        raise HTTPException(500, "未配置 domain package")
+    return str(domains[0].skills_path)
 
 
 async def _build_agent_or_500(
@@ -86,9 +119,9 @@ async def handle_sessions(
     if not task:
         raise HTTPException(400, "task 参数必须提供")
 
-    pause_event = request.app.state.pause_event
-    active_tasks = request.app.state.active_tasks
-    tool_registry = request.app.state.tool_registry
+    pause_event = getattr(request.app.state, "pause_event", None)
+    active_tasks = getattr(request.app.state, "active_tasks", None)
+    tool_registry = getattr(request.app.state, "tool_registry", None)
 
     # Determine mode: new session vs continue existing
     if sessionId:
@@ -100,7 +133,11 @@ async def handle_sessions(
             raise HTTPException(404, "Session not found")
 
         session_id = sessionId
-        prior_state = reconstruct_state(existing.messages_json)
+        prior_state = reconstruct_state(
+            existing.messages_json,
+            existing.tree_json,
+            existing.current_node_id,
+        )
         start_step = len(existing.steps)
 
         # Record the new turn boundary so historical sessions render
@@ -110,8 +147,12 @@ async def handle_sessions(
         if existing.file_id:
             # Audit mode continuation
             file_store = request.app.state.file_store
-            file_path = await _resolve_audit_file_or_404(
-                file_store, existing.file_id, settings.upload_dir
+            file_path = await _resolve_audit_file_owned_or_404(
+                file_store,
+                existing.file_id,
+                settings.upload_dir,
+                current_user,
+                is_admin,
             )
             agent, context_manager, model_name = await _build_agent_or_500(
                 lambda: build_audit_agent(
@@ -119,7 +160,7 @@ async def handle_sessions(
                     plugin_system=request.app.state.plugin_system,
                     tool_registry=request.app.state.tool_registry,
                     cache_store=request.app.state.cache_store,
-                    skills_dir=str(request.app.state.courtier_config.domains[0].skills_path),
+                    skills_dir=_resolve_skills_dir(request.app.state.courtier_config),
                     prompt_engine=request.app.state.prompt_engine,
                 ),
                 session_id,
@@ -149,11 +190,17 @@ async def handle_sessions(
         if fileId:
             # Document audit mode
             file_store = request.app.state.file_store
-            file_path = await _resolve_audit_file_or_404(
-                file_store, fileId, settings.upload_dir
+            file_path = await _resolve_audit_file_owned_or_404(
+                file_store,
+                fileId,
+                settings.upload_dir,
+                current_user,
+                is_admin,
             )
             file_info = await file_store.resolve(fileId)
-            file_name = file_info.original_name if file_info else ""
+            file_name = (
+                file_info.original_name if file_info else ""
+            ) or ""
 
             agent, context_manager, model_name = await _build_agent_or_500(
                 lambda: build_audit_agent(
@@ -161,7 +208,7 @@ async def handle_sessions(
                     plugin_system=request.app.state.plugin_system,
                     tool_registry=request.app.state.tool_registry,
                     cache_store=request.app.state.cache_store,
-                    skills_dir=str(request.app.state.courtier_config.domains[0].skills_path),
+                    skills_dir=_resolve_skills_dir(request.app.state.courtier_config),
                     prompt_engine=request.app.state.prompt_engine,
                 ),
                 session_id,
@@ -184,7 +231,10 @@ async def handle_sessions(
 
         is_new = True
 
-    # Create or update session record
+    # Create or update session record. New sessions start as "initial" and are
+    # promoted to "running" only when the SSE stream actually begins emitting
+    # events. This avoids leaving orphan "running" records if the runner fails
+    # before the first chunk is yielded.
     if is_new:
         await session_store.create(
             session_id=session_id,
@@ -193,6 +243,7 @@ async def handle_sessions(
             file_name=file_name,
             model_name=model_name,
             owner=current_user,
+            status="initial",
         )
     else:
         await session_store.update(session_id, status="running", error_detail=None)
@@ -258,3 +309,53 @@ async def delete_session_handler(
     ):
         raise HTTPException(404, "Session not found")
     return {"status": "ok"}
+
+
+class ForkRequest(BaseModel):
+    """Request body for forking a conversation tree node."""
+
+    node_id: Optional[str] = None
+    reason: str = ""
+
+
+class RewindRequest(BaseModel):
+    """Request body for rewinding to a conversation tree node."""
+
+    node_id: str
+
+
+@router.post("/sessions/{session_id}/fork")
+@limiter.limit("30/minute")
+async def fork_session(
+    session_id: str,
+    request: ForkRequest,
+    request_obj: Request,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Fork the current conversation tree node and return the new branch."""
+    return await fork_session_tree(
+        request_obj.app.state.session_store,
+        current_user_payload["sub"],
+        _is_admin(current_user_payload),
+        session_id,
+        request.node_id,
+        request.reason,
+    )
+
+
+@router.post("/sessions/{session_id}/rewind")
+@limiter.limit("30/minute")
+async def rewind_session(
+    session_id: str,
+    request: RewindRequest,
+    request_obj: Request,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Rewind the conversation tree to an existing node."""
+    return await rewind_session_tree(
+        request_obj.app.state.session_store,
+        current_user_payload["sub"],
+        _is_admin(current_user_payload),
+        session_id,
+        request.node_id,
+    )

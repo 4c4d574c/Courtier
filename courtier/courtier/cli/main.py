@@ -1,9 +1,13 @@
 """Courtier CLI — validate-domain and other utilities."""
 from __future__ import annotations
+
 import sys
 from pathlib import Path
+
 import click
+
 from courtier.domain.loader import DomainLoader
+
 
 @click.group()
 def main():

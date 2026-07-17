@@ -6,6 +6,7 @@ import logging
 from typing import AsyncGenerator
 
 from fastapi import Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +34,9 @@ async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]
 
 
 user_repo = CRUDRepository[UserTable, UserCreate, UserUpdate](UserTable)
-refresh_token_repo = CRUDRepository(RefreshTokenTable)
+refresh_token_repo: CRUDRepository[RefreshTokenTable, BaseModel, BaseModel] = CRUDRepository(
+    RefreshTokenTable
+)
 
 
 async def bootstrap_admin_user() -> None:

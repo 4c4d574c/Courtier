@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ..protocol import OnToolProgress, ToolResult
 from courtier.agent.artifacts.executor import (
     MaterializerRegistry,
     ProjectionExecutor,
@@ -18,6 +17,8 @@ from courtier.agent.artifacts.models import (
 )
 from courtier.agent.artifacts.projectors import create_default_projector_registry
 from courtier.agent.artifacts.resolver import ProjectionResolver
+
+from ..protocol import OnToolProgress, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ class GetArtifactTool:
                 "type": "string",
                 "description": (
                     "要获取的 artifact 标识。两种来源：\n"
-                    "① $ref 引用（如 $ref:parse_document:1）—— 来自工具/Skill 输出中的 result_id 字段，"
-                    "最常用；\n"
+                    "① $ref 引用（如 $ref:parse_document:1）—— 来自工具/Skill 输出中的"
+                    " result_id 字段，最常用；\n"
                     "② artifact ID —— 来自 list_artifacts 的输出，"
                     "仅在需要类型投影时配合 artifact_type 使用。"
                 ),
@@ -84,7 +85,10 @@ class GetArtifactTool:
             "source_scope": {
                 "type": "string",
                 "enum": ["body", "header", "footer", "full_document"],
-                "description": "限定提取的文档区域：body=正文、header=页眉、footer=页脚、full_document=全文。默认全文。",
+                "description": (
+                    "限定提取的文档区域："
+                    "body=正文、header=页眉、footer=页脚、full_document=全文。默认全文。"
+                ),
             },
             "max_chars": {
                 "type": "integer",

@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import builtins
 import logging
-from typing import Any, Generic, Type, TypeVar
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
+from typing import Any, Generic, Type, TypeVar, cast, overload
 
 from pydantic import BaseModel
-from sqlalchemy import select, update, delete, insert, and_, func, Select, make_url, text
+from sqlalchemy import Delete, Select, and_, delete, func, insert, make_url, select, text, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    create_async_engine,
-    async_sessionmaker,
     AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 
 from .tables import Base
@@ -100,7 +103,7 @@ class AsyncDatabase:
             await conn.run_sync(Base.metadata.drop_all)
 
     @asynccontextmanager
-    async def session(self):
+    async def session(self) -> AsyncGenerator[AsyncSession, None]:
         session: AsyncSession = self.session_factory()
         try:
             yield session
@@ -126,8 +129,16 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             return obj_in.model_dump()
         return obj_in
 
-    def _build_query(self, query: Select, filters: dict[str, Any]) -> Select:
-        """复杂查询构建器，支持 __gt, __lt, __gte, __lte, __like, __ilike, __in, __neq, __is 操作符。"""
+    @overload
+    def _build_query(self, query: Select[Any], filters: dict[str, Any]) -> Select[Any]: ...
+    @overload
+    def _build_query(self, query: Delete, filters: dict[str, Any]) -> Delete: ...
+    def _build_query(
+        self, query: Select[Any] | Delete, filters: dict[str, Any]
+    ) -> Select[Any] | Delete:
+        """复杂查询构建器，支持 __gt, __lt, __gte, __lte, __like,
+        __ilike, __in, __neq, __is 操作符。
+        """
         conditions = []
         for attr, value in filters.items():
             if "__" in attr:
@@ -173,7 +184,7 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         id: Any,
         load_options: list | None = None,
     ) -> ModelType | None:
-        query = select(self.model).where(self.model.id == id)
+        query = select(self.model).where(self.model.__table__.c.id == id)
         if load_options:
             query = query.options(*load_options)
         result = await session.execute(query)
@@ -228,7 +239,7 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
         query = query.offset(skip).limit(effective_limit)
         result = await session.execute(query)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def create(
         self,
@@ -260,47 +271,58 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
         stmt = (
             update(self.model)
-            .where(self.model.id == id)
+            .where(self.model.__table__.c.id == id)
             .values(**update_data)
             .execution_options(synchronize_session="fetch")
         )
         result = await session.execute(stmt)
-        if result.rowcount == 0:
+        # DML 语句的执行结果在运行时是 CursorResult；Result 基类未声明 rowcount
+        if cast(CursorResult[Any], result).rowcount == 0:
             return None
         return await self.get(session, id)
 
     async def delete(self, session: AsyncSession, id: Any) -> ModelType | None:
         """单条删除。"""
         ret_obj = await self.get(session, id)
-        stmt = delete(self.model).where(self.model.id == id)
+        stmt = delete(self.model).where(self.model.__table__.c.id == id)
         result = await session.execute(stmt)
-        if result.rowcount == 0:
+        if cast(CursorResult[Any], result).rowcount == 0:
             return None
         return ret_obj
 
+    # 注意：类中定义了 list() 方法，遮蔽内置 list，其后的注解须写 builtins.list。
     async def bulk_create(
         self,
         session: AsyncSession,
-        objs_in: list[CreateSchemaType | dict[str, Any]],
-    ) -> int:
+        objs_in: Sequence[CreateSchemaType | dict[str, Any]],
+        returning: bool = False,
+    ) -> int | builtins.list[ModelType]:
         """批量插入（使用 Core Insert，性能极高）。
 
+        Args:
+            returning: When True, return the inserted ORM instances instead of
+                the row count. This avoids a follow-up SELECT to retrieve IDs.
+
         Returns:
-            插入的行数。
+            插入的行数，或插入的 ORM 实例列表（returning=True 时）。
         """
         if not objs_in:
-            return 0
+            return [] if returning else 0
 
         data_list = [self._to_dict(obj) for obj in objs_in]
 
         stmt = insert(self.model).values(data_list)
+        if returning:
+            stmt = stmt.returning(self.model)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
         result = await session.execute(stmt)
-        return result.rowcount
+        return cast(CursorResult[Any], result).rowcount
 
     async def bulk_delete(
         self,
         session: AsyncSession,
-        ids: list[Any | None] = None,
+        ids: builtins.list[Any | None] | None = None,
         **filters,
     ) -> int:
         """批量删除。
@@ -312,13 +334,13 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         stmt = delete(self.model)
 
         if ids:
-            stmt = stmt.where(self.model.id.in_(ids))
+            stmt = stmt.where(self.model.__table__.c.id.in_(ids))
 
         if filters:
             stmt = self._build_query(stmt, filters)
 
         result = await session.execute(stmt)
-        return result.rowcount
+        return cast(CursorResult[Any], result).rowcount
 
     async def count(
         self,

@@ -1,7 +1,9 @@
 """Tests for DomainLoader."""
 import tempfile
 from pathlib import Path
+
 from courtier.domain.loader import DomainConfig, DomainLoader
+
 
 class TestDomainConfig:
     def test_defaults(self):
@@ -14,7 +16,8 @@ class TestDomainLoader:
     def test_load_valid_domain_yaml(self):
         with tempfile.TemporaryDirectory() as tmp:
             domain = Path(tmp)
-            cfg = domain / "config"; cfg.mkdir(parents=True)
+            cfg = domain / "config"
+            cfg.mkdir(parents=True)
             (cfg / "domain.yaml").write_text("name: test-domain\ntitle: Test\nlocales: [zh-CN]\n")
             config = DomainLoader.load(domain)
             assert config is not None
@@ -46,7 +49,9 @@ class TestDomainLoader:
             domain = Path(tmp) / "domains" / "test-domain"
             domain.mkdir(parents=True)
             (domain / "config").mkdir(parents=True)
-            (domain / "config" / "domain.yaml").write_text("name: test\nrequires_plugins: [missing_plugin]\nlocales: [fr-FR]\n")
+            (domain / "config" / "domain.yaml").write_text(
+                "name: test\nrequires_plugins: [missing_plugin]\nlocales: [fr-FR]\n"
+            )
             (domain / "config" / "prompts").mkdir()  # no fr-FR subdir
 
             issues = DomainLoader.validate_domain(domain, plugins_root=Path(tmp) / "plugins")

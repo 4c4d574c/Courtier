@@ -3,6 +3,12 @@
 Extracted from loop.py. Provides a single entry point check_and_inject_hints()
 that checks artifact readiness and injects LLM hints to guide the model toward
 (or away from) terminal tools.
+
+The function never mutates run status directly. When the model keeps ignoring
+a ready terminal tool past the escalation threshold, the force-termination
+*reason* is returned to the caller so the loop can drive the terminal
+transition through ``AgentStateMachine`` (keeping transition_id and the
+state.transition event intact).
 """
 
 from __future__ import annotations
@@ -10,9 +16,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..artifacts.models import InputField, ProjectionPolicy, build_contract_from_input_fields, derive_upstream_producers
+from ..artifacts.models import (
+    InputField,
+    ProjectionPolicy,
+    build_contract_from_input_fields,
+    derive_upstream_producers,
+)
 from ..artifacts.projectors import create_default_projector_registry
 from ..artifacts.resolver import ProjectionResolver, emit_event
+from .event_bus import EventBus
+from .events import AgentEvent
+from .state import Message
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +43,24 @@ def _is_orchestrator(agent_name: str) -> bool:
     if not agent_name:
         return False
     return agent_name.lower().startswith("orchestrator")
+
+
+def _append_hint_message(current_state: Any, hint_msg: str) -> tuple[Any, bool]:
+    """Append *hint_msg* as a user message unless an identical hint exists.
+
+    Hints are tagged ``source="hint"`` so repeated injections of the same
+    content are detected and skipped — the readiness/blocked hints below are
+    re-evaluated after every tool phase and would otherwise accumulate one
+    duplicate user message per turn.
+
+    Returns ``(state, appended)``.
+    """
+    for m in current_state.messages:
+        if m.source == "hint" and m.content == hint_msg:
+            return current_state, False
+    new_messages = list(current_state.messages)
+    new_messages.append(Message(role="user", content=hint_msg, source="hint"))
+    return current_state.model_copy(update={"messages": tuple(new_messages)}), True
 
 
 def _get_effective_fields(tool: Any) -> tuple[InputField, ...] | None:
@@ -119,7 +151,9 @@ def _get_ready_terminal_tools(tool_registry: Any | None, artifact_store: Any | N
     return ready
 
 
-def _build_terminal_ready_hints(tool_registry: Any | None, artifact_store: Any | None) -> str | None:
+def _build_terminal_ready_hints(
+    tool_registry: Any | None, artifact_store: Any | None
+) -> str | None:
     """Build a human-readable summary of ready terminal tools and their
     auto-bound input fields.  Returns None when no tools are ready.
     """
@@ -143,30 +177,56 @@ def _build_terminal_ready_hints(tool_registry: Any | None, artifact_store: Any |
     return "\n".join(lines) if lines else None
 
 
-def check_and_inject_hints(
+async def check_and_inject_hints(
     *,
     tool_registry: Any | None,
     artifact_store: Any | None,
     consecutive_exploratory: int,
     current_state: Any,  # AgentState
     agent_name: str = "",
-) -> Any:  # Returns (possibly modified) AgentState
+    event_bus: EventBus | None = None,
+    session_id: str = "",
+    turn_index: int = 0,
+) -> tuple[Any, str | None]:  # (state, force_complete_reason)
     """Check artifact readiness and inject hints to guide the model.
 
     If a terminal tool is ready:
     - On first detection: inject readiness hints so the LLM knows it can call
     - After consecutive exploratory calls exceed threshold: inject blocking hints
-    - After 2x threshold: force-terminate the loop
+    - After 2x threshold: return a force-complete reason (the loop drives the
+      terminal transition through the state machine)
 
     If no terminal tool is ready and model has been exploring:
     - Inject hints about which tools are blocked and what's missing.
+
+    Returns ``(state, force_complete_reason)`` — the reason is ``None`` unless
+    the loop should be force-completed.
     """
+
+    async def _emit_hint_injected(hint_type: str, content: str) -> None:
+        if event_bus is None:
+            return
+        try:
+            await event_bus.publish(
+                AgentEvent(
+                    type="hint.injected",
+                    session_id=session_id,
+                    agent_name=agent_name,
+                    turn_index=turn_index,
+                    payload={
+                        "hint_type": hint_type,
+                        "content": content[:500],
+                    },
+                )
+            )
+        except Exception:
+            logger.exception("Failed to publish hint.injected event")
     # Orchestrator agents should use Skills, not call plugin tools directly.
     # Suppress terminal-tool hints so the model isn't encouraged to call
     # low-level plugin tools (e.g. detect_plagiarism) that are already
     # encapsulated by skills (e.g. plagiarism).
     if _is_orchestrator(agent_name):
-        return current_state
+        return current_state, None
 
     # -- Terminal-tool readiness guard: when a terminal tool becomes ready,
     #    proactively inject a readiness summary. If the model keeps calling
@@ -188,13 +248,10 @@ def check_and_inject_hints(
                     "可直接调用，无需再通过 get_artifact 获取数据：\n"
                     + tool_hints
                 )
-                new_messages = list(current_state.messages)
-                from .state import Message
-                new_messages.append(Message(role="user", content=hint_msg))
-                current_state = current_state.model_copy(
-                    update={"messages": tuple(new_messages)}
-                )
-                logger.debug("Injected terminal-tool readiness hints.")
+                current_state, appended = _append_hint_message(current_state, hint_msg)
+                if appended:
+                    await _emit_hint_injected("terminal_ready", hint_msg)
+                    logger.debug("Injected terminal-tool readiness hints.")
         elif consecutive_exploratory >= _MAX_EXPLORATORY_WHEN_TERMINAL_READY:
             logger.warning(
                 "Terminal tool is ready but model called %d consecutive "
@@ -206,20 +263,14 @@ def check_and_inject_hints(
                 "已自动准备就绪。请直接调用目标业务工具，"
                 "无需再调用 get_artifact 或 list_artifacts。"
             )
-            new_messages = list(current_state.messages)
-            from .state import Message
-            new_messages.append(Message(role="user", content=hint_msg))
-            current_state = current_state.model_copy(
-                update={"messages": tuple(new_messages)}
-            )
-            # After 2x the threshold with no change, force termination
+            current_state, appended = _append_hint_message(current_state, hint_msg)
+            if appended:
+                await _emit_hint_injected("terminal_ready_blocking", hint_msg)
+            # After 2x the threshold with no change, force termination. The
+            # reason is returned to the loop, which drives the terminal
+            # transition through AgentStateMachine — do NOT set status here.
             if consecutive_exploratory >= _MAX_EXPLORATORY_WHEN_TERMINAL_READY * 2:
-                current_state = current_state.model_copy(
-                    update={
-                        "status": "completed",
-                        "termination_reason": "terminal_tool_ready_but_ignored",
-                    }
-                )
+                return current_state, "terminal_tool_ready_but_ignored"
 
     # -- Blocked-tools hints: when no terminal tool is ready but some
     #    tools with contracts exist, inject a hint about what's missing.
@@ -231,12 +282,9 @@ def check_and_inject_hints(
                 + blocked_hints
                 + "\n请先调用建议的上游工具获取所需数据。"
             )
-            new_messages = list(current_state.messages)
-            from .state import Message
-            new_messages.append(Message(role="user", content=hint_msg))
-            current_state = current_state.model_copy(
-                update={"messages": tuple(new_messages)}
-            )
-            logger.debug("Injected blocked-tools hints.")
+            current_state, appended = _append_hint_message(current_state, hint_msg)
+            if appended:
+                await _emit_hint_injected("blocked_tools", hint_msg)
+                logger.debug("Injected blocked-tools hints.")
 
-    return current_state
+    return current_state, None

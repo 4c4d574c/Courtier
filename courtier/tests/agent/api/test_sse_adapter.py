@@ -60,7 +60,9 @@ class TestToolMetaFor:
 
     def test_returns_empty_meta_without_registry(self):
         adapter = SSEAdapter(asyncio.Queue(), session_store=None, session_id="s1")
-        assert adapter._tool_meta_for("any") == {"skill": "", "display_name": None, "skill_description": ""}
+        assert adapter._tool_meta_for("any") == {
+            "skill": "", "display_name": None, "skill_description": ""
+        }
 
 
 class TestSSEAdapter:

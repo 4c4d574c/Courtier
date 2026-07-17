@@ -17,10 +17,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from agent.agents.input_models import FormatAuditorInput
-from agent.agents.subagent import _SubAgentTool as _SAT
-from agent.core.cache_store import CacheStore
-from agent.prompts.pipeline import PromptPipeline
+from agent.agents.input_models import FormatAuditorInput  # noqa: E402
+from agent.agents.subagent import _SubAgentTool as _SAT  # noqa: E402
+from agent.core.cache_store import CacheStore  # noqa: E402
+from agent.prompts.pipeline import PromptPipeline  # noqa: E402
 
 
 def sep(title: str) -> None:
@@ -100,8 +100,8 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
           f"{'dict ✅' if resolved else f'str({repr(doc)[:80]}) ❌'}")
 
     # Step 3: _SubAgentTool.execute() — cache_store not in kwargs
-    print(f"  3. _SubAgentTool.execute(): cache_store from kwargs.pop = None "
-          f"(registry 不传递 cache_store)")
+    print("  3. _SubAgentTool.execute(): cache_store from kwargs.pop = None "
+          "(registry 不传递 cache_store)")
 
     # Step 4: FormatAuditorInput creation
     execute_kwargs = dict(kwargs_after)
@@ -114,7 +114,7 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
         return
 
     # Step 5: _resolve_input_refs (skipped because cache_store=None)
-    print(f"  5. _resolve_input_refs: SKIPPED (cache_store is None)")
+    print("  5. _resolve_input_refs: SKIPPED (cache_store is None)")
 
     # Step 6: base.py:run() context injection
     input_context: dict[str, str] = {}
@@ -142,7 +142,7 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
     pipeline._identity = "# 身份\n你是 FormatAuditorAgent。"
     system_prompt = pipeline.build(merged)
     if "任务上下文" in system_prompt:
-        ctx_lines = [l for l in system_prompt.split("\n") if l.startswith("- document")]
+        ctx_lines = [line for line in system_prompt.split("\n") if line.startswith("- document")]
         if ctx_lines:
             display_line = ctx_lines[0]
             if len(display_line) > 100:
@@ -164,8 +164,8 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
     print(f"     子代理 cache_store.resolve_refs → "
           f"{'dict ✅' if sub_ok else f'str({repr(sub_doc)[:80]}) ❌'}")
     if not sub_ok:
-        print(f"     → audit_format.execute() 将报错: "
-              f"'document 参数必须是 dict 或有效的 JSON 字符串，收到 str'")
+        print("     → audit_format.execute() 将报错: "
+              "'document 参数必须是 dict 或有效的 JSON 字符串，收到 str'")
 
 
 def main() -> None:

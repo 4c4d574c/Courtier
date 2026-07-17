@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import BaseModel, Field
-from sqlalchemy import String, Integer, DateTime, Boolean, JSON
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, utcnow
+
 
 class FormatTemplateCreate(BaseModel):
     """创建格式模板请求。"""

@@ -10,13 +10,14 @@ from courtier.agent.artifacts.models import (
     ProjectionPolicy,
     ProjectorSpec,
     build_contract_from_input_fields,
+    derive_upstream_producers,
     get_artifact_schema,
     make_artifact_ref,
     parse_artifact_ref,
     register_artifact_schema,
     validate_artifact_data,
 )
-
+from courtier.agent.artifacts.projectors import create_default_projector_registry
 
 # -- Gap 2: ArtifactMetadata schema_version -----------------------------------
 
@@ -211,9 +212,6 @@ def test_register_and_retrieve_custom_schema():
 # -- Gap 12: derive_upstream_producers coverage --------------------------------
 # (replaces the removed upstream_producer_for which relied on the deleted
 # _UPSTREAM_PRODUCERS static mapping)
-
-from courtier.agent.artifacts.models import derive_upstream_producers
-from courtier.agent.artifacts.projectors import create_default_projector_registry
 
 
 def test_derive_upstream_producers_direct():

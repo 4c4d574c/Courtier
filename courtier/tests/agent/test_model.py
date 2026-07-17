@@ -60,6 +60,26 @@ class TestParseToolArguments:
         result = _parse_tool_arguments(raw)
         assert result["refs"] == ["$ref:parse_document:1", "$ref:parse_document:2"]
 
+    def test_mixed_quote_styles_not_repaired(self):
+        """Mixed single/double quotes fall through to _parse_error —
+        swapping quotes would corrupt the double-quoted segments."""
+        result = _parse_tool_arguments('''{"a": 1, 'b': 2}''')
+        assert result["_parse_error"] is True
+
+    def test_apostrophe_in_double_quoted_value_preserved(self):
+        result = _parse_tool_arguments('{"text": "it\'s fine"}')
+        assert result == {"text": "it's fine"}
+
+    def test_trailing_comma_repaired(self):
+        assert _parse_tool_arguments('{"a": 1,}') == {"a": 1}
+
+    def test_unquoted_keys_repaired(self):
+        assert _parse_tool_arguments("{a: 1}") == {"a": 1}
+
+    def test_escaped_quote_in_single_quoted_style_returns_parse_error(self):
+        result = _parse_tool_arguments(r"{'text': 'it\'s ok'}")
+        assert result["_parse_error"] is True
+
 
 class TestMockModelClient:
     @pytest.mark.asyncio

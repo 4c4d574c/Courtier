@@ -50,7 +50,7 @@ class MinioStorage(StorageBackend):
     async def presigned_url(
         self, bucket: str, key: str, expires: int = 3600, inline: bool = False
     ) -> str:
-        extra_params = {}
+        extra_params: dict[str, str | list[str] | tuple[str]] = {}
         if inline:
             extra_params["response-content-disposition"] = "inline"
         return await asyncio.to_thread(

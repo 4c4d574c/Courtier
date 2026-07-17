@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from .base import OCRBlock, OCRLineResult, OCRPageResult
+from .base import OCRLineResult, OCRPageResult
 
 logger = logging.getLogger(__name__)
 

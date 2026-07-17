@@ -18,6 +18,7 @@ class FileInfo:
     original_name: str
     stored_path: str  # filesystem path relative to upload_dir
     size_bytes: int
+    owner: str = ""  # uploader username; empty for legacy records
 
 
 class FileStore:
@@ -39,7 +40,11 @@ class FileStore:
         self._load_index()
 
     async def register(
-        self, original_name: str, stored_path: str, size_bytes: int
+        self,
+        original_name: str,
+        stored_path: str,
+        size_bytes: int,
+        owner: str = "",
     ) -> FileInfo:
         file_id = f"file_{secrets.token_hex(16)}"
         info = FileInfo(
@@ -47,6 +52,7 @@ class FileStore:
             original_name=original_name,
             stored_path=stored_path,
             size_bytes=size_bytes,
+            owner=owner,
         )
         async with self._lock:
             self._files[file_id] = info
@@ -88,6 +94,7 @@ class FileStore:
                 "original_name": fi.original_name,
                 "stored_path": fi.stored_path,
                 "size_bytes": fi.size_bytes,
+                "owner": fi.owner,
             }
             for fid, fi in self._files.items()
         }
@@ -114,4 +121,5 @@ class FileStore:
                 original_name=d.get("original_name", ""),
                 stored_path=d.get("stored_path", ""),
                 size_bytes=d.get("size_bytes", 0),
+                owner=d.get("owner", ""),
             )

@@ -1,11 +1,9 @@
 """Tests for OCR backend abstraction layer."""
 
 import pytest
-
 from docparse.parsers.ocr.base import OCRBlock, OCRLineResult, OCRPageResult
 from docparse.parsers.ocr.factory import create_ocr_engine
 from docparse.parsers.ocr.ppstructure import PPStructureAdapter
-
 
 SAMPLE_API_RESPONSE = {
     "results": [

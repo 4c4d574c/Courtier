@@ -1,6 +1,7 @@
 """Template plugin — database-backed template loading."""
-from courtier.plugin.sdk import PluginRuntime
 from tools import LoadTemplateTool
+
+from courtier.plugin.sdk import PluginRuntime
 
 
 class TemplatePlugin(PluginRuntime):

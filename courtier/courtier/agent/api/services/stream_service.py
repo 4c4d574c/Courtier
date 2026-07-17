@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time as _time
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from ...artifacts.store import ArtifactStore
 from ...core.audit_logger import AuditLogger
-
+from ...core.event_bus import EventBus
+from ...telemetry.metrics import set_conversation_tree_branches
 from ..sse_adapter import SSEAdapter
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,11 @@ async def _inject_token_counts(
     session_id: str,
 ) -> None:
     """Add tokensIn/tokensOut from the persisted session into *payload*."""
-    session = await session_store.get(session_id)
+    try:
+        session = await session_store.get(session_id)
+    except Exception:
+        logger.exception("Failed to read session for token counts: %s", session_id)
+        return
     if session:
         payload["tokensIn"] = session.tokens_in
         payload["tokensOut"] = session.tokens_out
@@ -32,6 +38,31 @@ async def _inject_token_counts(
 def _sse_json(payload: dict[str, Any]) -> str:
     """Serialize *payload* to a one-line JSON string for SSE."""
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _event_bus_from_settings(settings: Any) -> EventBus:
+    """Create an EventBus using the agent runtime config when available."""
+    runtime_cfg = getattr(settings, "agent_runtime", None)
+    if runtime_cfg is None:
+        return EventBus()
+    events_cfg = getattr(runtime_cfg, "events", None)
+    if events_cfg is None:
+        return EventBus()
+    return EventBus(
+        default_maxsize=getattr(events_cfg, "default_maxsize", 1000),
+        backpressure=getattr(events_cfg, "backpressure", "drop_oldest"),
+    )
+
+
+def _conversation_tree_enabled_from_settings(settings: Any) -> bool:
+    """Return whether the conversation tree should be initialised."""
+    runtime_cfg = getattr(settings, "agent_runtime", None)
+    if runtime_cfg is None:
+        return False
+    tree_cfg = getattr(runtime_cfg, "conversation_tree", None)
+    if tree_cfg is None:
+        return False
+    return bool(getattr(tree_cfg, "enabled", False))
 
 
 # -- Serialization helpers for multi-turn state ---------------------------------
@@ -79,7 +110,7 @@ def deserialize_messages(json_str: str) -> tuple:
             _Msg(
                 role=d["role"],
                 content=d.get("content"),
-                tool_calls=tool_calls,
+                tool_calls=tuple(tool_calls) if tool_calls is not None else None,
                 tool_call_id=d.get("tool_call_id"),
                 name=d.get("name"),
                 source=d.get("source"),
@@ -88,8 +119,13 @@ def deserialize_messages(json_str: str) -> tuple:
     return tuple(messages)
 
 
-def reconstruct_state(messages_json: str) -> Any:
-    """Reconstruct an AgentState from serialised messages, or None if empty."""
+def reconstruct_state(
+    messages_json: str,
+    tree_json: str = "",
+    current_node_id: str | None = None,
+) -> Any:
+    """Reconstruct an AgentState from serialised messages and optional tree."""
+    from ...core.conversation_tree import ConversationTree
     from ...core.state import AgentState
 
     if not messages_json:
@@ -97,11 +133,19 @@ def reconstruct_state(messages_json: str) -> Any:
     messages = deserialize_messages(messages_json)
     if not messages:
         return None
+    tree = None
+    if tree_json:
+        try:
+            tree = ConversationTree.from_serialized(json.loads(tree_json))
+        except Exception:
+            logger.exception("Failed to deserialize conversation tree")
     return AgentState(
         status="completed",
         messages=messages,
         current_step=0,
         max_steps=20,
+        tree=tree,
+        current_node_id=current_node_id or (tree.root_id if tree else None),
     )
 
 
@@ -163,8 +207,12 @@ def rehydrate_artifact_store(
 
         # Path-traversal protection: resolve the user-supplied filepath
         # relative to cache_root and verify it stays within bounds.
-        safe_path = (cache_root / Path(filepath).name).resolve()
-        if not str(safe_path).startswith(str(cache_root)):
+        # Use Path(filepath) directly (not .name) so stored sub-paths are
+        # preserved while still rejecting escapes above cache_root.
+        safe_path = (cache_root / Path(filepath)).resolve()
+        try:
+            safe_path.relative_to(cache_root)
+        except ValueError:
             logger.warning(
                 "Rejected filepath outside cache_dir: %s (resolved to %s)",
                 filepath,
@@ -271,6 +319,7 @@ async def generate_sse_stream(
     testable without a FastAPI request context.
     """
     queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+    event_bus = _event_bus_from_settings(settings)
     adapter = SSEAdapter(
         queue,
         session_store,
@@ -279,6 +328,7 @@ async def generate_sse_stream(
         start_step_index=start_step,
         tool_registry=tool_registry,
     )
+    adapter.start_listening(event_bus)
 
     # Prepare audit logger so sub-agents can write per-run audit logs.
     agent_context["audit_base_dir"] = audit_base_dir
@@ -290,14 +340,21 @@ async def generate_sse_stream(
             run_id=session_id,
         )
 
-    # Emit session event as the very first event for new sessions
+    # Emit session event as the very first event for new sessions and
+    # atomically promote the persisted record from "initial" to "running".
     if is_new:
-        yield f"data: {json.dumps({'type': 'session', 'sessionId': session_id, 'modelName': model_name}, ensure_ascii=False)}\n\n"
+        session_payload = {
+            "type": "session",
+            "sessionId": session_id,
+            "modelName": model_name,
+        }
+        yield f"data: {json.dumps(session_payload, ensure_ascii=False)}\n\n"
+        await session_store.update(session_id, status="running")
         # Force event-loop scheduling so the chunk is flushed to the
         # client immediately rather than sitting in buffers.
         await asyncio.sleep(0)
 
-    async def runner():
+    async def runner() -> None:
         try:
             artifact_store = _prepare_artifact_store_for_session(
                 prior_state, context_manager
@@ -306,28 +363,53 @@ async def generate_sse_stream(
             result = await agent.run(
                 task=task,
                 context=agent_context,
-                on_step=adapter.on_step,
-                on_token=adapter.on_token,
-                on_content_token=adapter.on_content_token,
-                on_tool_start=adapter.on_tool_start,
-                on_tool_progress=lambda name, p: adapter.emit_tool_progress(name, p),
-                on_tool_result=adapter.on_tool_result,
+                event_bus=event_bus,
+                session_id=session_id,
                 on_subagent_event=adapter.on_subagent_event,
                 model_config=model_config,
                 context_manager=context_manager,
                 state=prior_state,
                 audit_logger=audit_logger,
                 artifact_store=artifact_store,
+                use_tree=_conversation_tree_enabled_from_settings(settings),
             )
             flushed = adapter.flush_verdict()
             conclusion = flushed or (result.content or "")
-            # Persist final messages for future multi-turn continuation
+            # Persist final messages and conversation tree for future
+            # multi-turn continuation and branching.
             if result.final_state is not None:
-                await session_store.update(
+                update_kwargs: dict[str, Any] = {
+                    "messages_json": serialize_messages(result.final_state.messages),
+                }
+                if result.final_state.tree is not None:
+                    update_kwargs["tree_json"] = json.dumps(
+                        result.final_state.tree.serialize(), ensure_ascii=False
+                    )
+                    update_kwargs["current_node_id"] = result.final_state.current_node_id
+                    set_conversation_tree_branches(
+                        session_id, len(result.final_state.tree.leaf_nodes())
+                    )
+                await session_store.update(session_id, **update_kwargs)
+            if result.final_state is not None and result.final_state.status == "error":
+                # Model/internal failure: surface an explicit error event
+                # instead of a silent "complete" so the frontend can show
+                # the failure state. The detailed reason stays server-side.
+                logger.warning(
+                    "Agent run ended in error state for session %s: %s",
                     session_id,
-                    messages_json=serialize_messages(result.final_state.messages),
+                    result.final_state.termination_reason,
                 )
-            await queue.put(("complete", conclusion))
+                await queue.put(
+                    (
+                        "error",
+                        {
+                            "type": "error",
+                            "detail": "模型调用失败，请稍后重试",
+                        },
+                    )
+                )
+            else:
+                await queue.put(("complete", conclusion))
         except asyncio.CancelledError:
             logger.info("Agent run cancelled for session %s", session_id)
             await session_store.update(
@@ -335,11 +417,24 @@ async def generate_sse_stream(
             )
             await queue.put(("stopped", None))
         except Exception:
-            logger.exception("Agent run failed for session %s", session_id)
+            trace_id = secrets.token_hex(8)
+            logger.exception(
+                "Agent run failed for session %s (trace_id=%s)",
+                session_id,
+                trace_id,
+            )
             await queue.put(
-                ("error", {"type": "error", "detail": "服务器内部错误，请稍后重试"})
+                (
+                    "error",
+                    {
+                        "type": "error",
+                        "detail": "服务器内部错误，请稍后重试",
+                        "trace_id": trace_id,
+                    },
+                )
             )
         finally:
+            adapter.stop_listening()
             # Close the model client to prevent AsyncHttpxClientWrapper.__del__
             # from scheduling a bare aclose() task that crashes with
             # "AttributeError: ... object has no attribute '_transport'".

@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from content_compliance.loaders.json_loader import load_checker_config
 from content_compliance.engine import RuleConfig
+from content_compliance.loaders.json_loader import load_checker_config
 
 
 def test_load_checker_config(tmp_path: Path):

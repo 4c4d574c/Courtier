@@ -1,6 +1,5 @@
 """Test PluginSystem integration in app startup."""
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 def test_create_app_registers_plugin_system_on_state():
@@ -24,6 +23,7 @@ def test_create_app_registers_plugin_system_on_state():
 def test_create_app_no_longer_registers_domain_tools():
     """DOMAIN_TOOLS import is not present in create_app()."""
     import inspect
+
     from courtier.agent.api.app import create_app
 
     source = inspect.getsource(create_app)

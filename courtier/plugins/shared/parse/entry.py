@@ -1,6 +1,7 @@
 """Parse plugin — document file parsing."""
-from courtier.plugin.sdk import PluginRuntime
 from tools import ParseTool
+
+from courtier.plugin.sdk import PluginRuntime
 
 
 class ParsePlugin(PluginRuntime):

@@ -154,7 +154,9 @@ class ProjectionResolver:
                         steps=steps,
                         materializer=MaterializerSpec(
                             artifact_type=field.artifact_type,
-                            materialize_as=field.materialize_as,
+                            # build_contract_from_input_fields already completes
+                            # this default; the fallback mirrors it for the type.
+                            materialize_as=field.materialize_as or "dict",
                             path=materializer_path,
                         ),
                         score=candidate_score,

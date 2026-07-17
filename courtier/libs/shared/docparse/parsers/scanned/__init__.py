@@ -10,13 +10,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from PIL import Image as PILImage
-
 from docmodels import (
     Document,
     Page,
     PageContent,
 )
+from PIL import Image as PILImage
 
 from ..base import ParserConfig
 from ..font_detector import detect_fonts_for_page, merge_font_detections
@@ -31,7 +30,6 @@ from ..spacing import (
 from ..structure_recognizer import (
     recognize_page_structure,
 )
-
 from .font_detector import merge_font_info, refine_font_size_by_chars_per_line
 from .ocr_engine import (
     build_block_outline_map_from_blocks,

@@ -9,7 +9,7 @@ from docmodels import Block, DocumentFormatSpec
 
 from courtier.db._utils import SECTION_FIELD_NAMES_CN as FIELD_NAME_CN
 
-from ._fonts import FONT_FAMILY_EN_TO_CN, FONT_FAMILY_CN_ALIASES
+from ._fonts import FONT_FAMILY_CN_ALIASES, FONT_FAMILY_EN_TO_CN
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,10 @@ def compare_document_to_spec(doc: dict, spec: DocumentFormatSpec) -> dict[str, A
     all_errors: list[dict[str, Any]] = []  # 汇总所有错误
 
     def should_exist_on_page(block_path: tuple[str, ...], page_no: int) -> bool:
-        """根据块路径和页码判断该块是否应该存在于当前页。返回 True 表示应存在，False 表示不应存在（缺失时不报错）。"""
+        """根据块路径和页码判断该块是否应该存在于当前页。
+
+        返回 True 表示应存在，False 表示不应存在（缺失时不报错）。
+        """
         first_page = 0
         last_page = total_pages - 1 if total_pages > 0 else 0
         # 版头相关块只在第1页
@@ -335,9 +338,15 @@ def _compare_paragraph(
     # 严格检查元素数量（仅用于固定结构块）
     if check_element_count and len(actual_elements) != len(spec_elements):
         if len(actual_elements) == 0:
-            detail = f"该段落无文字行内容（期望 {len(spec_elements)} 行），可能存在解析异常或内容缺失。"
+            detail = (
+                f"该段落无文字行内容（期望 {len(spec_elements)} 行），"
+                "可能存在解析异常或内容缺失。"
+            )
         else:
-            detail = f"文字行数量不一致：期望 {len(spec_elements)} 行，实际 {len(actual_elements)} 行。"
+            detail = (
+                f"文字行数量不一致：期望 {len(spec_elements)} 行，"
+                f"实际 {len(actual_elements)} 行。"
+            )
         all_errors.append(
             {
                 "block_name": block_name_cn,
@@ -387,7 +396,10 @@ def _compare_paragraph(
                     "block_name": block_name_cn,
                     "block_no": block.block_no,
                     "error_type": "对齐方式不匹配",
-                    "details": f"对齐方式不一致：期望 {block.alignment}，实际 {paragraph.get('alignment', 'left')}",
+                    "details": (
+                        f"对齐方式不一致：期望 {block.alignment}，"
+                        f"实际 {paragraph.get('alignment', 'left')}"
+                    ),
                     "page_no": page_no,
                     "origin_text": para_text,
                 }
@@ -403,7 +415,10 @@ def _check_element_font_module(
     page_no: int,
     para_text: str,
 ) -> None:
-    """Compare a single element's font properties against the spec and append errors (module-level helper)."""
+    """Compare a single element's font properties against the spec and append errors.
+
+    Module-level helper.
+    """
     spec_font = spec_elem.font
     actual_font = actual_meta.get("font", {})
     spec_family = normalize_font_family(spec_font.font_family)

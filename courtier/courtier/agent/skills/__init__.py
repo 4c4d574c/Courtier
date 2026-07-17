@@ -1,6 +1,6 @@
 """Courtier Skill system."""
 
-from .config import SkillConfig, SkillMode, RetryPolicy
+from .config import RetryPolicy, SkillConfig, SkillMode
 from .registry import SkillRegistry
 
 __all__ = ["SkillConfig", "SkillMode", "RetryPolicy", "SkillRegistry"]

@@ -2,10 +2,11 @@
 
 import pytest
 
-from courtier.agent.tools.builtin.get_artifact import GetArtifactTool
 from courtier.agent.artifacts.store import ArtifactStore
+from courtier.agent.tools.builtin.get_artifact import GetArtifactTool
 
-from .conftest import _make as _make_artifact, _noop_progress
+from .conftest import _make as _make_artifact
+from .conftest import _noop_progress
 
 
 class TestGetArtifactTool:
@@ -28,7 +29,11 @@ class TestGetArtifactTool:
     async def test_get_specific_artifact_by_id(self):
         store = ArtifactStore()
         store.put(_make_artifact("a1"))
-        store.put(_make_artifact("a2", data={"text": "world", "language": "zh", "source_scope": "full_document"}))
+        store.put(
+            _make_artifact(
+                "a2", data={"text": "world", "language": "zh", "source_scope": "full_document"}
+            )
+        )
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
@@ -156,7 +161,11 @@ class TestGetArtifactViaRef:
             id="$ref:nonexistent:99",
         )
         assert not result.success
-        assert "result_id" in result.error.lower() or "未找到" in result.error or "not found" in result.error.lower()
+        assert (
+            "result_id" in result.error.lower()
+            or "未找到" in result.error
+            or "not found" in result.error.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_missing_id_param(self):

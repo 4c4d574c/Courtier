@@ -30,7 +30,7 @@ class TestObservabilityMiddleware:
 class TestMetricsEndpoint:
     def test_metrics_endpoint_returns_prometheus_format(self):
         """Verify /metrics returns Prometheus text format."""
-        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
         from starlette.responses import Response
 
         app = FastAPI()

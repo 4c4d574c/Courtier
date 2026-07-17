@@ -4,10 +4,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import BaseModel, Field
-from sqlalchemy import String, Integer, DateTime
+from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, utcnow
+
 
 class LibraryCreate(BaseModel):
     """创建查重库条目时的数据模型"""

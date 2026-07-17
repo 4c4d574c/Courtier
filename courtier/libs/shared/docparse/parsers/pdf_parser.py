@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import fitz
-
 from docmodels import (
     Document,
     Margin,

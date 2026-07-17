@@ -101,7 +101,8 @@ def _resolve_level(level: str) -> int:
     Invalid strings fall back to ``INFO`` with a warning.
     """
     try:
-        return getattr(logging, level.upper())
+        level_value: int = getattr(logging, level.upper())
+        return level_value
     except AttributeError:
         import logging as _logging
         _logging.getLogger(__name__).warning(

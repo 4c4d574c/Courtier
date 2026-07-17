@@ -1,7 +1,6 @@
 import json
+
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock
 
 from courtier.agent.api.services.stream_service import rehydrate_artifact_store
 from courtier.agent.artifacts.store import ArtifactStore

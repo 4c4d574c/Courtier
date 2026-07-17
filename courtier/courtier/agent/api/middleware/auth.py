@@ -6,12 +6,15 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+if TYPE_CHECKING:
+    from courtier.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,12 @@ ALLOWED_JWT_ALGORITHMS: frozenset[str] = frozenset({"HS256"})
 security = HTTPBearer(auto_error=False)
 
 
-def get_jwt_secret(settings) -> str:
+def _is_admin(payload: dict) -> bool:
+    """Return True if the JWT payload represents an admin user."""
+    return payload.get("role") == "admin"
+
+
+def get_jwt_secret(settings: "Settings") -> str:
     """返回 JWT 密钥，未配置时抛出明确错误。"""
     secret = getattr(settings, "jwt_secret", "")
     if not secret:
@@ -64,25 +72,28 @@ def verify_token(token: str, secret: str, algorithm: str = "HS256") -> dict[str,
     return payload
 
 
-async def verify_jwt(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-) -> str:
-    """FastAPI 依赖：验证 JWT 并返回用户名。
+def _resolve_token(
+    settings: "Settings",
+    credentials: HTTPAuthorizationCredentials | None,
+    query_token: str | None,
+    cookie_token: str | None = None,
+) -> dict[str, Any]:
+    """Resolve and verify a JWT token from header, query param, or cookie.
 
-    支持两种 token 传递方式：
-    1. Authorization: Bearer <token> header（标准 HTTP）
-    2. ?token=<token> query 参数（EventSource / SSE 不支持自定义 headers）
+    Supports three token transfer methods:
+    1. Authorization: Bearer <token> header (standard HTTP)
+    2. ?token=<token> query param (legacy SSE clients)
+    3. access_token httpOnly cookie (EventSource / SSE cannot set headers;
+       this is the preferred SSE path — query tokens leak into logs)
     """
-    settings = request.app.state.settings
     secret = get_jwt_secret(settings)
-
-    # Resolve token: header first, then query param (for EventSource).
     token: str | None = None
     if credentials is not None:
         token = credentials.credentials
-    elif request.query_params.get("token"):
-        token = request.query_params["token"]
+    elif query_token:
+        token = query_token
+    elif cookie_token:
+        token = cookie_token
 
     if token is None:
         raise HTTPException(
@@ -91,10 +102,22 @@ async def verify_jwt(
             "或通过 ?token= 查询参数传递",
         )
 
-    payload = verify_token(
-        token,
-        secret,
-        algorithm=getattr(settings, "jwt_algorithm", "HS256"),
+    algorithm = getattr(settings, "jwt_algorithm", "HS256")
+    if algorithm not in ALLOWED_JWT_ALGORITHMS:
+        raise HTTPException(500, "不支持的 JWT 签名算法")
+    return verify_token(token, secret, algorithm=algorithm)
+
+
+async def verify_jwt(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> str:
+    """FastAPI 依赖：验证 JWT 并返回用户名。"""
+    payload = _resolve_token(
+        request.app.state.settings,
+        credentials,
+        request.query_params.get("token"),
+        request.cookies.get("access_token"),
     )
     sub = payload.get("sub")
     if not isinstance(sub, str):
@@ -171,17 +194,9 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> dict:
     """FastAPI dependency: returns full user claims dict {sub, uid, role}."""
-    settings = request.app.state.settings
-    secret = get_jwt_secret(settings)
-    token = None
-    if credentials is not None:
-        token = credentials.credentials
-    elif request.query_params.get("token"):
-        token = request.query_params["token"]
-    if token is None:
-        raise HTTPException(401, "缺少认证信息")
-    algorithm = getattr(settings, "jwt_algorithm", "HS256")
-    if algorithm not in ALLOWED_JWT_ALGORITHMS:
-        raise HTTPException(500, "不支持的 JWT 签名算法")
-    payload = verify_token(token, secret, algorithm=algorithm)
-    return payload
+    return _resolve_token(
+        request.app.state.settings,
+        credentials,
+        request.query_params.get("token"),
+        request.cookies.get("access_token"),
+    )

@@ -20,6 +20,7 @@ from courtier.agent.telemetry.metrics import PLUGIN_STATE
 from courtier.config import get_settings
 
 from .client import JSONRPCClient, PluginCrashedError
+from .lifecycle import PluginHandle, PluginLifecycle
 from .manifest import PluginManifest
 from .protocol import (
     INTERNAL_ERROR,
@@ -38,6 +39,7 @@ from .protocol import (
 from .registry import ExtensionRegistry
 from .scanner import PluginScanResult
 
+
 def _find_project_root(plugin_dir: Path) -> Path:
     """Walk up from plugin_dir to find the project root.
 
@@ -54,28 +56,37 @@ def _find_project_root(plugin_dir: Path) -> Path:
     return plugin_dir.resolve()
 
 
+def _configured_domain_names() -> list[str]:
+    """Return the list of configured domain package names.
+
+    Reads ``COURTIER_DOMAIN_PACKAGES`` (comma-separated) and falls back to
+    ``docaudit`` so shared plugins can import domain models such as
+    ``docmodels`` regardless of which domain owns the plugin.
+    """
+    raw = os.environ.get("COURTIER_DOMAIN_PACKAGES", "docaudit")
+    return [name.strip() for name in raw.split(",") if name.strip()]
+
+
 def _build_plugin_pythonpath(
     plugin_dir: Path, project_root: Path, existing_pythonpath: str = ""
 ) -> str:
     """Build the PYTHONPATH for a plugin subprocess.
 
-    Includes the project root, shared libraries, and the plugin's domain
-    package directory (for domain plugins) so imports like ``docmodels``
-    resolve correctly.
+    Includes the project root, shared libraries, and all configured domain
+    package directories so imports like ``docmodels`` resolve correctly in
+    both shared and domain plugins.
     """
     parts = [str(project_root)]
 
     parts.append(str(project_root / "libs" / "shared"))
     parts.append(str(project_root / "libs" / "docaudit"))
 
-    try:
-        plugins_root = project_root / "plugins"
-        rel = plugin_dir.resolve().relative_to(plugins_root)
-        if rel.parts and rel.parts[0] != "shared":
-            domain_name = rel.parts[0]
-            parts.append(str(project_root / "domains" / domain_name))
-    except ValueError:
-        pass
+    # Shared libraries (e.g. docparse) depend on domain models (e.g.
+    # docmodels), so every configured domain package must be on PYTHONPATH.
+    for domain_name in _configured_domain_names():
+        domain_path = project_root / "domains" / domain_name
+        if domain_path.is_dir():
+            parts.append(str(domain_path))
 
     if existing_pythonpath:
         parts.append(existing_pythonpath)
@@ -210,7 +221,7 @@ def _resolve_env(value: str) -> str:
     pulled into the plugin environment via manifest configuration.
     """
 
-    def _replace(match: re.Match) -> str:
+    def _replace(match: re.Match[str]) -> str:
         var_name = match.group(1)
         if var_name not in _ALLOWED_MANIFEST_ENV_VARS:
             logger.warning(
@@ -285,6 +296,7 @@ class ProcessManager:
         cache_store: Any = None,
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
+        plugin_lifecycle: PluginLifecycle | None = None,
     ) -> None:
         self._plugin_dir = plugin_dir
         self._extension_registry = extension_registry
@@ -294,6 +306,21 @@ class ProcessManager:
         self._cache_store = artifact_store or cache_store
         self._artifact_store_registry = artifact_store_registry
         self._processes: dict[str, PluginProcess] = {}
+
+        # Use a provided lifecycle or create one wired to the capability registry.
+        cap_registry = getattr(extension_registry, "_capability_registry", None)
+        self._lifecycle: PluginLifecycle | None
+        if plugin_lifecycle is not None:
+            self._lifecycle = plugin_lifecycle
+        elif cap_registry is not None:
+            self._lifecycle = PluginLifecycle(
+                capability_registry=cap_registry,
+                max_restarts=max_restarts,
+                immediate_crash_window=_IMMEDIATE_CRASH_WINDOW,
+                restart_callback=self._restart_provider,
+            )
+        else:
+            self._lifecycle = None
 
     def get_processes(self) -> dict[str, PluginProcess]:
         """Return a copy of the process map keyed by plugin name."""
@@ -475,6 +502,17 @@ class ProcessManager:
             proc._restart_count = 0
             proc._health_failures = 0
 
+            if self._lifecycle is not None:
+                handle = PluginHandle(
+                    provider=proc.name,
+                    process=proc,
+                    restart_count=proc._restart_count,
+                    started_at=proc._started_at,
+                    state="active",
+                )
+                self._lifecycle.track_process(handle)
+                self._lifecycle.reset_health(proc.name)
+
             # Start stderr reader for crash detection and log forwarding
             proc._stderr_task = asyncio.create_task(self._monitor_stderr(proc))
 
@@ -512,11 +550,13 @@ class ProcessManager:
 
     def _create_host_request_handler(
         self, proc: PluginProcess
-    ) -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
+    ) -> Callable[[dict[str, Any]], Awaitable[Any]]:
         """Create a handler for plugin-to-host JSON-RPC requests.
 
         The handler enforces the plugin's declared host_service dependencies
-        and permissions.
+        and permissions.  Its return value is placed verbatim into the
+        JSON-RPC ``result`` field, so it may be any JSON value (dict, list,
+        or None), not just a dict.
         """
         manifest = proc.manifest
         perms = set(manifest.dependencies.permissions or [])
@@ -527,7 +567,7 @@ class ProcessManager:
         def _deny(code: int, message: str) -> dict[str, Any]:
             return {"error": {"code": code, "message": message}}
 
-        async def handler(request: dict[str, Any]) -> dict[str, Any]:
+        async def handler(request: dict[str, Any]) -> Any:
             method = request.get("method", "")
             params = request.get("params", {})
             session_id = params.get("session_id")
@@ -650,7 +690,7 @@ class ProcessManager:
             result = await proc.client.call("plugin.health", timeout=5.0)
             if isinstance(result, dict):
                 return result.get("status") == "ok"
-            return result == "ok"
+            return bool(result == "ok")
         except Exception:
             return False
 
@@ -746,27 +786,54 @@ class ProcessManager:
                         exc_info=True,
                     )
 
+            # Sync lifecycle handle state before unregistering; the unregister
+            # event will be observed by PluginLifecycle and may schedule a restart.
+            if self._lifecycle is not None:
+                handle = self._lifecycle.get_handle(proc.name)
+                if handle is not None:
+                    handle.state = "crashed"
+                    handle.restart_count = proc._restart_count
+                    handle.started_at = proc._started_at
+
             # Always unregister before any crash handling so registries never
             # retain stale entries — this must run before the circuit breaker
             # return below.
             self._extension_registry.on_unregister(proc.name)
 
-            # Circuit breaker: if the plugin crashed within seconds of reaching
-            # ACTIVE, it's a deterministic startup failure -- skip restart.
-            if proc._started_at > 0:
-                uptime = asyncio.get_event_loop().time() - proc._started_at
-                if uptime < _IMMEDIATE_CRASH_WINDOW:
+            # When a PluginLifecycle is wired to the capability registry, the
+            # unregister event above already triggered the restart decision.
+            # Fall back to the local restart policy only when no lifecycle is
+            # available.
+            if self._lifecycle is not None:
+                lifecycle_fatal = (
+                    self._lifecycle.health_check(proc.name) == "unhealthy"
+                )
+                if lifecycle_fatal:
                     proc.state = PluginState.FATAL
                     PLUGIN_STATE.labels(
                         plugin_name=proc.name, state=PluginState.FATAL.value
                     ).set(1)
-                    logger.error(
-                        "Plugin '%s' crashed %.1fs after startup (< %.0fs window), marking FATAL",
-                        proc.name,
-                        uptime,
-                        _IMMEDIATE_CRASH_WINDOW,
-                    )
-                    return
+                # Restart scheduling is handled by the lifecycle listener.
+                lifecycle_handled = True
+            else:
+                lifecycle_handled = False
+                # Circuit breaker: if the plugin crashed within seconds of reaching
+                # ACTIVE, it's a deterministic startup failure -- skip restart.
+                if proc._started_at > 0:
+                    uptime = asyncio.get_event_loop().time() - proc._started_at
+                    if uptime < _IMMEDIATE_CRASH_WINDOW:
+                        proc.state = PluginState.FATAL
+                        PLUGIN_STATE.labels(
+                            plugin_name=proc.name, state=PluginState.FATAL.value
+                        ).set(1)
+                        logger.error(
+                            "Plugin '%s' crashed %.1fs after startup "
+                            "(< %.0fs window), marking FATAL",
+                            proc.name,
+                            uptime,
+                            _IMMEDIATE_CRASH_WINDOW,
+                        )
+                        return
 
         logger.error(
             "Plugin '%s' crashed (restart %d/%d)",
@@ -789,7 +856,28 @@ class ProcessManager:
             proc._client.close()
             proc._client = None
 
-        await self._attempt_restart(proc)
+        if not lifecycle_handled:
+            await self._attempt_restart(proc)
+
+    async def _restart_provider(self, provider: str) -> None:
+        """Restart callback used by PluginLifecycle.
+
+        Finds the tracked process and re-runs :meth:`_start_one`.  Restart
+        failures are handled by :meth:`_on_crash`.
+        """
+        proc = self._processes.get(provider)
+        if proc is None:
+            logger.error("PluginLifecycle asked to restart unknown provider '%s'", provider)
+            return
+        proc.state = PluginState.RESTARTING
+        PLUGIN_STATE.labels(
+            plugin_name=proc.name, state=PluginState.RESTARTING.value
+        ).set(1)
+        try:
+            await self._start_one(proc)
+        except Exception:
+            logger.error("Plugin '%s' restart failed", proc.name, exc_info=True)
+            await self._on_crash(proc)
 
     async def _attempt_restart(self, proc: PluginProcess) -> None:
         """Attempt to restart a crashed plugin with exponential backoff.
@@ -848,6 +936,10 @@ class ProcessManager:
                 PLUGIN_STATE.labels(
                     plugin_name=proc.name, state=PluginState.STOPPING.value
                 ).set(1)
+                if self._lifecycle is not None:
+                    handle = self._lifecycle.get_handle(proc.name)
+                    if handle is not None:
+                        handle.state = "stopped"
                 self._extension_registry.on_unregister(proc.name)
 
                 # Cancel background tasks
@@ -878,6 +970,9 @@ class ProcessManager:
                 PLUGIN_STATE.labels(
                     plugin_name=proc.name, state=PluginState.STOPPED.value
                 ).set(1)
+
+        if self._lifecycle is not None:
+            await self._lifecycle.shutdown()
 
     async def _kill_process(self, proc: PluginProcess) -> None:
         """Force kill a plugin subprocess with a timeout."""

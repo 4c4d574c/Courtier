@@ -4,14 +4,12 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
-
 from docparse.parsers.font_image import (
     _binarize,
     _char_fg_height,
     refine_font_sizes_from_image,
 )
-
+from PIL import Image, ImageDraw
 
 # ---------------------------------------------------------------------------
 # Synthetic character image helpers

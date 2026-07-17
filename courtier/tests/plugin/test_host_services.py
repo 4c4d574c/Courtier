@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from courtier.agent.core.cache_store import CacheStore
-from courtier.agent.artifacts.store import ArtifactStore
 from courtier.agent.artifacts.registry import SessionArtifactStoreRegistry
+from courtier.agent.artifacts.store import ArtifactStore
+from courtier.agent.core.cache_store import CacheStore
 from courtier.plugin.manager import PluginProcess, PluginState, ProcessManager
 from courtier.plugin.manifest import PluginManifest
 from courtier.plugin.protocol import (
-    METHOD_CACHE_PERSIST,
-    METHOD_CACHE_LOAD,
     METHOD_ARTIFACT_STORE_PUT,
+    METHOD_CACHE_LOAD,
+    METHOD_CACHE_PERSIST,
 )
 
 

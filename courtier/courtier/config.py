@@ -5,9 +5,9 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from courtier.domain.loader import DomainConfig, DomainLoader
@@ -53,6 +53,68 @@ def get_settings() -> "Settings":
     return _settings
 
 
+class EventBusConfig(BaseModel):
+    """In-process event bus configuration."""
+
+    enabled: bool = True
+    legacy_callbacks: bool = False
+    backpressure: Literal["drop_oldest", "drop_newest", "block"] = "drop_oldest"
+    default_maxsize: int = 1000
+
+
+class ModelRoutingConfig(BaseModel):
+    """Model backend routing and fallback configuration."""
+
+    strategy: Literal["primary", "cost", "quality", "ab"] = "primary"
+    fallback_backends: list[str] = Field(default_factory=list)
+    cost_threshold_chars: int | None = None
+    ab_split: float = 0.5
+
+
+_DEFAULT_MEMORY_LAYERS: list[Literal["working", "session", "long_term", "retrieval"]] = [
+    "working",
+    "session",
+    "long_term",
+    "retrieval",
+]
+
+
+class MemoryConfig(BaseModel):
+    """Memory hierarchy configuration."""
+
+    enabled_layers: list[Literal["working", "session", "long_term", "retrieval"]] = Field(
+        default_factory=lambda: list(_DEFAULT_MEMORY_LAYERS)
+    )
+    long_term_summarize_after_turns: int = 10
+
+
+class GuardrailsConfig(BaseModel):
+    """Layered guardrail mode configuration."""
+
+    input_layer: Literal["allow", "log", "block", "off"] = "log"
+    output_layer: Literal["allow", "log", "block", "off"] = "log"
+    tool_layer: Literal["allow", "log", "block", "off"] = "block"
+    post_tool_layer: Literal["allow", "log", "block", "off"] = "log"
+
+
+class ConversationTreeConfig(BaseModel):
+    """Conversation tree branching configuration."""
+
+    enabled: bool = True
+    max_branches: int = 5
+    snapshot_interval_turns: int = 5
+
+
+class AgentRuntimeConfig(BaseModel):
+    """Nested agent runtime configuration matching the migration plan appendix C."""
+
+    events: EventBusConfig = Field(default_factory=EventBusConfig)
+    model: ModelRoutingConfig = Field(default_factory=ModelRoutingConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
+    conversation_tree: ConversationTreeConfig = Field(default_factory=ConversationTreeConfig)
+
+
 class Settings(BaseSettings):
     """API 配置，从环境变量或 .env 文件读取。
 
@@ -91,7 +153,10 @@ class Settings(BaseSettings):
     llm_presence_penalty: float = Field(
         default=0.0,
         alias="llm_presence_penalty",
-        description="存在惩罚，鼓励新话题（环境变量: LLM_PRESENCE_PENALTY）。temperature=0 时设 0。",
+        description=(
+            "存在惩罚，鼓励新话题（环境变量: LLM_PRESENCE_PENALTY）。"
+            "temperature=0 时设 0。"
+        ),
     )
     llm_extra_body: dict[str, Any] | None = Field(
         default=None,
@@ -138,7 +203,14 @@ class Settings(BaseSettings):
     cec_model_name: str = "ChineseErrorCorrector3-4B"
     cec_max_length: int = Field(default=16383, alias="cec_max_length")
     cec_user_dict: str = Field(
-        default=str(_default_project_root() / "domains" / "docaudit" / "plugins" / "doccorrector" / "user_dict.txt"),
+        default=str(
+            _default_project_root()
+            / "domains"
+            / "docaudit"
+            / "plugins"
+            / "doccorrector"
+            / "user_dict.txt"
+        ),
         alias="cec_user_dict",
     )
     cec_allowed_patterns: str = Field(
@@ -270,6 +342,14 @@ class Settings(BaseSettings):
         description="最大子代理派生总数",
     )
 
+    agent_runtime: AgentRuntimeConfig = Field(
+        default_factory=AgentRuntimeConfig,
+        description=(
+            "Agent runtime configuration (events, model routing, memory, "
+            "guardrails, conversation tree)"
+        ),
+    )
+
     @model_validator(mode="after")
     def _validate_production_secrets(self) -> "Settings":
         """In production, require JWT secret and admin password to be set."""
@@ -286,7 +366,11 @@ class Settings(BaseSettings):
             )
         return self
 
-    model_config = {"env_file": _ENV_FILE, "extra": "ignore"}
+    model_config = {
+        "env_file": _ENV_FILE,
+        "extra": "ignore",
+        "env_nested_delimiter": "__",
+    }
 
 
 @runtime_checkable

@@ -9,14 +9,14 @@ These scenarios currently lack coverage and could hide recovery-path bugs.
 
 import pytest
 
-from courtier.agent.core.model import ModelResponse, ToolCall
-from courtier.agent.testing import MockModelClient
-from courtier.agent.core.state import AgentState, Message
-from courtier.agent.core.loop import agent_loop, _inject_reminder
-from courtier.agent.core.loop_streaming import generate_with_streaming_fallback
 from courtier.agent.core.execution_result import ExecutionResult
+from courtier.agent.core.loop import _inject_reminder, agent_loop
+from courtier.agent.core.loop_streaming import generate_with_streaming_fallback
+from courtier.agent.core.model import ModelResponse, ToolCall
+from courtier.agent.core.state import AgentState, Message
+from courtier.agent.testing import MockModelClient
 from courtier.agent.tools.registry import ToolRegistry
-from courtier.common.behavioral_rules import PRE_TURN_REMINDER, PERIODIC_REMINDER
+from courtier.common.behavioral_rules import PERIODIC_REMINDER, PRE_TURN_REMINDER
 
 
 class TestInjectReminder:
@@ -381,8 +381,8 @@ async def test_business_artifact_guard_terminates_after_no_progress():
     the loop should terminate."""
     from unittest.mock import AsyncMock, MagicMock
 
-    from courtier.agent.artifacts.store import ArtifactStore
     from courtier.agent.artifacts.models import ArtifactMetadata
+    from courtier.agent.artifacts.store import ArtifactStore
 
     registry = ToolRegistry()
     mock_tool = MagicMock()
@@ -421,3 +421,98 @@ async def test_business_artifact_guard_terminates_after_no_progress():
     # The echo tool doesn't create any new artifacts in the store,
     # so after 4 turns without business artifacts the loop should stop
     assert final.current_step < 20
+
+
+class TestModelErrorEvents:
+    @pytest.mark.asyncio
+    async def test_model_error_publishes_loop_completed(self):
+        """Model failure must still emit loop.completed with error status —
+        event consumers (SSE) have no other terminal signal."""
+        from courtier.agent.core.event_bus import EventBus
+
+        class _FailingModel:
+            model_name = "failing-model"
+            temperature = 0.0
+
+            async def generate(self, messages, tools=None, **kwargs):
+                raise RuntimeError("Connection refused")
+
+        bus = EventBus()
+        sub = bus.subscribe()
+        state = AgentState.initial(task="test")
+        final = await agent_loop(
+            state=state, model=_FailingModel(), tool_registry=None, event_bus=bus
+        )
+
+        assert final.status == "error"
+        events = []
+        while not sub.queue.empty():
+            events.append(sub.queue.get_nowait())
+        completed = [e for e in events if e.type == "loop.completed"]
+        assert len(completed) == 1
+        assert completed[0].payload["status"] == "error"
+        assert completed[0].payload["termination_reason"]
+        assert any(
+            e.type == "state.transition" and e.payload["to"] == "error"
+            for e in events
+        )
+
+    @pytest.mark.asyncio
+    async def test_unexpected_phase_error_is_contained(self):
+        """An unexpected exception in a phase ends in error state via the
+        shared tail (loop.completed published) instead of raising."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from courtier.agent.core.event_bus import EventBus
+
+        mock_cm = MagicMock()
+        mock_cm.compact_if_needed = AsyncMock(
+            side_effect=RuntimeError("compact blew up")
+        )
+
+        bus = EventBus()
+        sub = bus.subscribe()
+        state = AgentState.initial(task="test")
+        final = await agent_loop(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            context_manager=mock_cm,
+            event_bus=bus,
+        )
+
+        assert final.status == "error"
+        assert "internal_error" in (final.termination_reason or "")
+        events = []
+        while not sub.queue.empty():
+            events.append(sub.queue.get_nowait())
+        assert any(e.type == "loop.completed" for e in events)
+
+
+class TestLoopHints:
+    def test_append_hint_message_dedupes_identical_hints(self):
+        from courtier.agent.core.loop_hints import _append_hint_message
+
+        state = AgentState.initial(task="test")
+        state, appended = _append_hint_message(state, "hint-text")
+        assert appended is True
+        assert state.messages[-1].source == "hint"
+
+        state2, appended2 = _append_hint_message(state, "hint-text")
+        assert appended2 is False
+        assert state2 is state
+        assert sum(1 for m in state.messages if m.content == "hint-text") == 1
+
+    @pytest.mark.asyncio
+    async def test_check_and_inject_hints_without_registry_returns_no_reason(self):
+        from courtier.agent.core.loop_hints import check_and_inject_hints
+
+        state = AgentState.initial(task="test")
+        new_state, reason = await check_and_inject_hints(
+            tool_registry=None,
+            artifact_store=None,
+            consecutive_exploratory=3,
+            current_state=state,
+        )
+        assert reason is None
+        assert new_state is state

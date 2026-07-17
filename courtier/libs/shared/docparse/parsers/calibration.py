@@ -7,6 +7,8 @@ standard value within a defined tolerance.
 
 from __future__ import annotations
 
+from docmodels.constants import STANDARD_FIRST_INDENT, STANDARD_MARGINS
+
 # ---------------------------------------------------------------------------
 # Standard font sizes: Chinese name -> points
 # ---------------------------------------------------------------------------
@@ -51,8 +53,6 @@ ELEMENT_FORMAT_MAP: dict[str, tuple[str, float, bool]] = {
     "distribution_date": ("仿宋", 14.0, False),
     "page_number": ("仿宋", 14.0, False),
 }
-
-from docmodels.constants import STANDARD_FIRST_INDENT, STANDARD_MARGINS
 
 # ---------------------------------------------------------------------------
 # Tolerance constants

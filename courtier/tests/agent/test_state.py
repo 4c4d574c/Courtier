@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from courtier.agent.core.state import AgentState, Message
-from courtier.agent.core.model import ModelResponse, ToolCall
 from courtier.agent.core.execution_result import ExecutionResult
+from courtier.agent.core.model import ModelResponse, ToolCall
+from courtier.agent.core.state import AgentState, Message
 
 
 class TestMessage:
@@ -103,7 +103,9 @@ class TestAgentState:
         tc = ToolCall(id="1", name="echo", arguments={"text": "hello"})
         state = state.add_thought(ModelResponse(content=None, tool_calls=[tc]))
 
-        result = ExecutionResult(success=True, actor_type="tool", actor_name="echo", raw_data="hello")
+        result = ExecutionResult(
+            success=True, actor_type="tool", actor_name="echo", raw_data="hello"
+        )
         new_state = state.add_observation((result,))
         assert new_state.status == "observing"
         assert new_state.tool_results[0].raw_data == "hello"
@@ -148,6 +150,45 @@ class TestAgentState:
         state = state.add_thought(ModelResponse(content="Done", tool_calls=[]))
         assert state.status == "completed"
         assert state.termination_reason == "max_steps"
+
+    def test_max_steps_strips_tool_calls_from_assistant_message(self):
+        """Pending calls dropped by max_steps must not linger in the stored
+        history — a dangling assistant(tool_calls) message breaks the OpenAI
+        message-sequence contract when the session is resumed."""
+        state = AgentState.initial(task="test", max_steps=1)
+        tc = ToolCall(id="1", name="echo", arguments={"text": "hi"})
+        new_state = state.add_thought(ModelResponse(content=None, tool_calls=[tc]))
+
+        assert new_state.status == "completed"
+        assert new_state.termination_reason == "max_steps"
+        assert new_state.tool_calls == ()
+        assistant = new_state.messages[-1]
+        assert assistant.role == "assistant"
+        assert assistant.tool_calls is None
+
+    def test_to_openai_messages_drops_unanswered_tool_calls(self):
+        """Assistant tool_calls without tool results are sanitized for the API."""
+        tc = ToolCall(id="1", name="echo", arguments={"text": "hi"})
+        state = AgentState.initial(task="test")
+        dangling = Message(role="assistant", content=None, tool_calls=(tc,))
+        state = state.model_copy(update={"messages": state.messages + (dangling,)})
+
+        msgs = state.to_openai_messages()
+        assert "tool_calls" not in msgs[-1]
+
+    def test_to_openai_messages_keeps_answered_tool_calls(self):
+        """A normal think/act turn keeps its tool_calls in the API payload."""
+        tc = ToolCall(id="1", name="echo", arguments={"text": "hi"})
+        state = AgentState.initial(task="test")
+        state = state.add_thought(ModelResponse(content=None, tool_calls=[tc]))
+        result = ExecutionResult(success=True, actor_type="tool", actor_name="echo")
+        state = state.add_observation((result,))
+
+        msgs = state.to_openai_messages()
+        assistant = msgs[-2]
+        assert assistant["role"] == "assistant"
+        assert assistant["tool_calls"][0]["id"] == "1"
+        assert msgs[-1]["role"] == "tool"
 
     def test_blocked(self):
         state = AgentState.initial(task="test")

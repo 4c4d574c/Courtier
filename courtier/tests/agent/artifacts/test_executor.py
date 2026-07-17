@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from courtier.agent.artifacts.executor import (MaterializerRegistry,
-                                          ProjectionExecutor)
-from courtier.agent.artifacts.models import (Artifact, ArtifactMetadata,
-                                        MaterializerSpec, ProjectionPlan,
-                                        ProjectionStep)
+from courtier.agent.artifacts.executor import MaterializerRegistry, ProjectionExecutor
+from courtier.agent.artifacts.models import (
+    Artifact,
+    ArtifactMetadata,
+    MaterializerSpec,
+    ProjectionPlan,
+    ProjectionStep,
+)
 from courtier.agent.artifacts.projectors import create_default_projector_registry
 from courtier.agent.artifacts.store import ArtifactStore
 
@@ -194,8 +197,11 @@ def test_binds_paragraph_list_field_as_list_string():
     Mirrors the runtime binding path (build_contract_from_input_fields +
     resolver + executor) that raised ``KeyError`` before the fix.
     """
-    from courtier.agent.artifacts.models import (InputField, ProjectionPolicy,
-                                            build_contract_from_input_fields)
+    from courtier.agent.artifacts.models import (
+        InputField,
+        ProjectionPolicy,
+        build_contract_from_input_fields,
+    )
     from courtier.agent.artifacts.resolver import ProjectionResolver
 
     store = ArtifactStore()

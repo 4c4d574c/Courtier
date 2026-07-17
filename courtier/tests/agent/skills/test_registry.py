@@ -2,7 +2,6 @@ from pathlib import Path
 
 from courtier.agent.skills.registry import SkillRegistry
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 

@@ -5,9 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .models import (Artifact, InputField, MaterializedBinding,
-                     MaterializerSpec, ProjectionFeatureFlags, ProjectionPlan,
-                     ProjectionTrace, ProjectionTraceStep)
+from .models import (
+    Artifact,
+    InputField,
+    MaterializedBinding,
+    MaterializerSpec,
+    ProjectionFeatureFlags,
+    ProjectionPlan,
+    ProjectionTrace,
+    ProjectionTraceStep,
+)
 from .projectors import ProjectorRegistry
 from .resolver import emit_event
 from .store import ArtifactStore

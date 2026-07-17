@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0001"
@@ -27,8 +27,19 @@ def upgrade() -> None:
         "users",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False, comment="用户ID"),
         sa.Column("username", sa.String(length=64), nullable=False, comment="用户名"),
-        sa.Column("password_hash", sa.String(length=256), nullable=False, comment="bcrypt 密码哈希"),
-        sa.Column("email", sa.String(length=128), nullable=False, server_default="", comment="邮箱地址"),
+        sa.Column(
+            "password_hash",
+            sa.String(length=256),
+            nullable=False,
+            comment="bcrypt 密码哈希",
+        ),
+        sa.Column(
+            "email",
+            sa.String(length=128),
+            nullable=False,
+            server_default="",
+            comment="邮箱地址",
+        ),
         sa.Column(
             "role",
             sa.Enum("admin", "auditor", name="userrole"),
@@ -43,7 +54,13 @@ def upgrade() -> None:
             server_default="pending",
             comment="状态：active / disabled / pending",
         ),
-        sa.Column("avatar_url", sa.String(length=256), nullable=False, server_default="", comment="头像URL"),
+        sa.Column(
+            "avatar_url",
+            sa.String(length=256),
+            nullable=False,
+            server_default="",
+            comment="头像URL",
+        ),
         sa.Column("created_at", sa.DateTime(), nullable=True, comment="创建时间"),
         sa.Column("updated_at", sa.DateTime(), nullable=True, comment="更新时间"),
         sa.PrimaryKeyConstraint("id"),
@@ -54,9 +71,20 @@ def upgrade() -> None:
         "refresh_tokens",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False, comment="Token ID"),
         sa.Column("user_id", sa.Integer(), nullable=False, comment="关联用户ID"),
-        sa.Column("token_hash", sa.String(length=256), nullable=False, comment="SHA-256 哈希后的 refresh token"),
+        sa.Column(
+            "token_hash",
+            sa.String(length=256),
+            nullable=False,
+            comment="SHA-256 哈希后的 refresh token",
+        ),
         sa.Column("expires_at", sa.DateTime(), nullable=False, comment="过期时间（7天）"),
-        sa.Column("revoked", sa.Boolean(), nullable=False, server_default=sa.text("0"), comment="是否已撤销"),
+        sa.Column(
+            "revoked",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("0"),
+            comment="是否已撤销",
+        ),
         sa.Column("created_at", sa.DateTime(), nullable=True, comment="创建时间"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

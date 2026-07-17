@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from courtier.agent.tools.protocol import ToolResult
 from doccorrector.corrector import ErrorCorrect
+
+from courtier.agent.tools.protocol import ToolResult
 
 
 class TextCorrectionTool:

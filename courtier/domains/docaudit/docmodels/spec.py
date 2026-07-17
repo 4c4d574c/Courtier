@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+
 class SpecPosition(BaseModel):
     x0: float
     y0: float

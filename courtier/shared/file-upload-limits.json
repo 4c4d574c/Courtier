@@ -1,0 +1,28 @@
+{
+  "max_file_size": 52428800,
+  "allowed_extensions": [
+    ".pdf",
+    ".docx",
+    ".bmp",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".tif",
+    ".tiff"
+  ],
+  "mime_types": {
+    ".pdf": ["application/pdf"],
+    ".docx": [
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/wps-office.docx"
+    ],
+    ".bmp": ["image/bmp"],
+    ".jpg": ["image/jpeg"],
+    ".jpeg": ["image/jpeg"],
+    ".png": ["image/png"],
+    ".gif": ["image/gif"],
+    ".tif": ["image/tiff"],
+    ".tiff": ["image/tiff"]
+  }
+}

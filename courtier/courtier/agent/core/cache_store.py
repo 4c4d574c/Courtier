@@ -179,7 +179,7 @@ class _PersistenceBackend:
 
         if self._primary_backend is not None:
             try:
-                primary_result = await self._primary_backend.read(
+                primary_result: dict[str, Any] = await self._primary_backend.read(
                     ref_id, query=query, chunk_index=chunk_index, max_tokens=max_tokens
                 )
                 if "error" not in primary_result:

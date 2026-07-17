@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from .config import SkillConfig, SkillMode, RetryPolicy
+from .config import RetryPolicy, SkillConfig, SkillMode
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _split_frontmatter(raw: str) -> tuple[dict[str, Any] | None, str]:
 class SkillRegistry:
     """启动时扫描 skills/ 目录并维护预编译的 Skill 配置。"""
 
-    def __init__(self, skills_dir: Path) -> None:
+    def __init__(self, skills_dir: str | Path) -> None:
         self._skills_dir = Path(skills_dir)
         self._configs: dict[str, SkillConfig] = {}
         self._errors: list[str] = []

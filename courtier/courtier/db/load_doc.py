@@ -1,18 +1,37 @@
 from __future__ import annotations
 
 import logging
-
 from collections import defaultdict
 
+from docmodels import (
+    Body,
+    Document,
+    Font,
+    Footer,
+    Header,
+    Margin,
+    MetaData,
+    Page,
+    PageContent,
+    Paragraph,
+    Position,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from courtier.db import AsyncDatabase, CRUDRepository
 from courtier.db.tables import (
-    DocumentTable, PageTable, ParagraphTable, ElementTable,
-)
-from docmodels import (
-    Document, Page, PageContent, Header, Body, Footer, Margin,
-    Position, Font, MetaData, Paragraph,
+    DocumentCreate,
+    DocumentTable,
+    DocumentUpdate,
+    ElementCreate,
+    ElementTable,
+    ElementUpdate,
+    PageCreate,
+    PageTable,
+    PageUpdate,
+    ParagraphCreate,
+    ParagraphTable,
+    ParagraphUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,19 +44,23 @@ async def load_page(session: AsyncSession, page_id: int) -> Page | None:
         session: 已有的数据库 session，由调用方管理生命周期。
         page_id: 页面 ID。
     """
-    page_repo = CRUDRepository(PageTable)
+    page_repo: CRUDRepository[PageTable, PageCreate, PageUpdate] = CRUDRepository(PageTable)
     page_obj = await page_repo.get(session, page_id)
     if not page_obj:
         return None
 
-    paragraph_repo = CRUDRepository(ParagraphTable)
+    paragraph_repo: CRUDRepository[ParagraphTable, ParagraphCreate, ParagraphUpdate] = (
+        CRUDRepository(ParagraphTable)
+    )
     paragraphs = await paragraph_repo.list(
         session,
         page_id=page_id,
         order_by="section_type, order_index"
     )
 
-    element_repo = CRUDRepository(ElementTable)
+    element_repo: CRUDRepository[ElementTable, ElementCreate, ElementUpdate] = (
+        CRUDRepository(ElementTable)
+    )
     para_ids = [p.id for p in paragraphs]
     if para_ids:
         elements = await element_repo.list(
@@ -163,8 +186,10 @@ async def load_doc(user_id: str, doc_id: str, db: AsyncDatabase):
     """
     pages = []
     async with db.session() as session:
-        doc_repo = CRUDRepository(DocumentTable)
-        page_repo = CRUDRepository(PageTable)
+        doc_repo: CRUDRepository[DocumentTable, DocumentCreate, DocumentUpdate] = (
+            CRUDRepository(DocumentTable)
+        )
+        page_repo: CRUDRepository[PageTable, PageCreate, PageUpdate] = CRUDRepository(PageTable)
         doc_tables = await doc_repo.list(session, user_id=user_id, doc_id=doc_id)
         if len(doc_tables) != 0:
             doc_table = doc_tables[0]

@@ -5,17 +5,18 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
+
+from courtier.agent.core.execution_result import ExecutionResult
 
 from .audit_logger import LLMRequestRecord, LLMResponseRecord
 from .loop_guards import detect_reasoning_loop
 from .loop_streaming import generate_with_streaming_fallback
-from courtier.agent.core.execution_result import ExecutionResult
 
 if TYPE_CHECKING:
+    from ..tools.registry import ToolRegistry
     from .model import ModelClient
     from .state import AgentState
-    from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ class ThinkResult:
     llm_duration_ms: int
     recent_reasoning: list[str]
     tokens_streamed: bool
+    failed: bool = False
+    reasoning_loop: bool = False
 
 
 async def think_phase(
@@ -85,7 +88,7 @@ async def think_phase(
         else None
     )
     model_name = getattr(model, "model_name", "unknown")
-    temperature = getattr(model, "_temperature", None)
+    temperature = getattr(model, "temperature", None)
 
     llm_request = LLMRequestRecord(
         messages=list(messages),
@@ -125,7 +128,7 @@ async def think_phase(
             finish_reason="error",
             duration_ms=llm_duration_ms,
         )
-        state = state.errored(f"Model error: {exc}")
+        state = state.errored(f"Model error: {exc}", set_status=False)
         return ThinkResult(
             state=state,
             llm_request=llm_request,
@@ -133,6 +136,7 @@ async def think_phase(
             llm_duration_ms=llm_duration_ms,
             recent_reasoning=recent_reasoning,
             tokens_streamed=False,
+            failed=True,
         )
 
     llm_duration_ms = int((time.perf_counter() - llm_start) * 1000)
@@ -160,12 +164,14 @@ async def think_phase(
             + ("..." if len(response.reasoning_content) > 600 else ""),
         )
 
-    # Fire usage event if model returned token counts
+    # Fire usage event if model returned token counts.  The legacy
+    # "prompt,completion" string protocol is kept until the event-bus
+    # migration removes the callback path; .get() guards against providers
+    # that omit one of the keys.
     if response.usage and on_step:
-        await on_step(
-            "usage",
-            f"{response.usage['prompt_tokens']},{response.usage['completion_tokens']}",
-        )
+        prompt_tokens = response.usage.get("prompt_tokens", 0)
+        completion_tokens = response.usage.get("completion_tokens", 0)
+        await on_step("usage", f"{prompt_tokens},{completion_tokens}")
 
     if on_step:
         if response.tool_calls:
@@ -174,10 +180,11 @@ async def think_phase(
         elif not tokens_streamed:
             await on_step("think", "text_response")
 
-    state = state.add_thought(response)
+    state = state.add_thought(response, set_status=False)
 
     # Detect reasoning loop: if model's reasoning is near-identical across
     # consecutive steps, it's stuck — force completion to stop wasting tokens.
+    reasoning_loop = False
     if response.reasoning_content:
         recent_reasoning.append(response.reasoning_content)
         if detect_reasoning_loop(recent_reasoning):
@@ -186,12 +193,7 @@ async def think_phase(
                 "Forcing completion.",
                 3,
             )
-            state = state.model_copy(
-                update={
-                    "status": "completed",
-                    "termination_reason": "reasoning_loop_detected",
-                }
-            )
+            reasoning_loop = True
 
     return ThinkResult(
         state=state,
@@ -200,13 +202,14 @@ async def think_phase(
         llm_duration_ms=llm_duration_ms,
         recent_reasoning=recent_reasoning,
         tokens_streamed=tokens_streamed,
+        reasoning_loop=reasoning_loop,
     )
 
 
 async def execute_tools_phase(
     *,
     state: "AgentState",
-    tool_registry: "ToolRegistry",
+    tool_registry: "ToolRegistry | None",
     context_manager: Any,
     artifact_store: Any,
     on_tool_result: Callable[[str, ExecutionResult, str], Awaitable[None]] | None,
@@ -223,6 +226,11 @@ async def execute_tools_phase(
 
     results: list[ExecutionResult] = []
     records: list[ToolExecutionRecord] = []
+
+    if tool_registry is None:
+        # agent_loop transitions to error when calls are pending without a
+        # registry, so this is only reachable with an empty call list.
+        return results, records
 
     for tool_call in state.tool_calls:
         tool_start = time.perf_counter()

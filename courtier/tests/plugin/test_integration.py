@@ -6,7 +6,6 @@ import pytest
 
 from courtier.plugin import PluginSystem
 
-
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "plugins"
 
 

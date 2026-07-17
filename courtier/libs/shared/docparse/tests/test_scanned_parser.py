@@ -6,10 +6,13 @@ from docparse.parsers.scanned import ScannedParser
 from docparse.parsers.scanned.font_detector import merge_font_info as _merge_font_info
 from docparse.parsers.scanned.ocr_engine import (
     build_block_outline_map_from_blocks as _build_block_outline_map_from_blocks,
+)
+from docparse.parsers.scanned.ocr_engine import (
     get_outline_for_line as _get_outline_for_line,
+)
+from docparse.parsers.scanned.ocr_engine import (
     ocr_result_to_lines as _ocr_result_to_lines,
 )
-
 
 SAMPLE_OCR_PAGE_RESULT = OCRPageResult(
     width=1472,
@@ -200,8 +203,10 @@ class TestMergeFontInfo:
 
     def test_merges_font_family_into_empty_lines(self):
         lines = [
-            {"line_no": 0, "text": "标题", "font_family": "", "font_weight": False, "font_style": False},
-            {"line_no": 1, "text": "正文", "font_family": "", "font_weight": False, "font_style": False},
+            {"line_no": 0, "text": "标题", "font_family": "",
+             "font_weight": False, "font_style": False},
+            {"line_no": 1, "text": "正文", "font_family": "",
+             "font_weight": False, "font_style": False},
         ]
         font_info = {
             0: {"font_family": "黑体", "font_weight": True, "font_style": False},
@@ -215,7 +220,8 @@ class TestMergeFontInfo:
 
     def test_preserves_existing_font_family(self):
         lines = [
-            {"line_no": 0, "text": "标题", "font_family": "宋体", "font_weight": False, "font_style": False},
+            {"line_no": 0, "text": "标题", "font_family": "宋体",
+             "font_weight": False, "font_style": False},
         ]
         font_info = {
             0: {"font_family": "黑体", "font_weight": True, "font_style": False},
@@ -226,8 +232,10 @@ class TestMergeFontInfo:
 
     def test_skips_lines_not_in_font_info(self):
         lines = [
-            {"line_no": 0, "text": "标题", "font_family": "", "font_weight": False, "font_style": False},
-            {"line_no": 1, "text": "正文", "font_family": "", "font_weight": False, "font_style": False},
+            {"line_no": 0, "text": "标题", "font_family": "",
+             "font_weight": False, "font_style": False},
+            {"line_no": 1, "text": "正文", "font_family": "",
+             "font_weight": False, "font_style": False},
         ]
         font_info = {
             0: {"font_family": "黑体", "font_weight": True, "font_style": False},
@@ -238,14 +246,16 @@ class TestMergeFontInfo:
 
     def test_empty_font_info_does_nothing(self):
         lines = [
-            {"line_no": 0, "text": "标题", "font_family": "", "font_weight": False, "font_style": False},
+            {"line_no": 0, "text": "标题", "font_family": "",
+             "font_weight": False, "font_style": False},
         ]
         _merge_font_info(lines, {})
         assert lines[0]["font_family"] == ""
 
     def test_merges_font_style(self):
         lines = [
-            {"line_no": 0, "text": "引用", "font_family": "", "font_weight": False, "font_style": False},
+            {"line_no": 0, "text": "引用", "font_family": "",
+             "font_weight": False, "font_style": False},
         ]
         font_info = {
             0: {"font_family": "楷体", "font_weight": False, "font_style": True},

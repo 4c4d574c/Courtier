@@ -1,7 +1,7 @@
 """Tests for ProcessManager state machine and subprocess lifecycle."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,8 +13,8 @@ from courtier.plugin.manager import (
     _find_project_root,
     _resolve_plugin_entry_path,
 )
-from courtier.plugin.scanner import PluginScanResult, ScanStatus
 from courtier.plugin.manifest import PluginManifest
+from courtier.plugin.scanner import PluginScanResult, ScanStatus
 
 pytestmark = pytest.mark.integration
 

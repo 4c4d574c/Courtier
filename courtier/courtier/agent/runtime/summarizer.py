@@ -54,7 +54,7 @@ class RuleBasedSummaryStrategy:
 
         # list
         summary = f"{actor_name} 返回列表，共 {len(data)} 项"
-        excerpts: list[str] = []
+        excerpts = []
         items = data[:5]
         for idx, item in enumerate(items):
             if isinstance(item, dict):
@@ -252,8 +252,16 @@ class ResultSummarizer:
             )
             if persist_result.persisted:
                 stored_ref_id = persist_result.ref_id
-                stored_preview = persist_result.data.get("preview", "")[:200] if isinstance(persist_result.data, dict) else ""
-                stored_size = persist_result.data.get("size_chars", 0) if isinstance(persist_result.data, dict) else 0
+                stored_preview = (
+                    persist_result.data.get("preview", "")[:200]
+                    if isinstance(persist_result.data, dict)
+                    else ""
+                )
+                stored_size = (
+                    persist_result.data.get("size_chars", 0)
+                    if isinstance(persist_result.data, dict)
+                    else 0
+                )
 
         return ExecutionResult(
             success=True,

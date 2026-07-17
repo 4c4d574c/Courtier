@@ -19,7 +19,10 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-ProjectorFn = Callable[[Artifact, dict[str, Any]], tuple[Any, ProjectionQuality, tuple[ProjectionDiagnostic, ...]]]
+ProjectorFn = Callable[
+    [Artifact, dict[str, Any]],
+    tuple[Any, ProjectionQuality, tuple[ProjectionDiagnostic, ...]],
+]
 
 
 class Projector:
@@ -29,7 +32,13 @@ class Projector:
         self.spec = spec
         self._fn = fn
 
-    def project(self, artifact: Artifact, constraints: dict[str, Any], *, skip_schema_validation: bool = False) -> "ProjectionResult":
+    def project(
+        self,
+        artifact: Artifact,
+        constraints: dict[str, Any],
+        *,
+        skip_schema_validation: bool = False,
+    ) -> "ProjectionResult":
         if artifact.artifact_type != self.spec.source_type:
             raise ValueError(
                 f"Projector {self.spec.name} expected {self.spec.source_type}, "
@@ -448,9 +457,11 @@ def audit_projector_graph(registry: ProjectorRegistry) -> dict[str, Any]:
     - ``unused_projectors``: projectors with deprecated/disabled stability
     - ``duplicate_edges``: source-target pairs with multiple indistinguishable projectors
     - ``local_in_production``: projectors in the local layer
-    - ``deep_paths``: paths where source_type and target_type are very far apart (>3 hops via different types)
+    - ``deep_paths``: paths where source_type and target_type are very far apart
+      (>3 hops via different types)
     - ``missing_contracts``: hint that this is checked separately via ToolInputContract
-    - ``debug_artifacts_in_business_paths``: any projector touching debug_view or with debug_only metadata
+    - ``debug_artifacts_in_business_paths``: any projector touching debug_view or
+      with debug_only metadata
     """
     produced: set[str] = set()
     consumed: set[str] = set()
@@ -493,7 +504,9 @@ def audit_projector_graph(registry: ProjectorRegistry) -> dict[str, Any]:
             "Run a BFS from each produced type to each consumed type to detect "
             "paths exceeding max_depth=3. Use ProjectionResolver for this check."
         ),
-        "missing_contracts_hint": "Tools missing contracts are not tracked here; check ToolRegistry.",
+        "missing_contracts_hint": (
+            "Tools missing contracts are not tracked here; check ToolRegistry."
+        ),
         "debug_artifacts_in_business_paths": debug_touching,
         "total_projectors": len(registry.all()),
         "total_types": len(all_types),
