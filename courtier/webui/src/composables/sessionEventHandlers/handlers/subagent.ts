@@ -28,7 +28,11 @@ export function handleSubagentEvent(
           deps,
           event.name,
           event.handleId,
-          { task: event.task, status: "running" },
+          {
+            task: event.task,
+            status: "running",
+            displayName: event.displayName ?? null,
+          },
           event.parentHandleId,
         );
       } else {
@@ -38,6 +42,7 @@ export function handleSubagentEvent(
             handleId: event.handleId,
             task: event.task ?? "",
             status: "running",
+            displayName: event.displayName ?? null,
           },
           parentHandleId: event.parentHandleId,
         });

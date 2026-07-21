@@ -16,6 +16,8 @@ export type ToolDetail =
 export interface ToolResult {
   id: string
   name: string
+  /** plugin.yaml display_name（如"解析文档"），优先于 name 展示 */
+  displayName?: string | null
   skill: string
   skillDescription?: string
   status: ToolStatus
@@ -53,6 +55,8 @@ export interface SubagentThought {
 /** Runtime state of a sub-agent execution */
 export interface SubagentRun {
   name: string
+  /** 中文展示名（来自 skill frontmatter display_name），优先于 name 展示 */
+  displayName?: string | null
   handleId: string
   parentHandleId?: string | null
   task: string
@@ -234,6 +238,8 @@ export interface AgentEvent {
   totalSteps?: number
   /** Structured think payload: tool names announced for the current step. */
   toolCalls?: string[]
+  /** Structured think payload: per-tool Chinese display names. */
+  displayNames?: Record<string, string | null>
   /** Structured think payload: marks a free-form text response. */
   textResponse?: boolean
   /** Structured act payload: tool names being executed. */

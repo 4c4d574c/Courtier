@@ -168,6 +168,46 @@ try {
   assert.equal(unknownGrouped[0].type, 'subagent')
   assert.equal(unknownGrouped[0].name, UNKNOWN_SUBAGENT_NAME)
 
+  // Pending subagent_run wrapper (handleId null while the skill is running)
+  // must merge with the SubagentRun by name — not render twice.
+  const pendingWrapper = normalizeToolResult({
+    id: 'tool-8',
+    name: 'full_government_audit',
+    skill: 'full_government_audit',
+    status: 'running',
+    callKind: 'subagent_run',
+    callScope: 'parent',
+    subagentName: 'full_government_audit',
+    handleId: null,
+  })
+  const runningRun = {
+    name: 'full_government_audit',
+    handleId: 'h-abc123',
+    task: '完整审核',
+    status: 'running',
+  }
+  const pendingGrouped = buildStepToolGroups([pendingWrapper], [runningRun])
+  assert.equal(pendingGrouped.length, 1)
+  assert.equal(pendingGrouped[0].type, 'subagent')
+  assert.equal(pendingGrouped[0].key, 'h-abc123')
+
+  // Same scenario but the wrapper's callKind is still "tool" (classification
+  // only arrives with tool_result) — it must merge by name as the run's
+  // wrapper instead of rendering as a duplicate standalone card.
+  const unclassifiedWrapper = normalizeToolResult({
+    id: 'tool-9',
+    name: 'full_government_audit',
+    skill: '',
+    status: 'running',
+    callKind: 'tool',
+    callScope: 'parent',
+    handleId: null,
+  })
+  const dupGrouped = buildStepToolGroups([unclassifiedWrapper], [runningRun])
+  assert.equal(dupGrouped.length, 1)
+  assert.equal(dupGrouped[0].type, 'subagent')
+  assert.equal(dupGrouped[0].wrapper.id, 'tool-9')
+
   const legacyStep = {
     index: 1,
     numeral: '壹',

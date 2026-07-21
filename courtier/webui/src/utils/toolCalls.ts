@@ -19,6 +19,7 @@ export interface SubagentToolDisplayItem {
   type: "subagent";
   key: string;
   name: string;
+  displayName?: string | null;
   wrapper?: ToolResult;
   tools: ToolResult[];
   isSynthetic: boolean;
@@ -49,6 +50,7 @@ export function normalizeToolResult(tool: ToolResultInput): ToolResult {
   return {
     id: tool.id || generateFallbackToolId(),
     name: tool.name,
+    displayName: tool.displayName ?? null,
     skill: tool.skill ?? "",
     skillDescription: tool.skillDescription ?? "",
     status: tool.status ?? "done",
@@ -90,6 +92,7 @@ export function normalizeSubagentRun(
     normalizeToolResult({
       id: `subagent-tool-${sa.handleId}-${i}`,
       name: t.name,
+      displayName: t.displayName ?? null,
       skill: t.skill ?? "",
       status: t.status ?? "done",
       callKind: t.callKind ?? ("tool" as const),
@@ -218,6 +221,7 @@ function buildSubagentDisplayItem(sa: SubagentRun): SubagentToolDisplayItem {
     type: "subagent",
     key: sa.handleId,
     name: sa.name,
+    displayName: sa.displayName ?? null,
     wrapper: sa.wrapper,
     tools: (sa.tools ?? []).filter(
       (t) => normalizeToolResult(t).callKind !== "subagent_run",
@@ -240,8 +244,10 @@ export function buildStepToolGroups(
   const subagentIndexes = new Map<string, number>();
   const referencedSubagents = new Set<string>();
   const subagentMap = new Map<string, SubagentRun>();
+  const subagentByName = new Map<string, SubagentRun>();
   for (const sa of subagents ?? []) {
     subagentMap.set(sa.handleId, sa);
+    subagentByName.set(sa.name, sa);
   }
 
   function ensureSubagentDisplayItem(
@@ -277,9 +283,15 @@ export function buildStepToolGroups(
     if (tool.callKind === "subagent_run") {
       const subagentName = tool.subagentName ?? tool.name;
       const handleId = tool.handleId ?? subagentName;
-      const sa = subagentMap.get(handleId);
+      let sa = subagentMap.get(handleId);
+      if (!sa && !tool.handleId) {
+        // Pending wrapper before tool_result (handleId is null): fall back
+        // to name matching so the tool card and the sub-agent tree do not
+        // render twice while the skill is still running.
+        sa = (subagents ?? []).find((r) => r.name === subagentName);
+      }
       if (sa) {
-        referencedSubagents.add(handleId);
+        referencedSubagents.add(sa.handleId);
         items.push(buildSubagentDisplayItem(sa));
       } else {
         ensureSubagentDisplayItem(subagentName, handleId, tool);
@@ -293,6 +305,19 @@ export function buildStepToolGroups(
       const item = ensureSubagentDisplayItem(subagentName, handleId);
       const idx = subagentIndexes.get(handleId)!;
       items[idx] = { ...item, tools: [...item.tools, tool] };
+      continue;
+    }
+
+    // A parent-scope tool whose name matches an active sub-agent run is that
+    // run's pending wrapper (callKind is only classified at tool_result time,
+    // so during the run it still reads "tool"). Merge it instead of showing
+    // a duplicate standalone card next to the sub-agent tree.
+    const matchedRun = subagentByName.get(tool.name);
+    if (matchedRun) {
+      referencedSubagents.add(matchedRun.handleId);
+      items.push(
+        buildSubagentDisplayItem({ ...matchedRun, wrapper: tool }),
+      );
       continue;
     }
 

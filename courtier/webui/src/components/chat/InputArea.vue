@@ -194,9 +194,10 @@ function clearFile() {
   align-items: flex-end;
   gap: 10px;
   border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-lg);
+  border-radius: 24px;
   padding: 10px 12px;
   background: var(--chat-bg-card);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .input-area-attach,
@@ -261,7 +262,8 @@ function clearFile() {
 
 .input-area-send {
   background: var(--chat-accent);
-  color: #fff;
+  color: var(--chat-accent-contrast);
+  border-radius: 50%;
 }
 
 .input-area-send:hover:not(:disabled) {
@@ -281,8 +283,8 @@ function clearFile() {
 .input-area-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
+  border: 2px solid color-mix(in srgb, var(--chat-accent-contrast) 30%, transparent);
+  border-top-color: var(--chat-accent-contrast);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }

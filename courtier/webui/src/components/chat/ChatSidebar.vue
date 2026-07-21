@@ -152,15 +152,13 @@ const isAdmin = computed(() => props.userRole === "admin");
   border: 1px solid var(--chat-border);
   background: var(--chat-bg-card);
   color: var(--chat-text-primary);
+  font-size: 14px;
   cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
+  transition: background 0.15s;
 }
 
 .chat-sidebar-new:hover {
   background: var(--chat-bg-hover);
-  border-color: var(--chat-accent);
 }
 
 .chat-sidebar-new svg {

@@ -11,6 +11,11 @@
     :is-streaming="isStreaming"
     :default-open="item.isOpen"
   />
+  <StepsMessage
+    v-else-if="item.type === 'steps'"
+    :steps="item.steps"
+    :is-running="item.isRunning"
+  />
   <FileCard
     v-else-if="item.type === 'file'"
     :file="item"
@@ -36,6 +41,7 @@ import type { ChatMessageItem } from "../../types/chat";
 import UserMessage from "./UserMessage.vue";
 import AssistantMessage from "./AssistantMessage.vue";
 import ThinkingCard from "./ThinkingCard.vue";
+import StepsMessage from "./StepsMessage.vue";
 import FileCard from "./FileCard.vue";
 import ChatStatusMessage from "./ChatStatusMessage.vue";
 import GuardMessage from "./GuardMessage.vue";

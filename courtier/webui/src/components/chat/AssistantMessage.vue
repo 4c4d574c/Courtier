@@ -27,14 +27,10 @@ defineProps<Props>();
 }
 
 .assistant-message-bubble {
-  max-width: 90%;
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-lg);
-  padding: 14px 18px;
+  max-width: 100%;
+  padding: 0 4px;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.75;
   color: var(--chat-text-primary);
-  box-shadow: var(--chat-shadow);
 }
 </style>

@@ -9,6 +9,7 @@ import type {
   ChatErrorItem,
   ChatStoppedItem,
   ChatGuardItem,
+  ChatStepsItem,
 } from "../types/chat";
 import { MESSAGES } from "../constants/messages";
 import { MIME_TYPES } from "../constants/fileUpload";
@@ -112,6 +113,16 @@ function buildThinkingItem(
   };
 }
 
+function buildStepsItem(turn: Turn, baseId: string, isRunning: boolean): ChatStepsItem | null {
+  if (turn.steps.length === 0) return null;
+  return {
+    type: "steps",
+    id: `${baseId}-steps`,
+    steps: turn.steps,
+    isRunning,
+  };
+}
+
 function buildAssistantItem(
   turn: Turn,
   baseId: string,
@@ -188,6 +199,9 @@ export function buildChatMessages(
 
     const thinkingItem = buildThinkingItem(turn, baseId, session.thoughts);
     if (thinkingItem) items.push(thinkingItem);
+
+    const stepsItem = buildStepsItem(turn, baseId, isRunning);
+    if (stepsItem) items.push(stepsItem);
 
     const assistantItem = buildAssistantItem(
       turn,

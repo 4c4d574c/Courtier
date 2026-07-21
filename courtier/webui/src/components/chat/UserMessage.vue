@@ -21,13 +21,11 @@ defineProps<Props>();
 
 .user-message-bubble {
   max-width: 80%;
-  background: var(--chat-accent);
-  color: #fff;
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-primary);
   border-radius: var(--chat-radius-lg);
-  border-bottom-right-radius: 4px;
   padding: 12px 16px;
   font-size: 15px;
   line-height: 1.6;
-  box-shadow: var(--chat-shadow);
 }
 </style>

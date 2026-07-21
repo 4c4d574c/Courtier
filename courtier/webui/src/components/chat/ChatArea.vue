@@ -89,6 +89,15 @@ watch(
   flex-direction: column;
   gap: 16px;
   background: var(--chat-bg-body);
+  align-items: center;
+}
+
+.chat-area > * {
+  width: min(800px, 100%);
+  /* Never squeeze message blocks when content overflows — scroll instead.
+     (overflow:hidden cards have automatic min-size 0 in flex layout and
+     would otherwise be compressed to a line.) */
+  flex-shrink: 0;
 }
 
 .chat-welcome,

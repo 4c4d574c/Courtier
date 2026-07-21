@@ -105,6 +105,7 @@ export function handleSubagentToolResultEvent(
   const tool = normalizeToolResult({
     id: `tool-${++s.toolIdCounter}`,
     name: event.toolName,
+    displayName: event.displayName ?? null,
     skill: "",
     status: toolStatus,
     callKind: "tool",

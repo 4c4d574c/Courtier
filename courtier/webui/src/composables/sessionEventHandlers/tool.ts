@@ -16,6 +16,7 @@ export function handleSubagentRunToolResult(
     normalizeToolResult({
       id: `tool-${++s.toolIdCounter}`,
       name: event.name!,
+      displayName: event.displayName ?? null,
       skill: event.skill ?? "",
       skillDescription: event.skillDescription ?? "",
       status,
@@ -102,6 +103,7 @@ export function handleRegularToolResult(
       summary: event.summary ?? tool.summary,
       skill: event.skill ?? tool.skill,
       skillDescription: event.skillDescription ?? tool.skillDescription ?? "",
+      displayName: event.displayName ?? tool.displayName,
       segmentIndex: s.segmentIndex,
       callKind: event.callKind ?? tool.callKind,
       callScope: event.callScope ?? tool.callScope,

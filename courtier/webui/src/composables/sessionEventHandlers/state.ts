@@ -16,12 +16,14 @@ export function createStep(
   deps: () => HandlerDeps,
   index: number,
   toolNames: string[],
+  displayNames: Record<string, string | null> = {},
 ): Step {
   const { state: s } = deps();
   const tools: ToolResult[] = toolNames.map((name) =>
     normalizeToolResult({
       id: `tool-${++s.toolIdCounter}`,
       name,
+      displayName: displayNames[name] ?? null,
       skill: "",
       status: "pending",
     }),

@@ -103,7 +103,7 @@ const children = computed(() => {
 }
 
 .tree-node-card.current {
-  background: rgba(79, 70, 229, 0.08);
+  background: var(--chat-accent-soft);
   border-color: var(--chat-accent);
 }
 

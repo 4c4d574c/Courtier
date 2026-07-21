@@ -157,11 +157,14 @@ try {
     ],
   };
   const thoughtMsgs = buildChatMessages(thoughtSession, []);
-  assert.equal(thoughtMsgs.length, 2);
+  assert.equal(thoughtMsgs.length, 3);
   assert.equal(thoughtMsgs[0].type, "user");
   assert.equal(thoughtMsgs[1].type, "thinking");
   assert.equal(thoughtMsgs[1].content, "正在分析...");
   assert.equal(thoughtMsgs[1].isOpen, true);
+  // Turns with steps also emit a steps process block.
+  assert.equal(thoughtMsgs[2].type, "steps");
+  assert.equal(thoughtMsgs[2].steps.length, 1);
 
   // Error item from completed session with errorMessage
   const errorSession = {

@@ -1,3 +1,5 @@
+import type { Step } from "./agent";
+
 export interface ChatUserMessageItem {
   type: "user";
   id: string;
@@ -48,6 +50,14 @@ export interface ChatGuardItem {
   reason?: string;
 }
 
+/** A turn's tool/sub-agent process block (step groups). */
+export interface ChatStepsItem {
+  type: "steps";
+  id: string;
+  steps: Step[];
+  isRunning: boolean;
+}
+
 export type ChatMessageItem =
   | ChatUserMessageItem
   | ChatAssistantMessageItem
@@ -55,7 +65,8 @@ export type ChatMessageItem =
   | ChatFileItem
   | ChatErrorItem
   | ChatStoppedItem
-  | ChatGuardItem;
+  | ChatGuardItem
+  | ChatStepsItem;
 
 export interface ChatFileRecord {
   fileId: string;

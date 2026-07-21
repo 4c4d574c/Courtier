@@ -1,34 +1,39 @@
 :root {
-  --chat-bg-body: #f4f5f7;
+  /* White-dominant low-key theme with muted vermilion accent.
+     White canvas; warm-gray sunken areas for separation. */
+  --chat-bg-body: #ffffff;
   --chat-bg-card: #ffffff;
-  --chat-bg-hover: #f3f4f6;
-  --chat-text-primary: #111827;
-  --chat-text-secondary: #6b7280;
-  --chat-text-tertiary: #9ca3af;
-  --chat-accent: #4f46e5;
-  --chat-accent-hover: #4338ca;
-  --chat-accent-soft: rgba(79, 70, 229, 0.1);
-  --chat-border: #e5e7eb;
-  --chat-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --chat-radius-sm: 6px;
-  --chat-radius-md: 8px;
-  --chat-radius-lg: 12px;
+  --chat-bg-hover: #f0ebe2;
+  --chat-text-primary: #242321;
+  --chat-text-secondary: #6b6459;
+  --chat-text-tertiary: #a39a8c;
+  --chat-accent: #b54342;
+  --chat-accent-hover: #9d3836;
+  --chat-accent-contrast: #ffffff;
+  --chat-accent-soft: rgba(181, 67, 66, 0.08);
+  --chat-border: #e8e3d9;
+  --chat-shadow: 0 1px 3px rgba(60, 50, 40, 0.08);
+  --chat-radius-sm: 8px;
+  --chat-radius-md: 12px;
+  --chat-radius-lg: 18px;
   --chat-sidebar-width: 260px;
   --chat-drawer-width: 480px;
 }
 
 [data-theme="dark"] {
-  --chat-bg-body: #111827;
-  --chat-bg-card: #1f2937;
-  --chat-bg-hover: #374151;
-  --chat-text-primary: #f9fafb;
-  --chat-text-secondary: #9ca3af;
-  --chat-text-tertiary: #6b7280;
-  --chat-accent: #818cf8;
-  --chat-accent-hover: #6366f1;
-  --chat-accent-soft: rgba(129, 140, 248, 0.15);
-  --chat-border: #374151;
-  --chat-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  /* Black-dominant counterpart */
+  --chat-bg-body: #0b0a09;
+  --chat-bg-card: #1c1916;
+  --chat-bg-hover: #2a251f;
+  --chat-text-primary: #ece7dd;
+  --chat-text-secondary: #b0a797;
+  --chat-text-tertiary: #837a6b;
+  --chat-accent: #e07168;
+  --chat-accent-hover: #ec857d;
+  --chat-accent-contrast: #241114;
+  --chat-accent-soft: rgba(224, 113, 104, 0.14);
+  --chat-border: #353029;
+  --chat-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 html[data-theme],

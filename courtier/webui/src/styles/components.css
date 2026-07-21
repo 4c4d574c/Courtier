@@ -60,61 +60,39 @@
   color: var(--ink);
   letter-spacing: 0.06em;
 }
-/* Tool result card */
+/* Tool result row — Kimi-style process list item */
 .tool-card {
-  margin-left: 30px;
-  padding: 10px 16px;
-  border-radius: 3px;
   position: relative;
-  background: var(--paper-lift);
+  padding: 7px 10px;
+  border-radius: var(--chat-radius-md);
+  background: transparent;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.15s;
 }
 .tool-card:hover {
-  background: var(--paper-high);
+  background: var(--chat-bg-hover);
 }
-.tool-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  border-radius: 1px;
-}
-.tool-card.ok::before {
-  background: var(--ok);
-}
-.tool-card.warn::before {
-  background: var(--warn);
-}
-.tool-card.err::before {
-  background: var(--err);
-}
-.tool-card.running::before {
-  background: var(--accent-parse);
-  animation: pulse-border 1.2s ease-in-out infinite;
+.tool-card-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--chat-text-tertiary);
+  /* Keep the row icon clear of the timeline line behind it */
+  background: var(--chat-bg-card);
+  position: relative;
+  z-index: 1;
 }
 
-@keyframes pulse-border {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
 .tool-card-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
 }
 .tool-card-name {
   font-family: "JetBrains Mono", monospace;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--ink);
+  color: var(--chat-text-primary);
 }
 .tool-card-title {
   display: inline-flex;
@@ -126,48 +104,43 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid var(--divider);
+  border: 1px solid var(--chat-border);
   font-family: "Noto Sans SC", sans-serif;
   font-size: 11px;
-  color: var(--ink-faint);
-  letter-spacing: 0.08em;
+  color: var(--chat-text-tertiary);
+  letter-spacing: 0.04em;
 }
-.tool-card-badge--subagent-run {
-  color: var(--seal);
-  border-color: var(--divider-red);
-  background: var(--seal-faded);
-}
-.tool-card-badge--subagent-tool {
-  color: var(--gold-pale);
-  border-color: rgba(139, 105, 20, 0.22);
-  background: rgba(139, 105, 20, 0.08);
-}
+.tool-card-badge--subagent-run,
+.tool-card-badge--subagent-tool,
 .tool-card-badge--skill {
-  color: var(--accent-content);
-  border-color: rgba(123, 99, 69, 0.22);
-  background: rgba(123, 99, 69, 0.08);
+  color: var(--chat-text-secondary);
+  background: var(--chat-accent-soft);
 }
 .tool-card-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  margin-left: auto;
 }
 .tool-card-time {
   font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
-  color: var(--ink-faint);
+  font-size: 12px;
+  color: var(--chat-text-tertiary);
+}
+.tool-card-running-badge {
+  font-size: 12px;
+  color: var(--chat-text-secondary);
 }
 .tool-card-expand-icon {
   font-family: "Noto Sans SC", sans-serif;
   font-size: 12px;
-  color: var(--ink-faint);
-  letter-spacing: 0.08em;
+  color: var(--chat-text-tertiary);
   transition:
     color 0.2s,
     transform 0.2s;
 }
 .tool-card.expanded .tool-card-expand-icon {
-  color: var(--gold-pale);
+  color: var(--chat-text-primary);
   transform: rotate(180deg);
 }
 .tool-card-data {
@@ -175,29 +148,31 @@
   gap: 18px;
   flex-wrap: wrap;
   margin-top: 8px;
+  padding-left: 22px;
 }
 .data-chip {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 14px;
-  color: var(--ink-dim);
+  font-size: 13px;
+  color: var(--chat-text-secondary);
   display: flex;
   align-items: center;
   gap: 4px;
 }
 .data-chip .val {
-  color: var(--ink);
+  color: var(--chat-text-primary);
   font-weight: 500;
 }
 
 /* Warning card issues */
 .tool-card-issues {
   margin-top: 8px;
+  padding-left: 22px;
   display: flex;
   gap: 16px;
 }
 .issue-count {
   font-family: "JetBrains Mono", monospace;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
 }
 .issue-count.err {
@@ -212,24 +187,25 @@
 
 /* Expanded detail */
 .tool-card-detail {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--divider);
+  margin-top: 10px;
+  margin-left: 22px;
+  padding-top: 10px;
+  border-top: 1px solid var(--chat-border);
   overflow: hidden;
 }
 
 .subagent-group {
-  margin-left: 30px;
-  padding: 12px 0 12px 14px;
-  border-left: 1px dashed var(--divider-red);
+  margin-left: 12px;
+  padding: 4px 0 4px 12px;
+  border-left: 1px dashed var(--chat-border);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .subagent-group-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 .subagent-group-header {
   display: flex;
@@ -239,16 +215,16 @@
   padding: 0 4px 2px;
 }
 .subagent-group-title {
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 14px;
   font-weight: 600;
-  color: var(--seal);
-  letter-spacing: 0.04em;
+  color: var(--chat-text-primary);
+  letter-spacing: 0.02em;
 }
 .subagent-group-meta {
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
 }
 .subagent-group .tool-card {
   margin-left: 0;
@@ -256,50 +232,49 @@
 .subagent-timeline {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 .subagent-group-body > .tool-card,
 .subagent-timeline .tool-card {
-  margin-left: 14px;
+  margin-left: 10px;
 }
 .subagent-tool-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-left: 14px;
-  border-left: 1px solid var(--divider);
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--chat-border);
 }
 .tool-card--subagent-wrapper {
-  background: var(--paper);
-  border: 1px solid var(--divider-red);
+  background: var(--chat-bg-hover);
 }
 .tool-card--subagent-tool {
-  background: rgba(255, 255, 255, 0.72);
+  background: transparent;
 }
 .tool-card--skill {
-  background: rgba(123, 99, 69, 0.04);
+  background: transparent;
 }
 
 /* Structured data table */
 .structured-data {
   font-family: "JetBrains Mono", monospace;
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--chat-text-secondary);
 }
 .structured-data .sd-key {
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   margin-right: 8px;
 }
 .structured-data .sd-val {
-  color: var(--ink);
+  color: var(--chat-text-primary);
 }
 .structured-data .sd-row {
   padding: 3px 0;
-  border-bottom: 1px solid var(--divider);
+  border-bottom: 1px solid var(--chat-border);
 }
 .structured-data .sd-truncated-hint {
   margin-top: 8px;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-style: italic;
 }
 
@@ -308,11 +283,11 @@
   font-family: "Noto Sans SC", sans-serif;
   font-size: 14px;
   line-height: 1.8;
-  color: var(--ink-dim);
+  color: var(--chat-text-secondary);
 }
 .markdown-content :is(h1, h2, h3, h4) {
-  font-family: "Noto Serif SC", serif;
-  color: var(--ink);
+  font-family: "Noto Sans SC", sans-serif;
+  color: var(--chat-text-primary);
   margin: 10px 0 4px;
 }
 .markdown-content h2 {
@@ -337,31 +312,31 @@
 }
 .markdown-content th {
   font-family: "Noto Sans SC", sans-serif;
-  background: var(--paper-high);
-  color: var(--ink);
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-primary);
   padding: 6px 10px;
   text-align: left;
-  border-bottom: 1px solid var(--divider);
+  border-bottom: 1px solid var(--chat-border);
   font-weight: 500;
 }
 .markdown-content td {
   padding: 5px 10px;
-  border-bottom: 1px solid var(--divider);
-  color: var(--ink-dim);
+  border-bottom: 1px solid var(--chat-border);
+  color: var(--chat-text-secondary);
 }
 .markdown-content strong {
-  color: var(--ink);
+  color: var(--chat-text-primary);
   font-weight: 600;
 }
 .markdown-content code {
   font-family: "JetBrains Mono", monospace;
-  background: var(--paper-high);
+  background: var(--chat-bg-hover);
   padding: 1px 4px;
-  border-radius: 2px;
+  border-radius: 4px;
   font-size: 13px;
 }
 .markdown-content pre {
-  background: var(--paper-high);
+  background: var(--chat-bg-hover);
   padding: 10px;
   border-radius: 2px;
   overflow-x: auto;
@@ -388,43 +363,43 @@
 .subagent-thoughts .streaming-trailing,
 .subagent-conclusion .streaming-trailing,
 .conclusion-text .streaming-trailing {
-  color: var(--ink-dim);
+  color: var(--chat-text-secondary);
 }
 
 /* Verdict */
 .verdict {
   margin-top: 8px;
-  margin-left: 30px;
-  padding: 10px 0 10px 16px;
-  border-left: 2px solid var(--seal-rule);
+  margin-left: 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--chat-border);
   position: relative;
-  background: var(--thought-tint);
-  border-radius: 0 4px 4px 0;
+  background: var(--chat-bg-hover);
+  border-radius: 0 var(--chat-radius-md) var(--chat-radius-md) 0;
 }
 .verdict::before {
   content: "结";
   position: absolute;
-  left: -12px;
+  left: -10px;
   top: 10px;
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 12px;
   font-weight: 700;
-  color: var(--seal);
-  background: var(--paper);
+  color: var(--chat-text-secondary);
+  background: var(--chat-bg-body);
   padding: 0 5px;
 }
 .verdict-text {
-  font-family: "Noto Serif SC", serif;
-  font-size: 15px;
-  line-height: 1.9;
-  color: var(--ink-dim);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--chat-text-secondary);
 }
 .verdict-text em {
   color: var(--err);
   font-style: normal;
 }
 .verdict-text strong {
-  color: var(--gold-pale);
+  color: var(--chat-text-primary);
   font-weight: 600;
 }
 
@@ -432,26 +407,11 @@
 .conclusion {
   margin-top: 16px;
   position: relative;
-  /* Outer frame */
-  border: 2px solid var(--divider);
-  border-radius: 6px;
-  background: var(--paper-lift);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  background: var(--chat-bg-card);
   overflow: hidden;
   flex-shrink: 0; /* prevent flex parent from squeezing this when thought blocks expand */
-}
-/* Decorative top rule */
-.conclusion::before {
-  content: "";
-  display: block;
-  height: 3px;
-  background: linear-gradient(
-    90deg,
-    var(--seal-deep) 0%,
-    var(--seal) 20%,
-    var(--seal-faded) 60%,
-    transparent 100%
-  );
 }
 /* Collapsible header — matches thought-segment-header pattern */
 .conclusion-header {
@@ -459,57 +419,47 @@
   justify-content: space-between;
   align-items: center;
   padding: 6px 14px;
-  background: linear-gradient(
-    180deg,
-    var(--paper-lift) 0%,
-    var(--paper-high) 100%
-  );
+  background: transparent;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
-  border-bottom: 1px solid var(--thought-divider);
+  border-bottom: 1px solid var(--chat-border);
 }
 .conclusion-header:hover {
-  background: linear-gradient(
-    180deg,
-    var(--paper-high) 0%,
-    var(--divider) 100%
-  );
+  background: var(--chat-bg-hover);
 }
 .conclusion-header-label {
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 14px;
-  color: var(--ink);
-  font-weight: 600;
+  color: var(--chat-text-secondary);
+  font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 10px;
-  letter-spacing: 0.04em;
+  gap: 8px;
 }
-/* Small seal icon next to label */
+/* Small icon next to label */
 .conclusion-header-label::before {
   content: "审";
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 1.5px solid var(--seal);
-  border-radius: 3px;
-  font-size: 14px;
-  font-weight: 900;
-  color: var(--seal);
-  transform: rotate(-2deg);
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--chat-text-tertiary);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--chat-text-secondary);
   flex-shrink: 0;
 }
 .conclusion-header-toggle {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   transition: color 0.2s;
 }
 .conclusion-header:hover .conclusion-header-toggle {
-  color: var(--seal);
+  color: var(--chat-text-primary);
 }
 .conclusion-header--streaming .conclusion-header-label {
   animation: breathe-text 2.4s ease-in-out infinite;
@@ -589,7 +539,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--seal);
+  background: var(--chat-accent);
   animation: pulse-dot 1.4s ease-in-out infinite;
   flex-shrink: 0;
 }
@@ -602,27 +552,25 @@
 @keyframes breathe-text {
   0%,
   100% {
-    color: var(--ink);
+    color: var(--chat-text-primary);
   }
   50% {
-    color: var(--seal);
+    color: var(--chat-text-tertiary);
   }
 }
 
 /* Collapsible panel: shared by thought segments, subagent reasoning */
 .thought-segment,
 .subagent-reasoning {
-  border: 1px solid var(--divider);
-  border-radius: 6px;
+  border: none;
   overflow: hidden;
-  background: var(--thought-tint);
-  box-shadow: var(--shadow-sm);
+  background: transparent;
 }
 .thought-segment {
-  margin-left: 30px;
+  margin-left: 0;
 }
 .subagent-reasoning {
-  margin-left: 14px;
+  margin-left: 10px;
 }
 
 /* Collapsible header — shared across collapsible UI widgets */
@@ -631,88 +579,80 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(
-    180deg,
-    var(--paper-lift) 0%,
-    var(--paper-high) 100%
-  );
+  background: transparent;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
-  border-bottom: 1px solid var(--thought-divider);
+  border-bottom: none;
+  border-radius: var(--chat-radius-md);
 }
 .thought-segment-header:hover,
 .subagent-reasoning-header:hover {
-  background: linear-gradient(
-    180deg,
-    var(--paper-high) 0%,
-    var(--divider) 100%
-  );
+  background: var(--chat-bg-hover);
 }
 .thought-segment-header {
-  padding: 6px 14px;
+  padding: 7px 10px;
 }
 .subagent-reasoning-header {
-  padding: 5px 14px;
+  padding: 5px 10px;
 }
 
 .thought-segment-label {
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 14px;
-  color: var(--ink);
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  letter-spacing: 0.04em;
-}
-.subagent-reasoning-label {
-  font-family: "Noto Serif SC", serif;
-  font-size: 13px;
-  color: var(--ink);
-  font-weight: 600;
+  color: var(--chat-text-secondary);
+  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 8px;
-  letter-spacing: 0.04em;
+}
+.subagent-reasoning-label {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .thought-segment-toggle,
 .subagent-reasoning-toggle {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   transition: color 0.2s;
 }
 .thought-segment-header:hover .thought-segment-toggle,
 .subagent-reasoning-header:hover .subagent-reasoning-toggle {
-  color: var(--seal);
+  color: var(--chat-text-primary);
 }
 
 /* Streaming status badge */
 .thought-status-badge {
   font-family: "Noto Sans SC", sans-serif;
   font-size: 12px;
-  color: var(--seal);
-  background: var(--seal-faded);
+  color: var(--chat-text-secondary);
+  background: var(--chat-accent-soft);
   padding: 1px 8px;
   border-radius: 999px;
-  letter-spacing: 0.04em;
   animation: pulse 2s ease-in-out infinite;
 }
 
 .thought-segment-body {
-  padding: 16px;
+  padding: 4px 10px 12px 26px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  background: linear-gradient(180deg, var(--paper-lift) 0%, var(--paper) 100%);
-  max-height: 240px;
+  gap: 12px;
+  background: transparent;
+  max-height: 320px;
   overflow-y: auto;
+  color: var(--chat-text-secondary);
+  font-size: 14px;
 }
 
 .thought-segment + .step-items,
 .step-items + .thought-segment {
-  margin-top: 6px;
+  margin-top: 2px;
 }
 
 .subagent-group .subagent-reasoning + .tool-card--subagent-wrapper,
@@ -728,23 +668,23 @@
 
 /* Individual thought blocks */
 .thought-block {
-  padding: 8px 0 8px 14px;
-  border-left: 2px solid var(--thought-border);
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--chat-border);
   position: relative;
   transition: border-color 0.3s;
 }
 .thought-block:hover {
-  border-left-color: rgba(45, 37, 32, 0.22);
+  border-left-color: var(--chat-text-tertiary);
 }
 .thought-text {
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--chat-text-secondary);
   line-height: 1.8;
   font-family: "Noto Sans SC", sans-serif;
 }
 /* ── Dot separator ──────────────────────────────────── */
 .dot-sep {
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
 }
 
 /* ── Subagent status bar ─────────────────────────────────── */
@@ -752,74 +692,52 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  font-size: 15px;
-  border-left: 3px solid var(--paper-high);
-  background: linear-gradient(
-    90deg,
-    var(--seal-faded) 0%,
-    var(--paper-lift) 12%,
-    var(--paper-lift) 100%
-  );
-  border-radius: 0 6px 6px 0;
-  margin-bottom: 4px;
+  padding: 7px 10px;
+  font-size: 14px;
+  background: transparent;
+  border-left: 3px solid var(--chat-border);
+  border-radius: 0 var(--chat-radius-md) var(--chat-radius-md) 0;
+  margin-bottom: 2px;
   cursor: pointer;
   user-select: none;
   transition:
     background 0.15s,
     border-color 0.2s;
-  box-shadow: var(--shadow-sm);
 }
 .subagent-status-bar:hover {
-  background: linear-gradient(
-    90deg,
-    var(--seal-faded) 0%,
-    var(--paper-high) 12%,
-    var(--paper-high) 100%
-  );
-  border-left-color: var(--divider);
+  background: var(--chat-bg-hover);
 }
 .subagent-status-bar.running {
-  border-left-color: var(--seal);
-}
-.subagent-status-bar.running:hover {
-  border-left-color: var(--seal);
+  border-left-color: var(--chat-accent);
 }
 .subagent-status-bar.completed {
-  border-left-color: var(--ok);
-}
-.subagent-status-bar.completed:hover {
   border-left-color: var(--ok);
 }
 .subagent-status-bar.error {
   border-left-color: var(--err);
 }
-.subagent-status-bar.error:hover {
-  border-left-color: var(--err);
-}
 .subagent-status-bar:focus-visible,
 .subagent-reasoning-header:focus-visible,
 .subagent-conclusion-header:focus-visible {
-  outline: 2px solid var(--seal);
+  outline: 2px solid var(--chat-accent);
   outline-offset: 2px;
 }
 .subagent-kind-badge {
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid var(--divider-red);
-  background: var(--seal-faded);
-  color: var(--seal);
+  border: 1px solid var(--chat-border);
+  background: var(--chat-accent-soft);
+  color: var(--chat-text-secondary);
   font-family: "Noto Sans SC", sans-serif;
   font-size: 11px;
-  letter-spacing: 0.08em;
 }
 .subagent-status-dot {
   width: 6px;
   height: 6px;
-  background: var(--seal);
+  background: var(--chat-accent);
   border-radius: 50%;
-  animation: pulse-border 1.5s infinite;
+  animation: pulse-dot 1.5s infinite;
 }
 .subagent-status-icon {
   font-size: 14px;
@@ -832,94 +750,84 @@
 }
 .subagent-status-name {
   font-weight: 600;
-  color: var(--ink);
+  color: var(--chat-text-primary);
 }
 .subagent-status-label {
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-size: 13px;
 }
 .subagent-status-meta {
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-size: 13px;
   margin-left: auto;
 }
 .subagent-group-toggle {
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   margin-left: 6px;
   flex-shrink: 0;
 }
 .subagent-task {
-  padding: 8px 14px 8px 18px;
+  padding: 6px 10px 6px 14px;
   font-size: 14px;
-  color: var(--ink-dim);
+  color: var(--chat-text-secondary);
   margin-bottom: 4px;
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-style: italic;
-  border-left: 2px solid var(--divider);
+  border-left: 2px solid var(--chat-border);
   margin-left: 12px;
   line-height: 1.7;
 }
 .subagent-conclusion {
-  margin-left: 14px;
-  border: 1px solid var(--divider);
-  border-radius: 6px;
+  margin-left: 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
   overflow: hidden;
-  background: var(--thought-tint);
-  box-shadow: var(--shadow-sm);
+  background: transparent;
 }
 .subagent-conclusion-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 14px;
-  background: linear-gradient(
-    180deg,
-    var(--paper-lift) 0%,
-    var(--paper-high) 100%
-  );
+  padding: 5px 10px;
+  background: transparent;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
-  border-bottom: 1px solid var(--thought-divider);
+  border-bottom: 1px solid var(--chat-border);
 }
 .subagent-conclusion-header:hover {
-  background: linear-gradient(
-    180deg,
-    var(--paper-high) 0%,
-    var(--divider) 100%
-  );
+  background: var(--chat-bg-hover);
 }
 .subagent-conclusion-label {
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Sans SC", sans-serif;
   font-size: 13px;
-  color: var(--ink);
-  font-weight: 600;
+  color: var(--chat-text-secondary);
+  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 8px;
-  letter-spacing: 0.04em;
 }
 .subagent-conclusion-toggle {
   font-size: 13px;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   transition: color 0.2s;
 }
 .subagent-conclusion-header:hover .subagent-conclusion-toggle {
-  color: var(--seal);
+  color: var(--chat-text-primary);
 }
 .subagent-conclusion-body {
-  padding: 12px;
-  background: linear-gradient(180deg, var(--paper-lift) 0%, var(--paper) 100%);
+  padding: 10px 12px;
+  background: transparent;
   max-height: 240px;
   overflow-y: auto;
 }
 
 /* Subagent thought block — slightly smaller than parent */
 .thought-block--subagent {
-  border-left-color: rgba(45, 37, 32, 0.06);
+  border-left-color: var(--chat-border);
   padding: 6px 0 6px 12px;
 }
 .thought-block--subagent .thought-text {
@@ -929,7 +837,7 @@
 
 /* Subagent reasoning body background */
 .subagent-reasoning-body {
-  background: linear-gradient(180deg, var(--thought-tint) 0%, transparent 100%);
+  background: transparent;
   padding: 12px;
   max-height: 240px;
   overflow-y: auto;

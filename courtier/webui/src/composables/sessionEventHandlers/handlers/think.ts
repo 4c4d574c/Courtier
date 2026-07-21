@@ -28,6 +28,7 @@ export function handleThinkEvent(
       : undefined);
 
   if (toolNames) {
+    const displayNames = event.displayNames ?? {};
     const lastStep = session.steps[session.steps.length - 1];
 
     if (
@@ -39,6 +40,7 @@ export function handleThinkEvent(
         normalizeToolResult({
           id: `tool-${++s.toolIdCounter}`,
           name,
+          displayName: displayNames[name] ?? null,
           skill: "",
           status: "pending",
         }),
@@ -51,7 +53,7 @@ export function handleThinkEvent(
       s.currentStepIndex = lastStep.index;
     } else {
       if (lastStep) patchLastStep(deps, { endSegmentIndex: s.segmentIndex });
-      const step = createStep(deps, session.steps.length + 1, toolNames);
+      const step = createStep(deps, session.steps.length + 1, toolNames, displayNames);
       addStep(deps, step);
       s.currentStepIndex = step.index;
       assignPendingThoughtsToCurrentStep(deps);
