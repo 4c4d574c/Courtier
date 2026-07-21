@@ -42,27 +42,23 @@ class Message:
     source: Literal["reminder", "inline", "hint", None] = None
 
     def to_openai_dict(self) -> dict[str, object]:
-        """Convert to OpenAI-compatible dict."""
-        d: dict[str, object] = {"role": self.role}
-        if self.content is not None:
-            d["content"] = self.content
-        if self.tool_calls:
-            d["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.name,
-                        "arguments": json.dumps(tc.arguments, ensure_ascii=False),
-                    },
-                }
-                for tc in self.tool_calls
-            ]
-        if self.tool_call_id is not None:
-            d["tool_call_id"] = self.tool_call_id
-        if self.name is not None:
-            d["name"] = self.name
-        return d
+        """Convert to OpenAI-compatible dict.
+
+        Delegates to ``protocol.to_openai_dict`` (the single canonical wire
+        conversion). The internal ``source`` field is not part of the wire
+        format and is never emitted.
+        """
+        from .protocol import ChatMessage, to_openai_dict
+
+        return to_openai_dict(
+            ChatMessage(
+                role=self.role,
+                content=self.content,
+                tool_calls=list(self.tool_calls) if self.tool_calls else None,
+                tool_call_id=self.tool_call_id,
+                name=self.name,
+            )
+        )
 
 
 class AgentState(BaseModel, frozen=True):

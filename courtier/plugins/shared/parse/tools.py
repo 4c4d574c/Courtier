@@ -37,6 +37,7 @@ class ParseTool:
     """Parse a document file (PDF/DOCX/image) into the Document model."""
 
     name: str = "parse_document"
+    display_name: str | None = "解析文档"
     description: str = (
         "Parse a document file from disk into the internal Document model. "
         "Supports PDF, DOCX, and scanned images. Returns the parsed Document as a dict."

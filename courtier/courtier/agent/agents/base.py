@@ -78,9 +78,7 @@ class AgentResult:
                 payload = json.loads(msg.content)
             except (json.JSONDecodeError, TypeError):
                 continue
-            data = payload.get("data")
-            if data is None:
-                data = payload.get("raw_data")
+            data = payload.get("raw_data")
             if payload.get("success") and data is not None:
                 results[msg.name] = data
         return results

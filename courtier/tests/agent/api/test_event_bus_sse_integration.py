@@ -292,19 +292,23 @@ async def test_agent_loop_emits_structured_think_tool_calls(store):
             payloads.append(_parse_sse_payload(line))
 
         think_events = [p for p in payloads if p.get("type") == "think"]
+        # The first think event is the pre-stream placeholder so reasoning
+        # tokens have a step from the very first token.
+        assert think_events[0].get("textResponse")
         # The tool-calling turn announces the tool by name.
-        assert think_events[0].get("toolCalls") == ["echo"]
-        # A text_response think may only follow the tool turn (final answer),
-        # never replace the tool-call announcement (the original bug).
+        assert any(p.get("toolCalls") == ["echo"] for p in think_events)
+        # text_response placeholders: one per turn (pre-stream), never
+        # replacing the tool-call announcement (the original bug).
         text_resp = [p for p in think_events if p.get("textResponse")]
-        assert len(text_resp) <= 1
+        assert len(text_resp) <= 2
 
-        # The persisted step must carry the tool so the result lands in it.
+        # The persisted steps must carry the tool (the placeholder step from
+        # the pre-stream announcement may precede it).
         session = await store.get(session_id)
         assert session is not None
         steps = session.steps or []
         assert steps, "expected at least one stored step"
-        assert steps[0].label == "echo"
+        assert any(s.label == "echo" for s in steps)
         tool_results = [p for p in payloads if p.get("type") == "tool_result"]
         assert len(tool_results) == 1
         assert tool_results[0]["name"] == "echo"

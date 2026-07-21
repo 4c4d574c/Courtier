@@ -65,7 +65,6 @@ class PluginSystem:
         plugins_dir: str | Path = "plugins",
         tool_registry: Any = None,
         checker_registry: Any = None,
-        cache_store: Any = None,
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
     ) -> None:
@@ -78,7 +77,6 @@ class PluginSystem:
         self._manager = ProcessManager(
             plugin_dir=self._plugins_dir,
             extension_registry=self._registry,
-            cache_store=cache_store,
             artifact_store=artifact_store,
             artifact_store_registry=artifact_store_registry,
         )
@@ -140,7 +138,3 @@ class PluginSystem:
                 "restart_count": proc._restart_count,
             }
         return status
-
-    def get_system_prompts(self) -> dict[str, str]:
-        """Return all plugin system_prompts, keyed by plugin name."""
-        return self._registry.get_system_prompts()

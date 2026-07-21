@@ -13,6 +13,7 @@ class AnnotateDocumentTool:
     """Add Word comments to a DOCX file at keyword occurrences."""
 
     name: str = "annotate_document"
+    display_name: str | None = "文档批注"
     description: str = (
         "Add Word comments to a DOCX document at every occurrence of specified "
         "keywords. Takes source DOCX bytes (base64) or file path and a list of "

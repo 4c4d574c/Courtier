@@ -48,6 +48,7 @@ class SkillTool:
     ) -> None:
         self.name = skill.name
         self.skill = skill.name
+        self.display_name: str | None = skill.display_name or None
         self.output_artifact_type = output_artifact_type
         self.description = skill.description or f"执行 Skill: {skill.name}"
         self.default_mode = getattr(skill, "default_mode", "subagent")
@@ -211,20 +212,10 @@ class SkillTool:
                 metadata=metadata,
             )
 
-        # Re-wrap a successful ExecutionResult so the registry can persist
-        # large results and the orchestrator still sees the full payload.
-        return (
-            replace(
-                result,
-                metadata=metadata,
-            )
-            if isinstance(result, ExecutionResult)
-            else ToolResult(
-                success=True,
-                data=result.raw_data if hasattr(result, "raw_data") else result.data,
-                metadata=metadata,
-            )
-        )
+        # Pass the sub-agent's ExecutionResult straight through with the
+        # skill-routing metadata attached — no ToolResult re-wrapping, the
+        # registry's single-track entry handles ExecutionResult directly.
+        return replace(result, metadata=metadata)
 
     async def _execute_inline(
         self,
@@ -332,22 +323,6 @@ class SkillTool:
                 chips=[("skill", self.name)],
                 issue_counts=result.metadata.get("issue_counts"),
                 detail=result.raw_data,
-            )
-
-        # Legacy ToolResult fallback
-        if isinstance(result, ToolResult):
-            if not result.success:
-                return ToolSummary(
-                    status="err",
-                    chips=[("error", result.error or "未知错误")],
-                    issue_counts=None,
-                    detail=result.error,
-                )
-            return ToolSummary(
-                status="ok",
-                chips=[("skill", self.name)],
-                issue_counts=result.metadata.get("issue_counts"),
-                detail=result.data,
             )
 
         return ToolSummary(

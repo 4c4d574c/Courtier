@@ -38,9 +38,8 @@ class ExecutionResult:
     def to_observation_dict(self) -> dict[str, Any]:
         """Serialize to the dict stored in a ``role='tool'`` observation.
 
-        Includes both ``raw_data`` (new canonical key) and ``data``
-        (backward-compatible alias) so downstream consumers that still read
-        ``data`` continue to work during the migration.
+        ``raw_data`` is the single canonical payload key — all consumers read
+        it directly; there is no ``data`` alias.
         """
         return {
             "success": self.success,
@@ -48,7 +47,6 @@ class ExecutionResult:
             "actor_name": self.actor_name,
             "result_id": self.result_id,
             "raw_data": self.raw_data,
-            "data": self.raw_data,  # backward-compatible alias
             "summary": self.summary,
             "key_excerpts": list(self.key_excerpts),
             "error": self.error,

@@ -35,6 +35,7 @@ class GetArtifactTool:
     """
 
     name: str = "get_artifact"
+    display_name: str | None = "获取数据引用"
     skip_ref_resolution: bool = True
     skip_persist: bool = True
     skip_summarize: bool = True

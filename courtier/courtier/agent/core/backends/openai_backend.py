@@ -17,6 +17,7 @@ from ..protocol import (
     TokenChunk,
     TokenUsage,
     ToolCall,
+    to_openai_dict,
 )
 from ..streaming import buffer_tool_call_delta, extract_reasoning, extract_stream_delta
 
@@ -64,9 +65,11 @@ class OpenAIModelBackend:
             "messages": [_message_to_openai(m) for m in request.messages],
             "temperature": request.temperature,
         }
-        if request.metadata:
-            max_tokens = request.metadata.get("max_tokens", self._max_tokens)
-        else:
+        # max_tokens precedence: per-request field → metadata hint → instance default.
+        max_tokens = request.max_tokens
+        if max_tokens is None and request.metadata:
+            max_tokens = request.metadata.get("max_tokens")
+        if max_tokens is None:
             max_tokens = self._max_tokens
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
@@ -74,8 +77,12 @@ class OpenAIModelBackend:
             params["frequency_penalty"] = self._frequency_penalty
         if self._presence_penalty:
             params["presence_penalty"] = self._presence_penalty
-        if self._extra_body:
-            params["extra_body"] = self._extra_body
+        # extra_body: instance default, overridable per request via metadata.
+        extra_body = self._extra_body
+        if request.metadata and request.metadata.get("extra_body") is not None:
+            extra_body = request.metadata["extra_body"]
+        if extra_body:
+            params["extra_body"] = extra_body
         if request.tools:
             params["tools"] = [_tool_schema_to_openai(t) for t in request.tools]
         return params
@@ -122,6 +129,7 @@ class OpenAIModelBackend:
                 role="assistant",
                 content=normalized.content,
                 tool_calls=normalized.tool_calls or None,
+                reasoning_content=normalized.reasoning_content,
             ),
             usage=usage,
             finish_reason=normalized.finish_reason,
@@ -163,12 +171,7 @@ class OpenAIModelBackend:
                 content_parts.append(delta.content)
                 yield TokenChunk(text=delta.content, kind="content")
 
-            buffer_tool_call_delta(
-                delta,
-                tool_call_bufs,
-                name_key="name",
-                arguments_key="arguments_str",
-            )
+            buffer_tool_call_delta(delta, tool_call_bufs)
 
         latency_ms = (time.perf_counter() - start) * 1000
         content = "".join(content_parts) if content_parts else None
@@ -200,6 +203,7 @@ class OpenAIModelBackend:
                 role="assistant",
                 content=normalized.content,
                 tool_calls=normalized.tool_calls or None,
+                reasoning_content=normalized.reasoning_content,
             ),
             usage=usage,
             finish_reason=normalized.finish_reason,
@@ -209,26 +213,8 @@ class OpenAIModelBackend:
 
 
 def _message_to_openai(message: ChatMessage) -> dict[str, Any]:
-    d: dict[str, Any] = {"role": message.role}
-    if message.content is not None:
-        d["content"] = message.content
-    if message.tool_calls:
-        d["tool_calls"] = [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {
-                    "name": tc.name,
-                    "arguments": __import__("json").dumps(tc.arguments, ensure_ascii=False),
-                },
-            }
-            for tc in message.tool_calls
-        ]
-    if message.tool_call_id is not None:
-        d["tool_call_id"] = message.tool_call_id
-    if message.name is not None:
-        d["name"] = message.name
-    return d
+    """Thin wrapper over ``protocol.to_openai_dict`` (single canonical conversion)."""
+    return to_openai_dict(message)
 
 
 def _tool_schema_to_openai(schema: Any) -> dict[str, Any]:

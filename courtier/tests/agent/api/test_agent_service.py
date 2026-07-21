@@ -1,9 +1,13 @@
 """Tests for agent_service wiring."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from courtier.agent.agents.orch import OrchestratorAgent
-from courtier.agent.api.services.agent_service import build_audit_agent
+from courtier.agent.api.services.agent_service import build_audit_agent, build_model_client
+from courtier.agent.core.backends.router import ModelRouter
+from courtier.agent.core.model import BackendModelClient
 from courtier.agent.runtime import AgentRuntime
 from courtier.agent.tools.registry import ToolRegistry
 
@@ -14,6 +18,7 @@ class _DummySettings:
     llm_model = "mock"
     llm_temperature = 0.0
     llm_max_tokens = 0
+    llm_timeout = 180.0
     llm_extra_body = None
     llm_frequency_penalty = 0.0
     llm_presence_penalty = 0.0
@@ -67,3 +72,29 @@ async def test_build_audit_agent_requires_configured_domain(monkeypatch):
             settings=_DummySettings(),
             tool_registry=ToolRegistry(),
         )
+
+
+def test_build_model_client_wraps_openai_backend():
+    client = build_model_client(_DummySettings())
+
+    assert isinstance(client, BackendModelClient)
+    assert client.model_name == "mock"
+    assert callable(client.generate_stream_full)
+
+
+def test_build_model_client_uses_router_when_fallback_backends_configured():
+    settings = _DummySettings()
+    settings.agent_runtime = SimpleNamespace(
+        model=SimpleNamespace(
+            strategy="primary",
+            fallback_backends=["backup-model"],
+            cost_threshold_chars=None,
+            ab_split=0.5,
+        )
+    )
+
+    client = build_model_client(settings)
+
+    assert isinstance(client, BackendModelClient)
+    assert isinstance(client._backend, ModelRouter)
+    assert len(client._backend._backends) == 2

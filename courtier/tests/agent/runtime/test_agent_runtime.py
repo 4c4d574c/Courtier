@@ -4,15 +4,38 @@ import asyncio
 
 import pytest
 
-from courtier.agent.agents.base import Agent
-from courtier.agent.agents.subagent.config import FailureStrategy, SubAgentConfig
 from courtier.agent.core.model import ModelResponse
 from courtier.agent.runtime import AgentRuntime, AgentRuntimeBudget
 from courtier.agent.runtime.handle import AgentHandle
 from courtier.agent.runtime.result import ExecutionResult
+from courtier.agent.skills import SkillRegistry
 from courtier.agent.testing import MockModelClient
 from courtier.agent.tools.builtin.echo import EchoTool
 from courtier.agent.tools.registry import ToolRegistry
+
+
+def _make_runtime(tmp_path, skill_names, model=None, default_budget=None):
+    """Create an AgentRuntime whose agents are registered from skill files."""
+    for name in skill_names:
+        (tmp_path / f"{name}.md").write_text(
+            f"---\nname: {name}\nversion: '1.0'\ntools: [echo]\n---\nYou are {name}.\n",
+            encoding="utf-8",
+        )
+    skill_registry = SkillRegistry(tmp_path)
+    skill_registry.scan()
+
+    tool_registry = ToolRegistry()
+    tool_registry.register(EchoTool())
+
+    kwargs = {}
+    if default_budget is not None:
+        kwargs["default_budget"] = default_budget
+    return AgentRuntime(
+        tool_registry=tool_registry,
+        model=model if model is not None else MockModelClient(tool_calls=[]),
+        skill_registry=skill_registry,
+        **kwargs,
+    )
 
 
 @pytest.fixture
@@ -24,20 +47,8 @@ def runtime_with_echo():
 
 
 @pytest.fixture
-def runtime_with_skill_agent():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    agent = Agent(
-        name="echo_agent",
-        role="You are an echo agent.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    config = SubAgentConfig(agent=agent, failure_strategy=FailureStrategy.TOLERANT)
-    model = MockModelClient(tool_calls=[])
-    runtime = AgentRuntime(tool_registry=reg, model=model)
-    runtime.register_agent("echo_agent", config)
-    return runtime
+def runtime_with_skill_agent(tmp_path):
+    return _make_runtime(tmp_path, ["echo_agent"])
 
 
 @pytest.mark.asyncio
@@ -84,22 +95,12 @@ async def test_delegate_propagates_context_to_system_prompt(runtime_with_skill_a
 
 
 @pytest.mark.asyncio
-async def test_spawn_respects_budget_depth():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    agent = Agent(
-        name="loop_agent",
-        role="You loop.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    config = SubAgentConfig(agent=agent, failure_strategy=FailureStrategy.TOLERANT)
-    runtime = AgentRuntime(
-        tool_registry=reg,
-        model=MockModelClient(tool_calls=[]),
+async def test_spawn_respects_budget_depth(tmp_path):
+    runtime = _make_runtime(
+        tmp_path,
+        ["loop_agent"],
         default_budget=AgentRuntimeBudget(max_depth=1),
     )
-    runtime.register_agent("loop_agent", config)
 
     parent = runtime.spawn(name="loop_agent", task="outer")
     with pytest.raises(RuntimeError, match="max_depth_reached"):
@@ -107,18 +108,8 @@ async def test_spawn_respects_budget_depth():
 
 
 @pytest.mark.asyncio
-async def test_spawn_detects_cycle():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    agent = Agent(
-        name="loop_agent",
-        role="You loop.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    config = SubAgentConfig(agent=agent, failure_strategy=FailureStrategy.TOLERANT)
-    runtime = AgentRuntime(tool_registry=reg, model=MockModelClient(tool_calls=[]))
-    runtime.register_agent("loop_agent", config)
+async def test_spawn_detects_cycle(tmp_path):
+    runtime = _make_runtime(tmp_path, ["loop_agent"])
 
     parent = runtime.spawn(name="loop_agent", task="outer")
     with pytest.raises(RuntimeError, match="spawn_cycle_detected"):
@@ -148,18 +139,8 @@ async def test_delegate_emits_events(runtime_with_skill_agent):
 
 
 @pytest.mark.asyncio
-async def test_terminate_cancels_running_task():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    agent = Agent(
-        name="slow_agent",
-        role="You are slow.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    config = SubAgentConfig(agent=agent, failure_strategy=FailureStrategy.TOLERANT)
-    runtime = AgentRuntime(tool_registry=reg, model=MockModelClient(tool_calls=[]))
-    runtime.register_agent("slow_agent", config)
+async def test_terminate_cancels_running_task(tmp_path):
+    runtime = _make_runtime(tmp_path, ["slow_agent"])
 
     handle = runtime.spawn(name="slow_agent", task="wait")
     # terminate is a no-op if delegate has not started the task
@@ -184,22 +165,8 @@ class _HangingModelClient(MockModelClient):
 
 
 @pytest.mark.asyncio
-async def test_terminate_cancels_running_delegate():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    runtime = AgentRuntime(tool_registry=reg, model=_HangingModelClient())
-    runtime.register_agent(
-        "slow_agent",
-        SubAgentConfig(
-            agent=Agent(
-                name="slow_agent",
-                role="You are slow.",
-                tools=[EchoTool()],
-                model=MockModelClient(),
-            ),
-            failure_strategy=FailureStrategy.TOLERANT,
-        ),
-    )
+async def test_terminate_cancels_running_delegate(tmp_path):
+    runtime = _make_runtime(tmp_path, ["slow_agent"], model=_HangingModelClient())
 
     handle = runtime.spawn(name="slow_agent", task="wait")
     delegate_task = asyncio.create_task(runtime.delegate(handle))
@@ -213,33 +180,11 @@ async def test_terminate_cancels_running_delegate():
 
 
 @pytest.mark.asyncio
-async def test_spawn_parent_budget_overrides_explicit_budget():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    parent_agent = Agent(
-        name="parent_agent",
-        role="You are the parent.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    child_agent = Agent(
-        name="child_agent",
-        role="You are the child.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    runtime = AgentRuntime(
-        tool_registry=reg,
-        model=MockModelClient(tool_calls=[]),
+async def test_spawn_parent_budget_overrides_explicit_budget(tmp_path):
+    runtime = _make_runtime(
+        tmp_path,
+        ["parent_agent", "child_agent"],
         default_budget=AgentRuntimeBudget(max_depth=1),
-    )
-    runtime.register_agent(
-        "parent_agent",
-        SubAgentConfig(agent=parent_agent, failure_strategy=FailureStrategy.TOLERANT),
-    )
-    runtime.register_agent(
-        "child_agent",
-        SubAgentConfig(agent=child_agent, failure_strategy=FailureStrategy.TOLERANT),
     )
 
     parent = runtime.spawn(name="parent_agent", task="outer")
@@ -255,25 +200,11 @@ async def test_spawn_parent_budget_overrides_explicit_budget():
 
 
 @pytest.mark.asyncio
-async def test_delegate_enforces_cumulative_runtime_budget():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    runtime = AgentRuntime(
-        tool_registry=reg,
-        model=MockModelClient(tool_calls=[]),
+async def test_delegate_enforces_cumulative_runtime_budget(tmp_path):
+    runtime = _make_runtime(
+        tmp_path,
+        ["agent"],
         default_budget=AgentRuntimeBudget(max_cumulative_runtime_seconds=0.0),
-    )
-    runtime.register_agent(
-        "agent",
-        SubAgentConfig(
-            agent=Agent(
-                name="agent",
-                role="You are an agent.",
-                tools=[EchoTool()],
-                model=MockModelClient(),
-            ),
-            failure_strategy=FailureStrategy.TOLERANT,
-        ),
     )
 
     handle = runtime.spawn(name="agent", task="work")
@@ -308,25 +239,11 @@ async def test_delegate_chains_callbacks(runtime_with_skill_agent):
 
 
 @pytest.mark.asyncio
-async def test_top_level_spawns_use_distinct_cumulative_runtime_keys():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    runtime = AgentRuntime(
-        tool_registry=reg,
-        model=MockModelClient(tool_calls=[]),
+async def test_top_level_spawns_use_distinct_cumulative_runtime_keys(tmp_path):
+    runtime = _make_runtime(
+        tmp_path,
+        ["agent"],
         default_budget=AgentRuntimeBudget(max_cumulative_runtime_seconds=10.0),
-    )
-    runtime.register_agent(
-        "agent",
-        SubAgentConfig(
-            agent=Agent(
-                name="agent",
-                role="You are an agent.",
-                tools=[EchoTool()],
-                model=MockModelClient(),
-            ),
-            failure_strategy=FailureStrategy.TOLERANT,
-        ),
     )
 
     first = runtime.spawn(name="agent", task="first")
@@ -340,25 +257,12 @@ async def test_top_level_spawns_use_distinct_cumulative_runtime_keys():
 
 
 @pytest.mark.asyncio
-async def test_cumulative_runtime_recorded_on_termination():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    runtime = AgentRuntime(
-        tool_registry=reg,
+async def test_cumulative_runtime_recorded_on_termination(tmp_path):
+    runtime = _make_runtime(
+        tmp_path,
+        ["slow_agent"],
         model=_HangingModelClient(),
         default_budget=AgentRuntimeBudget(max_cumulative_runtime_seconds=10.0),
-    )
-    runtime.register_agent(
-        "slow_agent",
-        SubAgentConfig(
-            agent=Agent(
-                name="slow_agent",
-                role="You are slow.",
-                tools=[EchoTool()],
-                model=MockModelClient(),
-            ),
-            failure_strategy=FailureStrategy.TOLERANT,
-        ),
     )
 
     handle = runtime.spawn(name="slow_agent", task="wait")
@@ -370,19 +274,8 @@ async def test_cumulative_runtime_recorded_on_termination():
     assert runtime._cumulative_runtime[handle.handle_id] > 0
 
 
-def test_build_agent_scopes_tools_for_subagent_config():
-    reg = ToolRegistry()
-    reg.register(EchoTool())
-    runtime = AgentRuntime(tool_registry=reg, model=MockModelClient(tool_calls=[]))
-
-    agent = Agent(
-        name="scoped_agent",
-        role="You are scoped.",
-        tools=[EchoTool()],
-        model=MockModelClient(tool_calls=[]),
-    )
-    config = SubAgentConfig(agent=agent, failure_strategy=FailureStrategy.TOLERANT)
-    runtime.register_agent("scoped_agent", config)
+def test_build_agent_scopes_tools_for_skill(tmp_path):
+    runtime = _make_runtime(tmp_path, ["scoped_agent"])
 
     built = runtime._build_agent(runtime._configs["scoped_agent"])
     tool_names = {t.name for t in built.tool_registry.list_tools()}

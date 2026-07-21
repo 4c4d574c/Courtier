@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from courtier.agent.memory.store import FileMemoryStore, MemoryStore
 
-from .cache_store import CacheStore
 from .context_manager import ContextManager, _build_summary
 from .state import Message
 
@@ -76,7 +75,6 @@ class MemoryManager(ContextManager):
         max_context_chars: int | None = None,
         large_output_threshold: int | None = None,
         recent_tool_results: int | None = None,
-        cache_store: CacheStore | None = None,
         artifact_store: Any | None = None,
     ) -> None:
         super().__init__(
@@ -87,7 +85,6 @@ class MemoryManager(ContextManager):
             if large_output_threshold is not None
             else 3_000,
             recent_tool_results=recent_tool_results if recent_tool_results is not None else 5,
-            cache_store=cache_store,
             artifact_store=artifact_store,
         )
         self.session_id = session_id

@@ -190,28 +190,3 @@ class BusinessArtifactProgressGuard:
         except Exception:
             logger.warning("Failed to count active non-debug artifacts", exc_info=True)
             return -1
-
-
-# Backward-compatible module-level functions kept for callers that still use
-# the old imperative API. New code should prefer the Guardrail classes above.
-
-
-def check_explore_loop(
-    state: Any,
-    null_results: list[bool],
-    tool_calls_history: list[tuple[str, str]],
-    consecutive_exploratory: int = 0,
-) -> bool:
-    """Legacy wrapper around ExploreLoopGuard logic.
-
-    Kept for compatibility; new code should register ``ExploreLoopGuard`` in a
-    ``GuardrailSystem``.
-    """
-    guard = ExploreLoopGuard()
-    guard._null_results = null_results
-    guard._tool_history = tool_calls_history
-    guard._consecutive_exploratory = consecutive_exploratory
-
-    import asyncio
-    result = asyncio.run(guard.check(GuardContext(state=state)))
-    return result.action == "block"

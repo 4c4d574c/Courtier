@@ -135,7 +135,7 @@ def _resolve_plugin_entry_path(plugin_dir: Path, entry: str) -> Path:
 
 
 async def _micro_compact_dict_messages(
-    messages: list[dict[str, Any]], cache_store: Any
+    messages: list[dict[str, Any]], artifact_store: Any
 ) -> list[dict[str, Any]]:
     """Compact a list of OpenAI-style message dicts using the host ContextManager.
 
@@ -187,7 +187,7 @@ async def _micro_compact_dict_messages(
         return d
 
     model_messages = tuple(_to_message(m) for m in messages)
-    cm = ContextManager(model=None, cache_store=cache_store, recent_tool_results=5)
+    cm = ContextManager(model=None, artifact_store=artifact_store, recent_tool_results=5)
     compacted = await cm.micro_compact(model_messages)
     return [_to_dict(m) for m in compacted]
 
@@ -293,7 +293,6 @@ class ProcessManager:
         extension_registry: "ExtensionRegistry",
         max_restarts: int = 3,
         health_interval: float = 30.0,
-        cache_store: Any = None,
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
         plugin_lifecycle: PluginLifecycle | None = None,
@@ -302,8 +301,7 @@ class ProcessManager:
         self._extension_registry = extension_registry
         self._max_restarts = max_restarts
         self._health_interval = health_interval
-        # ArtifactStore now subsumes CacheStore — prefer artifact_store.
-        self._cache_store = artifact_store or cache_store
+        self._artifact_store = artifact_store
         self._artifact_store_registry = artifact_store_registry
         self._processes: dict[str, PluginProcess] = {}
 
@@ -561,7 +559,7 @@ class ProcessManager:
         manifest = proc.manifest
         perms = set(manifest.dependencies.permissions or [])
         host_services = set(manifest.dependencies.host_services or [])
-        cache_store = self._cache_store
+        artifact_store = self._artifact_store
         artifact_registry = self._artifact_store_registry
 
         def _deny(code: int, message: str) -> dict[str, Any]:
@@ -575,9 +573,9 @@ class ProcessManager:
             if method == METHOD_CACHE_PERSIST:
                 if "cache" not in host_services or "write:cache" not in perms:
                     return _deny(INVALID_PARAMS, "Missing write:cache permission")
-                if cache_store is None:
+                if artifact_store is None:
                     return _deny(INTERNAL_ERROR, "Host cache store not available")
-                result = await cache_store.persist(
+                result = await artifact_store.persist(
                     params.get("data"),
                     params.get("tool_name", "plugin_tool"),
                     force=bool(params.get("force", False)),
@@ -592,16 +590,16 @@ class ProcessManager:
             if method == METHOD_CACHE_LOAD:
                 if "cache" not in host_services or "read:cache" not in perms:
                     return _deny(INVALID_PARAMS, "Missing read:cache permission")
-                if cache_store is None:
+                if artifact_store is None:
                     return _deny(INTERNAL_ERROR, "Host cache store not available")
-                return cache_store.load(params.get("ref_id"))
+                return artifact_store.load(params.get("ref_id"))
 
             if method == METHOD_CACHE_RESOLVE:
                 if "cache" not in host_services or "read:cache" not in perms:
                     return _deny(INVALID_PARAMS, "Missing read:cache permission")
-                if cache_store is None:
+                if artifact_store is None:
                     return _deny(INTERNAL_ERROR, "Host cache store not available")
-                return cache_store.resolve_refs(params.get("kwargs", {}))
+                return artifact_store.resolve_refs(params.get("kwargs", {}))
 
             if method == METHOD_CACHE_MICRO_COMPACT:
                 if "cache" not in host_services:
@@ -611,10 +609,10 @@ class ProcessManager:
                         INVALID_PARAMS,
                         "Missing read:cache or write:cache permission",
                     )
-                if cache_store is None:
+                if artifact_store is None:
                     return _deny(INTERNAL_ERROR, "Host cache store not available")
                 messages = params.get("messages", [])
-                compacted = await _micro_compact_dict_messages(messages, cache_store)
+                compacted = await _micro_compact_dict_messages(messages, artifact_store)
                 return compacted
 
             if method == METHOD_ARTIFACT_STORE_PUT:

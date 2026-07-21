@@ -1,5 +1,6 @@
 ---
 name: plagiarism
+display_name: 查重检测
 description: 文档查重检测
 tools:
   - search_documents

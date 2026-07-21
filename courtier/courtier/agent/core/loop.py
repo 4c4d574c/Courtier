@@ -223,6 +223,14 @@ async def _run_think_phase(
         },
     )
 
+    # Pre-stream placeholder step: announce the thinking phase BEFORE the
+    # model call so streaming reasoning tokens have a step to land in from
+    # the very first token (mirrors the legacy pre-stream
+    # on_step("think", "text_response") in think_phase).  Without this the
+    # frontend has no step during the first think turn and its thoughts only
+    # become visible when a later event creates one.
+    await _publish("think.text_response", {})
+
     # THINK phase with OTel LLM span
     with tracer.llm_span(
         model=model.model_name,
@@ -308,7 +316,10 @@ async def _run_think_phase(
         current_state = await state_machine.transition_async(
             current_state, "completed", "text_response"
         )
-        await _publish("think.text_response", {})
+        # The pre-stream placeholder already announced streamed turns; only
+        # non-streamed text responses need a post-completion announcement.
+        if not think.tokens_streamed:
+            await _publish("think.text_response", {})
 
     # LLM metrics — record the call regardless of whether the provider
     # returned usage; only token counts depend on usage being present.
@@ -324,6 +335,15 @@ async def _run_think_phase(
             model=think.llm_request.model or "unknown",
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
+        )
+        # Structured usage event — replaces the legacy on_step("usage",
+        # "prompt,completion") string protocol.
+        await _publish(
+            "llm.usage",
+            {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            },
         )
 
     # Model error: write the audit turn here; all remaining run finalization
@@ -737,7 +757,7 @@ async def agent_loop(
     #
     # Note: state.transition events are now published by
     # ``AgentStateMachine.transition_async()``; this wrapper only handles
-    # legacy callback invocation and the llm.usage event.
+    # legacy callback invocation.
     async def _safe_call(callback: Callable[..., Awaitable[None]], *args: Any) -> None:
         """Invoke a legacy callback, isolating its failures from the loop.
 
@@ -753,21 +773,6 @@ async def agent_loop(
             )
 
     async def _on_step(event: str, detail: str) -> None:
-        if event == "usage":
-            try:
-                tin_str, tout_str = detail.split(",", 1)
-                prompt_tokens = int(tin_str.strip())
-                completion_tokens = int(tout_str.strip())
-            except (ValueError, TypeError):
-                logger.warning("Malformed usage detail: %r", detail)
-                return
-            await _publish(
-                "llm.usage",
-                {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                },
-            )
         if on_step is not None:
             await _safe_call(on_step, event, detail)
 

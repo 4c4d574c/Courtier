@@ -35,6 +35,7 @@ class SkillConfig:
     tags: tuple[str, ...]
     enabled: bool
     default_mode: str = ""  # "subagent" | "inline" — empty means no default; LLM must choose
+    display_name: str = ""  # 中文展示名，如"格式审核"
     raw_frontmatter: dict[str, Any] = field(default_factory=dict)
 
     # 协议字段

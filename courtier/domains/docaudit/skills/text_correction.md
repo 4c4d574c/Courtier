@@ -1,5 +1,6 @@
 ---
 name: text_correction
+display_name: 文本纠错
 description: 中文文本纠错 — 拼写、语法、全角半角、标点符号
 output_artifact_type: text_correction_result
 type: skill

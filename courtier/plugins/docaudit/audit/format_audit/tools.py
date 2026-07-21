@@ -13,6 +13,7 @@ class FormatAuditTool:
     """Validate document format compliance."""
 
     name: str = "check_format"
+    display_name: str | None = "格式审查"
     description: str = (
         "Check a parsed document's formatting against GB/T 9704-2012 rules. "
         "Takes a parsed document dict (from parse_document tool output) and returns "

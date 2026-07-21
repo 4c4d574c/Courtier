@@ -259,7 +259,6 @@ class ToolRegistry:
         self,
         name: str,
         context_manager: Any | None = None,
-        cache_store: Any | None = None,
         artifact_store: ArtifactStore | None = None,
         on_tool_start: Callable[[str], Any] | None = None,
         on_tool_progress: Callable[[str, ToolProgress], Any] | None = None,
@@ -268,10 +267,9 @@ class ToolRegistry:
     ) -> ExecutionResult:
         """Execute a tool by name with the given arguments.
 
-        If cache_store is provided:
+        If artifact_store is provided:
           - Resolve $ref references in kwargs before execution (type-adaptive).
           - Persist successful results after execution.
-        If artifact_store is provided:
           - Auto-bind contract fields from typed artifacts.
           - Register tool output as typed artifact via output_artifact_type.
         """
@@ -317,9 +315,8 @@ class ToolRegistry:
                 artifact_bindings = binding_result.data["artifact_bindings"]
 
         # Resolve refs before execution (type-adaptive).
-        # Prefer artifact_store (which now subsumes cache_store functionality).
         skip_resolve = getattr(tool, "skip_ref_resolution", False)
-        store = artifact_store or cache_store
+        store = artifact_store
         if store is not None and not skip_resolve:
             param_props = tool.parameters.get("properties", {})
             kwargs = store.resolve_refs(kwargs, param_props)
@@ -335,7 +332,7 @@ class ToolRegistry:
                         lambda t: t.exception() if not t.cancelled() else None
                     )
 
-        result = await tool.execute(
+        raw_result = await tool.execute(
             on_progress=on_progress,
             context_manager=context_manager,
             artifact_store=artifact_store,
@@ -343,32 +340,31 @@ class ToolRegistry:
             **kwargs,
         )
 
-        # Some tools (e.g. the subagent adapter) already return the unified
-        # ExecutionResult.  Legacy tools return ToolResult.
-        # Narrow the union once to avoid attribute-access confusion downstream.
-        exec_result: ExecutionResult | None = (
-            result if isinstance(result, ExecutionResult) else None
+        # Preserve the original data before persist replaces it with a $ref marker.
+        original_data = (
+            raw_result.raw_data
+            if isinstance(raw_result, ExecutionResult)
+            else raw_result.data
         )
-        tool_result: ToolResult | None = (
-            result if not isinstance(result, ExecutionResult) else None
-        )
+        output_data = original_data
 
-        # Preserve the original data before cache_store replaces it with a $ref marker.
-        original_data = exec_result.raw_data if exec_result is not None else tool_result.data  # type: ignore[union-attr]
-
-        # Persist successful results (unless tool opts out).
+        # Persist successful legacy ToolResult payloads (unless the tool opts out).
+        # ExecutionResult-returning tools manage their own persistence upstream.
         # Use artifact_store for persistence — it now handles both disk I/O
-        # (former CacheStore) and typed artifact registration.
+        # (former CacheStore) and typed artifact registration.  When a payload
+        # is persisted here, the ref is recorded in metadata as
+        # ``persisted_ref_id`` so the summarizer reuses it instead of writing
+        # the same content to disk a second time under a new ref_id.
         skip = getattr(tool, "skip_persist", False)
-        persist_store = artifact_store or cache_store
+        persist_store = artifact_store
         if (
-            tool_result is not None
+            not isinstance(raw_result, ExecutionResult)
             and persist_store is not None
-            and tool_result.success
-            and tool_result.data is not None
+            and raw_result.success
+            and raw_result.data is not None
             and not skip
         ):
-            tr = tool_result  # narrower type for static analysis
+            tr = raw_result  # narrowed to ToolResult for static analysis
             if isinstance(tr.data, dict) and tr.data.get("__persisted_output__"):
                 pass
             else:
@@ -382,21 +378,39 @@ class ToolRegistry:
                     source_query=source_query,
                     label=label,
                 )
-                tool_result = tr.model_copy(update={"data": persist_result.data})
-            result = tool_result
+                output_data = persist_result.data
+                if persist_result.persisted:
+                    raw_result = tr.model_copy(
+                        update={
+                            "metadata": {
+                                **tr.metadata,
+                                "persisted_ref_id": persist_result.ref_id,
+                            }
+                        }
+                    )
 
         metadata_updates: dict[str, Any] = {}
         if artifact_bindings:
             metadata_updates["artifact_bindings"] = artifact_bindings
 
         if metadata_updates:
-            if exec_result is not None:
+            if isinstance(raw_result, ExecutionResult):
                 from dataclasses import replace
-                result = replace(exec_result, metadata={**exec_result.metadata, **metadata_updates})
-            elif tool_result is not None:
-                result = tool_result.model_copy(
-                    update={"metadata": {**tool_result.metadata, **metadata_updates}}
+                raw_result = replace(
+                    raw_result, metadata={**raw_result.metadata, **metadata_updates}
                 )
+            else:
+                raw_result = raw_result.model_copy(
+                    update={"metadata": {**raw_result.metadata, **metadata_updates}}
+                )
+
+        # Single-track normalization: ``_to_execution_result`` is the one
+        # conversion point for legacy ToolResults; everything below handles
+        # only ExecutionResult.
+        result = await self._to_execution_result(
+            name, raw_result, original_data=original_data,
+            skip_summarize=getattr(tool, "skip_summarize", False),
+        )
 
         # Register tool output as typed artifact.
         # ArtifactStore now handles both disk persistence AND typed registration
@@ -410,26 +424,24 @@ class ToolRegistry:
                 if not skip_artifact_registration:
                     output_artifact_type = getattr(tool, "output_artifact_type", None)
                     if output_artifact_type:
-                        self._register_output_artifact_simple(
+                        self._register_output_artifact(
                             tool_name=name, artifact_type=output_artifact_type,
-                            result=result, artifact_store=artifact_store,
+                            data=output_data, artifact_store=artifact_store,
                         )
                     else:
                         # Auto-register with derived type — no tool left invisible.
                         derived_type = self._derive_artifact_type(tool_name=name)
-                        self._auto_register_artifact(
+                        self._register_output_artifact(
                             tool_name=name, artifact_type=derived_type,
-                            result=result, artifact_store=artifact_store,
+                            data=output_data, artifact_store=artifact_store,
+                            debug_only=derived_type == "core.cached_output",
                         )
             except Exception:
                 logger.warning(
                     "Failed to register output artifact for %s", name, exc_info=True,
                 )
 
-        return await self._to_execution_result(
-            name, result, original_data=original_data,
-            skip_summarize=getattr(tool, "skip_summarize", False),
-        )
+        return result
 
     def _check_runtime_policy(
         self, name: str, policy: RuntimePolicy, kwargs: dict[str, Any] | None = None
@@ -516,13 +528,17 @@ class ToolRegistry:
             )
             return None
 
-    def _register_output_artifact_simple(
+    def _register_output_artifact(
         self, *, tool_name: str, artifact_type: str,
-        result: ToolResult | ExecutionResult, artifact_store: ArtifactStore,
+        data: Any, artifact_store: ArtifactStore,
+        debug_only: bool = False,
     ) -> None:
-        if not result.success:
-            return
-        data = result.raw_data if isinstance(result, ExecutionResult) else result.data
+        """Register a tool output as an artifact via ``register_cached_ref``.
+
+        Single path for both tools that declare ``output_artifact_type`` and
+        the auto-registration fallback with a derived type; the fallback
+        passes ``debug_only=True`` for the generic ``core.cached_output`` type.
+        """
         if data is None:
             return
         # Design note: $ref:<tool>:latest intentionally overwrites
@@ -535,11 +551,13 @@ class ToolRegistry:
             data = self._resolve_persisted_data(data)
             if data is None:
                 return
+        # Artifacts are projection-allowed so downstream tools
+        # can discover them via list_artifacts.
         artifact_store.register_cached_ref(
             ref_id=ref_id, artifact_type=artifact_type,
             created_by=tool_name, data=data,
             role="intermediate", subject="unknown",
-            projection_allowed=True, debug_only=False,
+            projection_allowed=True, debug_only=debug_only,
         )
         emit_event("artifact_created", {
             "artifact_type": artifact_type,
@@ -564,41 +582,6 @@ class ToolRegistry:
         every tool output is at least visible in ``list_artifacts``.
         """
         return cls._TOOL_ARTIFACT_TYPE.get(tool_name, "core.cached_output")
-
-    def _auto_register_artifact(
-        self, *, tool_name: str, artifact_type: str,
-        result: ToolResult | ExecutionResult, artifact_store: ArtifactStore,
-    ) -> None:
-        """Register a tool output as an artifact without requiring ``output_artifact_type``.
-
-        This is the fallback path for tools that never declared an artifact type.
-        It uses the same ``register_cached_ref`` mechanism as the explicit path.
-        """
-        if not result.success:
-            return
-        data = result.raw_data if isinstance(result, ExecutionResult) else result.data
-        if data is None:
-            return
-        ref_id = f"$ref:{tool_name}:latest"
-        if isinstance(data, dict) and data.get("__persisted_output__"):
-            ref_id = data.get("ref_id", ref_id)
-            data = self._resolve_persisted_data(data)
-            if data is None:
-                return
-        # Fallback artifacts are projection-allowed so downstream tools
-        # can discover them via list_artifacts.
-        is_fallback = artifact_type == "core.cached_output"
-        artifact_store.register_cached_ref(
-            ref_id=ref_id, artifact_type=artifact_type,
-            created_by=tool_name, data=data,
-            role="intermediate", subject="unknown",
-            projection_allowed=True,
-            debug_only=is_fallback,
-        )
-        emit_event("artifact_created", {
-            "artifact_type": artifact_type,
-            "created_by": tool_name, "ref_id": ref_id,
-        })
 
     def configure_result_handling(
         self,
@@ -628,8 +611,8 @@ class ToolRegistry:
     ) -> ExecutionResult:
         """Convert a legacy ToolResult (or pass through an existing ExecutionResult).
 
-        *original_data* is the data before cache_store replaced it with a $ref
-        marker; it is used for summarization so the parent agent sees content
+        *original_data* is the data before the artifact store replaced it with a
+        $ref marker; it is used for summarization so the parent agent sees content
         rather than a reference handle.
 
         When *skip_summarize* is ``True`` the summarizer is bypassed entirely

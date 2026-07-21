@@ -25,6 +25,8 @@ class SubAgentStreamEvent:
     tool_summary: str | None = None
     task: str | None = None
     result: Any = None
+    display_name: str | None = None
+    """Chinese display name for the sub-agent (e.g. "格式审核"), if configured."""
     parent_subagent_name: str | None = None
     """Name of the immediate parent sub-agent that spawned this one.
 

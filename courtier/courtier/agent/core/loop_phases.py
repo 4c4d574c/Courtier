@@ -156,7 +156,7 @@ async def think_phase(
     # Log reasoning/thinking content to structured events log so the
     # streaming thinking process is captured in structured_events.jsonl.
     if response.reasoning_content:
-        logger.info(
+        logger.debug(
             "Turn %d reasoning (%d chars): %s",
             turn_index,
             len(response.reasoning_content),
@@ -164,14 +164,9 @@ async def think_phase(
             + ("..." if len(response.reasoning_content) > 600 else ""),
         )
 
-    # Fire usage event if model returned token counts.  The legacy
-    # "prompt,completion" string protocol is kept until the event-bus
-    # migration removes the callback path; .get() guards against providers
-    # that omit one of the keys.
-    if response.usage and on_step:
-        prompt_tokens = response.usage.get("prompt_tokens", 0)
-        completion_tokens = response.usage.get("completion_tokens", 0)
-        await on_step("usage", f"{prompt_tokens},{completion_tokens}")
+    # Token usage is published as a structured ``llm.usage`` event by
+    # ``_run_think_phase`` (loop.py); the legacy "prompt,completion" string
+    # protocol was removed with the event-bus migration.
 
     if on_step:
         if response.tool_calls:

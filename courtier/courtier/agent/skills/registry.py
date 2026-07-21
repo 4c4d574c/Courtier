@@ -139,6 +139,7 @@ class SkillRegistry:
             tags=tags,
             enabled=enabled,
             default_mode=default_mode,
+            display_name=meta.get("display_name", ""),
             raw_frontmatter=meta,
             type=type_,
             version=version,

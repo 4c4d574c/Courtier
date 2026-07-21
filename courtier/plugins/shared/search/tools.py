@@ -175,6 +175,7 @@ class SearchDocumentsTool:
     """
 
     name: str = "search_documents"
+    display_name: str | None = "搜索文档"
     description: str = (
         "在已索引的文档块中搜索内容。只需传入搜索关键词，系统会自动构建查询并格式化结果。"
         '用引号包裹的词会作为精确短语匹配（如 "安全生产" 匹配完整短语），'

@@ -159,7 +159,7 @@ async def handle_sessions(
                     settings,
                     plugin_system=request.app.state.plugin_system,
                     tool_registry=request.app.state.tool_registry,
-                    cache_store=request.app.state.cache_store,
+                    artifact_store=request.app.state.artifact_store,
                     skills_dir=_resolve_skills_dir(request.app.state.courtier_config),
                     prompt_engine=request.app.state.prompt_engine,
                 ),
@@ -172,7 +172,7 @@ async def handle_sessions(
             agent, context_manager, model_name = await _build_agent_or_500(
                 lambda: build_chat_agent(
                     settings,
-                    cache_store=request.app.state.cache_store,
+                    artifact_store=request.app.state.artifact_store,
                     prompt_engine=request.app.state.prompt_engine,
                 ),
                 session_id,
@@ -207,7 +207,7 @@ async def handle_sessions(
                     settings,
                     plugin_system=request.app.state.plugin_system,
                     tool_registry=request.app.state.tool_registry,
-                    cache_store=request.app.state.cache_store,
+                    artifact_store=request.app.state.artifact_store,
                     skills_dir=_resolve_skills_dir(request.app.state.courtier_config),
                     prompt_engine=request.app.state.prompt_engine,
                 ),
@@ -221,7 +221,7 @@ async def handle_sessions(
             agent, context_manager, model_name = await _build_agent_or_500(
                 lambda: build_chat_agent(
                     settings,
-                    cache_store=request.app.state.cache_store,
+                    artifact_store=request.app.state.artifact_store,
                     prompt_engine=request.app.state.prompt_engine,
                 ),
                 session_id,

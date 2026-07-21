@@ -16,7 +16,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .cache_store import CacheStore
 from .state import Message
 
 if TYPE_CHECKING:
@@ -59,7 +58,6 @@ class ContextManager:
         max_context_chars: int = MAX_CONTEXT_CHARS,
         large_output_threshold: int = LARGE_OUTPUT_THRESHOLD,
         recent_tool_results: int = RECENT_TOOL_RESULTS,
-        cache_store: CacheStore | None = None,
         artifact_store: Any | None = None,
     ) -> None:
         self._model = model
@@ -69,14 +67,17 @@ class ContextManager:
         self.large_output_threshold = large_output_threshold
         self.recent_tool_results = recent_tool_results
         self.state = CompactState()
-        # Unified store: prefer ArtifactStore (which now subsumes CacheStore
-        # functionality) over legacy CacheStore.  The duck-typing works because
+        # Unified store: everything goes through an ArtifactStore (which
+        # subsumes the legacy CacheStore).  Duck-typing works because
         # ArtifactStore provides persist, resolve_refs, ref_map, and set_ref.
-        store = artifact_store or cache_store
-        self._cache = store or CacheStore(
-            cache_dir=str(self._cache_dir),
-            large_output_threshold=large_output_threshold,
-        )
+        if artifact_store is None:
+            from ..artifacts.store import ArtifactStore
+
+            artifact_store = ArtifactStore(
+                cache_dir=str(self._cache_dir),
+                large_output_threshold=large_output_threshold,
+            )
+        self._cache = artifact_store
 
     # -- Layer 1: Persist large outputs ---------------------------------------
 
@@ -201,7 +202,7 @@ class ContextManager:
             return None
         try:
             payload = json.loads(msg.content)
-            data = payload.get("data", {})
+            data = payload.get("raw_data", {})
             if isinstance(data, dict) and data.get("__persisted_output__") is True:
                 return data.get("ref_id")
         except (json.JSONDecodeError, TypeError):
@@ -211,15 +212,15 @@ class ContextManager:
     async def _persist_tool_message(self, msg: Message, tool_name: str) -> str | None:
         """Persist a non-persisted tool message to disk and return a new ref_id.
 
-        Extracts the inner data from the tool result envelope
-        ({"success": ..., "data": ..., "error": ...}) and persists it.
+        Extracts the inner payload from the tool result envelope
+        ({"success": ..., "raw_data": ..., "error": ...}) and persists it.
         Returns None if the message has no data to persist.
         """
         if not msg.content:
             return None
         try:
             payload = json.loads(msg.content)
-            data = payload.get("data")
+            data = payload.get("raw_data")
             if data is None:
                 return None
         except (json.JSONDecodeError, TypeError):
@@ -409,8 +410,8 @@ class ContextManager:
         # Heuristic: CJK ≈ 1.5 chars/token, ASCII ≈ 4 chars/token
         return int(cjk * 0.65 + other * 0.25)
 
-    def get_cache_store(self) -> dict[str, str]:
-        """Return the cached output ref_id -> filepath mapping."""
+    def get_ref_map(self) -> dict[str, str]:
+        """Return the persisted output ref_id -> filepath mapping."""
         return dict(self._cache.ref_map)
 
     def get_ref_instructions(self) -> str:

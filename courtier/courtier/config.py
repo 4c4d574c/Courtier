@@ -57,7 +57,6 @@ class EventBusConfig(BaseModel):
     """In-process event bus configuration."""
 
     enabled: bool = True
-    legacy_callbacks: bool = False
     backpressure: Literal["drop_oldest", "drop_newest", "block"] = "drop_oldest"
     default_maxsize: int = 1000
 
@@ -145,6 +144,11 @@ class Settings(BaseSettings):
     )
     llm_temperature: float = Field(default=0.0, alias="llm_temperature")
     llm_max_tokens: int = Field(default=4096, alias="llm_max_tokens")
+    llm_timeout: float = Field(
+        default=180.0,
+        alias="llm_timeout",
+        description="LLM 请求超时时间（秒，环境变量: LLM_TIMEOUT）",
+    )
     llm_frequency_penalty: float = Field(
         default=0.0,
         alias="llm_frequency_penalty",

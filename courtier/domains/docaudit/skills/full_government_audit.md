@@ -1,5 +1,6 @@
 ---
 name: full_government_audit
+display_name: 完整审核
 description: 政府公文完整审核流程
 skills:
   - format_audit
@@ -21,10 +22,7 @@ retry_policy: on_error
 - 文件已上传且需要全面检查
 
 # 执行流程
-
-**关键：并行调用子 Skill 以提升效率。** 推荐使用 mode="subagent" 让各子审核独立并行运行；如果任务简单，也可使用 mode="inline"。
-
-1. **并行启动所有子审核**：
+1. **子审核**：
    - `format_audit(task="执行格式审核", file_path=...)`
    - `content_audit(task="执行内容合规审核", file_path=...)`
    - `plagiarism(task="执行文档查重", file_path=...)`

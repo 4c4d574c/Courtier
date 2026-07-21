@@ -265,16 +265,20 @@ class ModelResponse:
 
 class ModelClient(Protocol):
     model_name: str
-    async def generate(messages, tools, temperature, max_tokens) -> ModelResponse: ...
+    async def generate(messages, tools, **kwargs) -> ModelResponse: ...
+    async def generate_stream_full(messages, tools, on_token, on_content_token) -> ModelResponse: ...
 
-class OpenAIModelClient(ModelClient):
-    """OpenAI 兼容 API 客户端（支持通义千问等）。"""
-    
+class BackendModelClient(ModelClient):
+    """将 ModelBackend 适配为 ModelClient 接口的适配器。"""
+
 class MockModelClient(ModelClient):
     """测试用 Mock 客户端。"""
 ```
 
-`OpenAIModelClient` 通过 `AsyncOpenAI` SDK 调用 LLM，支持：
+生产链路（`api/services/agent_service.py` 的 `build_model_client`）构造
+`core/backends/openai_backend.py` 的 `OpenAIModelBackend`（基于 `AsyncOpenAI` SDK），
+配置了回退后端（`agent_runtime.model.fallback_backends`）时经 `ModelRouter` 包装，
+最外层再包 `BackendModelClient`，使 Agent 层接口不变。后端支持：
 - 流式响应（streaming token delivery）
 - 推理内容分离（`reasoning_content` 字段）
 - 工具调用（function calling）

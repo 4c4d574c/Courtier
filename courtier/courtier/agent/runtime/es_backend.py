@@ -5,15 +5,68 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 from courtier.config import Settings
 from courtier.es.client import get_es_client
 
-from .store import ResultBackend, StoredResult
-
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class StoredResult:
+    """Result of a store operation."""
+
+    result_id: str
+    backend: str
+    size_bytes: int
+    preview: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for metadata."""
+        return {
+            "result_id": self.result_id,
+            "backend": self.backend,
+            "size_bytes": self.size_bytes,
+            "preview": self.preview,
+        }
+
+
+class ResultBackend(ABC):
+    """Abstract backend for persisting and retrieving large results."""
+
+    name: str = "abstract"
+
+    @abstractmethod
+    async def store(
+        self, result_id: str, data: Any, metadata: dict[str, Any] | None = None
+    ) -> StoredResult:
+        """Persist data and return a stored result descriptor."""
+        ...
+
+    @abstractmethod
+    async def read(
+        self,
+        result_id: str,
+        *,
+        query: str | None = None,
+        chunk_index: int = 0,
+        max_tokens: int = 2000,
+    ) -> dict[str, Any]:
+        """Read a persisted result.
+
+        Returns a dict with at least ``data`` (or ``error``) and ``metadata``.
+        If ``query`` is provided, the backend may return matching excerpts.
+        """
+        ...
+
+    @abstractmethod
+    async def exists(self, result_id: str) -> bool:
+        """Return True if the result exists in this backend."""
+        ...
 
 RESULT_INDEX_MAPPING = {
     "mappings": {

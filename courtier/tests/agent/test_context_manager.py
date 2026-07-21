@@ -91,8 +91,8 @@ class TestLayer1PersistLargeOutput:
 
     async def test_files_tracked_in_cache(self, mgr):
         data = {"text": "x" * 1000}
-        await mgr.persist_large_output("tool_a", data)
-        assert len(mgr._cache.recent_files) == 1
+        result = await mgr.persist_large_output("tool_a", data)
+        assert mgr._cache.ref_map[result["ref_id"]] == result["file"]
 
     async def test_file_on_disk_matches_data(self, mgr):
 
@@ -125,16 +125,16 @@ class TestLayer2MicroCompact:
             Message(role="system", content="System"),
             Message(role="user", content="Task"),
             Message(
-                role="tool", content='{"data":"old1"}', tool_call_id="t1", name="tool1"
+                role="tool", content='{"raw_data":"old1"}', tool_call_id="t1", name="tool1"
             ),
             Message(
-                role="tool", content='{"data":"old2"}', tool_call_id="t2", name="tool2"
+                role="tool", content='{"raw_data":"old2"}', tool_call_id="t2", name="tool2"
             ),
             Message(
-                role="tool", content='{"data":"new1"}', tool_call_id="t3", name="tool3"
+                role="tool", content='{"raw_data":"new1"}', tool_call_id="t3", name="tool3"
             ),
             Message(
-                role="tool", content='{"data":"new2"}', tool_call_id="t4", name="tool4"
+                role="tool", content='{"raw_data":"new2"}', tool_call_id="t4", name="tool4"
             ),
         )
         result = await mgr.micro_compact(msgs)
@@ -151,13 +151,13 @@ class TestLayer2MicroCompact:
             Message(role="system", content="System"),
             Message(role="user", content="Task"),
             Message(
-                role="tool", content='{"data":"1"}', tool_call_id="t1", name="tool1"
+                role="tool", content='{"raw_data":"1"}', tool_call_id="t1", name="tool1"
             ),
             Message(
-                role="tool", content='{"data":"2"}', tool_call_id="t2", name="tool2"
+                role="tool", content='{"raw_data":"2"}', tool_call_id="t2", name="tool2"
             ),
             Message(
-                role="tool", content='{"data":"3"}', tool_call_id="t3", name="tool3"
+                role="tool", content='{"raw_data":"3"}', tool_call_id="t3", name="tool3"
             ),
         )
         result = await mgr.micro_compact(msgs)
@@ -225,7 +225,7 @@ class TestCompactState:
         assert state.compact_count == 0
 
     def test_cache_ref_map_tracks_ids(self, mgr):
-        mgr._cache.ref_map["$ref:parse_document:1"] = ".agent_cache/parse_document_123.json"
+        mgr._cache.set_ref("$ref:parse_document:1", ".agent_cache/parse_document_123.json")
         assert "$ref:parse_document:1" in mgr._cache.ref_map
         assert (
             mgr._cache.ref_map["$ref:parse_document:1"]

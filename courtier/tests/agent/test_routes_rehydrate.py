@@ -18,7 +18,7 @@ def test_rehydrate_registers_artifact_and_sets_ref(artifact_store, tmp_path):
     filepath.write_text('{"user_id": "u1", "doc_id": "abc"}', encoding="utf-8")
 
     msg_content = {
-        "data": {
+        "raw_data": {
             "__persisted_output__": True,
             "ref_id": "$ref:parse_document:1",
             "file": str(filepath),
@@ -47,7 +47,7 @@ def test_rehydrate_skips_unknown_tool(tmp_path):
     """Messages without __persisted_output__ should be skipped gracefully."""
     artifact_store = ArtifactStore(cache_dir=str(tmp_path))
 
-    msg_content = {"data": {"not_persisted": True}}
+    msg_content = {"raw_data": {"not_persisted": True}}
     from courtier.agent.core.state import Message
     messages = (Message(role="tool", name="some_tool", content=json.dumps(msg_content)),)
 

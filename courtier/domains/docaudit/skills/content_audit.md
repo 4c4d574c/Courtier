@@ -1,5 +1,6 @@
 ---
 name: content_audit
+display_name: 内容审核
 description: 政务文档内容合规审核
 output_artifact_type: content_audit_result
 type: skill

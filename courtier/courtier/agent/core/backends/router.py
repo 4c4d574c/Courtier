@@ -78,6 +78,13 @@ class ModelRouter(ModelBackend):
         self._session_id = session_id
         self._agent_name = agent_name
 
+    async def close(self) -> None:
+        """Close all underlying backends that expose a ``close()`` method."""
+        for backend in self._backends:
+            close = getattr(backend, "close", None)
+            if close is not None:
+                await close()
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
         ordered = self._ordered_backends(request)
         last_error: Exception | None = None

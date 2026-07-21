@@ -14,6 +14,7 @@ class ContentAuditTool:
     """Validate document body content against compliance rules."""
 
     name: str = "check_content"
+    display_name: str | None = "内容审查"
     description: str = (
         "Check document body text against content compliance rules for a given "
         "document type. Returns a list of violations with rule IDs, messages, "

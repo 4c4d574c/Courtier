@@ -316,6 +316,11 @@ class TestAuditLoggerIntegration:
             async def generate(self, messages, tools=None, **kwargs):
                 raise RuntimeError("Connection refused")
 
+            async def generate_stream_full(
+                self, messages, tools=None, on_token=None, on_content_token=None, **kwargs
+            ):
+                return await self.generate(messages, tools=tools, **kwargs)
+
         state = AgentState.initial(task="test")
         final = await agent_loop(
             state=state,

@@ -105,7 +105,7 @@ class TestToolRegistryWithCacheStore:
 
         # Pass $ref as value
         result = await registry.execute(
-            "fake", cache_store=store,
+            "fake", artifact_store=store,
             value="$ref:parse_document:1",
         )
         assert result.success
@@ -166,7 +166,7 @@ class TestToolRegistryWithCacheStore:
         registry.register(StringParamTool())
 
         result = await registry.execute(
-            "string_tool", cache_store=store,
+            "string_tool", artifact_store=store,
             content="$ref:run_shell:1",
         )
         assert result.success
@@ -203,7 +203,7 @@ class TestToolRegistryWithCacheStore:
         registry.register(ReadCacheLikeTool())
 
         result = await registry.execute(
-            "read_cache", cache_store=store,
+            "read_cache", artifact_store=store,
             ref_id="$ref:parse_document:1",
         )
         assert result.success
@@ -241,7 +241,7 @@ class TestToolRegistryWithCacheStore:
         registry.register(NormalTool())
 
         result = await registry.execute(
-            "normal_tool", cache_store=store,
+            "normal_tool", artifact_store=store,
             ref_id="$ref:parse_document:1",
         )
         assert result.success
@@ -382,6 +382,85 @@ class TestAutoRegisterArtifacts:
         # No artifact should be registered
         artifacts = list(store.list_all())
         assert len(artifacts) == 0
+
+
+@pytest.mark.asyncio
+class TestLargeResultPersistedOnce:
+    """A large tool result must be persisted exactly once.
+
+    The registry persists big payloads and records ``persisted_ref_id`` in the
+    result metadata; the summarizer reuses that ref instead of writing the same
+    content to disk a second time under a new ref_id.
+    """
+
+    @pytest.mark.asyncio
+    async def test_large_result_single_persist_shared_ref(self, tmp_path):
+        from courtier.agent.artifacts.store import ArtifactStore
+        from courtier.agent.runtime.summarizer import ResultSummarizer
+
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        registry = ToolRegistry()
+        registry.configure_result_handling(
+            summarizer=ResultSummarizer(artifact_store=store)
+        )
+
+        # > large_output_threshold (3000) so the registry persists, and
+        # > summary_inline_max_chars (6000) so the summarizer would persist too.
+        big_text = "x" * 7000
+
+        class BigTool:
+            name: str = "big_tool"
+            description: str = "Returns a large payload"
+            parameters: dict = {"type": "object", "properties": {}}
+
+            async def execute(self, **kwargs):
+                return ToolResult(success=True, data=big_text)
+
+        registry.register(BigTool())
+
+        result = await registry.execute("big_tool", artifact_store=store)
+
+        assert result.success
+        assert result.result_id == "$ref:big_tool:1"
+        # Exactly one ref/file holds the payload — no second persist.
+        assert list(store.ref_map) == ["$ref:big_tool:1"]
+        assert store.load("$ref:big_tool:1") == big_text
+        assert result.metadata["persisted_ref_id"] == result.result_id
+        assert result.metadata["stored"]["result_id"] == result.result_id
+
+    @pytest.mark.asyncio
+    async def test_summarizer_persists_when_no_registry_ref(self, tmp_path):
+        """Without a registry-level persist (no persist store), the summarizer
+        keeps its existing behavior and persists large results itself."""
+        from courtier.agent.artifacts.store import ArtifactStore
+        from courtier.agent.runtime.summarizer import ResultSummarizer
+
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        registry = ToolRegistry()
+        registry.configure_result_handling(
+            summarizer=ResultSummarizer(artifact_store=store)
+        )
+
+        big_text = "y" * 7000
+
+        class BigTool:
+            name: str = "big_tool"
+            description: str = "Returns a large payload"
+            parameters: dict = {"type": "object", "properties": {}}
+
+            async def execute(self, **kwargs):
+                return ToolResult(success=True, data=big_text)
+
+        registry.register(BigTool())
+
+        # No artifact_store/cache_store → registry does not persist; the
+        # summarizer must persist on its own.
+        result = await registry.execute("big_tool")
+
+        assert result.success
+        assert result.result_id == "$ref:big_tool:1"
+        assert list(store.ref_map) == ["$ref:big_tool:1"]
+        assert "persisted_ref_id" not in result.metadata
 
 
 class _VersionedTool:

@@ -5,13 +5,17 @@ from courtier.agent.telemetry.metrics import (
     AGENT_REQUESTS_TOTAL,
     LLM_CALLS_TOTAL,
     LLM_TOKEN_USAGE_TOTAL,
+    MODEL_STREAM_TOOL_CALLS_LOST_TOTAL,
+    MODEL_TOOL_ARG_REPAIR_TOTAL,
     SUBAGENT_DISPATCH_TOTAL,
     TOOL_EXECUTIONS_TOTAL,
     record_agent_latency,
     record_agent_request,
     record_llm_call,
     record_llm_tokens,
+    record_stream_tool_calls_lost,
     record_subagent_dispatch,
+    record_tool_arg_repair,
     record_tool_execution,
     record_tool_latency,
 )
@@ -135,5 +139,24 @@ class TestSubAgentMetrics:
         after = _get_counter_value(
             SUBAGENT_DISPATCH_TOTAL,
             {"subagent_name": "format_audit", "status": "error"},
+        )
+        assert after == before + 1
+
+
+class TestModelParsingMetrics:
+    def test_record_tool_arg_repair_increments_per_tier(self):
+        for tier in ("ref_quote_fix", "json_repair", "parse_error", "xml_fallback"):
+            before = _get_counter_value(MODEL_TOOL_ARG_REPAIR_TOTAL, {"tier": tier})
+            record_tool_arg_repair(tier)
+            after = _get_counter_value(MODEL_TOOL_ARG_REPAIR_TOTAL, {"tier": tier})
+            assert after == before + 1
+
+    def test_record_stream_tool_calls_lost_increments(self):
+        before = _get_counter_value(
+            MODEL_STREAM_TOOL_CALLS_LOST_TOTAL, {"model": "qwen3-vllm"}
+        )
+        record_stream_tool_calls_lost("qwen3-vllm")
+        after = _get_counter_value(
+            MODEL_STREAM_TOOL_CALLS_LOST_TOTAL, {"model": "qwen3-vllm"}
         )
         assert after == before + 1

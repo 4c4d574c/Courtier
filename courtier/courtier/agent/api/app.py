@@ -141,8 +141,6 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         if hasattr(settings, "llm_large_output_threshold")
         else 3000,
     )
-    # Backward-compat alias for code that still accesses app.state.cache_store.
-    app.state.cache_store = app.state.artifact_store
     app.state.artifact_store_registry = SessionArtifactStoreRegistry()
 
     # Load PromptBundle and create PromptEngine via CourtierConfig

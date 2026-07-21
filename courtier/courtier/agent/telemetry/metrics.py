@@ -72,6 +72,19 @@ GUARDRAIL_BLOCKED_TOTAL = Counter(
     ["layer", "guard_name"],
 )
 
+MODEL_TOOL_ARG_REPAIR_TOTAL = Counter(
+    "model_tool_arg_repair_total",
+    "Tool call argument repairs applied while parsing model output",
+    ["tier"],  # tier: "ref_quote_fix", "json_repair", "parse_error", "xml_fallback"
+)
+
+MODEL_STREAM_TOOL_CALLS_LOST_TOTAL = Counter(
+    "model_stream_tool_calls_lost_total",
+    "Streaming responses with finish_reason=tool_calls but no tool call data "
+    "(fell back to non-streaming)",
+    ["model"],
+)
+
 # ── Histograms ────────────────────────────────────────────
 
 AGENT_LATENCY_SECONDS = Histogram(
@@ -173,6 +186,14 @@ def record_plugin_lifecycle_restart(provider: str, outcome: str) -> None:
 
 def record_guardrail_blocked(layer: str, guard_name: str) -> None:
     GUARDRAIL_BLOCKED_TOTAL.labels(layer=layer, guard_name=guard_name).inc()
+
+
+def record_tool_arg_repair(tier: str) -> None:
+    MODEL_TOOL_ARG_REPAIR_TOTAL.labels(tier=tier).inc()
+
+
+def record_stream_tool_calls_lost(model: str) -> None:
+    MODEL_STREAM_TOOL_CALLS_LOST_TOTAL.labels(model=model).inc()
 
 
 def set_capability_registry_size(capability_type: str, size: int) -> None:

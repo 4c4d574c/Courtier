@@ -8,6 +8,7 @@ import pytest
 
 from courtier.agent.api.session_store import SessionStore
 from courtier.agent.api.sse_adapter import SSEAdapter
+from courtier.agent.core.execution_result import ExecutionResult
 from courtier.agent.tools.protocol import ToolResult
 
 
@@ -463,7 +464,9 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_build_detail_data_string(self):
-        result = ToolResult(success=True, data="# 标题\n\n内容")
+        result = ExecutionResult(
+            success=True, actor_type="tool", actor_name="t", raw_data="# 标题\n\n内容"
+        )
         d = SSEAdapter._build_detail_data(result)
         assert d is not None
         assert d["type"] == "markdown"
@@ -471,7 +474,12 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_build_detail_data_dict(self):
-        result = ToolResult(success=True, data={"key1": "value1", "key2": 123})
+        result = ExecutionResult(
+            success=True,
+            actor_type="tool",
+            actor_name="t",
+            raw_data={"key1": "value1", "key2": 123},
+        )
         d = SSEAdapter._build_detail_data(result)
         assert d is not None
         assert d["type"] == "structured"
@@ -480,13 +488,15 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_build_detail_data_none_data(self):
-        result = ToolResult(success=True, data=None)
+        result = ExecutionResult(success=True, actor_type="tool", actor_name="t")
         d = SSEAdapter._build_detail_data(result)
         assert d is None
 
     @pytest.mark.asyncio
     async def test_build_detail_data_failed(self):
-        result = ToolResult(success=False, error="failure")
+        result = ExecutionResult.from_error(
+            actor_type="tool", actor_name="t", error="failure"
+        )
         d = SSEAdapter._build_detail_data(result)
         assert d is None
 
@@ -580,7 +590,7 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_error_status(self, store):
-        """SSE event has status=error when ToolResult.success is False."""
+        """SSE event has status=error when the ExecutionResult is a failure."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         q: asyncio.Queue = asyncio.Queue()
         adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
@@ -589,7 +599,11 @@ class TestSSEAdapter:
         q.get_nowait()
         await adapter.on_tool_result(
             "check_format",
-            ToolResult(success=False, error="something went wrong"),
+            ExecutionResult.from_error(
+                actor_type="tool",
+                actor_name="check_format",
+                error="something went wrong",
+            ),
             "失败: something went wrong",
         )
 
@@ -599,16 +613,18 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_detail_when_data_present(self, store):
-        """SSE event includes detail when ToolResult has data."""
+        """SSE event includes detail when the ExecutionResult carries raw_data."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         q: asyncio.Queue = asyncio.Queue()
         adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: audit_format")
         q.get_nowait()
-        result = ToolResult(
+        result = ExecutionResult(
             success=True,
-            data={"errors": [{"msg": "bad margin"}], "total_pages": 3},
+            actor_type="tool",
+            actor_name="audit_format",
+            raw_data={"errors": [{"msg": "bad margin"}], "total_pages": 3},
         )
         await adapter.on_tool_result("audit_format", result, "完成 (2 个字段)")
 
@@ -621,7 +637,7 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_on_tool_result_no_detail_when_data_none(self, store):
-        """SSE event omits detail when ToolResult has no data."""
+        """SSE event omits detail when the ExecutionResult has no raw_data."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         q: asyncio.Queue = asyncio.Queue()
         adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
@@ -629,7 +645,9 @@ class TestSSEAdapter:
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
         await adapter.on_tool_result(
-            "parse_document", ToolResult(success=True, data=None), "完成 (无返回数据)"
+            "parse_document",
+            ExecutionResult(success=True, actor_type="tool", actor_name="parse_document"),
+            "完成 (无返回数据)",
         )
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())

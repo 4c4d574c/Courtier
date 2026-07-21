@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -113,8 +114,11 @@ def _fallback_login(body: LoginRequest, settings) -> str:
     admin_password = getattr(settings, "admin_password", "")
     if not admin_password:
         raise HTTPException(500, "ADMIN_PASSWORD 未配置，请在 .env 中设置")
-    if body.username != admin_user or body.password != admin_password:
+    if not hmac.compare_digest(body.username, admin_user) or not hmac.compare_digest(
+        body.password, admin_password
+    ):
         raise HTTPException(401, "用户名或密码错误")
+    logger.warning("Using no-DB fallback admin login (development only)")
     # Return the admin username on success
     return admin_user
 

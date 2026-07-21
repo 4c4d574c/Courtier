@@ -13,7 +13,7 @@ from courtier.agent.core.execution_result import ExecutionResult
 
 from ..core.event_bus import EventBus, EventSubscription
 from ..core.events import AgentEvent
-from ..tools.protocol import ToolProgress, ToolResult, ToolWithDisplay, ToolWithSkill
+from ..tools.protocol import ToolProgress, ToolWithSkill
 from .models import (
     StepRecord,
     SubagentRunRecord,
@@ -117,8 +117,7 @@ class SSEAdapter:
                 tool = self._tool_registry.get(tool_name)
                 if isinstance(tool, ToolWithSkill):
                     skill = tool.skill
-                if isinstance(tool, ToolWithDisplay):
-                    display_name = tool.display_name
+                display_name = getattr(tool, "display_name", None)
                 skill_description = getattr(tool, "description", "") or ""
             except KeyError:
                 pass
@@ -334,24 +333,6 @@ class SSEAdapter:
         self._tool_start_times[tool_name] = _time.time()
         await self._emit_sse({"type": "tool_start", "name": tool_name})
 
-    def emit_tool_progress(self, tool_name: str, progress: ToolProgress) -> None:
-        """Synchronous helper for streaming tool progress into the SSE queue.
-
-        This is called from sync tool-progress callbacks.  It uses
-        ``put_nowait`` so the agent loop is never blocked; if the queue is
-        full the event is dropped rather than growing memory unbounded.
-        """
-        payload = {
-            "type": "tool_progress",
-            "name": tool_name,
-            "progress": progress,
-        }
-        line = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-        try:
-            self._queue.put_nowait(("event", line))
-        except asyncio.QueueFull:
-            logger.debug("SSE queue full; dropping tool_progress event for %s", tool_name)
-
     async def on_tool_progress(self, tool_name: str, progress: ToolProgress) -> None:
         await self._check_pause()
         await self._emit_sse(
@@ -375,17 +356,11 @@ class SSEAdapter:
         classification = normalize_tool_call_classification(metadata)
         meta = self._tool_meta_for(tool_name)
 
-        # Determine status from result
-        status: ToolStatus
-        if isinstance(result, ExecutionResult):
-            status = "error" if not result.success else "ok"
-        elif isinstance(result, ToolResult):
-            if not result.success:
-                status = "error"
-            else:
-                status = "ok"
-        else:
-            status = "ok"
+        # Determine status from result.  Post-normalization results are
+        # ExecutionResult; anything else defensively maps to "ok".
+        status: ToolStatus = "ok"
+        if isinstance(result, ExecutionResult) and not result.success:
+            status = "error"
 
         # Build detail from result data so frontend can display it
         detail = self._build_detail_data(result)
@@ -550,6 +525,7 @@ class SSEAdapter:
                 {
                     "type": "subagent_start",
                     "name": event.subagent_name,
+                    "displayName": event.display_name,
                     "task": event.task,
                     "parentSubagentName": event.parent_subagent_name,
                     "handleId": event.handle_id,
@@ -579,10 +555,12 @@ class SSEAdapter:
                 }
             )
         elif kind == "tool_result":
+            tool_meta = self._tool_meta_for(event.tool_name or "")
             await self._emit_sse(
                 {
                     "type": "subagent_tool_result",
                     "name": event.subagent_name,
+                    "displayName": tool_meta["display_name"],
                     "toolName": event.tool_name,
                     "toolStatus": event.tool_status,
                     "toolDuration": event.tool_duration,
@@ -678,6 +656,12 @@ class SSEAdapter:
                 # Legacy wire field kept for older consumers; prefer toolCalls.
                 "detail": f"tool_calls:{','.join(names)}",
                 "toolCalls": names,
+                # Chinese display names per tool, so pending/running tool
+                # cards can render them before the result arrives.
+                "displayNames": {
+                    name: self._tool_meta_for(name)["display_name"]
+                    for name in names
+                },
             }
         )
 
@@ -787,17 +771,10 @@ class SSEAdapter:
 
     @classmethod
     def _build_detail_data(cls, result: Any) -> dict[str, Any] | None:
-        """Build ToolDetail from a ToolResult or ExecutionResult."""
-        if isinstance(result, ExecutionResult):
-            if not result.success:
-                return None
-            data = result.raw_data
-        elif isinstance(result, ToolResult):
-            if not result.success:
-                return None
-            data = result.data
-        else:
+        """Build ToolDetail from an ExecutionResult."""
+        if not isinstance(result, ExecutionResult) or not result.success:
             return None
+        data = result.raw_data
 
         if data is None:
             return None

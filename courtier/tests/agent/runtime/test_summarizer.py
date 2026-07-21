@@ -11,7 +11,7 @@ from courtier.agent.runtime.summarizer import ResultSummarizer
 def summarizer(tmp_path):
     cache = CacheStore(cache_dir=str(tmp_path))
     return ResultSummarizer(
-        cache_store=cache,
+        artifact_store=cache,
         raw_inline_max_chars=20,
         summary_inline_max_chars=100,
         max_key_excerpts=3,

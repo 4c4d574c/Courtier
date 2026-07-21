@@ -14,6 +14,7 @@ class DetectPlagiarismTool:
     """Detect plagiarism by comparing a document against a reference library."""
 
     name: str = "detect_plagiarism"
+    display_name: str | None = "抄袭检测"
     description: str = (
         "Compare a document against a reference library to detect plagiarism. "
         "Uses dynamic IQR thresholding. Returns {is_plagiarism, max_similarity, "

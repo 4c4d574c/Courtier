@@ -7,34 +7,34 @@ original history.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from .protocol import from_openai_dict
 from .state import Message
 
 
 def _message_from_openai_dict(d: dict[str, Any]) -> Message:
-    """Reconstruct a ``Message`` from an OpenAI-compatible dict."""
-    from .model import ToolCall
+    """Reconstruct a ``Message`` from an OpenAI-compatible dict.
 
-    tool_calls = None
-    if d.get("tool_calls"):
-        tool_calls = tuple(
-            ToolCall(
-                id=tc["id"],
-                name=tc["function"]["name"],
-                arguments=json.loads(tc["function"]["arguments"]),
-            )
-            for tc in d["tool_calls"]
-        )
+    Delegates wire parsing to ``protocol.from_openai_dict`` (single canonical
+    conversion). Note the semantic change: ``arguments`` were previously
+    parsed with a strict ``json.loads`` that raised on malformed payloads;
+    the unified parser is tolerant — an unparseable string yields a
+    ``{"_parse_error": True, "raw": ...}`` sentinel instead of raising
+    (same philosophy as ``model._parse_tool_arguments``).
+
+    ``source`` is snapshot metadata, not part of the wire format, so it is
+    read here rather than by ``from_openai_dict``.
+    """
+    chat = from_openai_dict(d)
     return Message(
-        role=d["role"],
-        content=d.get("content"),
-        tool_calls=tool_calls,
-        tool_call_id=d.get("tool_call_id"),
-        name=d.get("name"),
+        role=chat.role,
+        content=chat.content,
+        tool_calls=tuple(chat.tool_calls) if chat.tool_calls else None,
+        tool_call_id=chat.tool_call_id,
+        name=chat.name,
         source=d.get("source"),
     )
 

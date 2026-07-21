@@ -36,18 +36,53 @@ def _load_drudge_md() -> str | None:
 
 
 def build_model_client(settings: Any) -> Any:
-    """Create an OpenAIModelClient from Settings."""
-    from courtier.agent.core.model import OpenAIModelClient
+    """Create the production model client from Settings.
 
-    return OpenAIModelClient(
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
+    Builds an ``OpenAIModelBackend`` and exposes it through the ``ModelClient``
+    interface via ``BackendModelClient``.  When ``settings.agent_runtime.model``
+    configures fallback backends, the backends are wrapped in a ``ModelRouter``
+    with the configured routing strategy.
+    """
+    from courtier.agent.core.backends.openai_backend import OpenAIModelBackend
+    from courtier.agent.core.model import BackendModelClient
+
+    def _openai_backend(model: str) -> OpenAIModelBackend:
+        return OpenAIModelBackend(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+            model=model,
+            temperature=settings.llm_temperature,
+            timeout=settings.llm_timeout,
+            max_tokens=settings.llm_max_tokens if settings.llm_max_tokens > 0 else None,
+            extra_body=settings.llm_extra_body,
+            frequency_penalty=settings.llm_frequency_penalty,
+            presence_penalty=settings.llm_presence_penalty,
+        )
+
+    backend: Any = _openai_backend(settings.llm_model)
+
+    routing = getattr(getattr(settings, "agent_runtime", None), "model", None)
+    fallback_names = list(getattr(routing, "fallback_backends", None) or [])
+    if routing is not None and fallback_names:
+        from courtier.agent.core.backends.router import ModelRouter, RoutingStrategy
+
+        # Fallback entries share the primary OpenAI-compatible endpoint; each
+        # name selects the fallback model.  Per-backend endpoint settings do
+        # not exist yet — add them to Settings when that need arises.
+        backends = [backend] + [_openai_backend(name) for name in fallback_names]
+        backend = ModelRouter(
+            backends,
+            RoutingStrategy(
+                name=routing.strategy,
+                cost_threshold_chars=routing.cost_threshold_chars,
+                ab_split=routing.ab_split,
+            ),
+        )
+
+    return BackendModelClient(
+        backend=backend,
         model=settings.llm_model,
         temperature=settings.llm_temperature,
-        max_tokens=settings.llm_max_tokens if settings.llm_max_tokens > 0 else None,
-        extra_body=settings.llm_extra_body,
-        frequency_penalty=settings.llm_frequency_penalty,
-        presence_penalty=settings.llm_presence_penalty,
     )
 
 
@@ -55,7 +90,6 @@ async def build_audit_agent(
     settings: Any,
     plugin_system: Any = None,
     tool_registry: Any = None,
-    cache_store: Any = None,
     artifact_store: Any = None,
     skills_dir: str | None = None,
     prompt_engine: PromptEngine | None = None,
@@ -93,7 +127,7 @@ async def build_audit_agent(
         logger.warning("Skill registry errors: %s", skill_registry.errors)
 
     # Build unified ArtifactStore (which now subsumes CacheStore).
-    store = _build_artifact_store(settings, artifact_store or cache_store)
+    store = _build_artifact_store(settings, artifact_store)
 
     budget = AgentRuntimeBudget(
         max_runtime_seconds=settings.subagent_max_runtime_seconds,
@@ -129,45 +163,39 @@ async def build_audit_agent(
 
 
 def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
-    """Build or augment an ArtifactStore (which now subsumes CacheStore).
+    """Build an ArtifactStore (which now subsumes CacheStore).
 
-    If *existing_store* is already an ArtifactStore, attach an optional ES
-    primary backend and return it.  If it is a legacy CacheStore, wrap it.
-    Otherwise create a new ArtifactStore from *settings.cache_dir*.
+    If *existing_store* is provided, return it unchanged.  Otherwise create a
+    new ArtifactStore from *settings.cache_dir*, injecting an
+    ElasticsearchResultBackend as the primary backend via the public
+    constructor when ``settings.es_hosts`` is configured.
     """
     from courtier.agent.artifacts.store import ArtifactStore
-    from courtier.agent.core.cache_store import CacheStore as _LegacyCacheStore
 
-    if isinstance(existing_store, ArtifactStore):
-        store = existing_store
-    elif isinstance(existing_store, _LegacyCacheStore):
-        # Legacy CacheStore — wrap it in an ArtifactStore by replacing its
-        # internal backend.  This preserves any existing ref_map / ref_counters.
-        store = ArtifactStore(cache_dir=str(settings.cache_dir))
-        store._backend = existing_store
-    elif existing_store is not None:
-        store = existing_store  # Duck-typed — assume it has persist/read/etc.
-    else:
-        store = ArtifactStore(cache_dir=str(settings.cache_dir))
+    if existing_store is not None:
+        # Duck-typed — assume it has persist/read/etc.
+        return existing_store
 
+    primary_backend = None
     if getattr(settings, "es_hosts", None):
         try:
             from ...runtime.es_backend import ElasticsearchResultBackend
 
-            es_primary = ElasticsearchResultBackend(
+            primary_backend = ElasticsearchResultBackend(
                 index_name=getattr(settings, "es_index_results", "agent_results"),
             )
-            store._backend._primary_backend = es_primary
         except Exception as exc:
             logger.warning(
                 "Failed to create Elasticsearch backend for ArtifactStore: %s", exc,
             )
 
-    return store
+    return ArtifactStore(
+        cache_dir=str(settings.cache_dir),
+        primary_backend=primary_backend,
+    )
 
 async def build_chat_agent(
     settings: Any,
-    cache_store: Any = None,
     artifact_store: Any = None,
     prompt_engine: PromptEngine | None = None,
 ) -> tuple[Any, Any, str]:
@@ -200,6 +228,6 @@ async def build_chat_agent(
     context_manager = ContextManager(
         model=model,
         cache_dir=settings.cache_dir,
-        artifact_store=artifact_store or cache_store,
+        artifact_store=artifact_store,
     )
     return agent, context_manager, model.model_name

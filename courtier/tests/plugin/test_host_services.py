@@ -45,7 +45,7 @@ class TestHostServiceHandler:
         manager = ProcessManager(
             plugin_dir=tmp_path,
             extension_registry=object(),  # not used
-            cache_store=cache_store,
+            artifact_store=cache_store,
             artifact_store_registry=registry,
         )
         proc = _make_process(
@@ -69,7 +69,7 @@ class TestHostServiceHandler:
         manager = ProcessManager(
             plugin_dir=tmp_path,
             extension_registry=object(),
-            cache_store=cache_store,
+            artifact_store=cache_store,
         )
         proc = _make_process(permissions=[], host_services=["cache"])
         handler = manager._create_host_request_handler(proc)
@@ -88,7 +88,7 @@ class TestHostServiceHandler:
         manager = ProcessManager(
             plugin_dir=tmp_path,
             extension_registry=object(),
-            cache_store=cache_store,
+            artifact_store=cache_store,
         )
         proc = _make_process(
             permissions=["read:cache"],
@@ -116,7 +116,7 @@ class TestHostServiceHandler:
         manager = ProcessManager(
             plugin_dir=tmp_path,
             extension_registry=object(),
-            cache_store=cache_store,
+            artifact_store=cache_store,
             artifact_store_registry=artifact_registry,
         )
         proc = _make_process(

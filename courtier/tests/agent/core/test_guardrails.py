@@ -293,6 +293,11 @@ class TestLoopGuardrails:
                     tool_calls=[ToolCall(id="1", name="get_artifact", arguments={})],
                 )
 
+            async def generate_stream_full(
+                self, messages, tools=None, on_token=None, on_content_token=None, **kwargs
+            ):
+                return await self.generate(messages, tools=tools, **kwargs)
+
         reg = ToolRegistry()
         reg.register(_NullResultTool())
 

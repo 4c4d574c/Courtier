@@ -4,9 +4,15 @@ import pytest
 
 from courtier.agent.core.model import (
     ToolCall,
+    _normalize_response,
     _parse_tool_arguments,
 )
+from courtier.agent.telemetry.metrics import MODEL_TOOL_ARG_REPAIR_TOTAL
 from courtier.agent.testing import MockModelClient
+
+
+def _repair_count(tier: str) -> float:
+    return MODEL_TOOL_ARG_REPAIR_TOTAL.labels(tier=tier)._value.get()
 
 
 class TestParseToolArguments:
@@ -79,6 +85,43 @@ class TestParseToolArguments:
     def test_escaped_quote_in_single_quoted_style_returns_parse_error(self):
         result = _parse_tool_arguments(r"{'text': 'it\'s ok'}")
         assert result["_parse_error"] is True
+
+
+class TestToolArgRepairMetrics:
+    """_parse_tool_arguments/_normalize_response record repair tiers."""
+
+    def test_ref_quote_fix_recorded(self):
+        before = _repair_count("ref_quote_fix")
+        _parse_tool_arguments('{"task": "使用 "$ref:parse_document:1" 作为输入。"}')
+        assert _repair_count("ref_quote_fix") == before + 1
+
+    def test_json_repair_recorded(self):
+        before = _repair_count("json_repair")
+        _parse_tool_arguments("{a: 1}")
+        assert _repair_count("json_repair") == before + 1
+
+    def test_parse_error_recorded(self):
+        before = _repair_count("parse_error")
+        _parse_tool_arguments("not valid at all")
+        assert _repair_count("parse_error") == before + 1
+
+    def test_xml_fallback_recorded(self):
+        content = (
+            "<tool_call><function=get_weather>"
+            "<parameter=city>北京</parameter>"
+            "</function></tool_call>"
+        )
+        before = _repair_count("xml_fallback")
+        response = _normalize_response(
+            content=content,
+            tool_calls=[],
+            reasoning=None,
+            finish_reason="stop",
+            usage=None,
+            raw=None,
+        )
+        assert len(response.tool_calls) == 1
+        assert _repair_count("xml_fallback") == before + 1
 
 
 class TestMockModelClient:

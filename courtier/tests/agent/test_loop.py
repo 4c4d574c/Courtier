@@ -160,6 +160,11 @@ class TestAgentLoop:
                     tool_calls=[ToolCall(id="call_1", name="echo", arguments={"text": "ping"})],
                 )
 
+            async def generate_stream_full(
+                self, messages, tools=None, on_token=None, on_content_token=None, **kwargs
+            ):
+                return await self.generate(messages, tools=tools, **kwargs)
+
         model = _AlwaysToolCallModel()
         state = AgentState.initial(task="echo forever", max_steps=2)
         final = await agent_loop(
@@ -182,6 +187,11 @@ class TestAgentLoop:
 
             async def generate(self, messages, tools=None, **kwargs):
                 raise RuntimeError("Connection refused")
+
+            async def generate_stream_full(
+                self, messages, tools=None, on_token=None, on_content_token=None, **kwargs
+            ):
+                return await self.generate(messages, tools=tools, **kwargs)
 
         state = AgentState.initial(task="test")
         final = await agent_loop(state=state, model=_FailingModel(), tool_registry=None)

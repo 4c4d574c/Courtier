@@ -89,7 +89,6 @@ class ToolWithDisplay(Protocol):
     """Optional: tools with display metadata."""
 
     display_name: str | None
-    output_content_type: str | None
 
 
 @runtime_checkable

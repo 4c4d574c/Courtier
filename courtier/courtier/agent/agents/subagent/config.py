@@ -4,13 +4,8 @@ from __future__ import annotations
 
 import types
 import typing
-from dataclasses import dataclass
 from enum import Enum
 from typing import Any
-
-from pydantic import BaseModel
-
-from ..base import Agent
 
 
 def _annotation_expects_type(annotation: Any, expected_types: tuple[type, ...]) -> bool:
@@ -48,22 +43,3 @@ class FailureStrategy(str, Enum):
     STRICT = "strict"
     TOLERANT = "tolerant"
     RETRY = "retry"
-
-
-@dataclass(frozen=True)
-class SubAgentConfig:
-    agent: Agent
-    failure_strategy: FailureStrategy
-    max_retries: int = 0
-    timeout_seconds: float = 0  # 0 = no timeout; positive = max wall-clock seconds
-    description: str = ""
-    input_model: type[BaseModel] | None = (
-        None  # Pydantic BaseModel subclass for structured input
-    )
-    output_model: type[BaseModel] | None = (
-        None  # Pydantic BaseModel subclass for structured output
-    )
-    display_name: str = ""  # Human-readable skill name (e.g. "查重检测")
-    output_artifact_type: str | None = (
-        None  # Type string for output artifact registration
-    )

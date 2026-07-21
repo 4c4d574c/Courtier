@@ -1,5 +1,6 @@
 ---
 name: format_audit
+display_name: 格式审核
 description: 政府公文格式审核
 output_artifact_type: format_audit_result
 type: skill

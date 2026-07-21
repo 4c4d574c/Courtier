@@ -11,6 +11,7 @@ class LoadTemplateTool:
     """Load a format template from the database."""
 
     name: str = "load_template"
+    display_name: str | None = "加载模板"
     description: str = (
         "Load a format template from the database by document type and optional "
         "template ID. Returns the template as a dict, or None if not found."
@@ -49,7 +50,7 @@ class LoadTemplateTool:
                         "without a database connection; use the audit pipeline instead."
                     ),
                 )
-            from courtier.plugin.templates import load_template_from_db
+            from validator.templates.crud import load_template_from_db
 
             doc_type = kwargs["doc_type"]
             template_id = kwargs.get("template_id")

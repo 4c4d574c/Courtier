@@ -169,15 +169,6 @@ class ResultSummarizer:
     max_key_excerpts: int = 5
     excerpt_max_chars: int = 500
 
-    # Backward-compat: accept ``cache_store`` in __init__ and map it to
-    # ``artifact_store``.  This is a regular field so the dataclass-generated
-    # __init__ accepts it; __post_init__ merges with artifact_store.
-    cache_store: Any | None = None
-
-    def __post_init__(self) -> None:
-        if self.artifact_store is None and self.cache_store is not None:
-            self.artifact_store = self.cache_store
-
     async def from_data(
         self,
         *,
@@ -242,11 +233,18 @@ class ResultSummarizer:
             )
 
         # Large result (or sub-agent/skill result above inline threshold):
-        # persist to CacheStore and return a reference with result_id.
+        # persist to the artifact store and return a reference with result_id.
         stored_ref_id: str | None = None
         stored_preview: str = ""
         stored_size: int = 0
-        if self._store is not None:
+        # Reuse the ref recorded by the registry-level persist (if any) so the
+        # same payload is not written to disk twice under two different ref_ids.
+        persisted_ref_id = (metadata or {}).get("persisted_ref_id")
+        if persisted_ref_id:
+            stored_ref_id = persisted_ref_id
+            stored_preview = serialized[:200]
+            stored_size = len(serialized)
+        elif self._store is not None:
             persist_result = await self._store.persist(
                 data, actor_name, force=True,
             )
@@ -274,7 +272,7 @@ class ResultSummarizer:
                 **(metadata or {}),
                 "stored": {
                     "result_id": stored_ref_id,
-                    "backend": "cache_store",
+                    "backend": "artifact_store",
                     "size_bytes": stored_size,
                     "preview": stored_preview,
                 } if stored_ref_id else None,

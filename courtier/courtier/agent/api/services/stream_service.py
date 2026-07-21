@@ -195,7 +195,7 @@ def rehydrate_artifact_store(
             continue
         if not isinstance(content, dict):
             continue
-        data = content.get("data")
+        data = content.get("raw_data")
         if not isinstance(data, dict) or not data.get("__persisted_output__"):
             continue
 
@@ -326,7 +326,11 @@ async def generate_sse_stream(
         session_id,
         pause_event,
         start_step_index=start_step,
-        tool_registry=tool_registry,
+        # Prefer the agent's own registry — it contains plugin tools AND
+        # builtin artifact tools AND SkillTools, so tool metadata
+        # (display_name) resolves for all of them. The app-level registry
+        # only holds plugin tools.
+        tool_registry=getattr(agent, "tool_registry", None) or tool_registry,
     )
     adapter.start_listening(event_bus)
 
@@ -377,6 +381,12 @@ async def generate_sse_stream(
             conclusion = flushed or (result.content or "")
             # Persist final messages and conversation tree for future
             # multi-turn continuation and branching.
+            # Dual-format convergence point: ``messages_json`` is the primary
+            # format; ``tree_json`` is a parallel format for the
+            # conversation-tree migration (see
+            # courtier/docs/architecture/pi-architecture-migration-plan.md).
+            # Retirement condition for tree_json: all tree read paths are
+            # fully covered AND pre-migration sessions have expired.
             if result.final_state is not None:
                 update_kwargs: dict[str, Any] = {
                     "messages_json": serialize_messages(result.final_state.messages),

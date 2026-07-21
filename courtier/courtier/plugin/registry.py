@@ -146,19 +146,6 @@ class ExtensionRegistry:
         """Return all plugin-provided route proxies for FastAPI mounting."""
         return dict(self._routes)
 
-    def get_system_prompts(self) -> dict[str, str]:
-        """Return all plugin system_prompts, keyed by plugin name.
-
-        .. deprecated::
-            Plugin system prompts are now consumed through
-            ``register_capabilities()`` return values (plugin SDK path)
-            or via ``METHOD_RUNTIME_CONTEXT`` notification (host path).
-            The manifest ``system_prompt`` field is documentation-only.
-            This method is retained for backward compatibility but has
-            no active callers.
-        """
-        return dict(self._system_prompts)
-
     def _register_tool(
         self, plugin_name: str, client: JSONRPCClient, cap: dict
     ) -> None:

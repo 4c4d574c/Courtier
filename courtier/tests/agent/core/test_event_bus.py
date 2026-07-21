@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -14,6 +15,17 @@ from courtier.agent.core.model import MockModelClient, ToolCall
 from courtier.agent.core.state import AgentState
 from courtier.agent.tools.builtin.echo import EchoTool
 from courtier.agent.tools.registry import ToolRegistry
+
+
+class _UsageMockModelClient(MockModelClient):
+    """Mock model that reports token usage in every response."""
+
+    async def generate(self, messages, tools=None, **kwargs):  # type: ignore[no-untyped-def]
+        response = await super().generate(messages, tools=tools, **kwargs)
+        return replace(
+            response,
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        )
 
 
 class TestEventBus:
@@ -207,6 +219,44 @@ class TestAgentLoopEvents:
         assert "llm.request" in event_types
         assert "llm.response" in event_types
         assert "loop.completed" in event_types
+
+    @pytest.mark.asyncio
+    async def test_agent_loop_publishes_structured_usage_event(self):
+        """llm.usage is published directly with a structured payload.
+
+        The legacy on_step("usage", "prompt,completion") string protocol was
+        removed; the loop now emits the event from the think-phase metrics
+        block instead.
+        """
+        bus = EventBus()
+        sub = bus.subscribe(session_id="sess_usage")
+
+        legacy_steps: list[tuple[str, str]] = []
+
+        async def on_step(event: str, detail: str) -> None:
+            legacy_steps.append((event, detail))
+
+        state = AgentState.initial(task="say hello", system_prompt="You are a helper.")
+        model = _UsageMockModelClient(tool_calls=[])
+
+        await agent_loop(
+            state=state,
+            model=model,
+            session_id="sess_usage",
+            agent_name="test_agent",
+            event_bus=bus,
+            on_step=on_step,
+        )
+
+        await asyncio.sleep(0.05)
+        usage_events = [e for e in sub.queue._queue if e.type == "llm.usage"]
+        assert len(usage_events) == 1
+        assert usage_events[0].payload == {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+        }
+        # The legacy "usage" step event is gone — on_step never sees it.
+        assert not any(event == "usage" for event, _ in legacy_steps)
 
     @pytest.mark.asyncio
     async def test_agent_loop_event_bus_and_legacy_callbacks(self):

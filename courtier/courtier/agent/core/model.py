@@ -7,13 +7,11 @@ import json
 import logging
 import re
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
-from openai import AsyncOpenAI
-
-from .streaming import buffer_tool_call_delta, extract_reasoning, extract_stream_delta
+from ..telemetry.metrics import record_stream_tool_calls_lost, record_tool_arg_repair
 from .tool_call import ToolCall
 
 if TYPE_CHECKING:
@@ -47,6 +45,7 @@ def _parse_tool_arguments(raw: str) -> dict[str, Any]:
             else:
                 if isinstance(result, dict):
                     logger.debug("Tool call arguments parsed after ref-quote fix")
+                    record_tool_arg_repair("ref_quote_fix")
                     return result
         # Attempt common JSON repairs before giving up: single quotes → double quotes,
         # trailing commas, unquoted keys.  This replaces the ast.literal_eval fallback
@@ -60,8 +59,10 @@ def _parse_tool_arguments(raw: str) -> dict[str, Any]:
             else:
                 if isinstance(result, dict):
                     logger.debug("Tool call arguments parsed after JSON repair")
+                    record_tool_arg_repair("json_repair")
                     return result
         logger.warning("Failed to parse tool call arguments: %s", raw[:200])
+        record_tool_arg_repair("parse_error")
         return {"_parse_error": True, "raw": raw}
     if not isinstance(result, dict):
         logger.warning(
@@ -69,6 +70,7 @@ def _parse_tool_arguments(raw: str) -> dict[str, Any]:
             type(result).__name__,
             raw[:200],
         )
+        record_tool_arg_repair("parse_error")
         return {"_parse_error": True, "raw": raw}
     return result
 
@@ -200,6 +202,7 @@ def _normalize_response(
             logger.debug(
                 "Parsed %d tool call(s) from XML in content", len(parsed_calls)
             )
+            record_tool_arg_repair("xml_fallback")
             return ModelResponse(
                 content=cleaned_content or None,
                 reasoning_content=reasoning,
@@ -253,243 +256,16 @@ class ModelClient(Protocol):
         """Generate a response (text or tool calls) from the model."""
         ...
 
-
-class OpenAIModelClient(ModelClient):
-    """OpenAI 兼容适配器。
-
-    Uses the OpenAI SDK for any OpenAI-compatible API.
-    Configuration is passed explicitly — no global state.
-    """
-
-    def __init__(
-        self,
-        base_url: str,
-        api_key: str,
-        model: str = "qwen3.5-27b",
-        temperature: float = 0.6,
-        timeout: float = 180.0,
-        max_tokens: int | None = None,
-        extra_body: dict[str, Any] | None = None,
-        frequency_penalty: float = 0.0,
-        presence_penalty: float = 0.0,
-    ) -> None:
-        self._client = AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=timeout,
-        )
-        self._model = model
-        self._temperature = temperature
-        self._max_tokens = max_tokens
-        self._extra_body = extra_body
-        self._frequency_penalty = frequency_penalty
-        self._presence_penalty = presence_penalty
-
-    async def close(self) -> None:
-        """Close the underlying AsyncOpenAI client."""
-        await self._client.close()
-
-    @property
-    def model_name(self) -> str:
-        return self._model
-
-    @property
-    def temperature(self) -> float:
-        return self._temperature
-
-    async def generate(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        **kwargs: Any,
-    ) -> ModelResponse:
-        """Generate a response from the OpenAI-compatible API."""
-        params: dict[str, Any] = {
-            "model": self._model,
-            "messages": messages,
-            "temperature": self._temperature,
-        }
-        if self._max_tokens is not None:
-            params["max_tokens"] = self._max_tokens
-        if self._frequency_penalty:
-            params["frequency_penalty"] = self._frequency_penalty
-        if self._presence_penalty:
-            params["presence_penalty"] = self._presence_penalty
-        if self._extra_body:
-            params["extra_body"] = self._extra_body
-        if tools:
-            params["tools"] = tools
-
-        params.update(kwargs)
-        response = await self._client.chat.completions.create(**params)
-        choice = response.choices[0]
-
-        tool_calls = []
-        if choice.message.tool_calls:
-            for tc in choice.message.tool_calls:
-                args = _parse_tool_arguments(tc.function.arguments)
-                tool_calls.append(
-                    ToolCall(id=tc.id, name=tc.function.name, arguments=args)
-                )
-
-        usage = None
-        if response.usage:
-            usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            }
-
-        # Qwen3.5/DeepSeek-R1 use reasoning_content; some providers use reasoning.
-        reasoning = (
-            getattr(choice.message, "reasoning_content", None)
-            or getattr(choice.message, "reasoning", None)
-            or None
-        )
-
-        return _normalize_response(
-            content=choice.message.content,
-            tool_calls=tool_calls,
-            reasoning=reasoning,
-            finish_reason=choice.finish_reason or "stop",
-            usage=usage,
-            raw=response,
-        )
-
-    async def generate_stream(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[str, None]:
-        """Generate streaming text tokens from the OpenAI-compatible API."""
-        params: dict[str, Any] = {
-            "model": self._model,
-            "messages": messages,
-            "temperature": self._temperature,
-            "stream": True,
-        }
-        if self._frequency_penalty:
-            params["frequency_penalty"] = self._frequency_penalty
-        if self._presence_penalty:
-            params["presence_penalty"] = self._presence_penalty
-        if tools:
-            params["tools"] = tools
-
-        params.update(kwargs)
-        stream = await self._client.chat.completions.create(**params)
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                yield delta.content
-
     async def generate_stream_full(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        on_token: Any = None,
-        on_content_token: Any = None,
+        on_token: Callable[[str], Awaitable[None]] | None = None,
+        on_content_token: Callable[[str], Awaitable[None]] | None = None,
         **kwargs: Any,
     ) -> ModelResponse:
-        """Generate via streaming API with separate callbacks for reasoning vs content.
-
-        on_token: called for each reasoning token (chain-of-thought).
-        on_content_token: called for each content token (final response text).
-
-        Accumulates tool call deltas from the stream and returns a complete
-        ModelResponse.
-        """
-        params: dict[str, Any] = {
-            "model": self._model,
-            "messages": messages,
-            "temperature": self._temperature,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        if self._max_tokens is not None:
-            params["max_tokens"] = self._max_tokens
-        if self._frequency_penalty:
-            params["frequency_penalty"] = self._frequency_penalty
-        if self._presence_penalty:
-            params["presence_penalty"] = self._presence_penalty
-        if self._extra_body:
-            params["extra_body"] = self._extra_body
-        if tools:
-            params["tools"] = tools
-        params.update(kwargs)
-
-        stream = await self._client.chat.completions.create(**params)
-
-        content_parts: list[str] = []
-        reasoning_parts: list[str] = []
-        tool_call_bufs: dict[int, dict[str, str]] = {}
-        usage: dict[str, int] | None = None
-        finish_reason: str = "stop"
-
-        async for chunk in stream:
-            if chunk.usage:
-                usage = {
-                    "prompt_tokens": chunk.usage.prompt_tokens or 0,
-                    "completion_tokens": chunk.usage.completion_tokens or 0,
-                    "total_tokens": chunk.usage.total_tokens or 0,
-                }
-            if chunk.choices and chunk.choices[0].finish_reason:
-                finish_reason = chunk.choices[0].finish_reason
-            delta = extract_stream_delta(chunk)
-            if not delta:
-                continue
-
-            reasoning = extract_reasoning(delta)
-            if reasoning:
-                reasoning_parts.append(reasoning)
-                if on_token:
-                    await on_token(reasoning)
-
-            if delta.content:
-                content_parts.append(delta.content)
-                if on_content_token:
-                    await on_content_token(delta.content)
-
-            buffer_tool_call_delta(
-                delta, tool_call_bufs,
-                name_key="name", arguments_key="arguments_str",
-            )
-
-        content = "".join(content_parts) if content_parts else None
-        reasoning_content = "".join(reasoning_parts) if reasoning_parts else None
-
-        tool_calls: list[ToolCall] = []
-        for idx in sorted(tool_call_bufs.keys()):
-            buf = tool_call_bufs[idx]
-            args = _parse_tool_arguments(buf["arguments_str"])
-            tool_calls.append(ToolCall(id=buf["id"], name=buf["name"], arguments=args))
-
-        result = _normalize_response(
-            content=content,
-            tool_calls=tool_calls,
-            reasoning=reasoning_content,
-            finish_reason=finish_reason,
-            usage=usage,
-            raw=None,
-        )
-
-        # vLLM with Qwen models may return finish_reason="tool_calls" in
-        # streaming mode but drop the actual tool call data (XML in content
-        # or structured tool_calls deltas). Fall back to non-streaming.
-        if tools and finish_reason == "tool_calls" and not result.tool_calls:
-            logger.debug(
-                "Streaming returned tool_calls finish but no tool calls; "
-                "falling back to non-streaming."
-            )
-            try:
-                return await self.generate(messages, tools=tools, **kwargs)
-            except Exception:
-                logger.exception(
-                    "Non-streaming fallback also failed after streaming tool_calls drop"
-                )
-                raise
-
-        return result
+        """Generate via streaming, invoking callbacks for reasoning/content tokens."""
+        ...
 
 
 class BackendModelClient(ModelClient):
@@ -535,14 +311,21 @@ class BackendModelClient(ModelClient):
             model=self._model,
             messages=tuple(_openai_message_to_chat(m) for m in messages),
             temperature=self._temperature,
-            tools=[ToolSchema(function=dict(t)) for t in tools] if tools else None,
+            tools=(
+                # get_schemas() returns full OpenAI-format dicts — unwrap to
+                # the inner function object instead of re-wrapping it
+                # (double-wrapped tools are rejected with 400 by providers).
+                [ToolSchema(function=t.get("function", t)) for t in tools]
+                if tools
+                else None
+            ),
             metadata=kwargs or None,
         )
         response = await self._backend.chat(request)
         message = response.message
         return ModelResponse(
             content=message.content,
-            reasoning_content=None,
+            reasoning_content=message.reasoning_content,
             tool_calls=message.tool_calls or [],
             finish_reason=response.finish_reason,
             usage={
@@ -569,7 +352,14 @@ class BackendModelClient(ModelClient):
             model=self._model,
             messages=tuple(_openai_message_to_chat(m) for m in messages),
             temperature=self._temperature,
-            tools=[ToolSchema(function=dict(t)) for t in tools] if tools else None,
+            tools=(
+                # get_schemas() returns full OpenAI-format dicts — unwrap to
+                # the inner function object instead of re-wrapping it
+                # (double-wrapped tools are rejected with 400 by providers).
+                [ToolSchema(function=t.get("function", t)) for t in tools]
+                if tools
+                else None
+            ),
             metadata=kwargs or None,
         )
 
@@ -604,7 +394,7 @@ class BackendModelClient(ModelClient):
                 tool_calls = chunk.message.tool_calls or []
                 raw = chunk.raw
 
-        return ModelResponse(
+        result = ModelResponse(
             content="".join(content_parts) if content_parts else None,
             reasoning_content="".join(reasoning_parts) if reasoning_parts else None,
             tool_calls=tool_calls,
@@ -619,27 +409,37 @@ class BackendModelClient(ModelClient):
             raw=raw,
         )
 
+        # vLLM with Qwen models may return finish_reason="tool_calls" in
+        # streaming mode but drop the actual tool call data (XML in content
+        # or structured tool_calls deltas). Fall back to non-streaming.
+        if tools and finish_reason == "tool_calls" and not result.tool_calls:
+            logger.debug(
+                "Streaming returned tool_calls finish but no tool calls; "
+                "falling back to non-streaming."
+            )
+            record_stream_tool_calls_lost(self._model)
+            try:
+                return await self.generate(messages, tools=tools, **kwargs)
+            except Exception:
+                logger.exception(
+                    "Non-streaming fallback also failed after streaming tool_calls drop"
+                )
+                raise
+
+        return result
+
 
 def _openai_message_to_chat(message: dict) -> "ChatMessage":
-    from .protocol import ChatMessage
+    """Convert an OpenAI wire dict to a ``ChatMessage``.
 
-    tool_calls = None
-    if message.get("tool_calls"):
-        tool_calls = [
-            ToolCall(
-                id=tc.get("id", ""),
-                name=tc.get("function", {}).get("name", ""),
-                arguments=tc.get("function", {}).get("arguments", {}),
-            )
-            for tc in message["tool_calls"]
-        ]
-    return ChatMessage(
-        role=message["role"],
-        content=message.get("content"),
-        tool_calls=tool_calls,
-        tool_call_id=message.get("tool_call_id"),
-        name=message.get("name"),
-    )
+    Thin wrapper over ``protocol.from_openai_dict`` (single canonical
+    conversion). Note the unified ``arguments`` semantics: string arguments
+    are now parsed back to dicts (previously passed through as raw strings,
+    which could double-encode when re-serialized by the backend).
+    """
+    from .protocol import from_openai_dict
+
+    return from_openai_dict(message)
 
 
 class MockModelClient(ModelClient):

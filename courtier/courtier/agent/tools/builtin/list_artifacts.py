@@ -21,6 +21,7 @@ class ListArtifactsTool:
     """
 
     name: str = "list_artifacts"
+    display_name: str | None = "列出数据工件"
     skip_ref_resolution: bool = True
     skip_persist: bool = True
     skip_summarize: bool = True

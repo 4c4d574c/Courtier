@@ -27,7 +27,6 @@ from .summarizer import ResultSummarizer
 
 if TYPE_CHECKING:
     from courtier.agent.agents.base import Agent, AgentResult
-    from courtier.agent.agents.subagent.config import SubAgentConfig
     from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,7 @@ _MIN_SYNTHESIS_LENGTH = 50
 class AgentConfig:
     """Runtime-facing agent configuration.
 
-    Wraps either a SkillConfig or a legacy SubAgentConfig.
+    Wraps a SkillConfig.
     """
 
     name: str
@@ -55,7 +54,7 @@ class AgentConfig:
     skills: tuple[str, ...] = ()  # 子技能名（仅 skill 类型使用）
     input_model: type[Any] | None = None
     output_artifact_type: str | None = None
-    source: SkillConfig | SubAgentConfig | None = None
+    source: SkillConfig | None = None
     failure_strategy: Any | None = None
     max_retries: int = 0
     timeout_seconds: float = 0
@@ -70,8 +69,7 @@ class AgentRuntime:
     tool_registry: ToolRegistry
     model: ModelClient
     skill_registry: SkillRegistry | None = None
-    cache_store: Any | None = None  # Deprecated — use artifact_store
-    artifact_store: Any | None = None  # ArtifactStore (now subsumes cache_store)
+    artifact_store: Any | None = None  # ArtifactStore (subsumes the legacy CacheStore)
     summarizer: ResultSummarizer | None = None
     default_budget: AgentRuntimeBudget = field(default_factory=AgentRuntimeBudget)
     session_id: str = ""
@@ -91,7 +89,7 @@ class AgentRuntime:
             )
         if self.event_bus is None:
             self.event_bus = EventBus()
-        store = self.artifact_store or self.cache_store
+        store = self.artifact_store
         if self.summarizer is None and store is not None:
             self.summarizer = ResultSummarizer(artifact_store=store)
         if hasattr(self.tool_registry, "configure_result_handling"):
@@ -136,26 +134,6 @@ class AgentRuntime:
                 output_artifact_type=skill.output_artifact_type,
                 source=skill,
             )
-
-    def register_agent(self, name: str, config: "SubAgentConfig") -> None:
-        """Register a legacy SubAgentConfig as a runtime-managed agent."""
-
-        self._configs[name] = AgentConfig(
-            name=name,
-            description=config.description or name,
-            agent_type="agent",
-            system_prompt=config.agent.role,
-            tools=tuple(t.name for t in config.agent.tool_registry.list_tools()),
-            input_model=config.input_model,
-            output_artifact_type=config.output_artifact_type,
-            source=config,
-            failure_strategy=config.failure_strategy,
-            max_retries=config.max_retries,
-            timeout_seconds=config.timeout_seconds,
-            max_runtime_seconds=(
-                config.timeout_seconds if config.timeout_seconds > 0 else None
-            ),
-        )
 
     def list_agents(self) -> list[str]:
         return sorted(self._configs.keys())
@@ -224,6 +202,18 @@ class AgentRuntime:
         self._handles[handle.handle_id] = handle
         return handle
 
+    def _skill_display_name(self, agent_name: str) -> str | None:
+        """Return the Chinese display name for a skill agent, if configured."""
+        if self.skill_registry is None:
+            return None
+        try:
+            skill = self.skill_registry.get(agent_name)
+        except Exception:
+            return None
+        if skill is None:
+            return None
+        return skill.display_name or None
+
     async def delegate(
         self,
         handle: AgentHandle,
@@ -253,6 +243,7 @@ class AgentRuntime:
                 handle_id=handle.handle_id,
                 parent_handle_id=handle.parent_handle_id,
                 task=handle.task,
+                display_name=self._skill_display_name(handle.agent_name),
                 detail={
                     "handle_id": handle.handle_id,
                     "parent_handle_id": handle.parent_handle_id,
@@ -420,8 +411,7 @@ class AgentRuntime:
     ) -> "Agent":
         """Construct an Agent instance scoped to the config's declared tools and skills.
 
-        Skills only see the tools listed in their manifest; legacy SubAgentConfig
-        reuses the tools from its configured agent.
+        Skills only see the tools listed in their manifest.
 
         Skill composition (e.g. ``full_government_audit`` dispatching
         ``format_audit``) is opt-in: a skill must explicitly list other skill
@@ -430,45 +420,22 @@ class AgentRuntime:
         spawns ``content_audit`` and vice versa.
         """
         from courtier.agent.agents.base import Agent
-        from courtier.agent.agents.subagent.config import SubAgentConfig
         from courtier.agent.tools.builtin.skill import SkillTool
 
-        if isinstance(config.source, SubAgentConfig):
-            tools = list(config.source.agent.tool_registry.list_tools())
-        else:
-            resolved: list[Any] = []
-            skill_names: set[str] = set()
-            if self.skill_registry is not None:
-                skill_names = {s.name for s in self.skill_registry.list_enabled()}
+        resolved: list[Any] = []
+        skill_names: set[str] = set()
+        if self.skill_registry is not None:
+            skill_names = {s.name for s in self.skill_registry.list_enabled()}
 
-            # Resolve tools: look up in ToolRegistry first, with skill fallback
-            # for backward compatibility (old format mixed tools + skills in one field).
-            for name in config.tools:
-                try:
-                    tool = self.tool_registry.get(name)
-                    resolved.append(tool)
-                except KeyError:
-                    # Backward compat: tool name matching another skill → inject as SkillTool.
-                    # skill_names is only populated when skill_registry exists.
-                    if name in skill_names and self.skill_registry is not None:
-                        skill = self.skill_registry.get(name)
-                        if skill is not None:
-                            resolved.append(
-                                SkillTool(
-                                    skill=skill,
-                                    runtime=self,
-                                    output_artifact_type=skill.output_artifact_type,
-                                )
-                            )
-                    else:
-                        logger.warning(
-                            "Skill %r references unavailable tool: %s",
-                            config.name,
-                            name,
-                        )
-
-            # Resolve skills: look up directly in SkillRegistry.
-            for name in config.skills:
+        # Resolve tools: look up in ToolRegistry first, with skill fallback
+        # for backward compatibility (old format mixed tools + skills in one field).
+        for name in config.tools:
+            try:
+                tool = self.tool_registry.get(name)
+                resolved.append(tool)
+            except KeyError:
+                # Backward compat: tool name matching another skill → inject as SkillTool.
+                # skill_names is only populated when skill_registry exists.
                 if name in skill_names and self.skill_registry is not None:
                     skill = self.skill_registry.get(name)
                     if skill is not None:
@@ -481,12 +448,31 @@ class AgentRuntime:
                         )
                 else:
                     logger.warning(
-                        "Skill %r references unknown skill: %s",
+                        "Skill %r references unavailable tool: %s",
                         config.name,
                         name,
                     )
 
-            tools = resolved
+        # Resolve skills: look up directly in SkillRegistry.
+        for name in config.skills:
+            if name in skill_names and self.skill_registry is not None:
+                skill = self.skill_registry.get(name)
+                if skill is not None:
+                    resolved.append(
+                        SkillTool(
+                            skill=skill,
+                            runtime=self,
+                            output_artifact_type=skill.output_artifact_type,
+                        )
+                    )
+            else:
+                logger.warning(
+                    "Skill %r references unknown skill: %s",
+                    config.name,
+                    name,
+                )
+
+        tools = resolved
 
         agent = Agent(
             name=config.name,

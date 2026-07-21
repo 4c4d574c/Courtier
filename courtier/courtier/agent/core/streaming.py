@@ -1,7 +1,7 @@
-"""Streaming helpers — pure functions used by model.py.
+"""Streaming helpers — pure functions used by the model backends.
 
 The delta-parsing logic here is intentionally shared so that the
-main-process ModelClient uses a single tool-call-buffering algorithm.
+main-process OpenAI backend uses a single tool-call-buffering algorithm.
 """
 
 from __future__ import annotations
@@ -32,25 +32,22 @@ def extract_reasoning(delta: Any) -> str:
 def buffer_tool_call_delta(
     delta: Any,
     buffers: dict[int, dict[str, str]],
-    *,
-    name_key: str = "name",
-    arguments_key: str = "arguments",
 ) -> None:
     """Append streaming tool-call fragments in *delta* into *buffers*.
 
-    Each buffer entry is ``{"id": str, <name_key>: str, <arguments_key>: str}``.
-    Callers may use different key names (e.g. model.py uses ``arguments_str``;
-    the Plugin SDK uses ``arguments``) via the keyword arguments.
+    Each buffer entry is ``{"id": str, "name": str, "arguments_str": str}`` —
+    fixed key names shared by all callers (the backend assembles the final
+    ``ToolCall`` from ``arguments_str``).
     """
     for tc_delta in delta.tool_calls or []:
         idx = tc_delta.index
         if idx not in buffers:
-            buffers[idx] = {"id": "", name_key: "", arguments_key: ""}
+            buffers[idx] = {"id": "", "name": "", "arguments_str": ""}
         buf = buffers[idx]
         if tc_delta.id:
             buf["id"] = tc_delta.id
         if tc_delta.function:
             if tc_delta.function.name:
-                buf[name_key] += tc_delta.function.name
+                buf["name"] += tc_delta.function.name
             if tc_delta.function.arguments:
-                buf[arguments_key] += tc_delta.function.arguments
+                buf["arguments_str"] += tc_delta.function.arguments
