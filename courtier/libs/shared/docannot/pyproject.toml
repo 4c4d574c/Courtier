@@ -1,0 +1,13 @@
+[project]
+name = "docannot"
+version = "1.0.0"
+description = "DOCX annotation library — keyword-based Word comment insertion"
+requires-python = ">=3.12"
+dependencies = [
+    "docxnote>=0.2.0",
+    "lxml>=6.0.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

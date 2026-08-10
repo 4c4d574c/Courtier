@@ -1,4 +1,5 @@
 """Tests for the root main.py startup entrypoint."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -25,11 +26,18 @@ def _load_main_module() -> ModuleType:
 
 class TestMainPathSetup:
     def test_injects_monorepo_paths(self):
-        """main.py adds courtier source dirs to sys.path."""
+        """main.py adds the project root and domain dir to sys.path.
+
+        libs/ and docmodels are installed as editable venv packages and
+        must NOT appear on sys.path; the domain dir stays for domain
+        Python helpers (skills.schemas.*).
+        """
         root = _project_root()
         expected_paths = [
             str(root),
             str(root / "domains" / "docaudit"),
+        ]
+        excluded_paths = [
             str(root / "libs" / "shared"),
             str(root / "libs" / "docaudit"),
         ]
@@ -39,6 +47,8 @@ class TestMainPathSetup:
 
         for p in expected_paths:
             assert p in sys.path
+        for p in excluded_paths:
+            assert p not in sys.path
 
 
 class TestMainArgumentParsing:
@@ -64,9 +74,10 @@ class TestMainStartupFlow:
         """main() runs alembic upgrade then uvicorn.run with factory app."""
         main = _load_main_module()
 
-        with patch.object(main, "alembic_command") as mock_alembic, patch.object(
-            main, "uvicorn_run"
-        ) as mock_uvicorn:
+        with (
+            patch.object(main, "alembic_command") as mock_alembic,
+            patch.object(main, "uvicorn_run") as mock_uvicorn,
+        ):
             main.main(["--host", "127.0.0.1", "--port", "9000"])
 
         mock_alembic.upgrade.assert_called_once()

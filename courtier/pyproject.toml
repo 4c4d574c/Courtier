@@ -36,12 +36,29 @@ dependencies = [
     "pyjwt>=2.13.0",
     "slowapi>=0.1.10",
     "bcrypt>=5.0.0",
+    "content_compliance",
+    "courtier-plugin-sdk",
+    "docannot",
+    "doccorrector",
+    "docmodels",
+    "docparse",
     "jinja2>=3.1.6",
     "click>=8.3.2",
+    "minio>=7.2.20",
+    "validator",
 ]
 
 [project.scripts]
 courtier = "courtier.cli.main:main"
+
+[tool.uv.sources]
+content_compliance = { path = "libs/docaudit/content_compliance", editable = true }
+courtier-plugin-sdk = { path = "libs/shared/plugin_sdk", editable = true }
+docannot = { path = "libs/shared/docannot", editable = true }
+doccorrector = { path = "libs/docaudit/doccorrector", editable = true }
+docmodels = { path = "libs/shared/docmodels", editable = true }
+docparse = { path = "libs/shared/docparse", editable = true }
+validator = { path = "libs/docaudit/validator", editable = true }
 
 [dependency-groups]
 dev = [
@@ -64,7 +81,7 @@ fail_under = 0
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-pythonpath = ["courtier", "domains/docaudit", "libs/shared", "libs/docaudit", "plugins"]
+pythonpath = ["courtier", "domains/docaudit", "plugins"]
 testpaths = ["tests"]
 norecursedirs = ["data", ".worktrees", "node_modules", ".venv"]
 markers = [

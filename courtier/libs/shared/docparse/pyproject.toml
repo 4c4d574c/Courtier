@@ -1,0 +1,23 @@
+[project]
+name = "docparse"
+version = "1.0.0"
+description = "Document parsing library (PDF/DOCX/scanned images) producing docmodels.Document"
+requires-python = ">=3.12"
+dependencies = [
+    "docmodels",
+    "lxml>=6.0.4",
+    "numpy>=2.4.4",
+    "openai>=2.31.0",
+    "pillow>=11.0.0",
+    "pydantic>=2.13.0",
+    "pymupdf>=1.27.2.2",
+    "python-docx>=1.2.0",
+    "requests>=2.33.1",
+]
+
+[tool.uv.sources]
+docmodels = { path = "../docmodels", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

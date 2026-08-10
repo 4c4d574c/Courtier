@@ -1,0 +1,15 @@
+[project]
+name = "content_compliance"
+version = "1.0.0"
+description = "Rule-based content compliance checking library"
+requires-python = ">=3.12"
+dependencies = [
+    "courtier-plugin-sdk",
+]
+
+[tool.uv.sources]
+courtier-plugin-sdk = { path = "../../shared/plugin_sdk", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,17 @@
+[project]
+name = "validator"
+version = "1.0.0"
+description = "Government document format validation library (GB/T 9704-2012)"
+requires-python = ">=3.12"
+dependencies = [
+    "docmodels",
+    "docparse",
+]
+
+[tool.uv.sources]
+docmodels = { path = "../../shared/docmodels", editable = true }
+docparse = { path = "../../shared/docparse", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

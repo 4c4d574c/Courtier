@@ -37,8 +37,11 @@ _ROOT = str(Path(__file__).resolve().parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-# Add package directories for the restructured layout (courtier core + domain + libs + plugins)
-for _sub in ("courtier", "domains/docaudit", "libs/shared", "libs/docaudit", "plugins"):
+# Add package directories for the restructured layout (courtier core + domain + plugins).
+# libs/, docmodels and the plugin SDK are installed into the venv as editable
+# packages (see [tool.uv.sources] in pyproject.toml) and need no sys.path entry.
+# The domain dir stays for domain Python helpers (skills.schemas.*).
+for _sub in ("courtier", "domains/docaudit", "plugins"):
     _pkg_path = str(Path(_ROOT) / _sub)
     if _pkg_path not in sys.path:
         sys.path.insert(0, _pkg_path)

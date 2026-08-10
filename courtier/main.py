@@ -4,6 +4,7 @@ Usage:
     uv run main.py
     uv run main.py --host 127.0.0.1 --port 8080 --reload
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,17 +21,18 @@ uvicorn_run = uvicorn.run
 
 
 def _inject_monorepo_paths() -> None:
-    """Add courtier source directories to sys.path.
+    """Add source directories to sys.path when running from sources.
 
-    This removes the need to set PYTHONPATH manually when running from the
-    project root.
+    libs/, docmodels and the plugin SDK are installed into the venv as
+    editable packages (see [tool.uv.sources] in pyproject.toml).  The domain
+    package directory stays on sys.path because domain Python helpers
+    (``skills.schemas.*``) are imported lazily by the agent runtime
+    (``agents/input_models.py``).
     """
     project_root = Path(__file__).resolve().parent
     paths = [
         str(project_root),
         str(project_root / "domains" / "docaudit"),
-        str(project_root / "libs" / "shared"),
-        str(project_root / "libs" / "docaudit"),
     ]
     # Prepend so these take priority over any other installed packages.
     for path in reversed(paths):
