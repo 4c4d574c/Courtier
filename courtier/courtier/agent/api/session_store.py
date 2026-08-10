@@ -61,9 +61,7 @@ class SessionStore:
             status=status,  # type: ignore[arg-type]
             created_at=now,
             owner=owner,
-            turn_messages=[
-                {"text": task, "timestamp": now, "fileName": file_name or None}
-            ],
+            turn_messages=[{"text": task, "timestamp": now, "fileName": file_name or None}],
             turn_step_starts=[0],
             turn_conclusions=[],
         )
@@ -100,7 +98,7 @@ class SessionStore:
         skip: int = 0,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Return sessions as summary dicts, most recent first.
+        """Return sessions as summary dicts, pinned first then most recent first.
 
         Non-admin users only see sessions they own.  ``skip``/``limit``
         are applied after filtering and sorting.
@@ -121,7 +119,7 @@ class SessionStore:
         if not is_admin:
             sessions = [s for s in sessions if s.owner == current_user]
 
-        sessions.sort(key=lambda s: s.created_at, reverse=True)
+        sessions.sort(key=lambda s: (0 if s.pinned else 1, -s.created_at))
         if skip:
             sessions = sessions[skip:]
         if limit is not None and limit >= 0:
@@ -140,6 +138,67 @@ class SessionStore:
             removed = True
         return removed
 
+    async def gc_orphan_cache_files(self, deleted_artifact_snapshot: str, cache_dir: str) -> int:
+        """Delete cache files referenced only by a just-deleted session.
+
+        Parses the deleted session's artifact snapshot ``ref_map``; any cache
+        file no remaining session references (via their snapshots) is
+        unlinked together with its ``.schema.json`` companion.  Returns the
+        number of data files deleted.  Best-effort: errors are logged, never
+        raised — session deletion must not fail because of GC.
+        """
+        if not deleted_artifact_snapshot:
+            return 0
+        try:
+            ref_map = json.loads(deleted_artifact_snapshot).get("ref_map") or {}
+        except (json.JSONDecodeError, AttributeError):
+            return 0
+        if not ref_map:
+            return 0
+
+        # Files still referenced by any remaining session.
+        referenced: set[str] = set()
+        for path in self._dir.glob("sess_*.json"):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                snapshot = raw.get("artifact_snapshot") or ""
+                if snapshot:
+                    referenced.update((json.loads(snapshot).get("ref_map") or {}).values())
+            except (OSError, json.JSONDecodeError, AttributeError):
+                continue
+
+        cache_root = Path(cache_dir).resolve()
+        deleted_count = 0
+        for filepath in set(ref_map.values()):
+            if filepath in referenced:
+                continue
+            target = (cache_root / filepath).resolve()
+            try:
+                target.relative_to(cache_root)
+            except ValueError:
+                logger.warning("GC rejected path outside cache_dir: %s", filepath)
+                continue
+            candidates = [target]
+            # Schema companion written alongside the data file.
+            schema = (
+                target.with_suffix(".schema.json")
+                if target.suffix == ".json"
+                else Path(str(target) + ".schema.json")
+            )
+            candidates.append(schema)
+            for candidate in candidates:
+                try:
+                    candidate.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("GC failed to remove %s", candidate, exc_info=True)
+            deleted_count += 1
+        if deleted_count:
+            logger.info(
+                "GC removed %d orphaned cache file(s) after session deletion",
+                deleted_count,
+            )
+        return deleted_count
+
     async def update(self, session_id: str, **kwargs: Any) -> SessionRecord | None:
         """Update a session record's fields and persist to disk."""
         if not _SESSION_ID_RE.match(session_id):
@@ -153,9 +212,7 @@ class SessionStore:
                     return None
                 self._sessions[session_id] = session
 
-            session = replace(
-                session, **{k: v for k, v in kwargs.items() if hasattr(session, k)}
-            )
+            session = replace(session, **{k: v for k, v in kwargs.items() if hasattr(session, k)})
             self._sessions[session_id] = session
 
         async with self._persist_lock:
@@ -213,8 +270,7 @@ class SessionStore:
                 return
             session = replace(
                 session,
-                turn_messages=session.turn_messages
-                + [{"text": task, "timestamp": _time.time()}],
+                turn_messages=session.turn_messages + [{"text": task, "timestamp": _time.time()}],
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
             )
             self._sessions[session_id] = session
@@ -322,12 +378,15 @@ class SessionStore:
         data["file_name"] = session.file_name
         data["error_detail"] = session.error_detail
         data["messages_json"] = session.messages_json
+        data["artifact_snapshot"] = session.artifact_snapshot
+        data["context_state"] = session.context_state
         data["tree_json"] = session.tree_json
         data["current_node_id"] = session.current_node_id
         data["owner"] = session.owner
         data["turn_messages"] = session.turn_messages
         data["turn_step_starts"] = session.turn_step_starts
         data["turn_conclusions"] = session.turn_conclusions
+        data["pinned"] = session.pinned
         try:
             text = json.dumps(data, ensure_ascii=False, indent=2)
             tmp_path = file_path.with_suffix(".json.tmp")
@@ -371,12 +430,15 @@ class SessionStore:
             error_detail=raw.get("error_detail"),
             conclusion=raw.get("conclusion", ""),
             messages_json=raw.get("messages_json", ""),
+            artifact_snapshot=raw.get("artifact_snapshot", ""),
+            context_state=raw.get("context_state", ""),
             tree_json=raw.get("tree_json", ""),
             current_node_id=raw.get("current_node_id"),
             owner=raw.get("owner", ""),
             turn_messages=raw.get("turn_messages", []),
             turn_step_starts=raw.get("turn_step_starts", []),
             turn_conclusions=raw.get("turn_conclusions", []),
+            pinned=raw.get("pinned", False),
         )
 
         for s in raw.get("steps", []):
@@ -406,6 +468,7 @@ class SessionStore:
                         handle_id=t.get("handleId"),
                         parent_handle_id=t.get("parentHandleId"),
                         skill_description=t.get("skillDescription", ""),
+                        issue_counts=t.get("issueCounts"),
                     )
                 )
             session.steps.append(
@@ -415,9 +478,7 @@ class SessionStore:
                     skill=s.get("skill", ""),
                     tools=tools,
                     verdict=s.get("verdict", ""),
-                    subagents=[
-                        SubagentRunRecord.from_dict(sa) for sa in s.get("subagents", [])
-                    ],
+                    subagents=[SubagentRunRecord.from_dict(sa) for sa in s.get("subagents", [])],
                     turn_index=s.get("turnIndex", 0),
                     start_segment_index=s.get("startSegmentIndex", 0),
                     end_segment_index=s.get("endSegmentIndex"),

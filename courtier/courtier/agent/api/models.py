@@ -106,6 +106,7 @@ class SubagentToolRecord:
     summary: str = ""
     call_kind: str = "tool"
     handle_id: str | None = None
+    issue_counts: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -118,6 +119,8 @@ class SubagentToolRecord:
         }
         if self.handle_id is not None:
             result["handleId"] = self.handle_id
+        if self.issue_counts is not None:
+            result["issueCounts"] = self.issue_counts
         return result
 
     @classmethod
@@ -130,6 +133,7 @@ class SubagentToolRecord:
             summary=d.get("summary", ""),
             call_kind=d.get("callKind", d.get("call_kind", "tool")),
             handle_id=d.get("handleId", d.get("handle_id")),
+            issue_counts=d.get("issueCounts", d.get("issue_counts")),
         )
 
 
@@ -141,9 +145,7 @@ class ToolInfo:
     duration: float
     summary: str
     id: str = ""  # client-side tool identifier, e.g. "tool-1"
-    detail: Any = (
-        None  # ToolDetail: structured data or markdown content
-    )
+    detail: Any = None  # ToolDetail: structured data or markdown content
     call_kind: ToolCallKind = "tool"
     call_scope: ToolCallScope = "parent"
     subagent_name: str | None = None
@@ -152,6 +154,7 @@ class ToolInfo:
     handle_id: str | None = None
     parent_handle_id: str | None = None
     skill_description: str = ""
+    issue_counts: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -172,6 +175,8 @@ class ToolInfo:
         }
         if self.detail is not None:
             result["detail"] = self.detail
+        if self.issue_counts is not None:
+            result["issueCounts"] = self.issue_counts
         return result
 
 
@@ -214,9 +219,7 @@ class SubagentRunRecord:
             status=d.get("status", "completed"),
             conclusion=d.get("conclusion", ""),
             error=d.get("error", ""),
-            thoughts=[
-                SubagentThoughtRecord.from_dict(th) for th in d.get("thoughts", [])
-            ],
+            thoughts=[SubagentThoughtRecord.from_dict(th) for th in d.get("thoughts", [])],
             children=[SubagentRunRecord.from_dict(ch) for ch in d.get("children", [])],
             tools=[SubagentToolRecord.from_dict(t) for t in d.get("tools", [])],
         )
@@ -257,9 +260,9 @@ class SessionRecord:
     finished_at: float | None = None
     error_detail: str | None = None
     conclusion: str = ""
-    messages_json: str = (
-        ""  # serialised AgentState.messages for multi-turn continuation
-    )
+    messages_json: str = ""  # serialised AgentState.messages for multi-turn continuation
+    artifact_snapshot: str = ""  # serialised ArtifactStore snapshot for full multi-turn restore
+    context_state: str = ""  # serialised CompactState for cross-request compaction continuity
     tree_json: str = ""  # serialised ConversationTree for branching/replay
     current_node_id: str | None = None  # active node within the conversation tree
     owner: str = ""
@@ -270,6 +273,7 @@ class SessionRecord:
     turn_messages: list[dict[str, Any]] = field(default_factory=list)
     turn_step_starts: list[int] = field(default_factory=list)
     turn_conclusions: list[str] = field(default_factory=list)
+    pinned: bool = False  # 置顶会话排在历史列表最前（按用户隔离的展示偏好）
 
     def to_summary_dict(self) -> dict[str, Any]:
         tool_count = sum(len(s.tools) for s in self.steps)
@@ -285,6 +289,7 @@ class SessionRecord:
             "stepCount": len(self.steps),
             "toolCount": tool_count,
             "issueCount": issue_count,
+            "pinned": self.pinned,
         }
 
     def _step_dict(self, s: StepRecord) -> dict[str, Any]:
@@ -324,11 +329,7 @@ class SessionRecord:
         turns: list[dict[str, Any]] = []
         for i, start_idx in enumerate(starts):
             end_idx = starts[i + 1] if i + 1 < len(starts) else len(self.steps)
-            msg = (
-                messages[i]
-                if i < len(messages)
-                else {"text": "", "timestamp": self.created_at}
-            )
+            msg = messages[i] if i < len(messages) else {"text": "", "timestamp": self.created_at}
             if i < len(conclusions):
                 turn_conclusion = conclusions[i]
             elif i == num_turns - 1:
@@ -343,9 +344,7 @@ class SessionRecord:
                         "timestamp": msg.get("timestamp", self.created_at),
                         "fileName": msg.get("fileName"),
                     },
-                    "steps": [
-                        self._step_dict(s) for s in self.steps[start_idx:end_idx]
-                    ],
+                    "steps": [self._step_dict(s) for s in self.steps[start_idx:end_idx]],
                     "conclusion": turn_conclusion,
                 }
             )

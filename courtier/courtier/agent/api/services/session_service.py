@@ -21,9 +21,10 @@ async def list_sessions(
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """List sessions visible to the current user, most recent first."""
-    return cast(list[dict[str, Any]], await store.list_all(
-        current_user=current_user, is_admin=is_admin, skip=skip, limit=limit
-    ))
+    return cast(
+        list[dict[str, Any]],
+        await store.list_all(current_user=current_user, is_admin=is_admin, skip=skip, limit=limit),
+    )
 
 
 async def get_session(
@@ -37,13 +38,34 @@ async def get_session(
 
 
 async def delete_session(
-    store: Any, session_id: str, current_user: str, is_admin: bool = False
+    store: Any,
+    session_id: str,
+    current_user: str,
+    is_admin: bool = False,
+    cache_dir: str = "",
 ) -> bool:
-    """Delete a session if the current user is allowed to access it."""
+    """Delete a session if the current user is allowed to access it.
+
+    When the deleted session held artifact refs, cache files that no other
+    session references are garbage-collected (best-effort).
+    """
     session = await store.get_owned(session_id, current_user, is_admin)
     if session is None:
         return False
-    return cast(bool, await store.delete(session_id))
+    snapshot = session.artifact_snapshot
+    deleted = cast(bool, await store.delete(session_id))
+    if deleted and snapshot and cache_dir:
+        gc = getattr(store, "gc_orphan_cache_files", None)
+        if gc is not None:
+            try:
+                await gc(snapshot, cache_dir)
+            except Exception:
+                logger.warning(
+                    "Cache GC failed after deleting session %s",
+                    session_id,
+                    exc_info=True,
+                )
+    return deleted
 
 
 async def fork_session_tree(
@@ -65,9 +87,7 @@ async def fork_session_tree(
         tree = ConversationTree.from_serialized(json.loads(session.tree_json))
     except Exception as exc:
         logger.exception("Failed to deserialize tree for session %s", session_id)
-        raise HTTPException(
-            status_code=500, detail=f"Invalid conversation tree: {exc}"
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Invalid conversation tree: {exc}") from exc
 
     target_node_id = node_id or session.current_node_id or tree.root_id
     if target_node_id is None or tree.get(target_node_id) is None:
@@ -103,9 +123,7 @@ async def rewind_session_tree(
         tree = ConversationTree.from_serialized(json.loads(session.tree_json))
     except Exception as exc:
         logger.exception("Failed to deserialize tree for session %s", session_id)
-        raise HTTPException(
-            status_code=500, detail=f"Invalid conversation tree: {exc}"
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Invalid conversation tree: {exc}") from exc
 
     if tree.get(node_id) is None:
         raise HTTPException(status_code=404, detail="Node not found")

@@ -64,6 +64,7 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
             await app.state.plugin_system.start()
         init_telemetry()
         from .db import bootstrap_admin_user, get_db
+
         # DB-less mode (empty MYSQL_URL) is a supported configuration for
         # tests and local dev — skip engine creation just like
         # bootstrap_admin_user skips its own DB work in that mode.
@@ -71,6 +72,21 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
             db = get_db()
             await db.ensure_database()
         await bootstrap_admin_user()
+        # Ensure the ES chunks index exists (init_index is a no-op when it
+        # does).  ES-less mode (empty es_hosts) skips this, and an
+        # unreachable cluster only logs a warning instead of aborting
+        # startup — search tools will report the error when actually used.
+        if settings.es_hosts:
+            from courtier.es import init_index
+
+            try:
+                await asyncio.to_thread(init_index)
+            except Exception:
+                logger.warning(
+                    "Elasticsearch index initialization failed; search features "
+                    "will fail until the cluster is reachable",
+                    exc_info=True,
+                )
         try:
             yield
         finally:
@@ -92,13 +108,9 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         if settings.deployment_env == "production":
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none';"
-        response.headers["Permissions-Policy"] = (
-            "camera=(), microphone=(), geolocation=()"
-        )
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
 
     # CORS — configured via Settings
@@ -125,9 +137,7 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     app.state.session_store = SessionStore(
         sessions_dir or str(Path(settings.cache_dir) / "sessions")
     )
-    app.state.file_store = FileStore(
-        str(Path(settings.upload_dir) / ".file_registry")
-    )
+    app.state.file_store = FileStore(str(Path(settings.upload_dir) / ".file_registry"))
     app.state.pause_event = asyncio.Event()
     app.state.active_tasks = {}
     app.state.tool_registry = ToolRegistry()
@@ -137,9 +147,12 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     # artifact registration in one place.
     app.state.artifact_store = ArtifactStore(
         cache_dir=settings.cache_dir,
-        large_output_threshold=settings.llm_large_output_threshold
-        if hasattr(settings, "llm_large_output_threshold")
-        else 3000,
+        large_output_threshold=(
+            settings.llm_large_output_threshold
+            if hasattr(settings, "llm_large_output_threshold")
+            else 3000
+        ),
+        preview_max_chars=getattr(settings, "context_preview_max_chars", 1000),
     )
     app.state.artifact_store_registry = SessionArtifactStoreRegistry()
 
@@ -162,6 +175,20 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         tool_registry=app.state.tool_registry,
         artifact_store=app.state.artifact_store,
         artifact_store_registry=app.state.artifact_store_registry,
+        log_dir=str(Path(settings.audit_log_dir) / "plugins"),
+    )
+
+    # Plugin names living under plugins/shared/ — chat-mode agents get these
+    # tools (domain audit plugins stay audit-mode only).
+    shared_plugins_dir = courtier_config.repo_root / "plugins" / "shared"
+    app.state.shared_plugin_names = (
+        {
+            p.name
+            for p in shared_plugins_dir.iterdir()
+            if p.is_dir() and (p / "plugin.yaml").exists()
+        }
+        if shared_plugins_dir.is_dir()
+        else set()
     )
 
     # Routes
@@ -196,6 +223,16 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     # Profile routes — JWT-protected
     app.include_router(profile_router)
+
+    # Resource library routes — JWT-protected (delete is admin-only)
+    from .routes.resources import router as resources_router
+
+    app.include_router(resources_router)
+
+    # Admin extension management routes — admin-only
+    from .routes.admin_extensions import router as admin_extensions_router
+
+    app.include_router(admin_extensions_router)
 
     # Serve built frontend static assets in production/Docker images.
     # The Dockerfile copies webui/dist to $COURTIER_REPO_ROOT/static.

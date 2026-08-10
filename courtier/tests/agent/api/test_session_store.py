@@ -1,5 +1,6 @@
 """Tests for SessionStore."""
 
+import json
 import random
 import tempfile
 
@@ -69,6 +70,32 @@ class TestSessionStore:
         assert sessions[0]["id"] == "sess_cccccccccccc"
         assert sessions[1]["id"] == "sess_bbbbbbbbbbbb"
         assert sessions[2]["id"] == "sess_aaaaaaaaaaaa"
+
+    async def test_list_all_pinned_first(self, store):
+        await store.create("sess_aaaaaaaaaaaa", "task a", "file_a", created_at=100.0, owner="alice")
+        await store.create("sess_bbbbbbbbbbbb", "task b", "file_b", created_at=200.0, owner="alice")
+        await store.create("sess_cccccccccccc", "task c", "file_c", created_at=300.0, owner="alice")
+        await store.update("sess_aaaaaaaaaaaa", pinned=True)
+
+        sessions = await store.list_all(current_user="alice")
+        # Pinned first (newest among pinned), then most recent first
+        assert [s["id"] for s in sessions] == [
+            "sess_aaaaaaaaaaaa",
+            "sess_cccccccccccc",
+            "sess_bbbbbbbbbbbb",
+        ]
+        assert sessions[0]["pinned"] is True
+        assert sessions[1]["pinned"] is False
+
+    async def test_persist_and_reload_pinned(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        await store.update("sess_000000000001", pinned=True)
+
+        reloaded = SessionStore(str(tmp_path))
+        s = await reloaded.get("sess_000000000001")
+        assert s is not None
+        assert s.pinned is True
 
     async def test_delete(self, store):
         await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
@@ -199,10 +226,7 @@ class TestSessionStore:
         assert tool.call_kind == "subagent_run"
         assert tool.call_scope == "parent"
         assert tool.subagent_name == "format_auditor"
-        assert (
-            loaded.to_detail_dict()["steps"][0]["tools"][0]["callKind"]
-            == "subagent_run"
-        )
+        assert loaded.to_detail_dict()["steps"][0]["tools"][0]["callKind"] == "subagent_run"
 
     async def test_persist_and_reload_with_display_name(self, tmp_path):
         store = SessionStore(str(tmp_path))
@@ -236,13 +260,9 @@ class TestSessionStore:
         assert loaded is not None
         tool = loaded.steps[0].tools[0]
         assert tool.display_name == "文档解析"
-        assert (
-            loaded.to_detail_dict()["steps"][0]["tools"][0]["displayName"] == "文档解析"
-        )
+        assert loaded.to_detail_dict()["steps"][0]["tools"][0]["displayName"] == "文档解析"
 
-    async def test_load_legacy_tool_without_display_name_defaults_to_none(
-        self, tmp_path
-    ):
+    async def test_load_legacy_tool_without_display_name_defaults_to_none(self, tmp_path):
         store = SessionStore(str(tmp_path))
         path = tmp_path / "sess_1e9ac71e9ac7.json"
         path.write_text(
@@ -406,9 +426,7 @@ class TestSessionStore:
         assert ls.subagents[0].thoughts[0].text == "检查中..."
 
     @pytest.mark.asyncio
-    async def test_persist_and_reload_preserves_thought_metadata(
-        self, store: SessionStore
-    ):
+    async def test_persist_and_reload_preserves_thought_metadata(self, store: SessionStore):
         """Thought step_index and turn_index survive round-trip."""
         sid = f"sess_{_rid()}"
         await store.create(sid, "audit", "/tmp/f.docx")
@@ -495,9 +513,7 @@ class TestStepMetadataPreservation:
     """Regression tests for StepRecord metadata survival across updates."""
 
     @pytest.mark.asyncio
-    async def test_add_tool_info_preserves_turn_index_subagents_and_segment(
-        self, store
-    ):
+    async def test_add_tool_info_preserves_turn_index_subagents_and_segment(self, store):
         sid = f"sess_{_rid()}"
         await store.create(sid, "audit", "/tmp/f.docx")
 
@@ -657,3 +673,124 @@ class TestTurnConclusionPersistence:
         assert len(turns) == 2
         assert turns[0]["conclusion"] == ""
         assert turns[1]["conclusion"] == "最终结论"
+
+
+@pytest.mark.asyncio
+class TestIssueCountsPersistence:
+    """issue_counts 的持久化与恢复（含旧会话兼容）。"""
+
+    async def test_persist_and_reload_issue_counts(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        await store.create(
+            "sess_000000000001",
+            "task",
+            "file_abc12345",
+            created_at=100.0,
+        )
+        await store.add_step(
+            "sess_000000000001",
+            StepRecord(index=1, label="check_format", skill="format_audit"),
+        )
+        counts = {"err": 3, "warn": 0, "ok": 1, "unchecked": 2}
+        await store.add_tool_info(
+            "sess_000000000001",
+            ToolInfo(
+                name="check_format",
+                skill="format_audit",
+                status="error",
+                duration=0.5,
+                summary="3 项错误",
+                issue_counts=counts,
+            ),
+        )
+
+        reloaded_store = SessionStore(str(tmp_path))
+        loaded = await reloaded_store.get("sess_000000000001")
+
+        assert loaded is not None
+        tool = loaded.steps[0].tools[0]
+        assert tool.issue_counts == counts
+        assert loaded.to_detail_dict()["steps"][0]["tools"][0]["issueCounts"] == counts
+
+    async def test_load_legacy_tool_without_issue_counts_defaults_to_none(self, tmp_path):
+        path = tmp_path / "sess_1e9ac71e9ac7.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "id": "sess_1e9ac71e9ac7",
+                    "task": "legacy task",
+                    "status": "completed",
+                    "steps": [
+                        {
+                            "index": 1,
+                            "label": "check_format",
+                            "skill": "format_audit",
+                            "tools": [
+                                {
+                                    "name": "check_format",
+                                    "skill": "format_audit",
+                                    "status": "warning",
+                                    "duration": 0.5,
+                                    "summary": "1 项警告",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        store = SessionStore(str(tmp_path))
+        loaded = await store.get("sess_1e9ac71e9ac7")
+
+        assert loaded is not None
+        tool = loaded.steps[0].tools[0]
+        assert tool.issue_counts is None
+        # Re-serialization must not invent the field for legacy tools.
+        assert "issueCounts" not in loaded.to_detail_dict()["steps"][0]["tools"][0]
+
+    async def test_persist_and_reload_subagent_tool_issue_counts(self, tmp_path):
+        from courtier.agent.api.models import SubagentRunRecord, SubagentToolRecord
+
+        store = SessionStore(str(tmp_path))
+        await store.create(
+            "sess_000000000001",
+            "task",
+            "file_abc12345",
+            created_at=100.0,
+        )
+        await store.add_step(
+            "sess_000000000001",
+            StepRecord(index=1, label="run_format_auditor", skill="format_audit"),
+        )
+        counts = {"err": 1, "warn": 2, "ok": 7}
+        await store.finalize_step(
+            "sess_000000000001",
+            1,
+            subagents=[
+                SubagentRunRecord(
+                    name="format_auditor",
+                    handle_id="hdl_1",
+                    status="completed",
+                    tools=[
+                        SubagentToolRecord(
+                            name="check_format",
+                            status="done",
+                            duration=0.5,
+                            summary="checked",
+                            issue_counts=counts,
+                        )
+                    ],
+                )
+            ],
+        )
+
+        reloaded_store = SessionStore(str(tmp_path))
+        loaded = await reloaded_store.get("sess_000000000001")
+
+        assert loaded is not None
+        tool = loaded.steps[0].subagents[0].tools[0]
+        assert tool.issue_counts == counts
+        detail = loaded.to_detail_dict()
+        assert detail["steps"][0]["subagents"][0]["tools"][0]["issueCounts"] == counts

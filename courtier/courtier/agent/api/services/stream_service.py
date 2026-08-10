@@ -7,7 +7,6 @@ import json
 import logging
 import secrets
 import time as _time
-from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from ...artifacts.store import ArtifactStore
@@ -75,8 +74,7 @@ def serialize_messages(messages: tuple) -> str:
         d: dict = {"role": msg.role, "content": msg.content}
         if msg.tool_calls:
             d["tool_calls"] = [
-                {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                for tc in msg.tool_calls
+                {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls
             ]
         if msg.tool_call_id:
             d["tool_call_id"] = msg.tool_call_id
@@ -103,9 +101,7 @@ def deserialize_messages(json_str: str) -> tuple:
                 try:
                     tool_calls.append(ToolCall(**tc))
                 except (TypeError, ValueError) as exc:
-                    logger.warning(
-                        "Skipping malformed tool call in deserialized messages: %s", exc
-                    )
+                    logger.warning("Skipping malformed tool call in deserialized messages: %s", exc)
         messages.append(
             _Msg(
                 role=d["role"],
@@ -149,136 +145,39 @@ def reconstruct_state(
     )
 
 
-# Tool name -> primary artifact type mapping for rehydration.
-# When a persisted tool result is found in prior messages, we use this
-# mapping to register the artifact with the correct type in the new store.
-# Audit work now runs as Skills via SkillTool, so persisted results carry
-# the skill name (e.g. ``format_audit``) and rehydrate under the default
-# type unless listed here.
-_TOOL_ARTIFACT_TYPE: dict[str, str] = {
-    "parse_document": "docaudit.parsed_document",
-}
-
-
-def rehydrate_artifact_store(
-    artifact_store: ArtifactStore,
-    messages: tuple,
-    cache_dir: str = ".agent_cache",
-) -> None:
-    """Scan prior messages for __persisted_output__ markers and re-register
-    the corresponding artifacts in *artifact_store* by loading the cached
-    data from disk.
-
-    This bridges the gap between multi-turn HTTP requests: each request
-    creates a fresh ArtifactStore, but the cache files from previous turns
-    still exist on disk.  Without rehydration, tools like get_artifact
-    fail with "artifact not found" even though the data is available.
-
-    Since ArtifactStore now handles both disk persistence AND ref_map
-    management, there is no separate CacheStore to keep in sync —
-    ``artifact_store.set_ref()`` is called directly.
-    """
-    import json as _json
-
-    cache_root = Path(cache_dir).resolve()
-
-    for msg in messages:
-        if msg.role != "tool":
-            continue
-        try:
-            content = (
-                _json.loads(msg.content)
-                if isinstance(msg.content, str)
-                else msg.content
-            )
-        except (_json.JSONDecodeError, TypeError):
-            continue
-        if not isinstance(content, dict):
-            continue
-        data = content.get("raw_data")
-        if not isinstance(data, dict) or not data.get("__persisted_output__"):
-            continue
-
-        ref_id = data.get("ref_id")
-        filepath = data.get("file")
-        tool_name = msg.name or ""
-        if not ref_id or not filepath:
-            continue
-
-        # Path-traversal protection: resolve the user-supplied filepath
-        # relative to cache_root and verify it stays within bounds.
-        # Use Path(filepath) directly (not .name) so stored sub-paths are
-        # preserved while still rejecting escapes above cache_root.
-        safe_path = (cache_root / Path(filepath)).resolve()
-        try:
-            safe_path.relative_to(cache_root)
-        except ValueError:
-            logger.warning(
-                "Rejected filepath outside cache_dir: %s (resolved to %s)",
-                filepath,
-                safe_path,
-            )
-            continue
-
-        # Determine artifact type from tool name
-        artifact_type = _TOOL_ARTIFACT_TYPE.get(tool_name, "core.cached_output")
-
-        # Load the actual data from the cache file
-        try:
-            artifact_data = _json.loads(safe_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, _json.JSONDecodeError, OSError):
-            continue
-
-        artifact_store.register_cached_ref(
-            ref_id=ref_id,
-            artifact_type=artifact_type,
-            created_by=tool_name,
-            data=artifact_data,
-            role=(
-                "primary_document" if tool_name == "parse_document" else "intermediate"
-            ),
-            subject="current_upload" if tool_name == "parse_document" else "unknown",
-            projection_allowed=True,
-        )
-
-        # Sync ref_map for multi-turn $ref resolution.
-        # ArtifactStore now owns ref_map — no separate CacheStore to sync.
-        if ref_id and filepath:
-            artifact_store.set_ref(ref_id, str(safe_path))
-
-
 # -- SSE stream generator helpers ----------------------------------------------
 
 
 def _prepare_artifact_store_for_session(
     prior_state: Any,
     context_manager: Any,
+    artifact_snapshot: str = "",
 ) -> ArtifactStore:
     """Return the artifact store for the current session.
 
-    Uses ``context_manager._cache`` (the shared ArtifactStore) so that
-    sub-agent results persisted by AgentRuntime's summarizer land in the
-    same store that the parent agent uses for ``get_artifact`` reads.
-    Previously a fresh ``ArtifactStore()`` was created per request, which
-    had a different ``ref_map`` and never saw sub-agent-persisted refs.
+    Uses ``context_manager._cache`` — a fresh store created per request by
+    the agent builders (sessions no longer share ``app.state.artifact_store``,
+    which leaked artifacts — and thus prior conversations' document content —
+    across sessions).  Within the run, sub-agent results persisted by
+    AgentRuntime's summarizer land in the same store that the parent agent
+    uses for ``get_artifact`` reads.
 
-    For multi-turn conversations, prior-turn persisted outputs are
-    rehydrated into this shared store.
+    Multi-turn restore goes exclusively through the persisted artifact
+    snapshot (full fidelity — typed artifacts, type policies, ref_map).
+    Sessions saved before snapshots existed are not restorable.
     """
     artifact_store = getattr(context_manager, "_cache", None)
     if artifact_store is None:
         artifact_store = ArtifactStore()
-    if prior_state is not None and prior_state.messages:
-        cache_dir = (
-            str(getattr(context_manager, "_cache_dir", ".agent_cache"))
-            if context_manager
-            else ".agent_cache"
-        )
-        rehydrate_artifact_store(
-            artifact_store,
-            prior_state.messages,
-            cache_dir=cache_dir,
-        )
+
+    if artifact_snapshot:
+        try:
+            artifact_store.load_snapshot(json.loads(artifact_snapshot))
+        except Exception:
+            logger.warning(
+                "Failed to restore artifact snapshot for session",
+                exc_info=True,
+            )
     return artifact_store
 
 
@@ -303,6 +202,8 @@ async def generate_sse_stream(
     session_store: Any,
     settings: Any,
     prior_state: Any = None,
+    artifact_snapshot: str = "",
+    context_state: str = "",
     is_new: bool = True,
     start_step: int = 0,
     context_manager: Any = None,
@@ -360,8 +261,19 @@ async def generate_sse_stream(
 
     async def runner() -> None:
         try:
+            # Restore compaction state so the re-compaction guard and the
+            # compact numbering survive across requests.
+            if context_state and context_manager is not None:
+                try:
+                    context_manager.load_state(json.loads(context_state))
+                except Exception:
+                    logger.warning(
+                        "Failed to restore compact state for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
             artifact_store = _prepare_artifact_store_for_session(
-                prior_state, context_manager
+                prior_state, context_manager, artifact_snapshot
             )
             model_config = _build_model_config(settings, model_name)
             result = await agent.run(
@@ -391,6 +303,23 @@ async def generate_sse_stream(
                 update_kwargs: dict[str, Any] = {
                     "messages_json": serialize_messages(result.final_state.messages),
                 }
+                # Persist the full artifact store state so the next turn
+                # restores typed artifacts/policies exactly, not just refs.
+                # Best-effort: a snapshot failure must not fail the run.
+                try:
+                    update_kwargs["artifact_snapshot"] = json.dumps(
+                        artifact_store.snapshot(), ensure_ascii=False
+                    )
+                    if context_manager is not None:
+                        update_kwargs["context_state"] = json.dumps(
+                            context_manager.snapshot_state(), ensure_ascii=False
+                        )
+                except Exception:
+                    logger.warning(
+                        "Failed to snapshot artifact store for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
                 if result.final_state.tree is not None:
                     update_kwargs["tree_json"] = json.dumps(
                         result.final_state.tree.serialize(), ensure_ascii=False
@@ -422,9 +351,7 @@ async def generate_sse_stream(
                 await queue.put(("complete", conclusion))
         except asyncio.CancelledError:
             logger.info("Agent run cancelled for session %s", session_id)
-            await session_store.update(
-                session_id, status="stopped", finished_at=_time.time()
-            )
+            await session_store.update(session_id, status="stopped", finished_at=_time.time())
             await queue.put(("stopped", None))
         except Exception:
             trace_id = secrets.token_hex(8)

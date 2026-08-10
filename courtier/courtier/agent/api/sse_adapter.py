@@ -101,10 +101,16 @@ class SSEAdapter:
         return sum(1 for s in session.turn_step_starts if s <= self._step_index)
 
     def _reset_subagent_state(self) -> None:
-        """Clear accumulated sub-agent state for a new step."""
+        """Clear accumulated sub-agent state after a step has been finalized.
+
+        Called at observe time (not at the next think) so the accumulation
+        window only ever grows within a step.  Clearing at think time raced
+        with the direct-callback capture path: the bus listener may process
+        ``think.tool_calls`` seconds after the run already delivered sub-agent
+        start events via ``on_subagent_event``, wiping the parent's record.
+        """
         self._current_subagents = {}
         self._subagent_parent_map = {}
-        self._subagent_owner_step_index = self._step_index
 
     def _tool_meta_for(self, tool_name: str) -> dict[str, Any]:
         """Resolve skill and display_name for *tool_name* from the tool registry."""
@@ -199,6 +205,14 @@ class SSEAdapter:
             await self._handle_think_tool_calls([str(n) for n in names])
         elif event_type == "think.text_response":
             await self.on_step("think", "text_response")
+        elif event_type == "context.compacted":
+            # Mirror of the legacy on_step("compact", ...) callback — route
+            # through on_step so the SSE shape stays defined in one place.
+            await self.on_step("compact", str(payload.get("detail", "")))
+        elif event_type == "context.compacting":
+            # Compaction started; the summarization LLM call may take a
+            # while — the frontend shows an in-progress indicator.
+            await self.on_step("compacting", str(payload.get("detail", "")))
         elif event_type == "llm.usage":
             # Structured path: apply token counts directly instead of the
             # legacy "prompt,completion" string round-trip.
@@ -228,48 +242,60 @@ class SSEAdapter:
             summary = payload.get("summary", "")
             # Reconstruct a minimal ExecutionResult for the existing handler.
             success = payload.get("success", event_type == "tool.result")
+            issue_counts = payload.get("issue_counts")
             result = ExecutionResult(
                 success=success,
                 actor_type="tool",
                 actor_name=name or "unknown",
                 error=payload.get("error"),
+                metadata=({"issue_counts": issue_counts} if isinstance(issue_counts, dict) else {}),
             )
             await self.on_tool_result(name or "unknown", result, summary)
         elif event_type == "guard.triggered":
-            await self._emit_sse({
-                "type": "guard_triggered",
-                "layer": payload.get("layer"),
-                "guardName": payload.get("guard_name"),
-                "action": payload.get("action"),
-                "reason": payload.get("reason"),
-            })
+            await self._emit_sse(
+                {
+                    "type": "guard_triggered",
+                    "layer": payload.get("layer"),
+                    "guardName": payload.get("guard_name"),
+                    "action": payload.get("action"),
+                    "reason": payload.get("reason"),
+                }
+            )
         elif event_type == "hint.injected":
-            await self._emit_sse({
-                "type": "hint_injected",
-                "hintType": payload.get("hint_type"),
-                "content": payload.get("content"),
-            })
+            await self._emit_sse(
+                {
+                    "type": "hint_injected",
+                    "hintType": payload.get("hint_type"),
+                    "content": payload.get("content"),
+                }
+            )
         elif event_type == "model.selected":
-            await self._emit_sse({
-                "type": "model_selected",
-                "model": payload.get("model"),
-                "backend": payload.get("backend"),
-                "strategy": payload.get("strategy"),
-            })
+            await self._emit_sse(
+                {
+                    "type": "model_selected",
+                    "model": payload.get("model"),
+                    "backend": payload.get("backend"),
+                    "strategy": payload.get("strategy"),
+                }
+            )
         elif event_type == "model.fallback":
-            await self._emit_sse({
-                "type": "model_fallback",
-                "model": payload.get("model"),
-                "backend": payload.get("backend"),
-                "reason": payload.get("reason"),
-            })
+            await self._emit_sse(
+                {
+                    "type": "model_fallback",
+                    "model": payload.get("model"),
+                    "backend": payload.get("backend"),
+                    "reason": payload.get("reason"),
+                }
+            )
         elif event_type == "loop.completed":
-            await self._emit_sse({
-                "type": "loop_completed",
-                "status": payload.get("status"),
-                "terminationReason": payload.get("termination_reason"),
-                "totalSteps": payload.get("total_steps"),
-            })
+            await self._emit_sse(
+                {
+                    "type": "loop_completed",
+                    "status": payload.get("status"),
+                    "terminationReason": payload.get("termination_reason"),
+                    "totalSteps": payload.get("total_steps"),
+                }
+            )
         elif event_type == "subagent.event":
             sub_event = payload.get("event")
             if sub_event is not None:
@@ -286,6 +312,10 @@ class SSEAdapter:
             await self._emit_sse({"type": "act", "detail": detail})
         elif event == "observe":
             await self._handle_observe()
+        elif event == "compact":
+            await self._emit_sse({"type": "context_compacted", "detail": detail})
+        elif event == "compacting":
+            await self._emit_sse({"type": "context_compacting"})
         elif event == "usage":
             await self._handle_usage(detail)
         # "stream" / "parse" events are internal, not sent to frontend
@@ -355,6 +385,9 @@ class SSEAdapter:
         metadata = getattr(result, "metadata", None)
         classification = normalize_tool_call_classification(metadata)
         meta = self._tool_meta_for(tool_name)
+        issue_counts = metadata.get("issue_counts") if metadata else None
+        if not isinstance(issue_counts, dict):
+            issue_counts = None
 
         # Determine status from result.  Post-normalization results are
         # ExecutionResult; anything else defensively maps to "ok".
@@ -381,11 +414,10 @@ class SSEAdapter:
             call_kind=classification["call_kind"],
             call_scope=classification["call_scope"],
             subagent_name=classification["subagent_name"],
-            parent_subagent_name=(
-                metadata.get("parent_subagent_name") if metadata else None
-            ),
+            parent_subagent_name=(metadata.get("parent_subagent_name") if metadata else None),
             handle_id=metadata.get("handle_id") if metadata else None,
             parent_handle_id=metadata.get("parent_handle_id") if metadata else None,
+            issue_counts=issue_counts,
         )
         await self._store.add_tool_info(self._session_id, tool_info)
 
@@ -416,6 +448,8 @@ class SSEAdapter:
         }
         if detail is not None:
             sse_payload["detail_data"] = detail
+        if issue_counts is not None:
+            sse_payload["issueCounts"] = issue_counts
 
         await self._emit_sse(sse_payload)
 
@@ -455,25 +489,20 @@ class SSEAdapter:
                     next_id = len(run.thoughts) + 1
                     self._current_subagents[handle_id] = replace(
                         run,
-                        thoughts=run.thoughts + [
-                            SubagentThoughtRecord(id=next_id, text="")
-                        ],
+                        thoughts=run.thoughts + [SubagentThoughtRecord(id=next_id, text="")],
                     )
                 elif run.thoughts:
                     # Append to last thought block
                     last = run.thoughts[-1]
                     self._current_subagents[handle_id] = replace(
                         run,
-                        thoughts=run.thoughts[:-1]
-                        + [replace(last, text=last.text + event.text)],
+                        thoughts=run.thoughts[:-1] + [replace(last, text=last.text + event.text)],
                     )
                 else:
                     # First token without a text_response boundary
                     self._current_subagents[handle_id] = replace(
                         run,
-                        thoughts=[
-                            SubagentThoughtRecord(id=1, text=event.text)
-                        ],
+                        thoughts=[SubagentThoughtRecord(id=1, text=event.text)],
                     )
 
         elif kind == "tool_result" and handle_id:
@@ -488,10 +517,9 @@ class SSEAdapter:
                     duration=event.tool_duration or 0.0,
                     summary=event.tool_summary or "",
                     handle_id=event.handle_id,
+                    issue_counts=event.tool_issue_counts,
                 )
-                self._current_subagents[handle_id] = replace(
-                    run, tools=run.tools + [tool]
-                )
+                self._current_subagents[handle_id] = replace(run, tools=run.tools + [tool])
 
         elif kind == "conclusion" and handle_id:
             run = self._current_subagents.get(handle_id)
@@ -505,18 +533,11 @@ class SSEAdapter:
             run = self._current_subagents.get(handle_id)
             if run:
                 result = event.result
-                is_error = (
-                    isinstance(result, dict)
-                    and result.get("status") == "error"
-                )
+                is_error = isinstance(result, dict) and result.get("status") == "error"
                 self._current_subagents[handle_id] = replace(
                     run,
                     status="error" if is_error else "completed",
-                    error=(
-                        result.get("error", "")
-                        if isinstance(result, dict)
-                        else ""
-                    ),
+                    error=(result.get("error", "") if isinstance(result, dict) else ""),
                 )
 
         # -- SSE emission (unchanged) --
@@ -556,20 +577,21 @@ class SSEAdapter:
             )
         elif kind == "tool_result":
             tool_meta = self._tool_meta_for(event.tool_name or "")
-            await self._emit_sse(
-                {
-                    "type": "subagent_tool_result",
-                    "name": event.subagent_name,
-                    "displayName": tool_meta["display_name"],
-                    "toolName": event.tool_name,
-                    "toolStatus": event.tool_status,
-                    "toolDuration": event.tool_duration,
-                    "toolSummary": event.tool_summary,
-                    "parentSubagentName": event.parent_subagent_name,
-                    "handleId": event.handle_id,
-                    "parentHandleId": event.parent_handle_id,
-                }
-            )
+            payload: dict[str, Any] = {
+                "type": "subagent_tool_result",
+                "name": event.subagent_name,
+                "displayName": tool_meta["display_name"],
+                "toolName": event.tool_name,
+                "toolStatus": event.tool_status,
+                "toolDuration": event.tool_duration,
+                "toolSummary": event.tool_summary,
+                "parentSubagentName": event.parent_subagent_name,
+                "handleId": event.handle_id,
+                "parentHandleId": event.parent_handle_id,
+            }
+            if event.tool_issue_counts is not None:
+                payload["issueCounts"] = event.tool_issue_counts
+            await self._emit_sse(payload)
         elif kind == "conclusion":
             if event.text:
                 await self._emit_sse(
@@ -609,11 +631,7 @@ class SSEAdapter:
         # the frontend runtime.  This keeps parent-level reasoning tokens
         # that arrive after a tool/sub-agent call in their own step, so
         # history rendering matches the streaming layout.
-        if (
-            self._current_step is None
-            or self._current_step.tools
-            or self._tool_calls_pending
-        ):
+        if self._current_step is None or self._current_step.tools or self._tool_calls_pending:
             self._step_index += 1
             turn_index = await self._resolve_turn_index()
             self._current_step = StepRecord(
@@ -625,19 +643,19 @@ class SSEAdapter:
             )
             self._tool_calls_pending = False
             await self._store.add_step(self._session_id, self._current_step)
-        await self._emit_sse(
-            {"type": "think", "detail": "text_response", "textResponse": True}
-        )
+        await self._emit_sse({"type": "think", "detail": "text_response", "textResponse": True})
 
     async def _handle_think_tool_calls(self, names: list[str]) -> None:
         """Create a step for announced tool calls and notify the frontend."""
         self._step_index += 1
-        self._reset_subagent_state()
+        # Only retarget the owner index here — the accumulated sub-agent
+        # state is cleared at observe time (see _reset_subagent_state), so a
+        # late/bus-backed think event can never wipe runs already captured
+        # for this step.
+        self._subagent_owner_step_index = self._step_index
         turn_index = await self._resolve_turn_index()
         meta: dict[str, Any] = (
-            self._tool_meta_for(names[0])
-            if names
-            else {"skill": "", "display_name": None}
+            self._tool_meta_for(names[0]) if names else {"skill": "", "display_name": None}
         )
         self._current_step = StepRecord(
             index=self._step_index,
@@ -658,10 +676,7 @@ class SSEAdapter:
                 "toolCalls": names,
                 # Chinese display names per tool, so pending/running tool
                 # cards can render them before the result arrives.
-                "displayNames": {
-                    name: self._tool_meta_for(name)["display_name"]
-                    for name in names
-                },
+                "displayNames": {name: self._tool_meta_for(name)["display_name"] for name in names},
             }
         )
 
@@ -671,6 +686,17 @@ class SSEAdapter:
             verdict = "".join(self._verdict_parts)
             if self._current_step:
                 await self._store.set_verdict(self._session_id, verdict)
+                # Tell the live stream what persistence already knows: this
+                # text is the step's intermediate verdict, not part of the
+                # final conclusion. Emitted before "observe" so the frontend
+                # finalizes the step verdict before closing the step frame.
+                await self._emit_sse(
+                    {
+                        "type": "step_verdict",
+                        "stepIndex": self._current_step.index,
+                        "text": verdict,
+                    }
+                )
             else:
                 logger.debug(
                     "Discarding pre-step verdict tokens (%d chars): %r...",
@@ -694,6 +720,11 @@ class SSEAdapter:
                 subagents=self._build_subagent_tree(),
                 end_segment_index=self._segment_index,
             )
+
+        # The step's tree is now persisted — clear accumulation state so the
+        # next step starts fresh.  Done here (not at the next think) because
+        # sub-agent events for the step may still be in flight until observe.
+        self._reset_subagent_state()
 
         await self._emit_sse({"type": "observe"})
 

@@ -62,7 +62,9 @@ class TestToolMetaFor:
     def test_returns_empty_meta_without_registry(self):
         adapter = SSEAdapter(asyncio.Queue(), session_store=None, session_id="s1")
         assert adapter._tool_meta_for("any") == {
-            "skill": "", "display_name": None, "skill_description": ""
+            "skill": "",
+            "display_name": None,
+            "skill_description": "",
         }
 
 
@@ -209,6 +211,7 @@ class TestSSEAdapter:
 
         # Sub-agent emits conclusion while the tool step is current.
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
         await adapter.on_subagent_event(
             SubAgentStreamEvent(
                 kind="start",
@@ -263,6 +266,50 @@ class TestSSEAdapter:
         assert parsed["type"] == "observe"
 
     @pytest.mark.asyncio
+    async def test_observe_flushes_verdict_as_step_verdict_event(self, store):
+        """中间过程文本在 observe 时作为 step_verdict 事件发出（而非混入结论）。"""
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter.on_step("think", "tool_calls: parse_document")
+        q.get_nowait()  # consume think event
+        await adapter.on_content_token("文档已解析，共1页。")
+        q.get_nowait()  # consume conclusion_token event
+
+        await adapter.on_step("observe", "results_collected")
+
+        # step_verdict 先于 observe 事件发出
+        item = q.get_nowait()
+        parsed = json.loads(item[1].replace("data: ", "").strip())
+        assert parsed["type"] == "step_verdict"
+        assert parsed["stepIndex"] == 1
+        assert parsed["text"] == "文档已解析，共1页。"
+        item = q.get_nowait()
+        parsed = json.loads(item[1].replace("data: ", "").strip())
+        assert parsed["type"] == "observe"
+
+        # 持久化语义不变：verdict 落在 step 上
+        session = await store.get("sess_7e57e57e57e5")
+        assert session is not None
+        assert session.steps[0].verdict == "文档已解析，共1页。"
+
+    @pytest.mark.asyncio
+    async def test_observe_without_verdict_emits_no_step_verdict(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter.on_step("think", "tool_calls: check_format")
+        q.get_nowait()  # consume think event
+
+        await adapter.on_step("observe", "results_collected")
+        item = q.get_nowait()
+        parsed = json.loads(item[1].replace("data: ", "").strip())
+        assert parsed["type"] == "observe"
+        assert q.empty()
+
+    @pytest.mark.asyncio
     async def test_on_token(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         q: asyncio.Queue = asyncio.Queue()
@@ -315,9 +362,7 @@ class TestSSEAdapter:
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
-        await adapter.on_tool_result(
-            "parse_document", ToolResult(success=True), "parsed"
-        )
+        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
 
         item = q.get_nowait()
         parsed = json.loads(item[1].replace("data: ", "").strip())
@@ -395,9 +440,7 @@ class TestSSEAdapter:
         assert tool.subagent_name == "format_auditor"
 
     @pytest.mark.asyncio
-    async def test_on_tool_result_normalizes_invalid_classification_metadata(
-        self, store
-    ):
+    async def test_on_tool_result_normalizes_invalid_classification_metadata(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         q: asyncio.Queue = asyncio.Queue()
         adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
@@ -494,9 +537,7 @@ class TestSSEAdapter:
 
     @pytest.mark.asyncio
     async def test_build_detail_data_failed(self):
-        result = ExecutionResult.from_error(
-            actor_type="tool", actor_name="t", error="failure"
-        )
+        result = ExecutionResult.from_error(actor_type="tool", actor_name="t", error="failure")
         d = SSEAdapter._build_detail_data(result)
         assert d is None
 
@@ -512,9 +553,7 @@ class TestSSEAdapter:
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
-        await adapter.on_tool_result(
-            "parse_document", ToolResult(success=True), "parsed"
-        )
+        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["type"] == "tool_result"
@@ -556,9 +595,7 @@ class TestSSEAdapter:
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
-        await adapter.on_tool_result(
-            "parse_document", ToolResult(success=True), "parsed"
-        )
+        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["type"] == "tool_result"
@@ -578,9 +615,7 @@ class TestSSEAdapter:
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
-        await adapter.on_tool_result(
-            "parse_document", ToolResult(success=True), "parsed"
-        )
+        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["type"] == "tool_result"
@@ -757,9 +792,7 @@ class TestSSEAdapterSubAgentEvents:
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
-            SubAgentStreamEvent(
-                kind="conclusion", subagent_name="parser", text="解析完成"
-            )
+            SubAgentStreamEvent(kind="conclusion", subagent_name="parser", text="解析完成")
         )
 
         tag, line = queue.get_nowait()
@@ -799,9 +832,7 @@ class TestSSEAdapterSubAgentEvents:
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
-            SubAgentStreamEvent(
-                kind="conclusion", subagent_name="parser", text=""
-            )
+            SubAgentStreamEvent(kind="conclusion", subagent_name="parser", text="")
         )
 
         assert queue.empty()
@@ -1012,3 +1043,318 @@ class TestSSEAdapterSubAgentStateAccumulation:
             )
         )
         assert len(adapter._current_subagents) == 1
+
+    @pytest.mark.asyncio
+    async def test_state_cleared_at_observe_not_next_think(self, store):
+        """The accumulation window is cleared at observe time: after the
+        step's tree is finalized, the next step starts with a clean dict."""
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        queue = asyncio.Queue()
+        adapter = SSEAdapter(queue, store, "sess_0b5e2ve00001")
+        await store.create("sess_0b5e2ve00001", "audit", "/tmp/f.docx")
+
+        await adapter.on_step("think", "tool_calls:tool_a")
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="agent_a",
+                handle_id="hdl_a",
+                task="task a",
+            )
+        )
+        assert len(adapter._current_subagents) == 1
+
+        await adapter.on_step("observe", "")
+        assert len(adapter._current_subagents) == 0
+        assert adapter._subagent_parent_map == {}
+
+    @pytest.mark.asyncio
+    async def test_parent_survives_late_think_tool_calls(self, store):
+        """Regression for the production race: a sub-agent start delivered via
+        the direct callback BEFORE the queued think.tool_calls is processed
+        must not be wiped when the think event is handled later.
+
+        Previously the think handler reset the accumulation dict, so a bus
+        listener backlogged with token events erased the parent run — the
+        persisted tree then contained only orphan children.
+        """
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        queue = asyncio.Queue()
+        adapter = SSEAdapter(queue, store, "sess_aaaa1111bbbb")
+        await store.create("sess_aaaa1111bbbb", "audit", "/tmp/f.docx")
+
+        # Direct callback delivers the parent start first (production ordering
+        # when the bus listener is still chewing through think-phase tokens).
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="full_government_audit",
+                handle_id="hdl_parent",
+                task="完整审核",
+            )
+        )
+        # The queued think.tool_calls is processed late.
+        await adapter.on_step("think", "tool_calls:full_government_audit")
+        assert len(adapter._current_subagents) == 1  # parent NOT wiped
+
+        # Children arrive after, nested under the parent.
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="format_audit",
+                handle_id="hdl_child",
+                parent_handle_id="hdl_parent",
+                task="格式审核",
+            )
+        )
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="conclusion",
+                subagent_name="full_government_audit",
+                handle_id="hdl_parent",
+                text="父结论",
+            )
+        )
+
+        # In-memory tree right before observe: parent with nested child.
+        tree = adapter._build_subagent_tree()
+        assert len(tree) == 1
+        assert tree[0].name == "full_government_audit"
+        assert [c.name for c in tree[0].children] == ["format_audit"]
+        assert tree[0].conclusion == "父结论"
+
+        await adapter.on_step("observe", "")
+        assert len(adapter._current_subagents) == 0  # cleared after finalize
+
+        # And the finalized step record carries the nested tree.
+        from pathlib import Path
+
+        raw = json.loads((Path(store._dir) / "sess_aaaa1111bbbb.json").read_text(encoding="utf-8"))
+        runs = raw["steps"][0]["subagents"]
+        assert len(runs) == 1
+        assert runs[0]["name"] == "full_government_audit"
+        assert [c["name"] for c in runs[0]["children"]] == ["format_audit"]
+
+
+class TestSSEAdapterIssueCounts:
+    """issue_counts 从结果 metadata 到 SSE 事件与持久化记录的透传。"""
+
+    @pytest.mark.asyncio
+    async def test_on_tool_result_emits_issue_counts(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter.on_step("think", "tool_calls: check_format")
+        q.get_nowait()
+
+        counts = {"err": 3, "warn": 0, "ok": 1, "unchecked": 2}
+        result = ExecutionResult(
+            success=True,
+            actor_type="tool",
+            actor_name="check_format",
+            metadata={"issue_counts": counts},
+        )
+        await adapter.on_tool_result("check_format", result, "发现 3 处错误")
+
+        parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
+        assert parsed["type"] == "tool_result"
+        assert parsed["issueCounts"] == counts
+
+        session = await store.get("sess_7e57e57e57e5")
+        assert session is not None
+        assert session.steps[0].tools[0].issue_counts == counts
+
+    @pytest.mark.asyncio
+    async def test_on_tool_result_without_issue_counts_omits_field(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter.on_step("think", "tool_calls: parse_document")
+        q.get_nowait()
+        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
+
+        parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
+        assert "issueCounts" not in parsed
+
+        session = await store.get("sess_7e57e57e57e5")
+        assert session is not None
+        assert session.steps[0].tools[0].issue_counts is None
+
+    @pytest.mark.asyncio
+    async def test_dispatch_tool_result_event_carries_issue_counts(self, store):
+        """Event-bus 路径：tool.result payload 的 issue_counts 透传到 SSE。"""
+        from courtier.agent.core.events import AgentEvent
+
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter.on_step("think", "tool_calls: check_format")
+        q.get_nowait()
+
+        counts = {"err": 1, "warn": 2, "ok": 5}
+        await adapter._dispatch_event(
+            AgentEvent(
+                type="tool.result",
+                session_id="sess_7e57e57e57e5",
+                agent_name="orchestrator",
+                turn_index=0,
+                payload={
+                    "name": "check_format",
+                    "summary": "发现 1 处错误",
+                    "success": True,
+                    "error": None,
+                    "issue_counts": counts,
+                },
+            )
+        )
+
+        parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
+        assert parsed["type"] == "tool_result"
+        assert parsed["issueCounts"] == counts
+
+        session = await store.get("sess_7e57e57e57e5")
+        assert session is not None
+        assert session.steps[0].tools[0].issue_counts == counts
+
+    @pytest.mark.asyncio
+    async def test_dispatch_context_compacted_event_emits_sse(self, store):
+        """Event-bus 路径（生产主路径）：context.compacted → SSE context_compacted。"""
+        from courtier.agent.core.events import AgentEvent
+
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter._dispatch_event(
+            AgentEvent(
+                type="context.compacted",
+                session_id="sess_7e57e57e57e5",
+                agent_name="orchestrator",
+                turn_index=0,
+                payload={"detail": "12 条消息 → 3 条"},
+            )
+        )
+
+        parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
+        assert parsed["type"] == "context_compacted"
+        assert parsed["detail"] == "12 条消息 → 3 条"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_context_compacting_event_emits_sse(self, store):
+        """Event-bus 路径（生产主路径）：context.compacting → SSE context_compacting。"""
+        from courtier.agent.core.events import AgentEvent
+
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        q: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+
+        await adapter._dispatch_event(
+            AgentEvent(
+                type="context.compacting",
+                session_id="sess_7e57e57e57e5",
+                agent_name="orchestrator",
+                turn_index=0,
+                payload={"detail": ""},
+            )
+        )
+
+        parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
+        assert parsed["type"] == "context_compacting"
+
+    @pytest.mark.asyncio
+    async def test_subagent_tool_result_emits_and_persists_issue_counts(self, store):
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        queue: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(queue, store, "sess_c01c01c01c01")
+        await store.create("sess_c01c01c01c01", "audit", "/tmp/f.docx")
+
+        await adapter.on_step("think", "tool_calls:run_format_auditor")
+        while not queue.empty():
+            queue.get_nowait()
+
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="format_auditor",
+                handle_id="hdl_1",
+                task="审核格式",
+            )
+        )
+        counts = {"err": 2, "warn": 1, "ok": 8, "unchecked": 3}
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="tool_result",
+                subagent_name="format_auditor",
+                handle_id="hdl_1",
+                tool_name="check_format",
+                tool_status="ok",
+                tool_duration=0.5,
+                tool_summary="格式正确",
+                tool_issue_counts=counts,
+            )
+        )
+
+        # SSE event carries the counts.
+        sse_events = []
+        while not queue.empty():
+            tag, line = queue.get_nowait()
+            sse_events.append(json.loads(line.strip().removeprefix("data: ").rstrip("\n")))
+        tool_result_events = [e for e in sse_events if e["type"] == "subagent_tool_result"]
+        assert len(tool_result_events) == 1
+        assert tool_result_events[0]["issueCounts"] == counts
+
+        # In-memory accumulation carries the counts.
+        tree = adapter._build_subagent_tree()
+        assert tree[0].tools[0].issue_counts == counts
+
+        # After observe the finalized step record persists the counts.
+        await adapter.on_step("observe", "")
+        session = await store.get("sess_c01c01c01c01")
+        assert session is not None
+        persisted_tool = session.steps[0].subagents[0].tools[0]
+        assert persisted_tool.issue_counts == counts
+        detail = session.to_detail_dict()
+        assert detail["steps"][0]["subagents"][0]["tools"][0]["issueCounts"] == counts
+
+    @pytest.mark.asyncio
+    async def test_subagent_tool_result_without_issue_counts_omits_field(self, store):
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        queue: asyncio.Queue = asyncio.Queue()
+        adapter = SSEAdapter(queue, store, "sess_c02c02c02c02")
+        await store.create("sess_c02c02c02c02", "audit", "/tmp/f.docx")
+
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="parser",
+                handle_id="hdl_1",
+                task="解析文档",
+            )
+        )
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="tool_result",
+                subagent_name="parser",
+                handle_id="hdl_1",
+                tool_name="parse",
+                tool_status="ok",
+                tool_duration=1.0,
+                tool_summary="done",
+            )
+        )
+
+        sse_events = []
+        while not queue.empty():
+            tag, line = queue.get_nowait()
+            sse_events.append(json.loads(line.strip().removeprefix("data: ").rstrip("\n")))
+        tool_result_events = [e for e in sse_events if e["type"] == "subagent_tool_result"]
+        assert len(tool_result_events) == 1
+        assert "issueCounts" not in tool_result_events[0]
+        assert adapter._current_subagents["hdl_1"].tools[0].issue_counts is None

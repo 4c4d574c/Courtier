@@ -10,10 +10,8 @@ from .session_service import (  # noqa: F401
     rewind_session_tree,
 )
 from .stream_service import (  # noqa: F401
-    _TOOL_ARTIFACT_TYPE,
     deserialize_messages,
     generate_sse_stream,
     reconstruct_state,
-    rehydrate_artifact_store,
     serialize_messages,
 )

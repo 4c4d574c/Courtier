@@ -10,6 +10,30 @@ from courtier.prompts.engine import PromptEngine
 
 logger = logging.getLogger(__name__)
 
+# Tools that read the resource library and must be scope-filtered per caller.
+_SCOPE_SENSITIVE_TOOLS = ("search_documents",)
+
+
+def apply_owner_scope(agent: Any, owner_id: int | None) -> None:
+    """Wrap scope-sensitive tools on *agent*'s private registry so resource
+    library queries are filtered to the caller (public + own personal).
+
+    The injected ``_owner_scope`` kwarg is host-side: it is not part of the
+    tool's parameters schema and always wins over model-supplied arguments.
+    Anonymous callers (owner_id=None) are scoped to public-only content.
+    """
+    from ...tools.scoped import ScopedTool
+
+    registry = getattr(agent, "tool_registry", None)
+    if registry is None:
+        return
+    for name in _SCOPE_SENSITIVE_TOOLS:
+        try:
+            inner = registry.get(name)
+        except KeyError:
+            continue
+        registry.register(ScopedTool(inner, {"_owner_scope": owner_id}), force=True)
+
 
 def _find_project_root() -> Path | None:
     """Walk upward from this file to locate the project root via a marker file."""
@@ -20,18 +44,18 @@ def _find_project_root() -> Path | None:
     return None
 
 
-def _load_drudge_md() -> str | None:
-    """Load the project-level DRUDGE.md from the repo root."""
+def _load_courtier_md() -> str | None:
+    """Load the project-level COURTIER.md from the repo root."""
     root = _find_project_root()
     if root is None:
-        logger.warning("Cannot locate project root; DRUDGE.md not loaded")
+        logger.warning("Cannot locate project root; COURTIER.md not loaded")
         return None
-    drudge_md_path = root / "DRUDGE.md"
+    courtier_md_path = root / "COURTIER.md"
     try:
-        if drudge_md_path.exists():
-            return drudge_md_path.read_text(encoding="utf-8")
+        if courtier_md_path.exists():
+            return courtier_md_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        logger.warning("Failed to load DRUDGE.md: %s", exc)
+        logger.warning("Failed to load COURTIER.md: %s", exc)
     return None
 
 
@@ -93,17 +117,19 @@ async def build_audit_agent(
     artifact_store: Any = None,
     skills_dir: str | None = None,
     prompt_engine: PromptEngine | None = None,
+    owner_id: int | None = None,
+    session_id: str = "",
 ) -> tuple[Any, Any, str]:
-    """Create OrchestratorAgent and ContextManager for document audit use."""
+    """Create OrchestratorAgent and MemoryManager for document audit use."""
     from ...agents.orch import OrchestratorAgent
-    from ...core.context_manager import ContextManager
+    from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
     from ...runtime.budget import AgentRuntimeBudget
     from ...skills import SkillRegistry
 
     model = build_model_client(settings)
 
-    drudge_md_content = _load_drudge_md()
+    courtier_md_content = _load_courtier_md()
 
     # Resolve skills_dir from CourtierConfig's first domain, falling back to
     # the default path relative to repo root.
@@ -142,6 +168,7 @@ async def build_audit_agent(
         skill_registry=skill_registry,
         artifact_store=store,
         default_budget=budget,
+        cache_dir=settings.cache_dir,
     )
 
     agent = OrchestratorAgent(
@@ -150,16 +177,65 @@ async def build_audit_agent(
         tool_registry=tool_registry,
         skill_registry=skill_registry,
         agent_runtime=agent_runtime,
-        drudge_md_content=drudge_md_content,
+        courtier_md_content=courtier_md_content,
         prompt_engine=prompt_engine,
         agent_name="Courtier",
+        # An uploaded document must be parsed before anything else runs.
+        first_required_tool="parse_document",
     )
-    context_manager = ContextManager(
+    context_manager = MemoryManager(
         model=model,
         cache_dir=settings.cache_dir,
+        session_id=session_id or "default",
         artifact_store=store,
+        **_context_budget_kwargs(settings),
+        **_compact_prompt_kwargs(prompt_engine),
     )
+    if plugin_system is not None:
+        # Inject plugin-declared tool-usage guidance (plugin.yaml
+        # system_prompt) into the system prompt via the lazy provider.
+        agent.set_plugin_prompts_provider(plugin_system.get_system_prompts)
+    apply_owner_scope(agent, owner_id)
     return agent, context_manager, model.model_name
+
+
+def _context_budget_kwargs(settings: Any) -> dict[str, int]:
+    """Derive ContextManager token budgets from settings.
+
+    Budgets are ratios of the deployed model's context window:
+    full compaction triggers at ``budget_ratio``, micro-compaction gates at
+    ``micro_compact_ratio``, and compaction aims for ``target_ratio``.
+    """
+    window = int(getattr(settings, "llm_context_window_tokens", 32768))
+    return {
+        "max_context_tokens": int(window * getattr(settings, "context_budget_ratio", 0.75)),
+        "micro_compact_tokens": int(
+            window * getattr(settings, "context_micro_compact_ratio", 0.60)
+        ),
+        "compact_target_tokens": int(
+            window * getattr(settings, "context_compact_target_ratio", 0.50)
+        ),
+        "recent_tool_results_tokens": int(
+            getattr(settings, "context_recent_tool_results_tokens", 4000)
+        ),
+        "preview_max_chars": int(getattr(settings, "context_preview_max_chars", 1000)),
+    }
+
+
+def _compact_prompt_kwargs(prompt_engine: PromptEngine | None) -> dict[str, str | None]:
+    """Render the compaction prompt templates from the domain PromptBundle.
+
+    The templates keep ``{history}`` / ``{previous_summary}`` /
+    ``{new_segment}`` placeholders (single braces — not Jinja syntax) which
+    ContextManager substitutes at compaction time.
+    """
+    if prompt_engine is None:
+        return {}
+    return {
+        "compact_prompt_template": prompt_engine.render("context.compact_prompt") or None,
+        "compact_merge_prompt_template": prompt_engine.render("context.compact_merge_prompt")
+        or None,
+    }
 
 
 def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
@@ -186,48 +262,85 @@ def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
             )
         except Exception as exc:
             logger.warning(
-                "Failed to create Elasticsearch backend for ArtifactStore: %s", exc,
+                "Failed to create Elasticsearch backend for ArtifactStore: %s",
+                exc,
             )
 
     return ArtifactStore(
         cache_dir=str(settings.cache_dir),
+        preview_max_chars=int(getattr(settings, "context_preview_max_chars", 1000)),
         primary_backend=primary_backend,
     )
+
 
 async def build_chat_agent(
     settings: Any,
     artifact_store: Any = None,
     prompt_engine: PromptEngine | None = None,
+    tool_registry: Any = None,
+    shared_plugin_names: set[str] | None = None,
+    owner_id: int | None = None,
+    session_id: str = "",
+    plugin_system: Any = None,
 ) -> tuple[Any, Any, str]:
-    """Create a simple chat Agent for text-only conversations (no file audit)."""
+    """Create a chat Agent for conversations without an uploaded audit file.
+
+    When *tool_registry* and *shared_plugin_names* are provided, tools from
+    ``plugins/shared/`` (parse, search, annotate, template) are registered so
+    the chat agent can search the resource library, etc.  Domain audit
+    plugins remain audit-mode only.
+    """
     from ...agents.base import Agent
-    from ...core.context_manager import ContextManager
+    from ...core.memory_manager import MemoryManager
 
     model = build_model_client(settings)
 
     if prompt_engine is not None:
-        chat_prompt = prompt_engine.render(
-            "chat.system_prompt", agent_name="Courtier"
-        )
+        chat_prompt = prompt_engine.render("chat.system_prompt", agent_name="Courtier")
         agent_name_val = "Courtier Assistant"
     else:
-        chat_prompt = (
-            "You are Courtier, an AI assistant. "
-            "Provide helpful, accurate responses."
-        )
+        chat_prompt = "You are Courtier, an AI assistant. " "Provide helpful, accurate responses."
         agent_name_val = "Courtier Assistant"
+
+    tools: list[Any] = []
+    if tool_registry is not None and shared_plugin_names:
+        for tool in tool_registry.list_tools():
+            # Plugin tools are ProxyTool instances whose JSON-RPC client
+            # carries the originating plugin's name.
+            plugin_name = getattr(getattr(tool, "_client", None), "plugin_name", None)
+            if plugin_name in shared_plugin_names:
+                tools.append(tool)
 
     agent = Agent(
         name=agent_name_val,
         role=chat_prompt,
-        tools=[],
+        tools=tools,
         model=model,
         prompt_engine=prompt_engine,
         agent_name=agent_name_val,
     )
-    context_manager = ContextManager(
+    context_manager = MemoryManager(
         model=model,
         cache_dir=settings.cache_dir,
+        session_id=session_id or "default",
         artifact_store=artifact_store,
+        **_context_budget_kwargs(settings),
+        **_compact_prompt_kwargs(prompt_engine),
     )
+    # Give the chat agent's private registry the same ResultSummarizer/persist
+    # pipeline audit mode gets via AgentRuntime (runtime.py __post_init__),
+    # so large tool results are persisted + summarised with a $ref instead of
+    # being dumped verbatim into the LLM context.  The summarizer persists
+    # into the same store the context manager uses, keeping $refs resolvable.
+    from ...runtime.summarizer import ResultSummarizer
+
+    agent.tool_registry.configure_result_handling(
+        result_store=None,
+        summarizer=ResultSummarizer(artifact_store=context_manager._cache),
+    )
+    if plugin_system is not None:
+        # Shared plugins' declared tool-usage guidance (plugin.yaml
+        # system_prompt) joins the system prompt via the lazy provider.
+        agent.set_plugin_prompts_provider(plugin_system.get_system_prompts)
+    apply_owner_scope(agent, owner_id)
     return agent, context_manager, model.model_name
