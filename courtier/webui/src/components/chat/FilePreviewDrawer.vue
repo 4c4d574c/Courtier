@@ -141,7 +141,7 @@ watch(
 
 .file-drawer-title {
   flex: 1;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--chat-text-primary);
   white-space: nowrap;
@@ -157,7 +157,7 @@ watch(
 }
 
 .file-drawer-action {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-accent);
   text-decoration: none;
 }
@@ -175,7 +175,7 @@ watch(
   border: none;
   background: transparent;
   color: var(--chat-text-secondary);
-  font-size: 24px;
+  font-size: 26px;
   line-height: 1;
   cursor: pointer;
   border-radius: var(--chat-radius-md);
@@ -224,7 +224,7 @@ watch(
   background: var(--chat-accent);
   color: #fff;
   text-decoration: none;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .drawer-fade-enter-active,

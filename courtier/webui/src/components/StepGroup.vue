@@ -61,27 +61,19 @@
           :run="item"
           :is-expanded="isExpanded"
           :toggle="toggle"
-          :is-reasoning-expanded="isSubagentReasoningExpanded"
-          :toggle-reasoning="toggleSubagentReasoning"
-          :is-group-expanded="isSubagentGroupExpanded"
-          :toggle-group="toggleSubagentGroup"
           :is-conclusion-expanded="isSubagentConclusionExpanded"
           :toggle-conclusion="toggleSubagentConclusion"
         />
       </template>
     </TransitionGroup>
-
-    <Transition name="fade-slide">
-      <div v-if="hasVerdict" class="verdict">
-        <p class="verdict-text" v-html="verdictHtml"></p>
-      </div>
-    </Transition>
+    <!-- 步骤 verdict（中间结论）不在此渲染：buildProcessItems 将其作为
+         assistant 消息渲染在该 step 圆角框之前（闭合前一个框）；在此处
+         渲染会造成恢复历史会话时框内“结”块与框外文本重复。 -->
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { sanitizeHtml } from "../utils/markdown";
+import { computed, ref, watch } from "vue";
 import type { Step, Thought } from "../types/agent";
 import { buildStepToolGroups, displayItemKey } from "../utils/toolCalls";
 import { useToggleSet } from "../composables/useToggleSet";
@@ -101,17 +93,6 @@ interface Props {
 
 const props = defineProps<Props>();
 
-const verdictHtml = computed(() => {
-  if (!props.step.verdict) return "";
-  return sanitizeHtml(props.step.verdict);
-});
-
-const hasVerdict = computed(() => {
-  if (!verdictHtml.value) return false;
-  const text = verdictHtml.value.replace(/<[^>]*>/g, "");
-  return text.trim().length > 0;
-});
-
 const displayItems = computed(() =>
   buildStepToolGroups(props.step.tools, props.step.subagents),
 );
@@ -124,19 +105,24 @@ const combinedThoughtText = computed(() =>
   visibleThoughts.value.map((t) => t.text).join("\n\n"),
 );
 
-const thoughtsExpanded = ref(true);
+// Thought block: expanded while this step is the one currently streaming,
+// auto-collapses when it finishes — unless the user has manually toggled it.
+const thoughtsExpanded = ref(props.isRunning && props.isLastStep);
+let thoughtsToggled = false;
 
 function toggleThoughts() {
+  thoughtsToggled = true;
   thoughtsExpanded.value = !thoughtsExpanded.value;
 }
 
-const {
-  toggle: toggleSubagentReasoning,
-  isExpanded: isSubagentReasoningExpanded,
-} = useToggleSet({ defaultExpanded: true });
-
-const { toggle: toggleSubagentGroup, isExpanded: isSubagentGroupExpanded } =
-  useToggleSet({ defaultExpanded: true });
+watch(
+  () => props.isRunning && props.isLastStep,
+  (active, wasActive) => {
+    if (wasActive && !active && !thoughtsToggled) {
+      thoughtsExpanded.value = false;
+    }
+  },
+);
 
 const {
   toggle: toggleSubagentConclusion,

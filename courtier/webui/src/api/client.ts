@@ -324,6 +324,19 @@ export const api = {
     await request("DELETE", `/sessions/${id}`);
   },
 
+  async updateSession(
+    id: string,
+    patch: { task?: string; pinned?: boolean },
+  ): Promise<SessionSummary> {
+    const res = await authFetch(`${API_BASE}/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "PATCH /sessions/:id failed");
+    return res.json();
+  },
+
   async createEventSource(params: {
     task?: string;
     fileId?: string;
@@ -360,4 +373,191 @@ export const api = {
       { node_id: nodeId },
     );
   },
+
+  async compactSession(sessionId: string): Promise<{
+    beforeTokens: number;
+    afterTokens: number;
+    beforeMessages: number;
+    afterMessages: number;
+    compactCount: number;
+  }> {
+    return postJson(`/sessions/${sessionId}/compact`, {});
+  },
+
+  // ---- Resource library ----
+  async uploadResource(
+    file: File,
+    meta: {
+      title?: string;
+      author?: string;
+      source?: string;
+      tags?: string;
+      publishDate?: string;
+      visibility?: "public" | "personal";
+    },
+  ): Promise<{
+    id: number;
+    title: string;
+    chunkCount: number;
+    charCount: number;
+    visibility: string;
+    status: string;
+  }> {
+    const form = new FormData();
+    form.append("file", file);
+    if (meta.title) form.append("title", meta.title);
+    if (meta.author) form.append("author", meta.author);
+    if (meta.source) form.append("source", meta.source);
+    if (meta.tags) form.append("tags", meta.tags);
+    if (meta.publishDate) form.append("publish_date", meta.publishDate);
+    if (meta.visibility) form.append("visibility", meta.visibility);
+    const res = await authFetch(`${API_BASE}/resources/upload`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /resources/upload failed");
+    return res.json();
+  },
+
+  async listResources(
+    query = "",
+    skip = 0,
+    limit = 50,
+    scope: "all" | "public" | "personal" = "all",
+  ): Promise<{ total: number; items: ResourceSummary[] }> {
+    const res = await authFetch(
+      `${API_BASE}/resources/list${qs({ query: query || undefined, skip: String(skip), limit: String(limit), scope })}`,
+    );
+    if (!res.ok) throw await parseErrorDetail(res, "GET /resources/list failed");
+    return res.json();
+  },
+
+  async deleteResource(id: number): Promise<void> {
+    await request("DELETE", `/resources/${id}`);
+  },
+
+  // ---- Admin: extension management (plugins & skills) ----
+  async listPlugins(): Promise<{ items: PluginInfo[] }> {
+    const res = await authFetch(`${API_BASE}/admin/extensions/plugins`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/extensions/plugins failed");
+    return res.json();
+  },
+
+  async pluginAction(name: string, action: "start" | "stop" | "restart"): Promise<{ name: string; state: string }> {
+    return postJson(`/admin/extensions/plugins/${name}/action`, { action });
+  },
+
+  async getPluginLogs(name: string, tail = 200): Promise<PluginLogs> {
+    const res = await authFetch(
+      `${API_BASE}/admin/extensions/plugins/${name}/logs?tail=${tail}`,
+    );
+    if (!res.ok) throw await parseErrorDetail(res, "GET plugin logs failed");
+    return res.json();
+  },
+
+  async listSkillsAdmin(): Promise<{ domains: DomainSkills[] }> {
+    const res = await authFetch(`${API_BASE}/admin/extensions/skills`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/extensions/skills failed");
+    return res.json();
+  },
+
+  async setSkillEnabled(name: string, enabled: boolean, domain: string): Promise<void> {
+    await postJson(`/admin/extensions/skills/${name}/enabled`, { enabled, domain });
+  },
+
+  async createSkill(payload: {
+    name: string;
+    domain: string;
+    display_name?: string;
+    description?: string;
+    mode?: string;
+    default_mode?: string;
+    tools?: string[];
+    skills?: string[];
+    tags?: string[];
+    system_prompt: string;
+  }): Promise<{ name: string; source: string; warnings?: string[] }> {
+    return postJson(`/admin/extensions/skills`, payload);
+  },
+
+  async createDomain(payload: {
+    name: string;
+    title?: string;
+    description?: string;
+    locale?: string;
+  }): Promise<{ name: string; title: string; issues: string[] }> {
+    return postJson(`/admin/extensions/domains`, payload);
+  },
+
+  async setDomainEnabled(name: string, enabled: boolean): Promise<void> {
+    await postJson(`/admin/extensions/domains/${name}/enabled`, { enabled });
+  },
 };
+
+export interface DomainSkills {
+  name: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  skillsPath: string;
+  items: SkillInfo[];
+  errors: string[];
+}
+
+export interface PluginToolInfo {
+  name: string;
+  displayName: string;
+  description: string;
+}
+
+export interface PluginInfo {
+  name: string;
+  source: string;
+  scanStatus: string;
+  scanError: string | null;
+  state: string;
+  version: string;
+  restartCount: number;
+  description: string;
+  tools: PluginToolInfo[];
+}
+
+export interface PluginLogs {
+  name: string;
+  lines: string[];
+  totalLines: number;
+  sizeBytes: number;
+  logPath: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  displayName: string;
+  description: string;
+  enabled: boolean;
+  mode: string;
+  defaultMode: string;
+  tools: string[];
+  skills: string[];
+  tags: string[];
+  version: string;
+  timeoutSeconds: number;
+  source: string;
+}
+
+export interface ResourceSummary {
+  id: number;
+  title: string;
+  author: string | null;
+  source: string | null;
+  tags: string | null;
+  publishDate: string | null;
+  fileType: string;
+  fileSize: number;
+  chunkCount: number;
+  charCount: number;
+  status: string;
+  visibility: "public" | "personal";
+  ownerId: number | null;
+  createdAt: string | null;
+}

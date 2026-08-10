@@ -8,24 +8,23 @@
       @new-session="$emit('new-session')"
       @select="$emit('history-select', $event)"
       @delete="$emit('history-delete', $event)"
+      @rename="$emit('history-rename', $event.id, $event.task)"
+      @pin="$emit('history-pin', $event.id, $event.pinned)"
       @logout="$emit('logout')"
     />
     <div class="chat-layout-main">
       <ChatHeader
         :title="title"
-        :model-name="session.modelName"
         :username="username"
         :user-role="userRole"
         :model-events="session.modelEvents"
         @toggle-sidebar="$emit('toggle-sidebar')"
-        @toggle-debug="debugOpen = !debugOpen"
         @toggle-theme="$emit('toggle-theme')"
         @logout="$emit('logout')"
       />
       <ChatArea
         :messages="messages"
         :is-running="isRunning"
-        @quick-task="$emit('quick-task', $event)"
         @preview="$emit('preview-file', $event)"
       />
       <InputArea
@@ -37,17 +36,6 @@
         @stop="$emit('stop')"
       />
     </div>
-    <DebugPanel
-      :open="debugOpen"
-      :model-events="session.modelEvents"
-      :hint-events="session.hintEvents"
-      :loop-completed="session.loopCompleted"
-      :tree-json="session.treeJson"
-      :current-node-id="session.currentNodeId"
-      @close="debugOpen = false"
-      @fork="$emit('fork-session', $event)"
-      @rewind="$emit('rewind-session', $event)"
-    />
     <FilePreviewDrawer
       :is-open="drawerOpen"
       :file="currentFile"
@@ -57,7 +45,6 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
 import type { Session, SessionSummary } from "../../types/agent";
 import type { ChatFileItem, ChatMessageItem } from "../../types/chat";
 import ChatSidebar from "./ChatSidebar.vue";
@@ -65,7 +52,6 @@ import ChatHeader from "./ChatHeader.vue";
 import ChatArea from "./ChatArea.vue";
 import InputArea from "./InputArea.vue";
 import FilePreviewDrawer from "./FilePreviewDrawer.vue";
-import DebugPanel from "./DebugPanel.vue";
 
 interface Props {
   title: string;
@@ -88,19 +74,16 @@ defineEmits<{
   "new-session": [];
   "history-select": [id: string];
   "history-delete": [id: string];
+  "history-rename": [id: string, task: string];
+  "history-pin": [id: string, pinned: boolean];
   logout: [];
   "toggle-sidebar": [];
   "toggle-theme": [];
-  "quick-task": [task: string];
   "preview-file": [file: ChatFileItem];
   "close-preview": [];
   submit: [task: string, file?: File];
   stop: [];
-  "fork-session": [nodeId: string];
-  "rewind-session": [nodeId: string];
 }>();
-
-const debugOpen = ref(false);
 </script>
 
 <style scoped>

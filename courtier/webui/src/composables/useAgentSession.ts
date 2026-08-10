@@ -69,6 +69,10 @@ export function useAgentSession() {
       session.stats = { tokensIn: 0, tokensOut: 0, elapsed: 0 };
       session.modelName = "";
       session.conclusion = undefined;
+      session.compactions = [];
+      session.compacting = false;
+      session.pendingVerdict = "";
+      session.pendingVerdictAfterStepIndex = 0;
       session.createdAt = Date.now();
       state.thoughtIdCounter = 0;
       state.toolIdCounter = 0;
@@ -80,6 +84,9 @@ export function useAgentSession() {
     session.status = "running";
     session.errorMessage = undefined;
     session.stopReason = undefined;
+    session.compacting = false;
+    session.pendingVerdict = "";
+    session.pendingVerdictAfterStepIndex = 0;
     state.currentTurnIndex++;
     state.currentStepIndex = 0;
     state.observedSinceLastStep = false;
@@ -162,6 +169,8 @@ export function useAgentSession() {
     state.pendingSubagents = [];
     session.thoughts = [];
     session.conclusion = undefined;
+    session.pendingVerdict = "";
+    session.pendingVerdictAfterStepIndex = 0;
     session.stats = { tokensIn: 0, tokensOut: 0, elapsed: 0 };
     session.modelName = "";
     session.createdAt = Date.now();
@@ -189,6 +198,10 @@ export function useAgentSession() {
     session.thoughts = loaded.thoughts || [];
     session.stats = loaded.stats || { tokensIn: 0, tokensOut: 0, elapsed: 0 };
     session.conclusion = loaded.conclusion;
+    session.compactions = [];
+    session.compacting = false;
+    session.pendingVerdict = "";
+    session.pendingVerdictAfterStepIndex = 0;
     session.errorMessage = loaded.errorMessage;
     session.stopReason = loaded.stopReason;
     session.createdAt = loaded.createdAt || Date.now();
@@ -248,6 +261,35 @@ export function useAgentSession() {
     }
   }
 
+  async function compactContext() {
+    if (!session.id) {
+      session.errorMessage = "暂无可压缩的上下文（新会话还没有历史）";
+      return;
+    }
+    if (session.status === "running") {
+      session.errorMessage = "运行中无法压缩上下文，请等待完成或停止后再试";
+      return;
+    }
+    try {
+      const result = await api.compactSession(session.id);
+      session.compactions = [
+        ...(session.compactions ?? []),
+        {
+          text:
+            `上下文已手动压缩（${result.beforeMessages} 条消息 → ` +
+            `${result.afterMessages} 条，约 ${result.beforeTokens} → ` +
+            `${result.afterTokens} tokens）`,
+          turnIndex: state.currentTurnIndex,
+          timestamp: Date.now(),
+        },
+      ];
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      session.errorMessage = `压缩上下文失败：${msg}`;
+      console.warn("compactContext failed:", err);
+    }
+  }
+
   function disconnect() {
     // Invalidate any pending createEventSource resolution so a superseded
     // connect cannot attach its stream afterwards.
@@ -275,6 +317,7 @@ export function useAgentSession() {
     stop,
     forkSession,
     rewindSession,
+    compactContext,
     isRunning,
     turnVersion,
   };

@@ -4,12 +4,11 @@ import type {
   ChatMessageItem,
   ChatUserMessageItem,
   ChatFileItem,
-  ChatThinkingItem,
   ChatAssistantMessageItem,
   ChatErrorItem,
   ChatStoppedItem,
   ChatGuardItem,
-  ChatStepsItem,
+  StepThoughtGroup,
 } from "../types/chat";
 import { MESSAGES } from "../constants/messages";
 import { MIME_TYPES } from "../constants/fileUpload";
@@ -38,20 +37,6 @@ export function deriveConversationTitle(session: Session): string {
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max) + "…";
-}
-
-function collectTurnThoughts(turn: Turn, allThoughts: Thought[]): Thought[] {
-  const seen = new Set<number>();
-  const result: Thought[] = [];
-  for (let i = 0; i < turn.steps.length; i++) {
-    for (const thought of thoughtsForStep(allThoughts, turn, i)) {
-      if (!seen.has(thought.id)) {
-        seen.add(thought.id);
-        result.push(thought);
-      }
-    }
-  }
-  return result;
 }
 
 function findFileRecord(
@@ -98,29 +83,108 @@ function buildFileItem(
   };
 }
 
-function buildThinkingItem(
+/**
+ * Build the turn's process blocks (rounded frames).
+ *
+ * Thinking is split per step: each step carries the thoughts that produced
+ * its tool calls, rendered above those tool cards inside the frame.  A step
+ * verdict is intermediate assistant text (a non-thinking intermediate
+ * process) produced between the thinking and the tool calls of the same
+ * think, so the step splits there: its thinking stays in the frame above,
+ * the text closes that frame and renders outside it, and its tool calls
+ * open a new frame below the text.
+ */
+function buildProcessItems(
   turn: Turn,
   baseId: string,
   allThoughts: Thought[],
-): ChatThinkingItem | null {
-  const thoughts = collectTurnThoughts(turn, allThoughts);
-  if (thoughts.length === 0) return null;
-  return {
-    type: "thinking",
-    id: `${baseId}-thinking`,
-    content: thoughts.map((t) => t.text).join("\n\n"),
-    isOpen: true,
-  };
-}
+  isRunning: boolean,
+  pendingVerdict?: string,
+  pendingVerdictAfterStepIndex?: number,
+): ChatMessageItem[] {
+  const items: ChatMessageItem[] = [];
+  let groups: StepThoughtGroup[] = [];
+  let block = 0;
 
-function buildStepsItem(turn: Turn, baseId: string, isRunning: boolean): ChatStepsItem | null {
-  if (turn.steps.length === 0) return null;
-  return {
-    type: "steps",
-    id: `${baseId}-steps`,
-    steps: turn.steps,
-    isRunning,
+  const flush = () => {
+    if (groups.length === 0) return;
+    items.push({
+      type: "steps",
+      id: `${baseId}-steps-${block}`,
+      groups,
+      isRunning: false,
+    });
+    block += 1;
+    groups = [];
   };
+
+  // 运行中轮次：已流式收到但尚未定性的中间文本，按"待定 verdict"即时
+  // 渲染。边界 = 当前 think 对应 step 的前一个 step 的 index（文本将
+  // 转正为该 step 的 verdict，渲染在它的工具框之前）；边界之后创建的
+  // step 渲染在文本下方的新框中。observe 时 step_verdict 转正，布局
+  // 不变、无跳变；轮次结束则剩余文本成为最终结论。
+  const pendingText = isRunning ? (pendingVerdict ?? "") : "";
+  const hasPending = pendingText.trim() !== "";
+  const boundary = pendingVerdictAfterStepIndex ?? 0;
+  let pendingPushed = false;
+  const pushPending = () => {
+    if (!hasPending || pendingPushed) return;
+    flush();
+    items.push({
+      type: "assistant",
+      id: `${baseId}-pending-verdict`,
+      content: pendingText,
+    });
+    pendingPushed = true;
+  };
+
+  turn.steps.forEach((step, stepIndexInTurn) => {
+    const thoughts = thoughtsForStep(allThoughts, turn, stepIndexInTurn).filter(
+      (t) => t.text.trim() !== "",
+    );
+    const hasVerdict = !!step.verdict?.trim();
+    const isPendingSplit = hasPending && !pendingPushed && step.index > boundary;
+
+    if (!hasVerdict && !isPendingSplit) {
+      groups.push({ step, thoughts });
+      return;
+    }
+
+    // 文本由当前 think 在思考之后、工具调用之前产生，因此该 step 在此
+    // 处拆分：思考（先于文本产生）留在上方框；文本闭合上框、渲染在框外；
+    // 工具与子代理在文本下方开新框。无思考/无工具时不产生空组；纯思考组
+    // 必须同时摘掉 tools 和 subagents，否则子代理会在上下两框重复渲染。
+    if (thoughts.length > 0) {
+      groups.push({ step: { ...step, tools: [], subagents: [] }, thoughts });
+    }
+    flush();
+    if (hasVerdict) {
+      items.push({
+        type: "assistant",
+        id: `${baseId}-verdict-${step.index}`,
+        content: step.verdict!,
+      });
+    } else {
+      pushPending();
+    }
+    if (step.tools.length > 0 || (step.subagents?.length ?? 0) > 0) {
+      groups.push({ step, thoughts: [] });
+    }
+  });
+  flush();
+  // 边界之后尚无 step（文本正在流式、工具调用未到）：渲染在所有框之后，
+  // 即未来新框的上方。
+  pushPending();
+
+  // Only the final frame of the turn can still be streaming.
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "steps") {
+      item.isRunning = isRunning;
+      break;
+    }
+  }
+  return items;
 }
 
 function buildAssistantItem(
@@ -130,7 +194,15 @@ function buildAssistantItem(
   isRunning: boolean,
   isLastTurn: boolean,
 ): ChatAssistantMessageItem | null {
-  const conclusion = turn.conclusion ?? sessionConclusion;
+  // The session-level fallback exists for completed/legacy turns whose own
+  // conclusion was never recorded.  It must NOT apply to the turn that is
+  // currently running: there it would leak the previous turn's conclusion
+  // below the new turn's user message until the new conclusion starts
+  // streaming.
+  const conclusion =
+    isRunning && isLastTurn
+      ? turn.conclusion
+      : (turn.conclusion ?? sessionConclusion);
   if (!conclusion && !(isRunning && isLastTurn)) return null;
   return {
     type: "assistant",
@@ -192,16 +264,44 @@ export function buildChatMessages(
     const baseId = `turn-${turnIndex}`;
     const isLastTurn = turnIndex === session.turns.length - 1;
 
-    items.push(buildUserItem(turn, baseId));
-
     const fileItem = buildFileItem(turn, baseId, fileRecords);
     if (fileItem) items.push(fileItem);
 
-    const thinkingItem = buildThinkingItem(turn, baseId, session.thoughts);
-    if (thinkingItem) items.push(thinkingItem);
+    items.push(buildUserItem(turn, baseId));
 
-    const stepsItem = buildStepsItem(turn, baseId, isRunning);
-    if (stepsItem) items.push(stepsItem);
+    items.push(
+      ...buildProcessItems(
+        turn,
+        baseId,
+        session.thoughts,
+        isRunning && isLastTurn,
+        isLastTurn ? session.pendingVerdict : undefined,
+        isLastTurn ? session.pendingVerdictAfterStepIndex : undefined,
+      ),
+    );
+
+    // Context-compaction notices for this turn go right after its process
+    // blocks (they happened mid-run, before the conclusion).
+    for (const [i, notice] of (session.compactions ?? [])
+      .filter((n) => n.turnIndex === turnIndex + 1)
+      .entries()) {
+      items.push({
+        type: "compacted",
+        id: `${baseId}-compacted-${i}`,
+        text: notice.text,
+      });
+    }
+
+    // Compaction currently in progress: show a live indicator at the tail
+    // of the running turn (replaced by the compacted notice when done).
+    if (isRunning && isLastTurn && session.compacting) {
+      items.push({
+        type: "compacted",
+        id: `${baseId}-compacting`,
+        text: MESSAGES.CHAT_COMPACTING,
+        pending: true,
+      });
+    }
 
     const assistantItem = buildAssistantItem(
       turn,

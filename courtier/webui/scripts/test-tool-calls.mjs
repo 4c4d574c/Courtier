@@ -208,6 +208,55 @@ try {
   assert.equal(dupGrouped[0].type, 'subagent')
   assert.equal(dupGrouped[0].wrapper.id, 'tool-9')
 
+  // Nested dispatch record marked subagent_run (current backend): merges by
+  // handleId and the record becomes the child node's wrapper.
+  const markedNestedDispatch = normalizeToolResult({
+    id: 'tool-10',
+    name: 'content_audit',
+    skill: '',
+    status: 'done',
+    callKind: 'subagent_run',
+    callScope: 'subagent',
+    subagentName: 'full_government_audit',
+    handleId: 'content-1',
+    parentHandleId: 'full-1',
+  })
+  const fullRun = {
+    name: 'full_government_audit',
+    handleId: 'full-1',
+    task: '完整审核',
+    status: 'running',
+    tools: [markedNestedDispatch],
+    children: [childRun],
+  }
+  const markedGrouped = buildStepToolGroups([], [fullRun])
+  const markedChildren = markedGrouped[0].children
+  assert.equal(markedChildren.length, 1)
+  assert.equal(markedChildren[0].type, 'subagent')
+  assert.equal(markedChildren[0].name, 'content_audit')
+  assert.equal(markedChildren[0].wrapper.id, 'tool-10')
+
+  // Same scenario with a LEGACY record (callKind "tool", persisted before the
+  // backend marked dispatch records): must still merge — by name — instead of
+  // rendering a duplicate tool card next to the sub-agent node.
+  const legacyNestedDispatch = normalizeToolResult({
+    id: 'tool-11',
+    name: 'content_audit',
+    skill: '',
+    status: 'done',
+    callKind: 'tool',
+    callScope: 'subagent',
+    subagentName: 'full_government_audit',
+    handleId: 'full-1',
+  })
+  const legacyFullRun = { ...fullRun, tools: [legacyNestedDispatch] }
+  const legacyGrouped = buildStepToolGroups([], [legacyFullRun])
+  const legacyChildren = legacyGrouped[0].children
+  assert.equal(legacyChildren.length, 1)
+  assert.equal(legacyChildren[0].type, 'subagent')
+  assert.equal(legacyChildren[0].name, 'content_audit')
+  assert.equal(legacyChildren[0].wrapper.id, 'tool-11')
+
   const legacyStep = {
     index: 1,
     numeral: '壹',
@@ -256,6 +305,68 @@ try {
   })
   assert.equal(isDeprecatedTool(plainTool), false)
   assert.equal(parseDeprecatedReplacement(plainTool), undefined)
+
+  // issueCounts 透传：运行时归一化与会话恢复路径都保留计数
+  const counts = { err: 3, warn: 0, ok: 1, unchecked: 2 }
+  const auditedTool = normalizeToolResult({
+    id: 'tool-ic1',
+    name: 'check_format',
+    status: 'done',
+    issueCounts: counts,
+  })
+  assert.deepEqual(auditedTool.issueCounts, counts)
+
+  const noCountsTool = normalizeToolResult({
+    id: 'tool-ic2',
+    name: 'parse_document',
+    status: 'done',
+  })
+  assert.equal(noCountsTool.issueCounts, undefined)
+
+  const countsSession = {
+    ...legacySession,
+    id: 'sess_ic',
+    turns: [],
+    steps: [
+      {
+        index: 1,
+        numeral: '壹',
+        label: 'check_format',
+        skill: 'format_audit',
+        tools: [
+          {
+            id: 'tool-ic3',
+            name: 'check_format',
+            skill: 'format_audit',
+            status: 'done',
+            issueCounts: counts,
+          },
+        ],
+        subagents: [
+          {
+            name: 'format_audit',
+            handleId: 'hdl-ic1',
+            task: '格式审核',
+            status: 'completed',
+            tools: [
+              {
+                name: 'check_format',
+                status: 'done',
+                summary: 'checked',
+                issueCounts: counts,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+  const normalizedCountsSession = normalizeSession(countsSession)
+  assert.deepEqual(normalizedCountsSession.steps[0].tools[0].issueCounts, counts)
+  assert.deepEqual(
+    normalizedCountsSession.steps[0].subagents[0].tools[0].issueCounts,
+    counts
+  )
 
   console.log('toolCalls verification passed')
 } finally {

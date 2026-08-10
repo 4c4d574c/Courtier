@@ -11,6 +11,7 @@ import {
   handleTokenEvent,
   handleConclusionTokenEvent,
 } from "./handlers/token";
+import { handleStepVerdictEvent } from "./handlers/stepVerdict";
 import {
   handleToolStartEvent,
   handleToolProgressEvent,
@@ -76,10 +77,32 @@ export function createSessionEventHandlers(deps: () => HandlerDeps) {
         handleConclusionTokenEvent(deps, event);
         break;
       }
+      case "step_verdict": {
+        handleStepVerdictEvent(deps, event);
+        break;
+      }
       case "complete":
       case "stopped":
       case "error": {
         handleCompletionEvent(deps, event);
+        break;
+      }
+      case "context_compacting": {
+        const { session } = deps();
+        session.compacting = true;
+        break;
+      }
+      case "context_compacted": {
+        const { state: s, session } = deps();
+        session.compacting = false;
+        session.compactions = [
+          ...(session.compactions ?? []),
+          {
+            text: event.detail || "上下文已压缩",
+            turnIndex: s.currentTurnIndex,
+            timestamp: Date.now(),
+          },
+        ];
         break;
       }
       case "guard_triggered":

@@ -48,7 +48,7 @@
   <div v-if="tool.skill && tool.skillDescription" class="tool-card-description">
     {{ tool.skillDescription }}
   </div>
-  <div v-if="!hasIssues" class="tool-card-data">
+  <div v-if="!hasIssueCounts && !hasIssues" class="tool-card-data">
     <DataChip
       v-for="(chip, i) in parsedChips"
       :key="i"
@@ -56,7 +56,15 @@
       :value="chip.value"
     />
   </div>
-  <div v-if="hasIssues" class="tool-card-issues">
+  <div v-if="hasIssueCounts" class="tool-card-issues">
+    <span class="issue-count err">{{ issueErr }} 项错误</span>
+    <span class="issue-count warn">{{ issueWarn }} 项警告</span>
+    <span class="issue-count ok">{{ issueOk }} 项通过</span>
+    <span v-if="issueUnchecked > 0" class="issue-count unchecked"
+      >{{ issueUnchecked }} 项未检查</span
+    >
+  </div>
+  <div v-else-if="hasIssues" class="tool-card-issues">
     <span class="issue-count err">{{ errorCount }} 项错误</span>
     <span class="issue-count warn">{{ warnCount }} 项警告</span>
     <span class="issue-count ok">{{ okCount }} 项通过</span>
@@ -169,4 +177,13 @@ const hasIssues = computed(
 const errorCount = computed(() => (props.tool.status === "error" ? 1 : 0));
 const warnCount = computed(() => (props.tool.status === "warning" ? 1 : 0));
 const okCount = computed(() => (props.tool.status === "done" ? 1 : 0));
+
+// 审核计数：后端 issueCounts 存在时优先于 status 派生渲染；
+// 旧持久化会话/不发计数的工具回退到上面的 status 派生行为。
+const issueCounts = computed(() => props.tool.issueCounts ?? null);
+const hasIssueCounts = computed(() => issueCounts.value !== null);
+const issueErr = computed(() => issueCounts.value?.err ?? 0);
+const issueWarn = computed(() => issueCounts.value?.warn ?? 0);
+const issueOk = computed(() => issueCounts.value?.ok ?? 0);
+const issueUnchecked = computed(() => issueCounts.value?.unchecked ?? 0);
 </script>

@@ -2,11 +2,9 @@
   <div class="auth-page">
     <div class="auth-left">
       <div class="auth-brand">
-        <div class="auth-seal">
-          <span>审</span>
-        </div>
-        <h1 class="auth-title">SDTAgent</h1>
-        <p class="auth-tagline">文档智能审计平台</p>
+        <img class="auth-seal" :src="logoUrl" alt="审衡" />
+        <h1 class="auth-title">审衡</h1>
+        <p class="auth-tagline">审以明辨，衡以持正</p>
       </div>
     </div>
     <div class="auth-right">
@@ -43,17 +41,48 @@
         </p>
       </div>
     </div>
+    <button
+      class="auth-theme-toggle"
+      type="button"
+      title="切换主题"
+      @click="toggleTheme"
+    >
+      <svg
+        v-if="theme === 'dark'"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <circle cx="12" cy="12" r="5" />
+        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+      </svg>
+      <svg
+        v-else
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuth } from "../composables/useAuth";
+import { useTheme } from "../composables/useTheme";
+import logoUrl from "../assets/logo.png";
 
 const router = useRouter();
 const route = useRoute();
 const { login } = useAuth();
+const { theme, initTheme, toggleTheme } = useTheme();
+
+onMounted(initTheme);
 
 const username = ref("");
 const password = ref("");

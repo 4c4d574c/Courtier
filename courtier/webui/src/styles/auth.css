@@ -1,4 +1,4 @@
-/* Split-panel auth layout */
+/* Split-panel auth layout — aligned with the main chat theme (--chat-* tokens). */
 .auth-page {
   display: flex;
   min-height: 100vh;
@@ -6,7 +6,11 @@
 
 .auth-left {
   flex: 1;
-  background: linear-gradient(135deg, var(--paper) 0%, #f0ebe0 100%);
+  background: linear-gradient(
+    135deg,
+    var(--chat-bg-body) 0%,
+    var(--chat-bg-hover) 100%
+  );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -23,8 +27,8 @@
     0deg,
     transparent,
     transparent 2px,
-    var(--ink) 2px,
-    var(--ink) 3px
+    var(--chat-text-primary) 2px,
+    var(--chat-text-primary) 3px
   );
 }
 
@@ -37,33 +41,24 @@
 .auth-seal {
   width: 80px;
   height: 80px;
-  border: 4px solid var(--seal);
-  transform: rotate(45deg);
+  border: 2px solid var(--chat-accent);
+  border-radius: var(--chat-radius-lg);
   margin: 0 auto 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.auth-seal span {
-  transform: rotate(-45deg);
-  font-family: "Noto Serif SC", serif;
-  font-size: 30px;
-  color: var(--seal);
-  font-weight: bold;
+  display: block;
 }
 
 .auth-title {
-  font-family: "Noto Serif SC", serif;
-  font-size: 30px;
-  color: var(--ink);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
   letter-spacing: 4px;
   margin: 0;
 }
 
 .auth-tagline {
-  font-size: 16px;
-  color: var(--ink-faint);
+  font-size: 18px;
+  color: var(--chat-text-tertiary);
   margin-top: 8px;
 }
 
@@ -72,7 +67,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--paper);
+  background: var(--chat-bg-body);
 }
 
 .auth-card {
@@ -81,9 +76,10 @@
 }
 
 .auth-card-title {
-  font-family: "Noto Serif SC", serif;
-  font-size: 26px;
-  color: var(--ink);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
   margin: 0 0 32px;
   text-align: center;
 }
@@ -101,50 +97,50 @@
 }
 
 .auth-field label {
-  font-size: 15px;
-  color: var(--ink-dim);
+  font-size: 16px;
+  color: var(--chat-text-secondary);
   font-weight: 500;
 }
 
 .auth-field input {
   height: 44px;
   padding: 0 12px;
-  background: var(--paper-high);
-  border: 1px solid #e0dbd0;
-  border-radius: 6px;
-  font-size: 17px;
-  color: var(--ink);
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  font-size: 19px;
+  color: var(--chat-text-primary);
   font-family: "Noto Sans SC", sans-serif;
   outline: none;
   transition: border-color 150ms;
 }
 
 .auth-field input:focus {
-  border-color: var(--seal);
+  border-color: var(--chat-accent);
 }
 
 .auth-error {
   color: var(--err);
-  font-size: 15px;
+  font-size: 16px;
   margin: 0;
 }
 
 .auth-submit {
   height: 44px;
-  background: var(--seal);
-  color: white;
+  background: var(--chat-accent);
+  color: var(--chat-accent-contrast);
   border: none;
-  border-radius: 6px;
-  font-size: 17px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 19px;
   font-family: "Noto Sans SC", sans-serif;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 150ms;
+  transition: background 150ms;
   margin-top: 4px;
 }
 
 .auth-submit:hover {
-  opacity: 0.9;
+  background: var(--chat-accent-hover);
 }
 .auth-submit:disabled {
   opacity: 0.6;
@@ -154,12 +150,12 @@
 .auth-switch {
   text-align: center;
   margin-top: 24px;
-  font-size: 15px;
-  color: var(--ink-dim);
+  font-size: 16px;
+  color: var(--chat-text-secondary);
 }
 
 .auth-switch a {
-  color: var(--seal);
+  color: var(--chat-accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -175,7 +171,7 @@
   border-radius: 50%;
   background: var(--ok);
   color: white;
-  font-size: 30px;
+  font-size: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,14 +179,42 @@
 }
 
 .auth-success h2 {
-  font-family: "Noto Serif SC", serif;
-  font-size: 24px;
-  color: var(--ink);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 26px;
+  color: var(--chat-text-primary);
   margin: 0 0 8px;
 }
 
 .auth-success p {
-  font-size: 16px;
-  color: var(--ink-dim);
+  font-size: 18px;
+  color: var(--chat-text-secondary);
   margin: 0;
+}
+
+/* Fixed corner theme toggle — same look as the main page header icon button. */
+.auth-theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: var(--chat-radius-md);
+  cursor: pointer;
+}
+
+.auth-theme-toggle:hover {
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-primary);
+}
+
+.auth-theme-toggle svg {
+  width: 18px;
+  height: 18px;
 }

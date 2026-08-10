@@ -1,36 +1,18 @@
 <template>
   <div class="input-area">
-    <div v-if="error || fileError" class="input-area-error">
-      {{ error || fileError }}
-    </div>
-    <div v-if="fileName" class="input-area-file">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-      </svg>
-      <span>{{ fileName }}</span>
-      <button class="input-area-file-remove" type="button" @click="clearFile">×</button>
-    </div>
-
-    <div class="input-area-bar">
-      <input
-        ref="fileInput"
-        type="file"
-        :accept="ALLOWED_EXTS"
-        style="display: none"
-        @change="handleFileChange"
-      />
-      <button
-        class="input-area-attach"
-        type="button"
-        :title="MESSAGES.CHAT_ATTACH"
-        @click="fileInput?.click()"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
+    <div class="input-card">
+      <div v-if="error || fileError" class="input-area-error">
+        {{ error || fileError }}
+      </div>
+      <div v-if="fileName" class="input-area-file">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
         </svg>
-      </button>
+        <span>{{ fileName }}</span>
+        <button class="input-area-file-remove" type="button" @click="clearFile">×</button>
+      </div>
+
       <textarea
         ref="textareaRef"
         v-model="task"
@@ -40,23 +22,46 @@
         @input="autoResize"
         @keydown.enter="handleEnter"
       />
-      <span v-if="modelName" class="input-area-model">{{ MESSAGES.CHAT_MODEL }}: {{ modelName }}</span>
-      <button
-        class="input-area-send"
-        type="button"
-        :aria-label="isRunning ? MESSAGES.CHAT_STOP : MESSAGES.CHAT_SEND"
-        :disabled="!isRunning && (!canSubmit || uploading)"
-        @click="handleClick"
-      >
-        <svg v-if="isRunning" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="4" y="4" width="16" height="16" rx="2" />
-        </svg>
-        <svg v-else-if="!uploading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13" />
-          <polygon points="22 2 15 22 11 13 2 9 22 2" />
-        </svg>
-        <span v-else class="input-area-spinner"></span>
-      </button>
+
+      <div class="input-card-toolbar">
+        <input
+          ref="fileInput"
+          type="file"
+          :accept="ALLOWED_EXTS"
+          style="display: none"
+          @change="handleFileChange"
+        />
+        <button
+          class="input-area-attach"
+          type="button"
+          :title="MESSAGES.CHAT_ATTACH"
+          @click="fileInput?.click()"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+        <div class="input-card-toolbar-right">
+          <span v-if="modelName" class="input-area-model">{{ MESSAGES.CHAT_MODEL }}: {{ modelName }}</span>
+          <button
+            class="input-area-send"
+            type="button"
+            :aria-label="isRunning ? MESSAGES.CHAT_STOP : MESSAGES.CHAT_SEND"
+            :disabled="!isRunning && (!canSubmit || uploading)"
+            @click="handleClick"
+          >
+            <svg v-if="isRunning" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+            </svg>
+            <svg v-else-if="!uploading" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5" />
+              <polyline points="5 12 12 5 19 12" />
+            </svg>
+            <span v-else class="input-area-spinner"></span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -148,9 +153,22 @@ function clearFile() {
 <style scoped>
 .input-area {
   flex-shrink: 0;
+  padding: 12px 16px 16px;
+  display: flex;
+  justify-content: center;
+}
+
+/* Elevated card: textarea on top, toolbar row at the bottom. Slightly wider
+   than the message column (800px), still centered. */
+.input-card {
+  width: min(880px, 100%);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-lg);
+  padding: 14px 16px 10px;
   background: var(--chat-bg-card);
-  border-top: 1px solid var(--chat-border);
-  padding: 12px 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .input-area-error {
@@ -159,11 +177,12 @@ function clearFile() {
   border-radius: var(--chat-radius-md);
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .input-area-file {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 6px;
   margin-bottom: 8px;
@@ -171,7 +190,7 @@ function clearFile() {
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
   background: var(--chat-bg-hover);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-secondary);
 }
 
@@ -179,7 +198,7 @@ function clearFile() {
   border: none;
   background: transparent;
   color: var(--chat-text-tertiary);
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
   padding: 0 2px;
@@ -189,15 +208,29 @@ function clearFile() {
   color: #ef4444;
 }
 
-.input-area-bar {
+.input-area-textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  resize: none;
+  outline: none;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--chat-text-primary);
+  min-height: 72px;
+  max-height: 120px;
+  padding: 2px 4px;
+}
+
+.input-area-textarea::placeholder {
+  color: var(--chat-text-tertiary);
+}
+
+.input-card-toolbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
-  border: 1px solid var(--chat-border);
-  border-radius: 24px;
-  padding: 10px 12px;
-  background: var(--chat-bg-card);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  margin-top: 8px;
 }
 
 .input-area-attach,
@@ -228,28 +261,9 @@ function clearFile() {
   height: 20px;
 }
 
-.input-area-textarea {
-  flex: 1;
-  border: none;
-  background: transparent;
-  resize: none;
-  outline: none;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--chat-text-primary);
-  min-height: 24px;
-  max-height: 120px;
-  padding: 6px 4px;
-}
-
-.input-area-textarea::placeholder {
-  color: var(--chat-text-tertiary);
-}
-
 .input-area-model {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-tertiary);
-  padding: 8px 4px;
   flex-shrink: 0;
   display: none;
 }
@@ -258,6 +272,15 @@ function clearFile() {
   .input-area-model {
     display: inline;
   }
+}
+
+/* Right cluster: model label immediately left of the send button. */
+.input-card-toolbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .input-area-send {
@@ -271,7 +294,8 @@ function clearFile() {
 }
 
 .input-area-send:disabled {
-  opacity: 0.5;
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
   cursor: not-allowed;
 }
 

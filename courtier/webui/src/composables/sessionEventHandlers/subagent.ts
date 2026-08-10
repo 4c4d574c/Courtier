@@ -115,24 +115,28 @@ export function handleSubagentToolResultEvent(
     parentHandleId,
     summary: event.toolSummary ?? "",
     duration: event.toolDuration,
+    issueCounts: event.issueCounts,
   });
 
   const roots = step.subagents ?? [];
-  if (parentHandleId) {
-    const parent = findRunningParentByHandleId(roots, parentHandleId);
-    if (parent) {
-      patchLastStep(deps, {
-        subagents: updateNodeInTree(roots, parent.handleId, (p) => ({
-          ...p,
-          children: addSubagentToolInContainer(
-            p.children ?? [],
-            handleId,
-            tool,
-          ),
-        })),
-      });
-    }
+  const parent = parentHandleId
+    ? findRunningParentByHandleId(roots, parentHandleId)
+    : undefined;
+  if (parent) {
+    patchLastStep(deps, {
+      subagents: updateNodeInTree(roots, parent.handleId, (p) => ({
+        ...p,
+        children: addSubagentToolInContainer(
+          p.children ?? [],
+          handleId,
+          tool,
+        ),
+      })),
+    });
   } else {
+    // Top-level attach.  Also covers parentHandleId pointing at the
+    // orchestrator root handle, which is not a sub-agent node in the tree —
+    // mirroring appendSubagentThought's fallback so tools are not dropped.
     patchLastStep(deps, {
       subagents: addSubagentToolInContainer(roots, handleId, tool),
     });

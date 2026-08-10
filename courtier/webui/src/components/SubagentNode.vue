@@ -2,7 +2,7 @@
   <div
     :class="[
       'subagent-group',
-      { 'subagent-group--collapsed': !isGroupExpanded(run.key) },
+      { 'subagent-group--collapsed': !groupExpanded },
     ]"
   >
     <!-- Status bar (clickable toggle for the whole sub-agent group) -->
@@ -10,11 +10,11 @@
       :class="['subagent-status-bar', runStatusClass]"
       role="button"
       tabindex="0"
-      :aria-expanded="isGroupExpanded(run.key)"
+      :aria-expanded="groupExpanded"
       :aria-label="`切换 ${run.name} 详情`"
-      @click="toggleGroup(run.key)"
-      @keydown.enter.prevent="toggleGroup(run.key)"
-      @keydown.space.prevent="toggleGroup(run.key)"
+      @click="toggleGroupExpanded"
+      @keydown.enter.prevent="toggleGroupExpanded"
+      @keydown.space.prevent="toggleGroupExpanded"
     >
       <span
         v-if="run.runStatus === 'running'"
@@ -40,13 +40,13 @@
         {{ run.tools.length }} 工具 · {{ totalDuration(run.tools).toFixed(1) }}s
       </span>
       <span class="subagent-group-toggle">{{
-        isGroupExpanded(run.key) ? "收起" : "展开"
+        groupExpanded ? "收起" : "展开"
       }}</span>
     </div>
 
     <!-- Collapsible body: task, reasoning, error, wrapper, tool list -->
     <Transition name="expand-height">
-      <div v-if="isGroupExpanded(run.key)" class="subagent-group-body">
+      <div v-if="groupExpanded" class="subagent-group-body">
         <!-- Task description (only when running) -->
         <Transition name="fade-slide">
           <div v-if="run.task && run.runStatus === 'running'" class="subagent-task">
@@ -84,22 +84,22 @@
               ]"
               role="button"
               tabindex="0"
-              :aria-expanded="isReasoningExpanded(run.key)"
-              @click="toggleReasoning(run.key)"
-              @keydown.enter.prevent="toggleReasoning(run.key)"
-              @keydown.space.prevent="toggleReasoning(run.key)"
+              :aria-expanded="reasoningExpanded"
+              @click="toggleReasoningExpanded"
+              @keydown.enter.prevent="toggleReasoningExpanded"
+              @keydown.space.prevent="toggleReasoningExpanded"
             >
               <span class="subagent-reasoning-label">
                 <span v-if="isStreamingThought" class="thinking-dot"></span>
                 子代理思考过程
               </span>
               <span class="subagent-reasoning-toggle">{{
-                isReasoningExpanded(run.key) ? "收起 ▲" : "展开 ▼"
+                reasoningExpanded ? "收起 ▲" : "展开 ▼"
               }}</span>
             </div>
             <Transition name="expand">
               <div
-                v-if="isReasoningExpanded(run.key)"
+                v-if="reasoningExpanded"
                 v-auto-scroll="isStreamingThought"
                 class="subagent-reasoning-body"
               >
@@ -133,12 +133,8 @@
               :run="item"
               :is-expanded="isExpanded"
               :toggle="toggle"
-              :is-reasoning-expanded="isReasoningExpanded"
-              :toggle-reasoning="toggleReasoning"
               :is-conclusion-expanded="isConclusionExpanded"
               :toggle-conclusion="toggleConclusion"
-              :is-group-expanded="isGroupExpanded"
-              :toggle-group="toggleGroup"
             />
           </template>
         </TransitionGroup>
@@ -181,7 +177,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import type { ToolResult } from "../types/agent";
 import type { SubagentToolDisplayItem } from "../utils/toolCalls";
 import { displayItemKey } from "../utils/toolCalls";
@@ -192,15 +188,39 @@ interface Props {
   run: SubagentToolDisplayItem;
   isExpanded: (name: string) => boolean;
   toggle: (name: string) => void;
-  isReasoningExpanded: (key: string) => boolean;
-  toggleReasoning: (key: string) => void;
   isConclusionExpanded: (key: string) => boolean;
   toggleConclusion: (key: string) => void;
-  isGroupExpanded: (key: string) => boolean;
-  toggleGroup: (key: string) => void;
 }
 
 const props = defineProps<Props>();
+
+// Whole group: expanded while the run is streaming, auto-collapses when the
+// run finishes — unless the user has manually toggled it.  Restored sessions
+// (status already final) start collapsed.
+const groupExpanded = ref(props.run.runStatus === "running");
+let groupToggled = false;
+function toggleGroupExpanded() {
+  groupToggled = true;
+  groupExpanded.value = !groupExpanded.value;
+}
+
+// Reasoning block: expanded while the run is streaming, auto-collapses when
+// the run finishes — unless the user has manually toggled it.
+const reasoningExpanded = ref(props.run.runStatus === "running");
+let reasoningToggled = false;
+function toggleReasoningExpanded() {
+  reasoningToggled = true;
+  reasoningExpanded.value = !reasoningExpanded.value;
+}
+watch(
+  () => props.run.runStatus,
+  (status, prev) => {
+    if (prev === "running" && status !== "running") {
+      if (!groupToggled) groupExpanded.value = false;
+      if (!reasoningToggled) reasoningExpanded.value = false;
+    }
+  },
+);
 
 const runStatusClass = computed(() => props.run.runStatus ?? "completed");
 

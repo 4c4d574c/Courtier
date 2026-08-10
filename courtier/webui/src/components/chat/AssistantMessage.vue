@@ -29,7 +29,7 @@ defineProps<Props>();
 .assistant-message-bubble {
   max-width: 100%;
   padding: 0 4px;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.75;
   color: var(--chat-text-primary);
 }

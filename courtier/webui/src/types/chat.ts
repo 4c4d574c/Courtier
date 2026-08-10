@@ -1,4 +1,4 @@
-import type { Step } from "./agent";
+import type { Step, Thought } from "./agent";
 
 export interface ChatUserMessageItem {
   type: "user";
@@ -10,13 +10,6 @@ export interface ChatAssistantMessageItem {
   type: "assistant";
   id: string;
   content: string;
-}
-
-export interface ChatThinkingItem {
-  type: "thinking";
-  id: string;
-  content: string;
-  isOpen: boolean;
 }
 
 export interface ChatFileItem {
@@ -50,22 +43,37 @@ export interface ChatGuardItem {
   reason?: string;
 }
 
-/** A turn's tool/sub-agent process block (step groups). */
+/** A step paired with the thinking that produced its tool calls. */
+export interface StepThoughtGroup {
+  step: Step;
+  thoughts: Thought[];
+}
+
+/** A process block (rounded frame): consecutive steps with their thinking. */
 export interface ChatStepsItem {
   type: "steps";
   id: string;
-  steps: Step[];
+  groups: StepThoughtGroup[];
   isRunning: boolean;
+}
+
+/** Context compaction notice displayed inline in the chat flow. */
+export interface ChatCompactedItem {
+  type: "compacted";
+  id: string;
+  text: string;
+  /** true 表示压缩仍在进行中（显示动态指示），false/缺省为完成态。 */
+  pending?: boolean;
 }
 
 export type ChatMessageItem =
   | ChatUserMessageItem
   | ChatAssistantMessageItem
-  | ChatThinkingItem
   | ChatFileItem
   | ChatErrorItem
   | ChatStoppedItem
   | ChatGuardItem
+  | ChatCompactedItem
   | ChatStepsItem;
 
 export interface ChatFileRecord {

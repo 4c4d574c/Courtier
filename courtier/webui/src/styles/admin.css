@@ -1,14 +1,15 @@
-/* Admin panel layout */
+/* Admin panel layout — aligned with the main chat theme (--chat-* tokens). */
 .admin-layout {
   display: flex;
   min-height: 100vh;
-  background: var(--paper);
+  background: var(--chat-bg-body);
 }
 
 .admin-sidebar {
   width: 240px;
-  background: #1a1a1a;
-  color: #ccc;
+  background: var(--chat-bg-card);
+  border-right: 1px solid var(--chat-border);
+  color: var(--chat-text-primary);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -16,61 +17,60 @@
 
 .admin-logo {
   display: flex;
-  justify-content: center;
-  padding: 32px 0 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid var(--chat-border);
   text-decoration: none;
 }
 
 .admin-seal {
-  width: 48px;
-  height: 48px;
-  border: 3px solid var(--seal);
-  transform: rotate(45deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--chat-accent);
+  border-radius: var(--chat-radius-sm);
+  object-fit: cover;
+  display: block;
 }
 
-.admin-seal span {
-  transform: rotate(-45deg);
-  font-family: "Noto Serif SC", serif;
+.admin-logo-text {
   font-size: 20px;
-  color: var(--seal);
-  font-weight: bold;
+  font-weight: 600;
+  color: var(--chat-text-primary);
 }
 
 .admin-nav {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 12px;
+  padding: 12px;
   gap: 2px;
 }
 
 .admin-nav-item {
   display: block;
-  padding: 10px 16px;
-  color: #999;
+  padding: 8px 10px;
+  color: var(--chat-text-primary);
   text-decoration: none;
-  border-radius: 6px;
-  font-size: 16px;
+  border-radius: var(--chat-radius-md);
+  font-size: 15px;
   transition:
     background 150ms,
     color 150ms;
 }
 
 .admin-nav-item:hover {
-  background: #2a2a2a;
-  color: #ddd;
+  background: var(--chat-bg-hover);
 }
 .admin-nav-item.active {
-  background: #2a2a2a;
-  color: var(--seal);
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
+  font-weight: 600;
 }
 
 .admin-sidebar-footer {
-  padding: 16px 12px;
-  border-top: 1px solid #2a2a2a;
+  padding: 8px;
+  border-top: 1px solid var(--chat-border);
   margin-top: auto;
 }
 
@@ -86,9 +86,9 @@
 }
 
 .admin-heading {
-  font-family: "Noto Serif SC", serif;
-  font-size: 24px;
-  color: var(--ink);
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 26px;
+  color: var(--chat-text-primary);
   margin: 0 0 24px;
 }
 
@@ -103,28 +103,28 @@
   flex: 1;
   height: 38px;
   padding: 0 12px;
-  background: var(--paper-high);
-  border: 1px solid #e0dbd0;
-  border-radius: 6px;
-  font-size: 16px;
-  color: var(--ink);
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  font-size: 18px;
+  color: var(--chat-text-primary);
   font-family: "Noto Sans SC", sans-serif;
   outline: none;
   max-width: 280px;
 }
 
 .admin-search:focus {
-  border-color: var(--seal);
+  border-color: var(--chat-accent);
 }
 
 .admin-select {
   height: 38px;
   padding: 0 32px 0 12px;
-  background: var(--paper-high);
-  border: 1px solid #e0dbd0;
-  border-radius: 6px;
-  font-size: 16px;
-  color: var(--ink);
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  font-size: 18px;
+  color: var(--chat-text-primary);
   font-family: "Noto Sans SC", sans-serif;
   outline: none;
   appearance: none;
@@ -132,38 +132,38 @@
 }
 
 .admin-select:focus {
-  border-color: var(--seal);
+  border-color: var(--chat-accent);
 }
 
 /* Table */
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .admin-table th {
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 1px solid #e0dbd0;
-  color: var(--ink-dim);
+  border-bottom: 1px solid var(--chat-border);
+  color: var(--chat-text-secondary);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .admin-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid #f0ebe0;
-  color: var(--ink);
+  border-bottom: 1px solid var(--chat-border);
+  color: var(--chat-text-primary);
 }
 
 .admin-table tr:hover td {
-  background: var(--paper-high);
+  background: var(--chat-bg-hover);
 }
 
 .admin-empty {
   text-align: center;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   padding: 40px 12px !important;
 }
 
@@ -171,12 +171,12 @@
   font-weight: 600;
 }
 .td-email {
-  color: var(--ink-dim);
-  font-size: 15px;
+  color: var(--chat-text-secondary);
+  font-size: 16px;
 }
 .td-date {
-  color: var(--ink-dim);
-  font-size: 15px;
+  color: var(--chat-text-secondary);
+  font-size: 16px;
   white-space: nowrap;
 }
 .td-actions {
@@ -189,29 +189,29 @@
 .badge {
   display: inline-block;
   padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 999px;
+  font-size: 15px;
   font-weight: 600;
 }
 
 .badge-admin {
-  background: #fce4e4;
-  color: var(--seal);
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
 }
 .badge-auditor {
-  background: #e8e4dc;
-  color: var(--ink-dim);
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-secondary);
 }
 .badge-active {
-  background: #e4f4e4;
+  background: rgba(90, 138, 74, 0.14);
   color: var(--ok);
 }
 .badge-disabled {
-  background: #fce4e4;
+  background: var(--chat-accent-soft);
   color: var(--err);
 }
 .badge-pending {
-  background: #fef4e4;
+  background: rgba(184, 122, 14, 0.14);
   color: var(--warn);
 }
 
@@ -219,11 +219,11 @@
 .action-select {
   height: 30px;
   padding: 0 24px 0 8px;
-  background: var(--paper-high);
-  border: 1px solid #e0dbd0;
-  border-radius: 4px;
-  font-size: 14px;
-  color: var(--ink);
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  font-size: 15px;
+  color: var(--chat-text-primary);
   font-family: "Noto Sans SC", sans-serif;
   outline: none;
   appearance: none;
@@ -233,11 +233,11 @@
 .action-btn {
   height: 30px;
   padding: 0 12px;
-  background: var(--paper-high);
-  border: 1px solid #e0dbd0;
-  border-radius: 4px;
-  font-size: 14px;
-  color: var(--ink-dim);
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  font-size: 15px;
+  color: var(--chat-text-secondary);
   font-family: "Noto Sans SC", sans-serif;
   cursor: pointer;
   white-space: nowrap;
@@ -245,7 +245,7 @@
 }
 
 .action-btn:hover {
-  background: #f0ebe0;
+  background: var(--chat-bg-hover);
 }
 
 /* Pagination */
@@ -255,25 +255,25 @@
   justify-content: center;
   gap: 16px;
   margin-top: 24px;
-  font-size: 15px;
-  color: var(--ink-dim);
+  font-size: 16px;
+  color: var(--chat-text-secondary);
 }
 
 .admin-pagination button {
   height: 34px;
   padding: 0 16px;
-  background: var(--paper-high);
-  border: 1px solid #e0dbd0;
-  border-radius: 6px;
-  font-size: 15px;
-  color: var(--ink);
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  font-size: 16px;
+  color: var(--chat-text-primary);
   font-family: "Noto Sans SC", sans-serif;
   cursor: pointer;
   transition: background 150ms;
 }
 
 .admin-pagination button:hover:not(:disabled) {
-  background: #f0ebe0;
+  background: var(--chat-bg-hover);
 }
 .admin-pagination button:disabled {
   opacity: 0.4;

@@ -40,16 +40,15 @@ function handleClick() {
 .file-card {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 8px;
+  padding: 6px 10px;
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
   background: var(--chat-bg-card);
   color: var(--chat-text-primary);
-  box-shadow: var(--chat-shadow);
-  max-width: 80%;
+  max-width: 70%;
   cursor: default;
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
 .file-card--previewable {
@@ -62,8 +61,8 @@ function handleClick() {
 }
 
 .file-card-icon {
-  width: 36px;
-  height: 36px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,8 +73,8 @@ function handleClick() {
 }
 
 .file-card-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
 }
 
 .file-card-info {
@@ -94,7 +93,7 @@ function handleClick() {
 }
 
 .file-card-hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-tertiary);
 }
 </style>

@@ -14,7 +14,6 @@
     </button>
     <h1 class="chat-header-title" :title="title">{{ title }}</h1>
     <div class="chat-header-right">
-      <span v-if="modelName" class="chat-header-model">{{ modelName }}</span>
       <span
         v-if="latestFallback"
         class="chat-header-fallback"
@@ -25,22 +24,27 @@
       <button
         class="chat-header-icon"
         type="button"
-        title="调试面板"
-        @click="$emit('toggle-debug')"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2a4 4 0 0 1 4 4v1h3a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-1v4h1a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-3a4 4 0 0 1-8 0H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1h1v-4H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h3a4 4 0 0 1 4-4z" />
-        </svg>
-      </button>
-      <button
-        class="chat-header-icon"
-        type="button"
         :title="MESSAGES.CHAT_THEME_TOGGLE"
         @click="$emit('toggle-theme')"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg
+          v-if="theme === 'dark'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
           <circle cx="12" cy="12" r="5" />
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+        </svg>
+        <svg
+          v-else
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
       <div class="chat-header-user" @click="menuOpen = !menuOpen">
@@ -50,14 +54,6 @@
           <router-link to="/profile" class="chat-header-dropdown-item" @click.stop>
             {{ MESSAGES.CHAT_SETTINGS }}
           </router-link>
-          <template v-if="isAdmin">
-            <router-link to="/admin/users" class="chat-header-dropdown-item" @click.stop>
-              {{ MESSAGES.CHAT_USER_MANAGE }}
-            </router-link>
-            <router-link to="/admin/approvals" class="chat-header-dropdown-item" @click.stop>
-              {{ MESSAGES.CHAT_APPROVALS }}
-            </router-link>
-          </template>
           <button class="chat-header-dropdown-item" type="button" @click.stop="logout">
             {{ MESSAGES.CHAT_LOGOUT }}
           </button>
@@ -70,11 +66,11 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { MESSAGES } from "../../constants/messages";
+import { useTheme } from "../../composables/useTheme";
 import type { RuntimeEvent } from "../../types/agent";
 
 interface Props {
   title: string;
-  modelName?: string;
   username?: string;
   userRole?: string;
   modelEvents?: RuntimeEvent[];
@@ -83,13 +79,12 @@ interface Props {
 const props = defineProps<Props>();
 const emit = defineEmits<{
   "toggle-sidebar": [];
-  "toggle-debug": [];
   "toggle-theme": [];
   logout: [];
 }>();
 
 const menuOpen = ref(false);
-const isAdmin = computed(() => props.userRole === "admin");
+const { theme } = useTheme();
 
 const latestFallback = computed(() => {
   if (!props.modelEvents?.length) return null;
@@ -112,7 +107,6 @@ function logout() {
   height: 56px;
   flex-shrink: 0;
   background: var(--chat-bg-card);
-  border-bottom: 1px solid var(--chat-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -121,7 +115,9 @@ function logout() {
 }
 
 .chat-header-menu {
-  display: none;
+  /* Always visible: it toggles the sidebar on desktop (width collapse)
+     as well as on mobile (overlay slide-in). */
+  display: flex;
   width: 36px;
   height: 36px;
   align-items: center;
@@ -145,7 +141,7 @@ function logout() {
 
 .chat-header-title {
   flex: 1;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--chat-text-primary);
   white-space: nowrap;
@@ -160,16 +156,8 @@ function logout() {
   gap: 12px;
 }
 
-.chat-header-model {
-  font-size: 12px;
-  color: var(--chat-text-tertiary);
-  padding: 4px 8px;
-  border: 1px solid var(--chat-border);
-  border-radius: 999px;
-}
-
 .chat-header-fallback {
-  font-size: 12px;
+  font-size: 13px;
   color: #f59e0b;
   padding: 4px 8px;
   border: 1px solid #f59e0b;
@@ -216,12 +204,12 @@ function logout() {
 }
 
 .chat-header-user-name {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-primary);
 }
 
 .chat-header-user-arrow {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chat-header-dropdown {
@@ -241,7 +229,7 @@ function logout() {
 .chat-header-dropdown-item {
   display: block;
   padding: 10px 14px;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-primary);
   text-decoration: none;
   text-align: left;
@@ -253,14 +241,5 @@ function logout() {
 
 .chat-header-dropdown-item:hover {
   background: var(--chat-bg-hover);
-}
-
-@media (max-width: 768px) {
-  .chat-header-menu {
-    display: flex;
-  }
-  .chat-header-model {
-    display: none;
-  }
 }
 </style>

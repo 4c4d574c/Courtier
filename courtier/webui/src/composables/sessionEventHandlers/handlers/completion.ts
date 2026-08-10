@@ -19,7 +19,14 @@ export function handleCompletionEvent(
       session.status = "completed";
       closeLastStepSegmentRange(deps);
       session.stopReason = "user";
+      session.compacting = false;
       finalizeRunningOperations(session, "cancelled", "error", "用户已停止");
+      // 中断时缓冲中未定性文本落到结论，避免流式内容直接消失。
+      if (session.pendingVerdict && s.currentTurn) {
+        s.currentTurn.conclusion = session.pendingVerdict;
+      }
+      session.pendingVerdict = "";
+      session.pendingVerdictAfterStepIndex = 0;
       break;
     }
     case "error": {
@@ -28,7 +35,13 @@ export function handleCompletionEvent(
       if (event.detail) session.errorMessage = event.detail;
       else if (event.text) session.errorMessage = event.text;
       s.pendingSubagents = [];
+      session.compacting = false;
       finalizeRunningOperations(session, "error", "error", "异常结束");
+      if (session.pendingVerdict && s.currentTurn) {
+        s.currentTurn.conclusion = session.pendingVerdict;
+      }
+      session.pendingVerdict = "";
+      session.pendingVerdictAfterStepIndex = 0;
       break;
     }
   }

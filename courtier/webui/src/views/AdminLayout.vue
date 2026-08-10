@@ -2,7 +2,8 @@
   <div class="admin-layout">
     <aside class="admin-sidebar">
       <router-link to="/" class="admin-logo">
-        <div class="admin-seal"><span>审</span></div>
+        <img class="admin-seal" :src="logoUrl" alt="审衡" />
+        <span class="admin-logo-text">审衡</span>
       </router-link>
       <nav class="admin-nav">
         <router-link
@@ -17,6 +18,12 @@
           active-class="active"
           >注册审批</router-link
         >
+        <router-link
+          to="/admin/extensions"
+          class="admin-nav-item"
+          active-class="active"
+          >插件与技能</router-link
+        >
       </nav>
       <div class="admin-sidebar-footer">
         <router-link to="/" class="admin-nav-item">← 返回主页</router-link>
@@ -27,3 +34,7 @@
     </main>
   </div>
 </template>
+
+<script setup lang="ts">
+import logoUrl from "../assets/logo.png";
+</script>

@@ -11,7 +11,7 @@
         <div class="profile-field">
           <label>角色</label>
           <span class="badge" :class="'badge-' + user?.role">{{
-            user?.role === "admin" ? "管理员" : "审计员"
+            user?.role === "admin" ? "管理员" : "普通用户"
           }}</span>
         </div>
       </div>
@@ -168,12 +168,16 @@ async function updatePassword() {
 
 <style scoped>
 .profile-page {
-  min-height: 100vh;
+  /* html/body/#app are overflow:hidden for the chat layout, so this page
+     must scroll internally — otherwise tall content (and the footer back
+     link) is clipped and unreachable. */
+  height: 100%;
+  overflow-y: auto;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 80px;
-  background: var(--paper);
+  padding: 80px 0 40px;
+  background: var(--chat-bg-body);
 }
 
 .profile-card {
@@ -183,8 +187,8 @@ async function updatePassword() {
 
 .profile-heading {
   font-family: "Noto Serif SC", serif;
-  font-size: 24px;
-  color: var(--ink);
+  font-size: 26px;
+  color: var(--chat-text-primary);
   margin: 0 0 32px;
 }
 
@@ -196,8 +200,8 @@ async function updatePassword() {
 
 .profile-section-title {
   font-family: "Noto Serif SC", serif;
-  font-size: 18px;
-  color: var(--ink-dim);
+  font-size: 20px;
+  color: var(--chat-text-secondary);
   margin: 0 0 16px;
   font-weight: 600;
 }
@@ -210,13 +214,13 @@ async function updatePassword() {
 }
 
 .profile-field label {
-  font-size: 16px;
-  color: var(--ink-dim);
+  font-size: 18px;
+  color: var(--chat-text-secondary);
 }
 
 .profile-value {
-  font-size: 16px;
-  color: var(--ink);
+  font-size: 18px;
+  color: var(--chat-text-primary);
   font-weight: 500;
 }
 
@@ -227,7 +231,7 @@ async function updatePassword() {
 }
 
 .profile-msg {
-  font-size: 15px;
+  font-size: 16px;
   margin: 0;
 }
 
@@ -243,12 +247,12 @@ async function updatePassword() {
 }
 
 .profile-footer a {
-  color: var(--ink-dim);
-  font-size: 16px;
+  color: var(--chat-text-secondary);
+  font-size: 18px;
   text-decoration: none;
 }
 
 .profile-footer a:hover {
-  color: var(--ink);
+  color: var(--chat-text-primary);
 }
 </style>

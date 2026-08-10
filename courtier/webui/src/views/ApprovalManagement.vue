@@ -109,7 +109,7 @@ onMounted(async () => {
 <style scoped>
 .action-msg {
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: 15px;
 }
 .msg-ok {
   color: var(--ok);
@@ -135,7 +135,7 @@ onMounted(async () => {
 .admin-empty-state {
   text-align: center;
   padding: 64px 0;
-  color: var(--ink-faint);
-  font-size: 17px;
+  color: var(--chat-text-tertiary);
+  font-size: 19px;
 }
 </style>

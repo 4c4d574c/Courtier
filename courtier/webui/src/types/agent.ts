@@ -1,6 +1,14 @@
 /** Tool execution status */
 export type ToolStatus = 'pending' | 'running' | 'done' | 'error' | 'warning' | 'cancelled'
 
+/** Issue counts reported by audit tools (from backend metadata.issue_counts) */
+export interface IssueCounts {
+  err: number
+  warn: number
+  ok: number
+  unchecked?: number
+}
+
 /** Tool call record kind */
 export type ToolCallKind = 'tool' | 'subagent_run'
 
@@ -29,6 +37,8 @@ export interface ToolResult {
   segmentIndex?: number
   duration?: number
   summary?: string
+  /** 审核计数（err/warn/ok/unchecked），有值时优先于 status 派生渲染 */
+  issueCounts?: IssueCounts
   detail?: ToolDetail
   startTime?: number
   progress?: string
@@ -158,6 +168,25 @@ export interface Session {
   /** Serialized conversation tree for branching/replay */
   treeJson?: ConversationTree | null
   currentNodeId?: string | null
+  /** Live context-compaction notices (not persisted across restore). */
+  compactions?: CompactionNotice[]
+  /** 运行时标志：full compaction 正在进行（LLM 总结中），结束后清除。
+   *  仅运行时存在，恢复会话不填充。 */
+  compacting?: boolean
+  /**
+   * 运行中缓冲：已流式收到但尚未定性的结论文本。observe 时后端发
+   * step_verdict 事件把它转正为对应 step 的中间结论；轮次结束时剩余
+   * 部分成为该轮最终结论。仅运行时存在，恢复会话不填充。
+   */
+  pendingVerdict?: string
+  /**
+   * pendingVerdict 的归属边界：这段文本将转正为当前 think 对应 step 的
+   * verdict，渲染在该 step 工具框之前；边界记录该 step 的前一个 step
+   * 的 index（流式路径下 text_response 会先创建占位 step，故不能简单
+   * 取已有 step 总数）。边界之后创建的 step 渲染在文本下方的新框中。
+   * 与 pendingVerdict 同生命周期，仅运行时存在。
+   */
+  pendingVerdictAfterStepIndex?: number
 }
 
 /** History list item (lightweight) */
@@ -170,6 +199,8 @@ export interface SessionSummary {
   toolCount: number
   issueCount: number
   modelName?: string
+  /** 置顶会话排在历史列表最前 */
+  pinned?: boolean
 }
 
 /** Runtime event emitted by backend for guard/model/hint/loop lifecycle */
@@ -189,11 +220,19 @@ export interface RuntimeEvent {
   totalSteps?: number
 }
 
+/** Context compaction notice (backend triggered a full compaction). */
+export interface CompactionNotice {
+  text: string
+  turnIndex: number
+  timestamp: number
+}
+
 /** SSE event from backend */
 export interface AgentEvent {
-  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed'
+  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting'
   detail?: string
   text?: string
+  stepIndex?: number
   name?: string
   summary?: string
   conclusion?: string
@@ -214,6 +253,8 @@ export interface AgentEvent {
   toolStatus?: 'ok' | ToolStatus
   toolDuration?: number
   toolSummary?: string
+  /** 工具结果计数（tool_result 与 subagent_tool_result 均可能携带） */
+  issueCounts?: IssueCounts
   result?: unknown
   tokens_in?: number
   tokens_out?: number

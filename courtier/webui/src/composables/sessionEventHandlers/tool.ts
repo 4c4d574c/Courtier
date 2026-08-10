@@ -27,6 +27,7 @@ export function handleSubagentRunToolResult(
       parentHandleId: event.parentHandleId ?? null,
       summary: event.summary ?? "",
       duration: event.duration,
+      issueCounts: event.issueCounts,
     }),
     rawDetail,
   );
@@ -111,6 +112,7 @@ export function handleRegularToolResult(
       handleId: event.handleId ?? tool.handleId,
       parentHandleId: event.parentHandleId ?? tool.parentHandleId,
       duration: event.duration ?? tool.duration,
+      issueCounts: event.issueCounts ?? tool.issueCounts,
       progress: ["done", "error"].includes(status)
         ? undefined
         : tool.progress,

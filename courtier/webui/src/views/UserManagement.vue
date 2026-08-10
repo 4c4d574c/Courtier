@@ -15,7 +15,7 @@
       <select v-model="roleFilter" @change="fetchUsers" class="admin-select">
         <option value="">全部角色</option>
         <option value="admin">管理员</option>
-        <option value="auditor">审计员</option>
+        <option value="auditor">普通用户</option>
       </select>
       <select v-model="statusFilter" @change="fetchUsers" class="admin-select">
         <option value="">全部状态</option>
@@ -45,7 +45,7 @@
           <td class="td-email">{{ u.email || "-" }}</td>
           <td>
             <span class="badge" :class="'badge-' + u.role">{{
-              u.role === "admin" ? "管理员" : "审计员"
+              u.role === "admin" ? "管理员" : "普通用户"
             }}</span>
           </td>
           <td>
@@ -65,7 +65,7 @@
               class="action-select"
             >
               <option value="admin">管理员</option>
-              <option value="auditor">审计员</option>
+              <option value="auditor">普通用户</option>
             </select>
             <select
               :value="u.status"
@@ -200,7 +200,7 @@ async function changeRole(u: AdminUser, role: AdminUser["role"]) {
   try {
     await api.updateUser(u.id, { role });
     u.role = role;
-    actionMsg.text = `已将 ${u.username} 的角色改为${role === "admin" ? "管理员" : "审计员"}`;
+    actionMsg.text = `已将 ${u.username} 的角色改为${role === "admin" ? "管理员" : "普通用户"}`;
     actionMsg.ok = true;
   } catch (e: unknown) {
     reportError(e, "修改角色失败");
@@ -259,7 +259,7 @@ onMounted(fetchUsers);
 <style scoped>
 .action-msg {
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: 15px;
 }
 .msg-ok {
   color: var(--ok);
@@ -285,7 +285,7 @@ onMounted(fetchUsers);
 }
 .modal-title {
   margin: 0 0 16px;
-  font-size: 16px;
+  font-size: 18px;
 }
 .modal-input {
   width: 100%;
@@ -293,7 +293,7 @@ onMounted(fetchUsers);
   margin-bottom: 12px;
   border: 1px solid #d6d0c4;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 15px;
   box-sizing: border-box;
 }
 .modal-actions {

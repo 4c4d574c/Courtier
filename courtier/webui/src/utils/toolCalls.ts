@@ -61,6 +61,7 @@ export function normalizeToolResult(tool: ToolResultInput): ToolResult {
     parentHandleId: tool.parentHandleId ?? null,
     duration: tool.duration,
     summary: tool.summary,
+    issueCounts: tool.issueCounts,
     detail: tool.detail,
     startTime: tool.startTime,
     progress: tool.progress,
@@ -101,6 +102,7 @@ export function normalizeSubagentRun(
       handleId: t.handleId ?? sa.handleId,
       duration: t.duration,
       summary: t.summary,
+      issueCounts: t.issueCounts,
     }),
   );
   const normalizedChildren = (sa.children ?? []).map((child) =>
@@ -176,6 +178,12 @@ function buildSubagentChildItems(sa: SubagentRun): {
   for (const child of sa.children ?? []) {
     childMap.set(child.handleId, child);
   }
+  // Name index for legacy dispatch records persisted before the backend
+  // marked callKind="subagent_run" — those still read "tool".
+  const childByName = new Map<string, SubagentRun>();
+  for (const child of sa.children ?? []) {
+    if (!childByName.has(child.name)) childByName.set(child.name, child);
+  }
 
   const items: StepToolDisplayItem[] = [];
   const referencedChildren = new Set<string>();
@@ -185,10 +193,17 @@ function buildSubagentChildItems(sa: SubagentRun): {
     if (tool.callKind === "subagent_run") {
       const childHandleId = tool.handleId ?? tool.subagentName ?? tool.name;
       const childName = tool.subagentName ?? tool.name;
-      const child = childMap.get(childHandleId);
+      const child = childMap.get(childHandleId) ?? childByName.get(childName);
       if (child) {
         referencedChildren.add(child.handleId);
-        items.push(buildSubagentDisplayItem(child));
+        // Attach the dispatch record as the wrapper so the aggregated
+        // result/duration stay on the sub-agent node.
+        items.push(
+          buildSubagentDisplayItem({
+            ...child,
+            wrapper: child.wrapper ?? tool,
+          }),
+        );
       } else {
         items.push({
           type: "subagent",
@@ -200,9 +215,23 @@ function buildSubagentChildItems(sa: SubagentRun): {
           children: [],
         });
       }
-    } else {
-      items.push({ type: "tool", tool });
+      continue;
     }
+    // Legacy dispatch record (callKind "tool") whose name matches a child
+    // run is that child's wrapper — merging here prevents a duplicate
+    // standalone tool card next to the sub-agent tree node.
+    const matchedChild = childByName.get(tool.name);
+    if (matchedChild) {
+      referencedChildren.add(matchedChild.handleId);
+      items.push(
+        buildSubagentDisplayItem({
+          ...matchedChild,
+          wrapper: matchedChild.wrapper ?? tool,
+        }),
+      );
+      continue;
+    }
+    items.push({ type: "tool", tool });
   }
 
   for (const child of sa.children ?? []) {

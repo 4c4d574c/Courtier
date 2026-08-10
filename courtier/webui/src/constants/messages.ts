@@ -39,11 +39,8 @@ export const MESSAGES = {
   NEW_SESSION: "新会话",
   EXPORT: "导出",
   /** Welcome / empty state */
-  WELCOME_TITLE: "SDTAgent 文档审计",
-  WELCOME_DESC: "输入审核任务开始审计公文文档",
-  QUICK_FORMAT: "格式审核",
-  QUICK_CONTENT: "内容审核",
-  QUICK_FULL: "全面审核",
+  WELCOME_TITLE: "审衡智能体平台",
+  WELCOME_DESC: "审以明辨，衡以持正",
   /** Chat UI */
   CHAT_NEW_SESSION: "新会话",
   CHAT_HISTORY_TITLE: "历史会话",
@@ -65,6 +62,12 @@ export const MESSAGES = {
   CHAT_PREVIEW_DOWNLOAD: "下载",
   CHAT_PREVIEW_CLOSE: "关闭预览",
   CHAT_PREVIEW_UNSUPPORTED: "当前文件格式不支持浏览器预览，请下载后查看。",
+  CHAT_MENU_MORE: "更多操作",
+  CHAT_MENU_RENAME: "编辑标题",
+  CHAT_MENU_PIN: "置顶",
+  CHAT_MENU_UNPIN: "取消置顶",
+  CHAT_MENU_DELETE: "删除",
+  CHAT_COMPACTING: "正在压缩上下文…",
 } as const;
 
 /** Tool status to Chinese display label mapping. */

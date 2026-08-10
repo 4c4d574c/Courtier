@@ -93,6 +93,87 @@ try {
     assert.equal(session.steps[0].tools[0].summary, "parsed");
   }
 
+  // tool_result with issueCounts lands on the tool record
+  {
+    const { handlers, session } = makeDeps();
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:check_format",
+    });
+    const counts = { err: 3, warn: 0, ok: 1, unchecked: 2 };
+    handlers.handleSessionEvent({
+      type: "tool_result",
+      name: "check_format",
+      status: "ok",
+      callKind: "tool",
+      callScope: "parent",
+      summary: "发现 3 处错误",
+      issueCounts: counts,
+    });
+    assert.deepEqual(session.steps[0].tools[0].issueCounts, counts);
+  }
+
+  // subagent_tool_result with issueCounts lands on the sub-agent tool record
+  {
+    const { handlers, session } = makeDeps();
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:format_audit",
+    });
+    handlers.handleSessionEvent({
+      type: "subagent_start",
+      name: "format_audit",
+      handleId: "fmt-1",
+      task: "格式审核",
+    });
+    const counts = { err: 1, warn: 2, ok: 7 };
+    handlers.handleSessionEvent({
+      type: "subagent_tool_result",
+      name: "format_audit",
+      handleId: "fmt-1",
+      toolName: "check_format",
+      toolStatus: "ok",
+      toolSummary: "checked",
+      issueCounts: counts,
+    });
+    const step = session.steps[session.steps.length - 1];
+    assert.deepEqual(step.subagents[0].tools[0].issueCounts, counts);
+  }
+
+  // subagent_run wrapper tool_result carries issueCounts onto the wrapper
+  {
+    const { handlers, session } = makeDeps();
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:format_audit",
+    });
+    handlers.handleSessionEvent({
+      type: "subagent_start",
+      name: "format_audit",
+      handleId: "fmt-1",
+      task: "格式审核",
+    });
+    handlers.handleSessionEvent({
+      type: "subagent_end",
+      name: "format_audit",
+      handleId: "fmt-1",
+      result: { status: "completed" },
+    });
+    const counts = { err: 0, warn: 1, ok: 9, unchecked: 4 };
+    handlers.handleSessionEvent({
+      type: "tool_result",
+      name: "format_audit",
+      status: "ok",
+      callKind: "subagent_run",
+      callScope: "parent",
+      handleId: "fmt-1",
+      summary: "audit complete",
+      issueCounts: counts,
+    });
+    const step = session.steps[session.steps.length - 1];
+    assert.deepEqual(step.subagents[0].wrapper.issueCounts, counts);
+  }
+
   // Sub-agent lifecycle with nested child
   {
     const { handlers, session } = makeDeps();
@@ -194,6 +275,79 @@ try {
     });
     step = session.steps[session.steps.length - 1];
     assert.equal(step.subagents[0].wrapper.summary, "audit complete");
+  }
+
+  // Context compaction events append a notice tied to the current turn
+  {
+    const { handlers, session, state } = makeDeps();
+    state.currentTurnIndex = 1;
+    handlers.handleSessionEvent({
+      type: "context_compacted",
+      detail: "12 条消息 → 3 条",
+    });
+    handlers.handleSessionEvent({ type: "context_compacted" });
+    assert.equal(session.compactions.length, 2);
+    assert.equal(session.compactions[0].text, "12 条消息 → 3 条");
+    assert.equal(session.compactions[0].turnIndex, 1);
+    assert.equal(session.compactions[1].text, "上下文已压缩");
+  }
+
+  // context_compacting sets the in-progress flag; context_compacted clears
+  // it and appends the notice.
+  {
+    const { handlers, session, state } = makeDeps();
+    state.currentTurnIndex = 1;
+    handlers.handleSessionEvent({ type: "context_compacting" });
+    assert.equal(session.compacting, true);
+    handlers.handleSessionEvent({
+      type: "context_compacted",
+      detail: "12 条消息 → 3 条",
+    });
+    assert.equal(session.compacting, false);
+    assert.equal(session.compactions.length, 1);
+    assert.equal(session.compactions[0].text, "12 条消息 → 3 条");
+  }
+
+  // Regression: top-level sub-agent whose parentHandleId is the orchestrator
+  // root handle (not a node in the tree) — its tool results must attach at
+  // the top level instead of being dropped.
+  {
+    const { handlers, session } = makeDeps();
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:content_audit",
+    });
+    handlers.handleSessionEvent({
+      type: "subagent_start",
+      name: "content_audit",
+      handleId: "ca-1",
+      parentHandleId: "orch-root-1",
+      task: "内容审核",
+    });
+    handlers.handleSessionEvent({
+      type: "subagent_tool_result",
+      name: "content_audit",
+      handleId: "ca-1",
+      parentHandleId: "orch-root-1",
+      toolName: "list_artifacts",
+      toolStatus: "ok",
+      toolSummary: "2 artifacts",
+    });
+    handlers.handleSessionEvent({
+      type: "subagent_tool_result",
+      name: "content_audit",
+      handleId: "ca-1",
+      parentHandleId: "orch-root-1",
+      toolName: "get_artifact",
+      toolStatus: "ok",
+      toolSummary: "document",
+    });
+    const step = session.steps[session.steps.length - 1];
+    assert.equal(step.subagents.length, 1);
+    assert.equal(step.subagents[0].name, "content_audit");
+    assert.equal(step.subagents[0].tools.length, 2);
+    assert.equal(step.subagents[0].tools[0].name, "list_artifacts");
+    assert.equal(step.subagents[0].tools[1].name, "get_artifact");
   }
 
   // Sub-agent error propagated to wrapper
@@ -389,6 +543,169 @@ try {
       totalSteps: 5,
     });
     assert.equal(session.loopCompleted?.totalSteps, 5);
+  }
+
+  // step_verdict / conclusion_token / complete：中间结论文本的归属语义
+  {
+    const { handlers, state, session } = makeDeps();
+    const turn = {
+      message: { role: "user", text: "审核", timestamp: 1 },
+      steps: [],
+    };
+    session.turns.push(turn);
+    state.currentTurn = turn;
+    state.currentTurnIndex = 1;
+
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:parse_document",
+    });
+    assert.equal(session.steps.length, 1);
+
+    // 中间文本流式到达：只进 pendingVerdict 缓冲，不进结论；
+    // 首个 token 记录归属边界（= 当前 think 的 step 的前一个）
+    handlers.handleSessionEvent({
+      type: "conclusion_token",
+      text: "文档已解析，",
+    });
+    handlers.handleSessionEvent({ type: "conclusion_token", text: "共1页。" });
+    assert.equal(session.pendingVerdict, "文档已解析，共1页。");
+    assert.equal(session.pendingVerdictAfterStepIndex, 0);
+    assert.equal(turn.conclusion, undefined);
+
+    // observe 时后端发 step_verdict：转正到 step 1（两个数组同步），清空缓冲
+    handlers.handleSessionEvent({
+      type: "step_verdict",
+      stepIndex: 1,
+      text: "文档已解析，共1页。",
+    });
+    assert.equal(session.steps[0].verdict, "文档已解析，共1页。");
+    assert.equal(session.turns[0].steps[0].verdict, "文档已解析，共1页。");
+    assert.equal(session.pendingVerdict, "");
+    assert.equal(session.pendingVerdictAfterStepIndex, 0);
+    assert.equal(turn.conclusion, undefined);
+
+    // 最终结论文本 + complete：流式剩余缓冲优先（complete 全量仅兜底）
+    handlers.handleSessionEvent({
+      type: "conclusion_token",
+      text: "审核完成，文档合规。",
+    });
+    assert.equal(session.pendingVerdictAfterStepIndex, 0);
+    handlers.handleSessionEvent({
+      type: "complete",
+      conclusion: "文档已解析，共1页。审核完成，文档合规。",
+      tokensIn: 10,
+      tokensOut: 5,
+    });
+    assert.equal(turn.conclusion, "审核完成，文档合规。");
+    assert.equal(session.pendingVerdict, "");
+    assert.equal(session.pendingVerdictAfterStepIndex, 0);
+    assert.equal(session.conclusion, "文档已解析，共1页。审核完成，文档合规。");
+  }
+
+  // 流式真实顺序：text_response 占位 step → conclusion_token → tool_calls
+  // 补丁到占位 step。待定文本的边界必须取占位 step 之前，否则文本会被
+  // 推到占位 step（未来工具框）之后，observe 转正时发生跳变。
+  {
+    const { handlers, state, session } = makeDeps();
+    const turn = {
+      message: { role: "user", text: "审核", timestamp: 1 },
+      steps: [],
+    };
+    session.turns.push(turn);
+    state.currentTurn = turn;
+    state.currentTurnIndex = 1;
+
+    // 第一轮 think：占位 step 1 → 文本 → 工具补丁
+    handlers.handleSessionEvent({ type: "think", detail: "text_response" });
+    assert.equal(session.steps.length, 1);
+    assert.equal(session.steps[0].tools.length, 0);
+    handlers.handleSessionEvent({ type: "conclusion_token", text: "先解析文档。" });
+    assert.equal(session.pendingVerdictAfterStepIndex, 0); // 渲染在 step 1 框之前
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:parse_document",
+    });
+    assert.equal(session.steps.length, 1); // 补丁到占位 step，不新建
+    handlers.handleSessionEvent({
+      type: "step_verdict",
+      stepIndex: 1,
+      text: "先解析文档。",
+    });
+    assert.equal(session.pendingVerdict, "");
+
+    // observe 后第二轮 think：占位 step 2 → 文本边界 = 1（step 1 之后、
+    // step 2 的工具框之前）
+    handlers.handleSessionEvent({ type: "observe" });
+    handlers.handleSessionEvent({ type: "think", detail: "text_response" });
+    assert.equal(session.steps.length, 2);
+    handlers.handleSessionEvent({
+      type: "conclusion_token",
+      text: "现在并行执行审核：",
+    });
+    assert.equal(session.pendingVerdictAfterStepIndex, 1);
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:content_audit",
+    });
+    assert.equal(session.steps.length, 2); // 仍补丁到占位 step 2
+  }
+
+  // complete 兜底：无流式 token 时落 complete 事件的结论
+  {
+    const { handlers, state, session } = makeDeps();
+    const turn = {
+      message: { role: "user", text: "审核", timestamp: 1 },
+      steps: [],
+    };
+    session.turns.push(turn);
+    state.currentTurn = turn;
+    handlers.handleSessionEvent({ type: "complete", conclusion: "完整结论" });
+    assert.equal(turn.conclusion, "完整结论");
+  }
+
+  // step_verdict 指向未知 index：回退到最后一个 step
+  {
+    const { handlers, state, session } = makeDeps();
+    const turn = {
+      message: { role: "user", text: "审核", timestamp: 1 },
+      steps: [],
+    };
+    session.turns.push(turn);
+    state.currentTurn = turn;
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:check_format",
+    });
+    handlers.handleSessionEvent({ type: "conclusion_token", text: "中间文本" });
+    handlers.handleSessionEvent({
+      type: "step_verdict",
+      stepIndex: 99,
+      text: "中间文本",
+    });
+    assert.equal(session.steps[0].verdict, "中间文本");
+    assert.equal(session.pendingVerdict, "");
+  }
+
+  // stopped：缓冲中的未定性文本落到结论而不是丢失
+  {
+    const { handlers, state, session } = makeDeps();
+    const turn = {
+      message: { role: "user", text: "审核", timestamp: 1 },
+      steps: [],
+    };
+    session.turns.push(turn);
+    state.currentTurn = turn;
+    handlers.handleSessionEvent({
+      type: "think",
+      detail: "tool_calls:parse_document",
+    });
+    handlers.handleSessionEvent({ type: "conclusion_token", text: "写到一半" });
+    assert.equal(session.pendingVerdictAfterStepIndex, 0);
+    handlers.handleSessionEvent({ type: "stopped" });
+    assert.equal(turn.conclusion, "写到一半");
+    assert.equal(session.pendingVerdict, "");
+    assert.equal(session.pendingVerdictAfterStepIndex, 0);
   }
 
   console.log("sessionEventHandlers verification passed");

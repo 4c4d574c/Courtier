@@ -26,7 +26,7 @@ defineProps<Props>();
   border-radius: var(--chat-radius-md);
   border-left: 3px solid;
   background: var(--chat-bg-card);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .status-message--error {

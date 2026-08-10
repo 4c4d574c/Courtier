@@ -1,12 +1,12 @@
 <template>
   <div class="steps-message">
     <StepGroup
-      v-for="(step, index) in steps"
-      :key="step.index"
-      :step="step"
-      :step-thoughts="[]"
+      v-for="(group, index) in groups"
+      :key="group.step.index"
+      :step="group.step"
+      :step-thoughts="group.thoughts"
       :is-running="isRunning"
-      :is-last-step="index === steps.length - 1"
+      :is-last-step="index === groups.length - 1"
       :is-expanded="isExpanded"
       :toggle="toggle"
     />
@@ -14,12 +14,12 @@
 </template>
 
 <script setup lang="ts">
-import type { Step } from "../../types/agent";
+import type { StepThoughtGroup } from "../../types/chat";
 import StepGroup from "../StepGroup.vue";
 import { useToggleSet } from "../../composables/useToggleSet";
 
 interface Props {
-  steps: Step[];
+  groups: StepThoughtGroup[];
   isRunning: boolean;
 }
 

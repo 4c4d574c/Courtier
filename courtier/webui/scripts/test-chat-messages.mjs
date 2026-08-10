@@ -113,10 +113,11 @@ try {
   };
   const msgs = buildChatMessages(fileSession, fileRecords);
   assert.equal(msgs.length, 3);
-  assert.equal(msgs[0].type, "user");
-  assert.equal(msgs[1].type, "file");
-  assert.equal(msgs[1].url, "blob://notice");
-  assert.equal(msgs[1].mimeType, "application/pdf");
+  // The uploaded file renders above the user prompt.
+  assert.equal(msgs[0].type, "file");
+  assert.equal(msgs[0].url, "blob://notice");
+  assert.equal(msgs[0].mimeType, "application/pdf");
+  assert.equal(msgs[1].type, "user");
   assert.equal(msgs[2].type, "assistant");
   assert.equal(msgs[2].content, "格式正确");
 
@@ -127,7 +128,7 @@ try {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   );
 
-  // Thinking item from session.thoughts matching turn and stepIndex
+  // Thinking is attached to its step inside the steps process block
   const thoughtSession = {
     ...baseSession,
     turns: [
@@ -157,14 +158,137 @@ try {
     ],
   };
   const thoughtMsgs = buildChatMessages(thoughtSession, []);
-  assert.equal(thoughtMsgs.length, 3);
+  assert.equal(thoughtMsgs.length, 2);
   assert.equal(thoughtMsgs[0].type, "user");
-  assert.equal(thoughtMsgs[1].type, "thinking");
-  assert.equal(thoughtMsgs[1].content, "正在分析...");
-  assert.equal(thoughtMsgs[1].isOpen, true);
-  // Turns with steps also emit a steps process block.
-  assert.equal(thoughtMsgs[2].type, "steps");
-  assert.equal(thoughtMsgs[2].steps.length, 1);
+  assert.equal(thoughtMsgs[1].type, "steps");
+  assert.equal(thoughtMsgs[1].groups.length, 1);
+  assert.equal(thoughtMsgs[1].groups[0].step.index, 10);
+  assert.equal(thoughtMsgs[1].groups[0].thoughts.length, 1);
+  assert.equal(thoughtMsgs[1].groups[0].thoughts[0].text, "正在分析...");
+
+  // Step verdicts render BEFORE their step's frame (text previews the tools):
+  // un-announced steps join the open frame below the last text.
+  const verdictTool = {
+    id: "t1",
+    name: "parse",
+    skill: "",
+    status: "done",
+    callKind: "tool",
+    callScope: "parent",
+    subagentName: null,
+  };
+  const verdictSession = {
+    ...baseSession,
+    turns: [
+      {
+        message: { role: "user", text: "中间文本", timestamp: 1 },
+        steps: [
+          {
+            index: 1,
+            numeral: "1",
+            label: "a",
+            skill: "",
+            tools: [verdictTool],
+            turnIndex: 0,
+            verdict: "中间结论一",
+          },
+          {
+            index: 2,
+            numeral: "2",
+            label: "b",
+            skill: "",
+            tools: [{ ...verdictTool, id: "t2" }],
+            turnIndex: 0,
+          },
+          {
+            index: 3,
+            numeral: "3",
+            label: "c",
+            skill: "",
+            tools: [{ ...verdictTool, id: "t3" }],
+            turnIndex: 0,
+            verdict: "中间结论三",
+          },
+        ],
+      },
+    ],
+  };
+  const verdictMsgs = buildChatMessages(verdictSession, []);
+  assert.deepEqual(
+    verdictMsgs.map((m) => m.type),
+    ["user", "assistant", "steps", "assistant", "steps"],
+  );
+  assert.equal(verdictMsgs[1].content, "中间结论一");
+  assert.equal(verdictMsgs[2].groups.length, 2); // step 2 无预告文本，并入当前框
+  assert.equal(verdictMsgs[2].groups[0].step.index, 1);
+  assert.equal(verdictMsgs[2].groups[1].step.index, 2);
+  assert.equal(verdictMsgs[3].content, "中间结论三");
+  assert.equal(verdictMsgs[4].groups.length, 1);
+  assert.equal(verdictMsgs[4].groups[0].step.index, 3);
+
+  // verdict step 拆分：思考（先于文本产生）留在上方框，工具开文本下方新框
+  const splitSession = {
+    ...baseSession,
+    turns: [
+      {
+        message: { role: "user", text: "拆分", timestamp: 1 },
+        steps: [
+          {
+            index: 1,
+            numeral: "1",
+            label: "parse",
+            skill: "",
+            tools: [{ ...verdictTool, id: "s1" }],
+            turnIndex: 0,
+          },
+          {
+            index: 2,
+            numeral: "2",
+            label: "audit",
+            skill: "",
+            tools: [{ ...verdictTool, id: "s2" }],
+            subagents: [
+              { name: "完整审核", handleId: "h1", task: "审核", status: "running" },
+            ],
+            turnIndex: 0,
+            verdict: "现在并行执行审核：",
+          },
+        ],
+      },
+    ],
+    thoughts: [
+      { id: 1, text: "先解析文档", turn: 1, turnIndex: 0, stepIndex: 1, timestamp: 1 },
+      {
+        id: 2,
+        text: "决定并行调用子代理",
+        turn: 2,
+        turnIndex: 0,
+        stepIndex: 2,
+        timestamp: 2,
+      },
+    ],
+  };
+  const splitMsgs = buildChatMessages(splitSession, []);
+  assert.deepEqual(
+    splitMsgs.map((m) => m.type),
+    ["user", "steps", "assistant", "steps"],
+  );
+  // 上框：step 1 完整（思考+工具）+ step 2 的纯思考组（工具与子代理被拆走）
+  assert.equal(splitMsgs[1].groups.length, 2);
+  assert.equal(splitMsgs[1].groups[0].step.index, 1);
+  assert.equal(splitMsgs[1].groups[0].step.tools.length, 1);
+  assert.equal(splitMsgs[1].groups[0].thoughts.length, 1);
+  assert.equal(splitMsgs[1].groups[1].step.index, 2);
+  assert.equal(splitMsgs[1].groups[1].step.tools.length, 0);
+  assert.equal(splitMsgs[1].groups[1].step.subagents.length, 0);
+  assert.equal(splitMsgs[1].groups[1].thoughts[0].text, "决定并行调用子代理");
+  assert.equal(splitMsgs[2].content, "现在并行执行审核：");
+  // 下框：step 2 的纯工具组（思考被拆走，子代理保留——只在此处渲染）
+  assert.equal(splitMsgs[3].groups.length, 1);
+  assert.equal(splitMsgs[3].groups[0].step.index, 2);
+  assert.equal(splitMsgs[3].groups[0].step.tools.length, 1);
+  assert.equal(splitMsgs[3].groups[0].step.subagents.length, 1);
+  assert.equal(splitMsgs[3].groups[0].thoughts.length, 0);
 
   // Error item from completed session with errorMessage
   const errorSession = {
@@ -221,6 +345,96 @@ try {
   assert.equal(runningMsgs[1].type, "assistant");
   assert.equal(runningMsgs[1].content, "");
 
+  // Regression: a running NEW turn must not fall back to the previous
+  // turn's session-level conclusion (it leaked below the new user bubble).
+  const multiTurnSession = {
+    ...baseSession,
+    status: "running",
+    conclusion: "上一轮结论",
+    turns: [
+      {
+        message: { role: "user", text: "第一轮", timestamp: 1 },
+        steps: [],
+        conclusion: "上一轮结论",
+      },
+      {
+        message: { role: "user", text: "第二轮", timestamp: 2 },
+        steps: [],
+      },
+    ],
+  };
+  const multiMsgs = buildChatMessages(multiTurnSession, []);
+  assert.deepEqual(
+    multiMsgs.map((m) => m.type),
+    ["user", "assistant", "user", "assistant"],
+  );
+  assert.equal(multiMsgs[1].content, "上一轮结论");
+  assert.equal(multiMsgs[3].content, "");
+
+  // Compaction notices render after the matching turn's process block
+  const compactedSession = {
+    ...baseSession,
+    turns: [
+      {
+        message: { role: "user", text: "压缩测试", timestamp: 1 },
+        steps: [
+          {
+            index: 1,
+            numeral: "1",
+            label: "a",
+            skill: "",
+            tools: [],
+            turnIndex: 0,
+          },
+        ],
+      },
+    ],
+    compactions: [
+      { text: "12 条消息 → 3 条", turnIndex: 1, timestamp: 2 },
+    ],
+  };
+  const compactedMsgs = buildChatMessages(compactedSession, []);
+  assert.deepEqual(
+    compactedMsgs.map((m) => m.type),
+    ["user", "steps", "compacted"],
+  );
+  assert.equal(compactedMsgs[2].text, "12 条消息 → 3 条");
+
+  // In-progress compaction renders a pending indicator at the tail of the
+  // running turn only; a finished session never shows it.
+  const compactingSession = {
+    ...baseSession,
+    status: "running",
+    compacting: true,
+    turns: [
+      {
+        message: { role: "user", text: "压缩中测试", timestamp: 1 },
+        steps: [
+          {
+            index: 1,
+            numeral: "1",
+            label: "a",
+            skill: "",
+            tools: [],
+            turnIndex: 0,
+          },
+        ],
+      },
+    ],
+  };
+  const compactingMsgs = buildChatMessages(compactingSession, []);
+  const pendingMsg = compactingMsgs.find((m) => m.type === "compacted");
+  assert.ok(pendingMsg);
+  assert.equal(pendingMsg.pending, true);
+  assert.equal(pendingMsg.text, "正在压缩上下文…");
+  // 指示条在过程块（steps）之后
+  const stepsIdx = compactingMsgs.findIndex((m) => m.type === "steps");
+  assert.ok(compactingMsgs.indexOf(pendingMsg) > stepsIdx);
+
+  const doneCompactingSession = { ...compactingSession, status: "completed" };
+  const doneMsgs = buildChatMessages(doneCompactingSession, []);
+  assert.ok(!doneMsgs.some((m) => m.type === "compacted" && m.pending));
+
   // Guard events become guard chat items in the last turn
   const guardSession = {
     ...baseSession,
@@ -244,6 +458,146 @@ try {
   assert.equal(guardMsgs[1].layer, "input");
   assert.equal(guardMsgs[2].type, "guard");
   assert.equal(guardMsgs[2].action, "log");
+
+  // 运行中轮次：pendingVerdict 渲染在"边界之后 step"的工具框之前——
+  // 文本是它预告的工具调用的导语（边界=文本开始流式时已有的 step 数）
+  const mkStep = (index, name, status, verdict) => ({
+    index,
+    numeral: String(index),
+    label: name,
+    skill: "",
+    tools: [
+      {
+        id: `tool-${index}`,
+        name,
+        displayName: null,
+        skill: "",
+        status,
+      },
+    ],
+    turnIndex: 1,
+    ...(verdict ? { verdict } : {}),
+  });
+  const pendingSession = {
+    ...baseSession,
+    status: "running",
+    turns: [
+      {
+        message: { role: "user", text: "审核", timestamp: 1 },
+        steps: [
+          mkStep(1, "parse_document", "done"),
+          mkStep(2, "content_audit", "running"),
+        ],
+      },
+    ],
+    pendingVerdict: "现在并行执行审核：",
+    pendingVerdictAfterStepIndex: 1,
+  };
+  const pendingMsgs = buildChatMessages(pendingSession, []);
+  assert.deepEqual(
+    pendingMsgs.map((m) => m.type),
+    ["user", "steps", "assistant", "steps", "assistant"],
+  );
+  assert.equal(pendingMsgs[1].groups[0].step.index, 1);
+  assert.equal(pendingMsgs[1].isRunning, false);
+  assert.equal(pendingMsgs[2].content, "现在并行执行审核：");
+  assert.equal(pendingMsgs[3].groups[0].step.index, 2);
+  assert.equal(pendingMsgs[3].isRunning, true); // 仅最后一框可处于流式中
+  assert.equal(pendingMsgs[4].content, ""); // 运行中的结论占位
+
+  // 同一文本经 step_verdict 转正后布局一致（无重复渲染、无跳变）
+  const finalizedSession = {
+    ...pendingSession,
+    turns: [
+      {
+        message: { role: "user", text: "审核", timestamp: 1 },
+        steps: [
+          mkStep(1, "parse_document", "done"),
+          mkStep(2, "content_audit", "done", "现在并行执行审核："),
+        ],
+      },
+    ],
+    pendingVerdict: "",
+    pendingVerdictAfterStepIndex: 0,
+  };
+  const finalizedMsgs = buildChatMessages(finalizedSession, []);
+  assert.deepEqual(
+    finalizedMsgs.map((m) => m.type),
+    ["user", "steps", "assistant", "steps", "assistant"],
+  );
+  assert.equal(finalizedMsgs[1].groups[0].step.index, 1);
+  assert.equal(finalizedMsgs[2].content, "现在并行执行审核：");
+  assert.equal(finalizedMsgs[3].groups[0].step.index, 2);
+  assert.equal(finalizedMsgs[4].content, "");
+
+  // 开场文本：尚无 step 时 pending 渲染在所有框之后（未来新框的上方）
+  const openingSession = {
+    ...baseSession,
+    status: "running",
+    turns: [
+      {
+        message: { role: "user", text: "审核", timestamp: 1 },
+        steps: [],
+      },
+    ],
+    pendingVerdict: "我将对文档进行完整的政府公文审核。",
+    pendingVerdictAfterStepIndex: 0,
+  };
+  const openingMsgs = buildChatMessages(openingSession, []);
+  assert.deepEqual(
+    openingMsgs.map((m) => m.type),
+    ["user", "assistant", "assistant"],
+  );
+  assert.equal(openingMsgs[1].content, "我将对文档进行完整的政府公文审核。");
+  assert.equal(openingMsgs[2].content, "");
+
+  // 流式 pending 拆分：当前 think 的思考随上框，待定文本之后，工具组开新框
+  const pendingSplitSession = {
+    ...pendingSession,
+    turns: [
+      {
+        message: { role: "user", text: "审核", timestamp: 1 },
+        steps: [
+          mkStep(1, "parse_document", "done"),
+          mkStep(2, "content_audit", "running"),
+        ],
+      },
+    ],
+    thoughts: [
+      { id: 1, text: "先解析文档", turn: 1, turnIndex: 1, stepIndex: 1, timestamp: 1 },
+      {
+        id: 2,
+        text: "决定并行调用子代理",
+        turn: 2,
+        turnIndex: 1,
+        stepIndex: 2,
+        timestamp: 2,
+      },
+    ],
+    pendingVerdict: "现在并行执行审核：",
+    pendingVerdictAfterStepIndex: 1,
+  };
+  const pendingSplitMsgs = buildChatMessages(pendingSplitSession, []);
+  assert.deepEqual(
+    pendingSplitMsgs.map((m) => m.type),
+    ["user", "steps", "assistant", "steps", "assistant"],
+  );
+  assert.equal(pendingSplitMsgs[1].groups.length, 2);
+  assert.equal(pendingSplitMsgs[1].groups[0].step.index, 1);
+  assert.equal(pendingSplitMsgs[1].groups[0].step.tools.length, 1);
+  assert.equal(pendingSplitMsgs[1].groups[1].step.index, 2);
+  assert.equal(pendingSplitMsgs[1].groups[1].step.tools.length, 0);
+  assert.equal(
+    pendingSplitMsgs[1].groups[1].thoughts[0].text,
+    "决定并行调用子代理",
+  );
+  assert.equal(pendingSplitMsgs[2].content, "现在并行执行审核：");
+  assert.equal(pendingSplitMsgs[3].groups.length, 1);
+  assert.equal(pendingSplitMsgs[3].groups[0].step.index, 2);
+  assert.equal(pendingSplitMsgs[3].groups[0].step.tools.length, 1);
+  assert.equal(pendingSplitMsgs[3].groups[0].thoughts.length, 0);
+  assert.equal(pendingSplitMsgs[3].isRunning, true);
+  assert.equal(pendingSplitMsgs[4].content, "");
 
   console.log("chatMessages verification passed");
 } finally {

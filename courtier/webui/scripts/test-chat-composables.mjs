@@ -130,16 +130,17 @@ try {
   const reactiveRecords = ref([]);
   const { messages: fileMessages } = useChatMessages(fileSession, reactiveRecords);
   assert.equal(fileMessages.value.length, 2);
-  assert.equal(fileMessages.value[0].type, "user");
-  assert.equal(fileMessages.value[1].type, "file");
-  assert.equal(fileMessages.value[1].url, "");
+  // The uploaded file renders above the user prompt.
+  assert.equal(fileMessages.value[0].type, "file");
+  assert.equal(fileMessages.value[0].url, "");
+  assert.equal(fileMessages.value[1].type, "user");
 
   reactiveRecords.value = [
     { fileId: "f1", name: "note.pdf", url: "blob://note" },
   ];
   assert.equal(fileMessages.value.length, 2);
-  assert.equal(fileMessages.value[1].type, "file");
-  assert.equal(fileMessages.value[1].url, "blob://note");
+  assert.equal(fileMessages.value[0].type, "file");
+  assert.equal(fileMessages.value[0].url, "blob://note");
 
   console.log("chatComposables verification passed");
 } finally {

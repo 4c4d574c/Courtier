@@ -25,7 +25,7 @@ defineProps<Props>();
   color: var(--chat-text-primary);
   border-radius: var(--chat-radius-lg);
   padding: 12px 16px;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
 }
 </style>

@@ -18,6 +18,12 @@
   --chat-radius-lg: 18px;
   --chat-sidebar-width: 260px;
   --chat-drawer-width: 480px;
+
+  /* Status/feedback colors shared by badges, forms, and admin pages. */
+  --ok: #5a8a4a;
+  --ok-dim: #3d5d32;
+  --warn: #b87a0e;
+  --err: #b71c2e;
 }
 
 [data-theme="dark"] {
@@ -34,12 +40,34 @@
   --chat-accent-soft: rgba(224, 113, 104, 0.14);
   --chat-border: #353029;
   --chat-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+
+  --ok: #7fb96f;
+  --ok-dim: #8fca7d;
+  --warn: #d9a03f;
+  --err: #e07168;
 }
 
-html[data-theme],
-html[data-theme] body {
+/* Global reset (migrated from the retired tokens.css). */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
   background: var(--chat-bg-body);
   color: var(--chat-text-primary);
+  height: 100vh;
+  overflow: hidden;
+  font-family: "Noto Sans SC", system-ui, sans-serif;
+}
+
+#app {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,20 +1,9 @@
 <template>
   <div ref="containerRef" class="chat-area" aria-live="polite">
     <div v-if="messages.length === 0 && !isRunning" class="chat-welcome">
-      <div class="chat-welcome-mark">审</div>
+      <div class="chat-welcome-mark"><img :src="logoUrl" alt="审衡" /></div>
       <h2 class="chat-welcome-title">{{ MESSAGES.WELCOME_TITLE }}</h2>
       <p class="chat-welcome-desc">{{ MESSAGES.WELCOME_DESC }}</p>
-      <div class="chat-welcome-examples">
-        <button
-          v-for="example in examples"
-          :key="example.task"
-          class="chat-welcome-example"
-          type="button"
-          @click="$emit('quick-task', example.task)"
-        >
-          {{ example.label }}
-        </button>
-      </div>
     </div>
 
     <div v-else-if="messages.length === 0 && isRunning" class="chat-loading">
@@ -40,6 +29,7 @@ import type { ChatMessageItem } from "../../types/chat";
 import { MESSAGES } from "../../constants/messages";
 import { useAutoScroll } from "../../composables/useAutoScroll";
 import ChatMessage from "./ChatMessage.vue";
+import logoUrl from "../../assets/logo.png";
 
 interface Props {
   messages: ChatMessageItem[];
@@ -48,15 +38,8 @@ interface Props {
 
 const props = defineProps<Props>();
 defineEmits<{
-  "quick-task": [task: string];
   preview: [file: Extract<ChatMessageItem, { type: "file" }>];
 }>();
-
-const examples = [
-  { label: MESSAGES.QUICK_FORMAT, task: "审核这份通知的格式规范" },
-  { label: MESSAGES.QUICK_CONTENT, task: "检查公文内容是否符合规范要求" },
-  { label: MESSAGES.QUICK_FULL, task: "全面审核这份文档" },
-];
 
 const { containerRef, mount, unmount, scrollToBottom } = useAutoScroll();
 
@@ -119,48 +102,27 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--chat-accent);
+  overflow: hidden;
+}
+
+.chat-welcome-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .chat-welcome-title {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 600;
   color: var(--chat-text-primary);
   margin: 0;
 }
 
 .chat-welcome-desc {
-  font-size: 15px;
+  font-size: 16px;
   color: var(--chat-text-secondary);
   margin: 0;
-}
-
-.chat-welcome-examples {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin-top: 8px;
-}
-
-.chat-welcome-example {
-  padding: 8px 16px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  background: var(--chat-bg-card);
-  color: var(--chat-text-secondary);
-  font-size: 14px;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    color 0.15s;
-}
-
-.chat-welcome-example:hover {
-  border-color: var(--chat-accent);
-  color: var(--chat-accent);
 }
 
 .chat-loading-dot {

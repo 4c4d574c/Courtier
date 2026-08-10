@@ -14,12 +14,12 @@
   padding: 12px 18px;
   border-radius: 12px;
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.6;
 }
 .chat-message--user .chat-bubble {
-  background: var(--seal-faded);
-  color: var(--ink);
+  background: var(--chat-accent-soft);
+  color: var(--chat-text-primary);
   border-bottom-right-radius: 4px;
 }
 .chat-file-tag {
@@ -28,11 +28,11 @@
   gap: 5px;
   margin-top: 8px;
   padding: 4px 10px;
-  background: var(--paper);
-  border: 1px solid var(--divider);
+  background: var(--chat-bg-body);
+  border: 1px solid var(--chat-border);
   border-radius: 6px;
-  font-size: 14px;
-  color: var(--ink-dim);
+  font-size: 15px;
+  color: var(--chat-text-secondary);
 }
 
 /* Step header */
@@ -43,21 +43,21 @@
 }
 .step-num {
   font-family: "Noto Serif SC", serif;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--seal);
+  color: var(--chat-accent);
   min-width: 20px;
 }
 .step-divider {
   width: 28px;
   height: 1px;
-  background: var(--seal-faded);
+  background: var(--chat-accent-soft);
 }
 .step-label {
   font-family: "Noto Serif SC", serif;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--chat-text-primary);
   letter-spacing: 0.06em;
 }
 /* Tool result row — Kimi-style process list item */
@@ -90,7 +90,7 @@
 }
 .tool-card-name {
   font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--chat-text-primary);
 }
@@ -106,7 +106,7 @@
   border-radius: 999px;
   border: 1px solid var(--chat-border);
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--chat-text-tertiary);
   letter-spacing: 0.04em;
 }
@@ -124,16 +124,16 @@
 }
 .tool-card-time {
   font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-tertiary);
 }
 .tool-card-running-badge {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
 }
 .tool-card-expand-icon {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-tertiary);
   transition:
     color 0.2s,
@@ -152,7 +152,7 @@
 }
 .data-chip {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--chat-text-secondary);
   display: flex;
   align-items: center;
@@ -172,7 +172,7 @@
 }
 .issue-count {
   font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .issue-count.err {
@@ -183,6 +183,9 @@
 }
 .issue-count.ok {
   color: var(--ok);
+}
+.issue-count.unchecked {
+  color: var(--chat-text-tertiary);
 }
 
 /* Expanded detail */
@@ -216,14 +219,14 @@
 }
 .subagent-group-title {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--chat-text-primary);
   letter-spacing: 0.02em;
 }
 .subagent-group-meta {
   font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-tertiary);
 }
 .subagent-group .tool-card {
@@ -258,7 +261,7 @@
 /* Structured data table */
 .structured-data {
   font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-secondary);
 }
 .structured-data .sd-key {
@@ -278,39 +281,59 @@
   font-style: italic;
 }
 
-/* Markdown content */
+/* Markdown content — base font for thought/conclusion contexts */
 .markdown-content {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.8;
   color: var(--chat-text-secondary);
 }
-.markdown-content :is(h1, h2, h3, h4) {
+/* Element-level typography applies to every StreamingMarkdown instance:
+   the component root always carries .markdown-body (e.g. the assistant
+   conclusion bubble has no .markdown-content). */
+.markdown-body :is(h1, h2, h3, h4) {
   font-family: "Noto Sans SC", sans-serif;
   color: var(--chat-text-primary);
-  margin: 10px 0 4px;
+  margin: 12px 0 6px;
+  line-height: 1.4;
 }
-.markdown-content h2 {
-  font-size: 17px;
+.markdown-body :is(h1, h2, h3, h4):first-child {
+  margin-top: 0;
 }
-.markdown-content h3 {
+.markdown-body h1 {
+  font-size: 21px;
+}
+.markdown-body h2 {
+  font-size: 19px;
+}
+.markdown-body h3 {
+  font-size: 16px;
+}
+.markdown-body h4 {
   font-size: 15px;
 }
-.markdown-content ul,
-.markdown-content ol {
-  padding-left: 18px;
-  margin: 4px 0;
+.markdown-body p {
+  margin: 6px 0;
 }
-.markdown-content li {
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+.markdown-body li {
+  margin: 3px 0;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
   margin: 2px 0;
 }
-.markdown-content table {
+.markdown-body table {
   width: 100%;
   border-collapse: collapse;
   margin: 8px 0;
-  font-size: 13px;
+  font-size: 14px;
 }
-.markdown-content th {
+.markdown-body th {
   font-family: "Noto Sans SC", sans-serif;
   background: var(--chat-bg-hover);
   color: var(--chat-text-primary);
@@ -319,28 +342,50 @@
   border-bottom: 1px solid var(--chat-border);
   font-weight: 500;
 }
-.markdown-content td {
+.markdown-body td {
   padding: 5px 10px;
   border-bottom: 1px solid var(--chat-border);
   color: var(--chat-text-secondary);
 }
-.markdown-content strong {
+.markdown-body strong {
   color: var(--chat-text-primary);
   font-weight: 600;
 }
-.markdown-content code {
+.markdown-body code {
   font-family: "JetBrains Mono", monospace;
   background: var(--chat-bg-hover);
   padding: 1px 4px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 14px;
 }
-.markdown-content pre {
+.markdown-body pre {
   background: var(--chat-bg-hover);
   padding: 10px;
   border-radius: 2px;
   overflow-x: auto;
   margin: 8px 0;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+.markdown-body blockquote {
+  margin: 8px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--chat-border);
+  color: var(--chat-text-secondary);
+}
+.markdown-body a {
+  color: var(--chat-accent);
+  text-decoration: none;
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--chat-border);
+  margin: 12px 0;
 }
 
 /* ── Streaming markdown rendering ─────────────────────
@@ -382,7 +427,7 @@
   left: -10px;
   top: 10px;
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--chat-text-secondary);
   background: var(--chat-bg-body);
@@ -390,7 +435,7 @@
 }
 .verdict-text {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.8;
   color: var(--chat-text-secondary);
 }
@@ -430,7 +475,7 @@
 }
 .conclusion-header-label {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-secondary);
   font-weight: 500;
   display: flex;
@@ -447,13 +492,13 @@
   height: 20px;
   border: 1.5px solid var(--chat-text-tertiary);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--chat-text-secondary);
   flex-shrink: 0;
 }
 .conclusion-header-toggle {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   transition: color 0.2s;
@@ -468,15 +513,15 @@
 .conclusion-inner {
   padding: 20px 24px;
   margin: 3px;
-  border: 1px solid var(--divider);
+  border: 1px solid var(--chat-border);
   border-radius: 3px;
-  background: var(--paper);
+  background: var(--chat-bg-body);
 }
 .conclusion-label {
   font-family: "Noto Serif SC", serif;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--seal);
+  color: var(--chat-accent);
   letter-spacing: 0.12em;
   margin-bottom: 14px;
   display: flex;
@@ -485,18 +530,18 @@
 }
 .conclusion-text {
   font-family: "Noto Serif SC", serif;
-  font-size: 17px;
+  font-size: 19px;
   line-height: 2;
-  color: var(--ink);
+  color: var(--chat-text-primary);
 }
 .conclusion-stats {
   padding: 12px 24px;
-  border-top: 1px solid var(--seal-rule-light);
+  border-top: 1px solid var(--chat-accent-soft);
   display: flex;
   align-items: center;
   gap: 6px;
   font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
+  font-size: 14px;
 }
 .conclusion-stat {
   display: inline-flex;
@@ -504,21 +549,21 @@
   gap: 5px;
 }
 .conclusion-stat-dim {
-  color: var(--ink-faint);
-  font-size: 12px;
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
 }
 .conclusion-stat-val {
-  color: var(--ink);
+  color: var(--chat-text-primary);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
 }
 .conclusion-stat-val--warn {
   color: var(--warn);
 }
 .conclusion-stat-sep {
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
   opacity: 0.4;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* ——— Thinking dot & streaming header animation ——— */
@@ -599,7 +644,7 @@
 
 .thought-segment-label {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-secondary);
   font-weight: 500;
   display: flex;
@@ -608,7 +653,7 @@
 }
 .subagent-reasoning-label {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--chat-text-secondary);
   font-weight: 500;
   display: flex;
@@ -617,7 +662,7 @@
 }
 .thought-segment-toggle,
 .subagent-reasoning-toggle {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   transition: color 0.2s;
@@ -630,7 +675,7 @@
 /* Streaming status badge */
 .thought-status-badge {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
   background: var(--chat-accent-soft);
   padding: 1px 8px;
@@ -647,7 +692,7 @@
   max-height: 320px;
   overflow-y: auto;
   color: var(--chat-text-secondary);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .thought-segment + .step-items,
@@ -677,7 +722,7 @@
   border-left-color: var(--chat-text-tertiary);
 }
 .thought-text {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-secondary);
   line-height: 1.8;
   font-family: "Noto Sans SC", sans-serif;
@@ -693,7 +738,7 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  font-size: 14px;
+  font-size: 15px;
   background: transparent;
   border-left: 3px solid var(--chat-border);
   border-radius: 0 var(--chat-radius-md) var(--chat-radius-md) 0;
@@ -730,7 +775,7 @@
   background: var(--chat-accent-soft);
   color: var(--chat-text-secondary);
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 11px;
+  font-size: 12px;
 }
 .subagent-status-dot {
   width: 6px;
@@ -740,7 +785,7 @@
   animation: pulse-dot 1.5s infinite;
 }
 .subagent-status-icon {
-  font-size: 14px;
+  font-size: 15px;
 }
 .subagent-status-icon--done {
   color: var(--ok);
@@ -754,15 +799,15 @@
 }
 .subagent-status-label {
   color: var(--chat-text-tertiary);
-  font-size: 13px;
+  font-size: 14px;
 }
 .subagent-status-meta {
   color: var(--chat-text-tertiary);
-  font-size: 13px;
+  font-size: 14px;
   margin-left: auto;
 }
 .subagent-group-toggle {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   margin-left: 6px;
@@ -770,7 +815,7 @@
 }
 .subagent-task {
   padding: 6px 10px 6px 14px;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--chat-text-secondary);
   margin-bottom: 4px;
   font-family: "Noto Sans SC", sans-serif;
@@ -802,7 +847,7 @@
 }
 .subagent-conclusion-label {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--chat-text-secondary);
   font-weight: 500;
   display: flex;
@@ -810,7 +855,7 @@
   gap: 8px;
 }
 .subagent-conclusion-toggle {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--chat-text-tertiary);
   font-family: "Noto Sans SC", sans-serif;
   transition: color 0.2s;
@@ -831,7 +876,7 @@
   padding: 6px 0 6px 12px;
 }
 .thought-block--subagent .thought-text {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.7;
 }
 
@@ -844,7 +889,7 @@
 }
 .subagent-error {
   padding: 6px 12px 6px 20px;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--err);
   margin-left: 9px;
   margin-bottom: 4px;
@@ -860,14 +905,14 @@
   border-radius: 6px;
   margin-top: 8px;
   border-left: 3px solid var(--err);
-  background: var(--paper);
+  background: var(--chat-bg-body);
 }
 .session-stopped-card {
   border-left-color: var(--warn);
 }
 .session-error-icon,
 .session-stopped-icon {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   line-height: 1.3;
 }
@@ -879,32 +924,32 @@
 }
 .session-error-title,
 .session-stopped-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
 }
 .session-error-title {
   color: var(--err);
 }
 .session-stopped-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--warn);
 }
 .session-error-detail,
 .session-stopped-detail {
-  font-size: 14px;
-  color: var(--ink-dim);
+  font-size: 15px;
+  color: var(--chat-text-secondary);
   margin-top: 3px;
 }
 
 /* Cancelled tool styling */
 .tool-card-name--cancelled {
   text-decoration: line-through;
-  color: var(--ink-faint);
+  color: var(--chat-text-tertiary);
 }
 .tool-card-badge--cancelled {
-  background: var(--paper-high);
-  color: var(--ink-faint);
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
 }
 
 /* Deprecated tool styling */
@@ -1031,10 +1076,10 @@
   gap: 5px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--seal-faded);
-  color: var(--seal);
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   animation: pulse 2s ease-in-out infinite;
 }
@@ -1042,16 +1087,16 @@
   content: "";
   width: 5px;
   height: 5px;
-  background: var(--seal);
+  background: var(--chat-accent);
   border-radius: 50%;
   animation: pulse-border 1.5s infinite;
 }
 
 .tool-card-description {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
-  color: var(--ink-dim);
+  color: var(--chat-text-secondary);
   margin-top: 6px;
   padding-left: 2px;
 }
@@ -1069,26 +1114,26 @@
 .welcome-icon {
   width: 64px;
   height: 64px;
-  border: 2px solid var(--seal);
+  border: 2px solid var(--chat-accent);
   border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: "Noto Serif SC", serif;
-  font-size: 30px;
-  color: var(--seal);
-  background: var(--paper-high);
+  font-size: 32px;
+  color: var(--chat-accent);
+  background: var(--chat-bg-hover);
 }
 .welcome-title {
   font-family: "Noto Serif SC", serif;
-  font-size: 22px;
-  color: var(--ink);
+  font-size: 24px;
+  color: var(--chat-text-primary);
   font-weight: 600;
   margin: 0;
 }
 .welcome-desc {
-  color: var(--ink-faint);
-  font-size: 15px;
+  color: var(--chat-text-tertiary);
+  font-size: 16px;
   margin: 0;
 }
 .welcome-examples {
@@ -1100,18 +1145,18 @@
 }
 .welcome-example {
   padding: 6px 14px;
-  border: 1px solid var(--ink-faint);
+  border: 1px solid var(--chat-text-tertiary);
   border-radius: 6px;
-  font-size: 14px;
-  color: var(--ink-dim);
+  font-size: 15px;
+  color: var(--chat-text-secondary);
   cursor: pointer;
   transition:
     border-color 0.2s,
     color 0.2s;
 }
 .welcome-example:hover {
-  border-color: var(--seal);
-  color: var(--seal);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent);
 }
 
 /* ── Loading State ─────────────────────────────────── */
@@ -1126,12 +1171,12 @@
 .loading-pulse {
   width: 12px;
   height: 12px;
-  background: var(--seal);
+  background: var(--chat-accent);
   border-radius: 50%;
   animation: pulse 1.2s ease-in-out infinite;
 }
 .loading-text {
-  color: var(--ink-faint);
-  font-size: 15px;
+  color: var(--chat-text-tertiary);
+  font-size: 16px;
   margin: 0;
 }
