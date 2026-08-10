@@ -99,7 +99,12 @@ def parallel_ocr(
     return [r if r is not None else OCRPageResult(lines=[], width=0, height=0) for r in results]
 
 
-def ocr_result_to_lines(page_result: OCRPageResult) -> list[dict[str, Any]]:
+def ocr_result_to_lines(
+    page_result: OCRPageResult,
+    *,
+    img_width: float = 0,
+    img_height: float = 0,
+) -> list[dict[str, Any]]:
     """Convert OCRPageResult to the internal extracted_lines format.
 
     Uses block outline mapping from OCR blocks for outline_level hints,
@@ -108,6 +113,11 @@ def ocr_result_to_lines(page_result: OCRPageResult) -> list[dict[str, Any]]:
 
     Args:
         page_result: OCRPageResult from the OCR engine.
+        img_width: Actual page image width in pixels.  When > 0 it takes
+            precedence over page_result.width (the API may omit width or
+            report max(x1) instead of the true image width).
+        img_height: Actual page image height in pixels; same precedence
+            rule as img_width.
 
     Returns:
         List of line dicts compatible with structure_recognizer.
@@ -118,6 +128,9 @@ def ocr_result_to_lines(page_result: OCRPageResult) -> list[dict[str, Any]]:
     block_outline_map = build_block_outline_map_from_blocks(
         page_result.blocks,
     )
+
+    page_width = img_width if img_width > 0 else page_result.width
+    page_height = img_height if img_height > 0 else page_result.height
 
     lines: list[dict[str, Any]] = []
     for line in page_result.lines:
@@ -133,12 +146,13 @@ def ocr_result_to_lines(page_result: OCRPageResult) -> list[dict[str, Any]]:
         alignment = compute_alignment_from_position(
             line.x0,
             line.x1,
-            page_result.width,
+            page_width,
             outline_level,
         )
         font_size = compute_font_size_from_ocr(
             line.y1 - line.y0,
-            page_result.height,
+            page_height,
+            polys=line.polys or None,
         )
 
         lines.append(

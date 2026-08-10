@@ -206,98 +206,8 @@ class TestParseBody:
         assert len(body.main_text) == 1
         assert body.main_text[0].outline_level == "body_text"
 
-    def test_heading2_not_bold_downgraded_to_body_text(self):
-        """heading2 without bold font_weight is downgraded to body_text."""
-        lines = [
-            {
-                "text": "（一）压实党政领导责任",
-                "line_no": 0,
-                "font_weight": False,
-                "font_family": "仿宋",
-            },
-        ]
-        data = {
-            "title": None,
-            "addressee": None,
-            "main_text": [
-                {
-                    "text": "（一）压实党政领导责任",
-                    "line_indices": [0],
-                    "outline_level": "heading2",
-                },
-            ],
-            "attachment_note": None,
-            "issuing_signature": None,
-            "issue_date": None,
-            "stamp": None,
-            "note": None,
-            "attachments": None,
-        }
-        body = _parse_body(data, lines)
-        assert body.main_text[0].outline_level == "body_text"
-
-    def test_heading2_bold_kept(self):
-        """heading2 with bold font_weight stays as heading2."""
-        lines = [
-            {
-                "text": "（一）压实党政领导责任",
-                "line_no": 0,
-                "font_weight": True,
-                "font_family": "楷体",
-            },
-        ]
-        data = {
-            "title": None,
-            "addressee": None,
-            "main_text": [
-                {
-                    "text": "（一）压实党政领导责任",
-                    "line_indices": [0],
-                    "outline_level": "heading2",
-                },
-            ],
-            "attachment_note": None,
-            "issuing_signature": None,
-            "issue_date": None,
-            "stamp": None,
-            "note": None,
-            "attachments": None,
-        }
-        body = _parse_body(data, lines)
-        assert body.main_text[0].outline_level == "heading2"
-
-    def test_heading3_not_bold_downgraded_to_body_text(self):
-        """heading3 without bold font_weight is downgraded to body_text."""
-        lines = [
-            {
-                "text": "1.工作目标",
-                "line_no": 0,
-                "font_weight": False,
-                "font_family": "仿宋",
-            },
-        ]
-        data = {
-            "title": None,
-            "addressee": None,
-            "main_text": [
-                {
-                    "text": "1.工作目标",
-                    "line_indices": [0],
-                    "outline_level": "heading3",
-                },
-            ],
-            "attachment_note": None,
-            "issuing_signature": None,
-            "issue_date": None,
-            "stamp": None,
-            "note": None,
-            "attachments": None,
-        }
-        body = _parse_body(data, lines)
-        assert body.main_text[0].outline_level == "body_text"
-
-    def test_heading1_not_bold_downgraded_to_body_text(self):
-        """heading1 without bold font_weight is downgraded to body_text."""
+    def test_heading1_family_mismatch_downgraded_to_body_text(self):
+        """实测字体族与期望族全部冲突的 heading1 降为 body_text。"""
         lines = [
             {
                 "text": "一、工作目标",
@@ -326,8 +236,128 @@ class TestParseBody:
         body = _parse_body(data, lines)
         assert body.main_text[0].outline_level == "body_text"
 
+    def test_heading1_family_match_kept(self):
+        """实测黑体的 heading1 保留（黑体的"粗"来自字形，无需加粗）。"""
+        lines = [
+            {
+                "text": "一、工作目标",
+                "line_no": 0,
+                "font_weight": False,
+                "font_family": "黑体",
+            },
+        ]
+        data = {
+            "title": None,
+            "addressee": None,
+            "main_text": [
+                {
+                    "text": "一、工作目标",
+                    "line_indices": [0],
+                    "outline_level": "heading1",
+                },
+            ],
+            "attachment_note": None,
+            "issuing_signature": None,
+            "issue_date": None,
+            "stamp": None,
+            "note": None,
+            "attachments": None,
+        }
+        body = _parse_body(data, lines)
+        assert body.main_text[0].outline_level == "heading1"
+
+    def test_heading_no_measured_font_kept(self):
+        """无实测字体（字体识别失败）时信任 LLM 分类，不降级。"""
+        lines = [
+            {
+                "text": "一、工作目标",
+                "line_no": 0,
+                "font_weight": False,
+                "font_family": "",
+            },
+        ]
+        data = {
+            "title": None,
+            "addressee": None,
+            "main_text": [
+                {
+                    "text": "一、工作目标",
+                    "line_indices": [0],
+                    "outline_level": "heading1",
+                },
+            ],
+            "attachment_note": None,
+            "issuing_signature": None,
+            "issue_date": None,
+            "stamp": None,
+            "note": None,
+            "attachments": None,
+        }
+        body = _parse_body(data, lines)
+        assert body.main_text[0].outline_level == "heading1"
+
+    def test_heading2_family_match_kept(self):
+        """实测楷体的 heading2 保留，加粗与否不影响判定。"""
+        lines = [
+            {
+                "text": "（一）压实党政领导责任",
+                "line_no": 0,
+                "font_weight": False,
+                "font_family": "楷体",
+            },
+        ]
+        data = {
+            "title": None,
+            "addressee": None,
+            "main_text": [
+                {
+                    "text": "（一）压实党政领导责任",
+                    "line_indices": [0],
+                    "outline_level": "heading2",
+                },
+            ],
+            "attachment_note": None,
+            "issuing_signature": None,
+            "issue_date": None,
+            "stamp": None,
+            "note": None,
+            "attachments": None,
+        }
+        body = _parse_body(data, lines)
+        assert body.main_text[0].outline_level == "heading2"
+
+    def test_heading3_family_match_kept(self):
+        """实测仿宋的 heading3 保留（期望族即仿宋）。"""
+        lines = [
+            {
+                "text": "1.工作目标",
+                "line_no": 0,
+                "font_weight": False,
+                "font_family": "仿宋",
+            },
+        ]
+        data = {
+            "title": None,
+            "addressee": None,
+            "main_text": [
+                {
+                    "text": "1.工作目标",
+                    "line_indices": [0],
+                    "outline_level": "heading3",
+                },
+            ],
+            "attachment_note": None,
+            "issuing_signature": None,
+            "issue_date": None,
+            "stamp": None,
+            "note": None,
+            "attachments": None,
+        }
+        body = _parse_body(data, lines)
+        assert body.main_text[0].outline_level == "heading3"
+
     def test_body_text_unaffected(self):
-        """body_text paragraphs are not affected by the bold check."""
+        """body_text 段落不做字体族校验。"""
         lines = [
             {
                 "text": "为贯彻落实……",
@@ -356,8 +386,8 @@ class TestParseBody:
         body = _parse_body(data, lines)
         assert body.main_text[0].outline_level == "body_text"
 
-    def test_heading_multi_line_any_bold_kept(self):
-        """Multi-line heading keeps level if any line is bold."""
+    def test_heading_multi_line_any_family_match_kept(self):
+        """多行标题只要任一行实测字体族匹配期望族即保留。"""
         lines = [
             {
                 "text": "（一）压实党政",
@@ -368,7 +398,7 @@ class TestParseBody:
             {
                 "text": "领导责任",
                 "line_no": 1,
-                "font_weight": True,
+                "font_weight": False,
                 "font_family": "楷体",
             },
         ]

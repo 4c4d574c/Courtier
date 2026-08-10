@@ -49,6 +49,14 @@ _PARA_SPACING_KEYS = (
     "right_indent",
 )
 
+# GB/T 9704 各级标题的期望字体族：一级黑体、二级楷体、三级仿宋。
+# 用于对 LLM 判出的标题做字体族矛盾校验（见 _parse_body）。
+_HEADING_EXPECTED_FAMILY: dict[str, set[str]] = {
+    "heading1": {"黑体"},
+    "heading2": {"楷体"},
+    "heading3": {"仿宋"},
+}
+
 
 def _safe_get(data: dict[str, Any] | None, key: str, default: Any = None) -> Any:
     """Safely get a value from a dict that may contain None values.
@@ -261,14 +269,19 @@ def _parse_body(
                     outline = "body_text"
 
                 line_indices = para_data.get("line_indices", [])
-                # Post-process: heading1/2/3 must be bold; downgrade if not
-                if outline in ("heading1", "heading2", "heading3"):
-                    has_bold = any(
-                        extracted_lines[idx].get("font_weight", False)
+                # 字体族矛盾校验：LLM 判出的 heading1/2/3，若命中行的实测
+                # 字体族与期望族全部冲突，降为 body_text；有匹配则保留。
+                # 无实测字体（如字体 LLM 识别失败）时信任 LLM 分类。
+                # 注意：加粗不再作为标题判定依据——黑体/楷体的"粗"来自
+                # 字形本身，GB/T 9704 并无加粗要求。heading4/5 不校验。
+                if outline in _HEADING_EXPECTED_FAMILY:
+                    measured = {
+                        extracted_lines[idx].get("font_family") or ""
                         for idx in line_indices
                         if isinstance(idx, int) and 0 <= idx < len(extracted_lines)
-                    )
-                    if not has_bold:
+                    }
+                    measured.discard("")
+                    if measured and not measured & _HEADING_EXPECTED_FAMILY[outline]:
                         outline = "body_text"
 
                 para = _build_paragraph(

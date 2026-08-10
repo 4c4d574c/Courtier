@@ -349,6 +349,19 @@ class TestComputeFirstIndent:
         indent = compute_first_indent(boxes, 500, 595.28)
         assert indent[0] == 0.0
 
+    def test_single_line_body_paragraph_falls_back_to_standard_indent(self) -> None:
+        """多行页中的单行 body_text 段落回退标准首行缩进 32pt。"""
+        # 前 3 行为一个多行段，第 4 行（body_text）因大间距独立成单行段
+        boxes = [
+            [20, 100, 500, 120],
+            [20, 130, 500, 150],
+            [20, 160, 500, 180],
+            [60, 400, 500, 420],
+        ]
+        outline_levels = {0: "others", 1: "others", 2: "others", 3: "body_text"}
+        indent = compute_first_indent(boxes, 500, 595.28, outline_levels=outline_levels)
+        assert indent[3] == 32.0
+
 
 # ---------------------------------------------------------------------------
 # TestComputeLeftRightIndent

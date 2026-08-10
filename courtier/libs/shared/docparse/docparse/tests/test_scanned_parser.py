@@ -19,6 +19,7 @@ from docparse.parsers.scanned.ocr_engine import (
 from docparse.parsers.scanned.ocr_engine import (
     ocr_result_to_lines as _ocr_result_to_lines,
 )
+from docparse.parsers.spacing import compute_font_size_from_ocr
 from PIL import Image as PILImage
 
 SAMPLE_OCR_PAGE_RESULT = OCRPageResult(
@@ -162,6 +163,62 @@ class TestOcrResultToLines:
         lines = _ocr_result_to_lines(result)
         assert len(lines) == 1
         assert lines[0]["outline_level"] == "others"
+
+    def test_img_dimensions_override_page_result(self):
+        """传入 img_width/img_height 时，对齐与字号以传入值为准。"""
+        result = OCRPageResult(
+            width=350,
+            height=200,
+            lines=[
+                OCRLineResult(
+                    text="正文内容行行行",
+                    line_no=0,
+                    x0=50.0,
+                    y0=100.0,
+                    x1=350.0,
+                    y1=120.0,
+                    confidence=0.99,
+                ),
+            ],
+        )
+        # page_result 尺寸：width_ratio = 300/350 ≈ 0.86 → justify
+        default_lines = _ocr_result_to_lines(result)
+        assert default_lines[0]["alignment"] == "justify"
+
+        # 传入真实图像尺寸：width_ratio = 300/1000 = 0.30 → 非 justify，
+        # left_ratio = 0.05 → left；字号按 img_height=1000 换算，明显不同。
+        lines = _ocr_result_to_lines(result, img_width=1000, img_height=1000)
+        assert lines[0]["alignment"] == "left"
+        expected = compute_font_size_from_ocr(20.0, 1000)
+        assert lines[0]["font_size"] == round(expected, 1)
+        assert lines[0]["font_size"] != default_lines[0]["font_size"]
+
+    def test_polys_used_for_font_size(self):
+        """歪斜行的字号按 polys 四边形边高计算，而非 bbox 虚高。"""
+        polys = [(10, 10), (200, 15), (200, 50), (10, 45)]
+        result = OCRPageResult(
+            width=1000,
+            height=1000,
+            lines=[
+                OCRLineResult(
+                    text="歪斜文本行",
+                    line_no=0,
+                    x0=10.0,
+                    y0=10.0,
+                    x1=200.0,
+                    y1=70.0,
+                    polys=polys,
+                    confidence=0.95,
+                ),
+            ],
+        )
+        lines = _ocr_result_to_lines(result)
+        # polys 左右边高均 35px，bbox 高 60px —— 两者算出的字号必须不同，
+        # 且结果与 polys 计算一致。
+        expected = compute_font_size_from_ocr(60.0, 1000, polys=polys)
+        bbox_only = compute_font_size_from_ocr(60.0, 1000)
+        assert expected != bbox_only
+        assert lines[0]["font_size"] == round(expected, 1)
 
 
 class TestBuildBlockOutlineMapFromBlocks:
@@ -586,3 +643,30 @@ class TestScannedParserPipeline:
         assert stats["max_seen"] == 2
         assert [p.page_no for p in doc.pages] == [0, 1, 2, 3]
         assert doc.total_page_num == 4
+
+    def test_font_recognition_receives_all_lines(self, monkeypatch, tmp_path):
+        """裁剪字体识别接收每个有行页面的全部行（不再按 font_family 预过滤）。"""
+        pages = []
+        for i in range(2):
+            p = tmp_path / f"page_{i}.png"
+            _write_png(p)
+            pages.append(str(p))
+
+        engine = _StubOcrEngine({p: _ok_result() for p in pages})
+
+        received: dict[str, list] = {}
+
+        class _TrackingLLMClient(_FakeLLMClient):
+            def recognize_fonts_from_crops(self, page_image_path, lines):
+                received[page_image_path] = list(lines)
+                return {}
+
+        _patch_pipeline(monkeypatch, pages, engine, llm_cls=_TrackingLLMClient)
+
+        ScannedParser().parse(pages[0], _make_config())
+
+        # 每个有行的页面都被调用，且收到该页的全部 OCR 行
+        assert set(received) == set(pages)
+        for path in pages:
+            assert len(received[path]) == 1
+            assert received[path][0]["text"] == "正文内容行"

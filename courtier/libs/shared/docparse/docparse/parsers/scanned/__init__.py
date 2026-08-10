@@ -19,7 +19,6 @@ from docmodels import (
 from PIL import Image as PILImage
 
 from ..base import ParserConfig
-from ..font_detector import detect_fonts_for_page, merge_font_detections
 from ..llm_client import LLMClient
 from ..ocr import create_ocr_engine
 from ..rules import StructureRuleEngine
@@ -61,7 +60,7 @@ class ScannedParser:
     Flow:
     1. Call PPStructureV3 API for OCR + layout detection
     2. Compute margins and spacing from bounding boxes
-    2.5. Font detection via standard mapping + LLM fallback
+    2.5. Crop-based LLM font recognition for all lines
     3. LLM structure recognition for all pages
     4. Build Document model
     """
@@ -76,7 +75,7 @@ class ScannedParser:
 
         Optimized flow:
         1. Parallel OCR for all pages via pluggable OCR engine
-        2. Standard font detection + LLM fallback for low-confidence lines
+        2. Crop-based LLM font recognition for all lines
         3. LLM structure recognition for all pages
         4. Build Document model
 
@@ -141,13 +140,6 @@ class ScannedParser:
             # Phase 2: Parse OCR results and compute metrics
             page_metrics: list[dict[str, Any]] = []
             for page_idx, page_result in enumerate(ocr_results):
-                extracted_lines = ocr_result_to_lines(page_result)
-                if not extracted_lines and page_idx not in ocr_failed:
-                    warnings.append(f"第 {page_idx + 1} 页 OCR 未识别到文本内容，该页内容为空")
-
-                rec_boxes = [
-                    [line["x0"], line["y0"], line["x1"], line["y1"]] for line in extracted_lines
-                ]
                 # Use actual (resized) image dimensions — not page_result.width
                 # which is max(x1)/max(y1) when the API omits width/height.
                 # The OCR bounding boxes are in this image's coordinate space.
@@ -158,6 +150,18 @@ class ScannedParser:
                 else:
                     img_width = page_result.width
                     img_height = page_result.height
+
+                extracted_lines = ocr_result_to_lines(
+                    page_result,
+                    img_width=img_width,
+                    img_height=img_height,
+                )
+                if not extracted_lines and page_idx not in ocr_failed:
+                    warnings.append(f"第 {page_idx + 1} 页 OCR 未识别到文本内容，该页内容为空")
+
+                rec_boxes = [
+                    [line["x0"], line["y0"], line["x1"], line["y1"]] for line in extracted_lines
+                ]
 
                 margin = compute_margins(
                     rec_boxes,
@@ -176,6 +180,9 @@ class ScannedParser:
                     rec_boxes,
                     img_width,
                     effective_config.a4_width_pt,
+                    outline_levels={
+                        i: line.get("outline_level", "") for i, line in enumerate(extracted_lines)
+                    },
                 )
 
                 font_sizes = {i: line["font_size"] for i, line in enumerate(extracted_lines)}
@@ -186,10 +193,6 @@ class ScannedParser:
                     margin=margin,
                     font_sizes=font_sizes,
                 )
-
-                # Layer 1 font detection: standard element-to-font mapping
-                detections = detect_fonts_for_page(extracted_lines)
-                merge_font_detections(extracted_lines, detections)
 
                 page_metrics.append(
                     {
@@ -216,34 +219,26 @@ class ScannedParser:
 
             llm_client = LLMClient(effective_config)
 
-            # Phase 2.5: Crop-based LLM font recognition for unresolved
-            # lines, run concurrently across pages (bounded by
-            # max_llm_concurrent).  A failed page keeps its lines without
-            # font info and is recorded in warnings.
+            # Phase 2.5: Crop-based LLM font recognition for every page
+            # with lines — fonts are measured from the rendered image, not
+            # stamped from the GB/T element mapping — run concurrently
+            # across pages (bounded by max_llm_concurrent).  A failed page
+            # keeps its lines without font info and is recorded in warnings.
             font_tasks: list[tuple[int, list[dict[str, Any]]]] = []
             for page_idx, pm in enumerate(page_metrics):
                 lines = pm["lines"]
                 if not lines:
                     continue
-
-                # Collect lines that still lack font info
-                unresolved = [line for line in lines if not line.get("font_family")]
-                if not unresolved:
-                    logger.info(
-                        "Scanned page %d: all fonts resolved by standard mapping",
-                        page_idx,
-                    )
-                    continue
-                font_tasks.append((page_idx, unresolved))
+                font_tasks.append((page_idx, lines))
 
             def _recognize_fonts(
                 task: tuple[int, list[dict[str, Any]]],
             ) -> tuple[int, dict[int, dict[str, Any]] | None, str | None]:
-                page_idx, unresolved = task
+                page_idx, lines = task
                 try:
                     font_info = llm_client.recognize_fonts_from_crops(
                         image_paths[page_idx],
-                        unresolved,
+                        lines,
                     )
                 except Exception as exc:
                     logger.warning(
