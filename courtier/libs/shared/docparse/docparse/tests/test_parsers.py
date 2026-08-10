@@ -32,6 +32,21 @@ class TestParserConfig:
         assert config.llm_api_key == "test-key"
         assert config.llm_model == "gpt-4"
 
+    def test_deskew_default_disabled(self, monkeypatch):
+        monkeypatch.delenv("DOCPARSE_OCR_DESKEW", raising=False)
+        config = ParserConfig.from_env()
+        assert config.ocr_deskew_enabled is False
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+    def test_deskew_truthy_env_enables(self, monkeypatch, value):
+        monkeypatch.setenv("DOCPARSE_OCR_DESKEW", value)
+        assert ParserConfig.from_env().ocr_deskew_enabled is True
+
+    @pytest.mark.parametrize("value", ["0", "false", "", "no"])
+    def test_deskew_falsy_env_keeps_disabled(self, monkeypatch, value):
+        monkeypatch.setenv("DOCPARSE_OCR_DESKEW", value)
+        assert ParserConfig.from_env().ocr_deskew_enabled is False
+
 
 class TestFileTypeDetection:
     """Test file extension detection."""

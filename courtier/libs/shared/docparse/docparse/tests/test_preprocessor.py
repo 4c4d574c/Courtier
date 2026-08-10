@@ -10,6 +10,7 @@ import pytest
 from docparse.parsers.scanned.preprocessor import (
     _TEMP_DIRS,
     cleanup_temp_images,
+    deskew_image,
     pdf_to_images,
     prepare_images,
     resize_images_for_ocr,
@@ -114,6 +115,85 @@ class TestPdfToImages:
 
         assert out == paths
         assert set(_TEMP_DIRS) == before
+
+    def test_page_indices_renders_subset(self, tmp_path):
+        """page_indices 只渲染指定页，输出顺序与给定页码一致。"""
+        pdf = _make_pdf(tmp_path / "scan.pdf", num_pages=3)
+
+        paths = pdf_to_images(pdf, page_indices=[0, 2])
+
+        assert len(paths) == 2
+        assert [Path(p).name for p in paths] == ["page_0.png", "page_2.png"]
+        for p in paths:
+            assert Path(p).exists()
+
+        cleanup_temp_images(paths)
+
+    def test_page_indices_none_renders_all(self, tmp_path):
+        pdf = _make_pdf(tmp_path / "scan.pdf", num_pages=3)
+
+        paths = pdf_to_images(pdf, page_indices=None)
+
+        assert [Path(p).name for p in paths] == ["page_0.png", "page_1.png", "page_2.png"]
+
+        cleanup_temp_images(paths)
+
+
+class TestDeskewImage:
+    def test_no_cv2_returns_original(self, tmp_path, monkeypatch):
+        """cv2 不可导入 → no-op 返回原路径，不注册临时目录。"""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "cv2":
+                raise ImportError("No module named 'cv2'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        png = _make_png(tmp_path / "scan.png")
+        before = set(_TEMP_DIRS)
+
+        assert deskew_image(png) == png
+        assert set(_TEMP_DIRS) == before
+
+    def test_deskew_corrects_rotated_text(self, tmp_path):
+        """合成 5° 歪斜文本行图像，校正后残余倾角 < 1°。"""
+        cv2 = pytest.importorskip("cv2")
+        import numpy as np
+
+        # 白底黑条模拟文本行
+        img = np.full((400, 600, 3), 255, dtype=np.uint8)
+        for y in range(80, 320, 40):
+            cv2.rectangle(img, (80, y), (520, y + 12), (0, 0, 0), -1)
+        matrix = cv2.getRotationMatrix2D((300, 200), 5.0, 1.0)
+        rotated = cv2.warpAffine(img, matrix, (600, 400), borderMode=cv2.BORDER_REPLICATE)
+        skewed = tmp_path / "skewed.png"
+        cv2.imwrite(str(skewed), rotated)
+
+        before = set(_TEMP_DIRS)
+        out = deskew_image(str(skewed))
+
+        try:
+            assert out != str(skewed)
+            assert str(Path(out).parent) in _TEMP_DIRS - before
+
+            # 与实现相同的估计法复测输出：残余应 ≈ 0
+            corrected = cv2.imread(out)
+            gray = cv2.cvtColor(corrected, cv2.COLOR_BGR2GRAY)
+            binary = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 15
+            )
+            coords = np.column_stack(np.where(binary > 0))
+            angle = cv2.minAreaRect(coords)[-1]
+            if angle > 45:
+                angle -= 90
+            residual = -(90 + angle) if angle < -45 else -angle
+            assert abs(residual) < 1.0
+        finally:
+            cleanup_temp_images([out])
 
 
 class TestResizeImagesForOcr:

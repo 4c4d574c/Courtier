@@ -34,6 +34,7 @@ def parallel_ocr(
     max_workers: int,
     warnings: list[str] | None = None,
     failed_pages: list[int] | None = None,
+    page_indices: list[int] | None = None,
 ) -> list[OCRPageResult]:
     """Call OCR engine for all pages in parallel.
 
@@ -50,6 +51,9 @@ def parallel_ocr(
         warnings: Optional collector for per-page failure messages.
         failed_pages: Optional collector for the 0-based indices of pages
             whose OCR call failed.
+        page_indices: Optional original 0-based page numbers for the
+            given images (mixed-PDF page subsets); used in warning
+            messages and failed_pages. Defaults to the local positions.
 
     Returns:
         List of OCRPageResult, one per page, in order.
@@ -65,11 +69,12 @@ def parallel_ocr(
     def record_failure(idx: int, exc: Exception) -> None:
         nonlocal failures
         failures += 1
+        page_no = page_indices[idx] if page_indices is not None else idx
         if failed_pages is not None:
-            failed_pages.append(idx)
-        logger.warning("OCR failed for page %d: %s", idx, exc)
+            failed_pages.append(page_no)
+        logger.warning("OCR failed for page %d: %s", page_no, exc)
         if warnings is not None:
-            warnings.append(f"第 {idx + 1} 页 OCR 识别失败：{exc}")
+            warnings.append(f"第 {page_no + 1} 页 OCR 识别失败：{exc}")
 
     def recognize_with_retry(idx: int, img: str) -> OCRPageResult:
         # One retry (2 attempts total) per page: transient OCR service

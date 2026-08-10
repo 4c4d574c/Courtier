@@ -1,8 +1,8 @@
 """format_checker 比较逻辑测试。
 
 覆盖：间距/缩进检查（含单位换算约定与 None 跳过三态）、页边距检查
-（Document.source 判定：docx 启用 / pdf、scanned 跳过 / 空串回退 position
-启发式）、固定槽位块拼接文本比较（元素计数误报修复）、固定槽位块混排
+（Document.source 判定：docx 启用 / pdf、scanned、mixed 跳过 / 空串回退
+position 启发式）、固定槽位块拼接文本比较（元素计数误报修复）、固定槽位块混排
 run 字体全覆盖、page_no 1 基输出、DOCX 多页页码"首页携带"语义、
 PDF 多页页码"存在即比对"语义。
 """
@@ -431,6 +431,10 @@ class TestMargins:
     def test_margins_are_reliable_scanned(self) -> None:
         """source="scanned" → 页边距为估算值，不可信。"""
         assert _margins_are_reliable(_make_doc([_make_page(0)], source="scanned")) is False
+
+    def test_margins_are_reliable_mixed(self) -> None:
+        """source="mixed" → 含 OCR 页，页边距仍带推算成分，不可信。"""
+        assert _margins_are_reliable(_make_doc([_make_page(0)], source="mixed")) is False
 
     def test_margins_are_reliable_fallback_heuristic(self) -> None:
         """source=""（旧缓存）→ 回退 position 启发式：恒 0 可信、有非 0 不可信。"""

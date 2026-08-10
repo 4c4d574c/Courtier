@@ -151,9 +151,10 @@ class Document(_DocModel):
     source: str = Field(
         "",
         description=(
-            '解析来源（"docx"/"pdf"/"scanned"，由 docparse registry 在分派后回填；'
-            '混排 PDF 走扫描管线的记 "scanned"）。空串=未知（直接调用单个 parser、'
-            '或旧缓存反序列化）。供下游用显式来源替代 "position 恒 0" 启发式。'
+            '解析来源（"docx"/"pdf"/"scanned"/"mixed"，由 docparse registry 在分派后回填；'
+            "mixed=混排 PDF 按页分流：文本层页走 PdfParser 规则引擎、无文本层页走 OCR）。"
+            "空串=未知（直接调用单个 parser、或旧缓存反序列化）。"
+            '供下游用显式来源替代 "position 恒 0" 启发式。'
         ),
     )
     doc_id: str = Field("", description="文件内容的sha256值")

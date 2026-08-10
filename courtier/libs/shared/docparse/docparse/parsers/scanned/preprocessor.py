@@ -36,11 +36,12 @@ def _make_temp_dir(prefix: str) -> str:
     return temp_dir
 
 
-def prepare_images(file_path: str) -> list[str]:
+def prepare_images(file_path: str, page_indices: list[int] | None = None) -> list[str]:
     """Convert file to a list of image file paths.
 
-    For images, returns the file directly.
-    For PDFs, renders each page to a temporary image.
+    For images, returns the file directly (page_indices is inapplicable).
+    For PDFs, renders the selected pages (None = every page) to
+    temporary images, in the order given by page_indices.
     """
     ext = Path(file_path).suffix.lower()
 
@@ -48,19 +49,27 @@ def prepare_images(file_path: str) -> list[str]:
         return [file_path]
 
     if ext == ".pdf":
-        return pdf_to_images(file_path)
+        return pdf_to_images(file_path, page_indices=page_indices)
 
     raise ValueError(f"Unsupported file type for OCR: {ext}")
 
 
-def pdf_to_images(pdf_path: str, target_long_side: int = 2048) -> list[str]:
-    """Render each page of a PDF to a temporary PNG image.
+def pdf_to_images(
+    pdf_path: str,
+    target_long_side: int = 2048,
+    page_indices: list[int] | None = None,
+) -> list[str]:
+    """Render pages of a PDF to temporary PNG images.
 
     Each page is rendered at a zoom that maps its long side to
     *target_long_side* pixels (~175 DPI for A4 — matching the OCR
     service's own long-side cap, so resize_images_for_ocr becomes a
     pass-through in the common case).  Pages with a degenerate (zero)
     size fall back to a fixed 150 DPI render.
+
+    *page_indices* selects 0-based pages to render (mixed-PDF page
+    subsets); None renders every page.  Output order follows the
+    requested indices.
 
     All pages share one per-document temp directory (registered in
     _TEMP_DIRS at creation, removed by cleanup_temp_images).
@@ -72,7 +81,8 @@ def pdf_to_images(pdf_path: str, target_long_side: int = 2048) -> list[str]:
     image_paths: list[str] = []
 
     try:
-        for page_idx in range(len(doc)):
+        indices = range(len(doc)) if page_indices is None else page_indices
+        for page_idx in indices:
             page = doc[page_idx]
             long_side_pt = max(page.rect.width, page.rect.height)
             if long_side_pt > 0:
@@ -145,6 +155,71 @@ def resize_images_for_ocr(
         resized_paths.append(new_path)
 
     return resized_paths
+
+
+def deskew_image(image_path: str) -> str:
+    """Deskew a scanned page image into a registered temp copy.
+
+    Estimates the skew angle from ink pixels (grayscale → adaptive
+    binarization → minAreaRect over foreground points) and rotates the
+    image straight with an affine transform.  The corrected copy is
+    written to a registered temp dir; the original file is never
+    modified.
+
+    Returns the original path unchanged when opencv is not installed
+    (optional ``deskew`` extra), the image cannot be read, the page has
+    too little ink to estimate an angle, or it is already straight.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        logger.warning(
+            "opencv-python-headless not installed (docparse[deskew] extra); "
+            "skipping deskew of %s",
+            image_path,
+        )
+        return image_path
+
+    img = cv2.imread(image_path)
+    if img is None:
+        logger.warning("deskew: cannot read image %s; leaving it unchanged", image_path)
+        return image_path
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 15
+    )
+    coords = np.column_stack(np.where(binary > 0))  # (row, col) ink points
+    if len(coords) < 100:  # too little ink for a reliable angle
+        logger.info("deskew: %s has too little content; leaving it unchanged", image_path)
+        return image_path
+
+    angle = cv2.minAreaRect(coords)[-1]
+    # Cross-version normalization: OpenCV 4.5–4.x reports the rect angle in
+    # (0, 90], older and 5.x in [-90, 0).  Fold to [-90, 0) first, then map
+    # to the signed correction that straightens the text lines.
+    if angle > 45:
+        angle -= 90
+    correction = -(90 + angle) if angle < -45 else -angle
+    if abs(correction) < 0.1:  # already straight
+        return image_path
+
+    height, width = img.shape[:2]
+    matrix = cv2.getRotationMatrix2D((width / 2, height / 2), correction, 1.0)
+    rotated = cv2.warpAffine(
+        img,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+
+    temp_dir = _make_temp_dir(prefix="docparse_deskew_")
+    deskewed_path = os.path.join(temp_dir, Path(image_path).name)
+    cv2.imwrite(deskewed_path, rotated)
+    logger.info("deskew: %s corrected by %.2f degrees", image_path, correction)
+    return deskewed_path
 
 
 def cleanup_temp_images(image_paths: list[str]) -> None:

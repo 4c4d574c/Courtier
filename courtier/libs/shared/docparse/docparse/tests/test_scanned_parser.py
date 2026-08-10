@@ -560,7 +560,7 @@ class _FakeLLMClient:
 
 
 def _patch_pipeline(monkeypatch, image_files, ocr_engine, llm_cls=_FakeLLMClient):
-    monkeypatch.setattr(scanned_mod, "prepare_images", lambda _p: image_files)
+    monkeypatch.setattr(scanned_mod, "prepare_images", lambda *_a, **_k: image_files)
     monkeypatch.setattr(scanned_mod, "resize_images_for_ocr", lambda paths, _max: paths)
     monkeypatch.setattr(scanned_mod, "create_ocr_engine", lambda *_a: ocr_engine)
     monkeypatch.setattr(scanned_mod, "LLMClient", llm_cls)
@@ -662,6 +662,27 @@ class TestScannedParserPipeline:
         table_warnings = [w for w in doc.warnings if "表格区域" in w]
         assert len(table_warnings) == 1
         assert "第 1 页检测到表格区域" in table_warnings[0]
+
+    def test_parse_pages_subset_maps_original_page_numbers(self, monkeypatch, tmp_path):
+        """parse_pages 只处理子集页，Page.page_no 与告警页码均为原始页码。"""
+        pages = []
+        for i in range(2):
+            p = tmp_path / f"page_{i}.png"
+            _write_png(p)
+            pages.append(str(p))
+
+        # 两张子集图（模拟原始第 3、5 页）：第一张正常，第二张 OCR 失败
+        engine = _StubOcrEngine({pages[0]: _ok_result(), pages[1]: RuntimeError("OCR boom")})
+        _patch_pipeline(monkeypatch, pages, engine)
+
+        result_pages, warnings = ScannedParser().parse_pages(str(pages[0]), [2, 4], _make_config())
+
+        assert [p.page_no for p in result_pages] == [2, 4]
+        assert len(result_pages[0].page_content.body.main_text) == 1
+        # 失败页降级为空页；OCR 失败告警引用原始页码（第 5 页，非子集序号）
+        assert result_pages[1].page_content.body.main_text == []
+        assert any("第 5 页 OCR 识别失败" in w for w in warnings)
+        assert not any("第 2 页 OCR 识别失败" in w for w in warnings)
 
     def test_llm_structure_failure_falls_back_to_rules(self, monkeypatch, tmp_path):
         """A page whose LLM call fails is classified by the rule engine."""

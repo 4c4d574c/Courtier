@@ -7,6 +7,11 @@ from docmodels import Document
 from pydantic import BaseModel, Field
 
 
+def _env_flag(name: str) -> bool:
+    """Parse a boolean environment variable ("1"/"true"/"yes"/"on" → True)."""
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class ParserConfig(BaseModel):
     """Configuration for document parsers."""
 
@@ -31,6 +36,11 @@ class ParserConfig(BaseModel):
     ocr_max_image_long_side: int = Field(
         default=2048, description="Max image long side before resizing"
     )
+    ocr_deskew_enabled: bool = Field(
+        default=False,
+        description="Enable OpenCV deskew preprocessing for scanned pages "
+        "(requires the docparse[deskew] extra)",
+    )
 
     @classmethod
     def from_env(cls) -> ParserConfig:
@@ -43,6 +53,7 @@ class ParserConfig(BaseModel):
             ocr_lang=os.getenv("DOCPARSE_OCR_LANG", "ch"),
             ocr_engine=os.getenv("DOCPARSE_OCR_ENGINE", "ppstructure"),
             ocr_max_image_long_side=int(os.getenv("DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE", "2048")),
+            ocr_deskew_enabled=_env_flag("DOCPARSE_OCR_DESKEW"),
         )
 
 

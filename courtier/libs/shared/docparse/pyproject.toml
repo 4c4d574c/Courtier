@@ -15,6 +15,9 @@ dependencies = [
     "requests>=2.33.1",
 ]
 
+[project.optional-dependencies]
+deskew = ["opencv-python-headless>=4.10"]
+
 [tool.uv.sources]
 docmodels = { path = "../docmodels", editable = true }
 

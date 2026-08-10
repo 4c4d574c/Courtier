@@ -74,6 +74,42 @@ def extract_pdf_pages(file_path: str) -> PdfPageExtraction:
         doc.close()
 
 
+def classify_extracted_page(
+    lines: list[dict[str, Any]],
+    margin: Margin,
+    config: ParserConfig,
+) -> tuple[PageContent, list[str]]:
+    """Classify one extracted text page with the rule engine.
+
+    Shared by PdfParser.parse and the registry's mixed-PDF path (which
+    reuses the same per-page extraction without re-reading the file).
+    Pages without lines degrade to an empty PageContent carrying only
+    the margin.
+
+    Args:
+        lines: Extracted text lines of a single page.
+        margin: The page's margin derived from the same extraction.
+        config: Parser configuration (page height for region splitting).
+
+    Returns:
+        (page_content, page_warnings): the classified PageContent and
+        the raw per-page warnings (caller adds the "第 N 页：" prefix).
+    """
+    if not lines:
+        return PageContent(margin=margin), []
+
+    result = StructureRuleEngine().classify_lines(
+        lines,
+        has_position=True,
+        page_height=config.a4_height_pt,
+    )
+    page_warnings: list[str] = []
+    page_content = _classified_lines_to_page_content(
+        result.lines, lines, margin, warnings=page_warnings
+    )
+    return page_content, page_warnings
+
+
 class PdfParser:
     """Parser for text-based PDF files using PyMuPDF + rule engine."""
 
@@ -127,31 +163,20 @@ class PdfParser:
                 )
 
         # Classify all pages with rule engine
-        engine = StructureRuleEngine()
         rule_results = []
 
         for page_idx, pd in enumerate(page_data_list):
-            if not pd["lines"]:
-                rule_results.append((page_idx, PageContent(margin=pd["margin"])))
-                continue
-
-            result = engine.classify_lines(
-                pd["lines"],
-                has_position=True,
-                page_height=effective_config.a4_height_pt,
-            )
-
-            page_warnings: list[str] = []
-            page_content = _classified_lines_to_page_content(
-                result.lines, pd["lines"], pd["margin"], warnings=page_warnings
+            page_content, page_warnings = classify_extracted_page(
+                pd["lines"], pd["margin"], effective_config
             )
             warnings.extend(f"第 {page_idx + 1} 页：{w}" for w in page_warnings)
             rule_results.append((page_idx, page_content))
-            logger.info(
-                "Page %d: rule engine classified (%d lines)",
-                page_idx,
-                len(result.lines),
-            )
+            if pd["lines"]:
+                logger.info(
+                    "Page %d: rule engine classified (%d lines)",
+                    page_idx,
+                    len(pd["lines"]),
+                )
 
         # Estimate spacing/line-spacing from positions (pt) in a second
         # pass. Anything that cannot be estimated stays None (never a

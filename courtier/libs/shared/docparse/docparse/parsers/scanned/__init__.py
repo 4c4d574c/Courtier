@@ -42,6 +42,7 @@ from .ocr_engine import (
 from .preprocessor import (
     IMAGE_EXTENSIONS,
     cleanup_temp_images,
+    deskew_image,
     prepare_images,
     resize_images_for_ocr,
 )
@@ -72,26 +73,77 @@ class ScannedParser:
     def parse(self, file_path: str, config: ParserConfig | None = None) -> Document:
         """Parse a scanned document into the Document model.
 
-        Optimized flow:
-        1. Parallel OCR for all pages via pluggable OCR engine
-        2. Crop-based LLM font recognition for all lines
-        3. LLM structure recognition for all pages
-        4. Build Document model
+        Thin wrapper over parse_pages() covering every page; see
+        parse_pages() for the pipeline stages.  Pages whose OCR or LLM
+        calls failed are degraded (empty page / rule-engine fallback)
+        and reported in ``Document.warnings``.
 
         Args:
             file_path: Path to the image or scanned PDF file.
             config: Parser configuration.
 
         Returns:
-            Parsed Document model. Pages whose OCR or LLM calls failed are
-            degraded (empty page / rule-engine fallback) and reported in
-            ``Document.warnings``.
+            Parsed Document model.
 
         Raises:
             FileNotFoundError: If file_path does not exist.
             ValueError: If no LLM API key is configured (checked before
                 any OCR call is made).
             RuntimeError: If OCR fails for every page.
+        """
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        effective_config = config or ParserConfig.from_env()
+
+        file_bytes = path.read_bytes()
+        doc_id = hashlib.sha256(file_bytes).hexdigest()
+
+        pages, warnings = self.parse_pages(file_path, None, effective_config)
+
+        return Document(
+            doc_id=doc_id,
+            total_page_num=len(pages),
+            save_path=str(path.absolute()),
+            pages=pages,
+            warnings=warnings,
+        )
+
+    def parse_pages(
+        self,
+        file_path: str,
+        page_indices: list[int] | None,
+        config: ParserConfig | None = None,
+    ) -> tuple[list[Page], list[str]]:
+        """Parse selected pages of a scanned document via OCR + LLM.
+
+        Optimized flow:
+        1. Parallel OCR for the selected pages via pluggable OCR engine
+        2. Crop-based LLM font recognition for all lines
+        3. LLM structure recognition for the selected pages
+        4. Assemble Page models mapped back to the original page numbers
+
+        ``Page.page_no`` and the page numbers inside warnings always
+        refer to the original document pages, so the registry's mixed
+        path can merge the result with rule-engine pages directly.
+
+        Args:
+            file_path: Path to the image or scanned PDF file.
+            page_indices: 0-based original page numbers to process (PDF
+                page subsets for mixed documents); ``None`` processes
+                every page.
+            config: Parser configuration.
+
+        Returns:
+            (pages, warnings): pages sorted by original page number and
+            the collected pipeline warnings.
+
+        Raises:
+            FileNotFoundError: If file_path does not exist.
+            ValueError: If no LLM API key is configured (checked before
+                any OCR call is made).
+            RuntimeError: If OCR fails for every selected page.
         """
         path = Path(file_path)
         if not path.exists():
@@ -107,16 +159,20 @@ class ScannedParser:
         max_ocr = getattr(effective_config, "max_ocr_concurrent", 10)
         max_llm = max(1, getattr(effective_config, "max_llm_concurrent", 4))
 
-        file_bytes = path.read_bytes()
-        doc_id = hashlib.sha256(file_bytes).hexdigest()
-
         warnings: list[str] = []
         image_paths: list[str] = []
         try:
-            image_paths = prepare_images(file_path)
+            image_paths = prepare_images(file_path, page_indices=page_indices)
+            if effective_config.ocr_deskew_enabled:
+                image_paths = [deskew_image(p) for p in image_paths]
             image_paths = resize_images_for_ocr(
                 image_paths,
                 effective_config.ocr_max_image_long_side,
+            )
+
+            # Original 0-based page number for each rendered image.
+            orig_page_nos = (
+                list(page_indices) if page_indices is not None else list(range(len(image_paths)))
             )
 
             # Phase 1: Parallel OCR via pluggable engine.  Per-page
@@ -133,16 +189,18 @@ class ScannedParser:
                 max_ocr,
                 warnings=warnings,
                 failed_pages=ocr_failed_pages,
+                page_indices=orig_page_nos,
             )
             ocr_failed = set(ocr_failed_pages)
 
             # Phase 2: Parse OCR results and compute metrics
             page_metrics: list[dict[str, Any]] = []
-            for page_idx, page_result in enumerate(ocr_results):
+            for local_idx, page_result in enumerate(ocr_results):
+                page_no = orig_page_nos[local_idx]
                 # Use actual (resized) image dimensions — not page_result.width
                 # which is max(x1)/max(y1) when the API omits width/height.
                 # The OCR bounding boxes are in this image's coordinate space.
-                actual_img = Path(image_paths[page_idx])
+                actual_img = Path(image_paths[local_idx])
                 if actual_img.exists():
                     with PILImage.open(actual_img) as pil_img:
                         img_width, img_height = pil_img.size
@@ -155,12 +213,12 @@ class ScannedParser:
                     img_width=img_width,
                     img_height=img_height,
                 )
-                if not extracted_lines and page_idx not in ocr_failed:
-                    warnings.append(f"第 {page_idx + 1} 页 OCR 未识别到文本内容，该页内容为空")
+                if not extracted_lines and page_no not in ocr_failed:
+                    warnings.append(f"第 {page_no + 1} 页 OCR 未识别到文本内容，该页内容为空")
 
                 # 版面块含 table 标签时提示：表格目前只按文本行解析（无单元格结构）。
                 if any("table" in block.label for block in page_result.blocks):
-                    warnings.append(f"第 {page_idx + 1} 页检测到表格区域，表格内容按文本行解析")
+                    warnings.append(f"第 {page_no + 1} 页检测到表格区域，表格内容按文本行解析")
 
                 rec_boxes = [
                     [line["x0"], line["y0"], line["x1"], line["y1"]] for line in extracted_lines
@@ -199,6 +257,7 @@ class ScannedParser:
 
                 page_metrics.append(
                     {
+                        "page_no": page_no,
                         "lines": extracted_lines,
                         "margin": margin,
                         "spacing_map": spacing_map,
@@ -224,62 +283,62 @@ class ScannedParser:
             # stamped from the GB/T element mapping — run concurrently
             # across pages (bounded by max_llm_concurrent).  A failed page
             # keeps its lines without font info and is recorded in warnings.
-            font_tasks: list[tuple[int, list[dict[str, Any]]]] = []
-            for page_idx, pm in enumerate(page_metrics):
+            font_tasks: list[tuple[int, int, list[dict[str, Any]]]] = []
+            for local_idx, pm in enumerate(page_metrics):
                 lines = pm["lines"]
                 if not lines:
                     continue
-                font_tasks.append((page_idx, lines))
+                font_tasks.append((local_idx, pm["page_no"], lines))
 
             def _recognize_fonts(
-                task: tuple[int, list[dict[str, Any]]],
+                task: tuple[int, int, list[dict[str, Any]]],
             ) -> tuple[int, dict[int, dict[str, Any]] | None, str | None]:
-                page_idx, lines = task
+                local_idx, page_no, lines = task
                 try:
                     font_info = llm_client.recognize_fonts_from_crops(
-                        image_paths[page_idx],
+                        image_paths[local_idx],
                         lines,
                     )
                 except Exception as exc:
                     logger.warning(
                         "Scanned page %d: crop-based LLM font fallback failed: %s",
-                        page_idx,
+                        page_no,
                         exc,
                     )
                     return (
-                        page_idx,
+                        local_idx,
                         None,
-                        f"第 {page_idx + 1} 页字体 LLM 识别失败：{exc}",
+                        f"第 {page_no + 1} 页字体 LLM 识别失败：{exc}",
                     )
                 logger.info(
                     "Scanned page %d: crop-based LLM font fallback completed" " (%d lines)",
-                    page_idx,
+                    page_no,
                     len(font_info),
                 )
-                return page_idx, font_info, None
+                return local_idx, font_info, None
 
             if font_tasks:
                 with ThreadPoolExecutor(max_workers=min(max_llm, len(font_tasks))) as executor:
                     font_outcomes = list(executor.map(_recognize_fonts, font_tasks))
-                for page_idx, font_info, warning in font_outcomes:
+                for local_idx, font_info, warning in font_outcomes:
                     if warning is not None:
                         warnings.append(warning)
                     if font_info:
-                        merge_font_info(page_metrics[page_idx]["lines"], font_info)
+                        merge_font_info(page_metrics[local_idx]["lines"], font_info)
 
             # Phase 3: Collect pages for LLM classification
             pages_result: list[tuple[int, PageContent]] = []
             llm_needed: list[tuple[int, dict[str, Any]]] = []
 
-            for page_idx, pm in enumerate(page_metrics):
+            for local_idx, pm in enumerate(page_metrics):
                 lines = pm["lines"]
                 margin = pm["margin"]
 
                 if not lines:
-                    pages_result.append((page_idx, PageContent(margin=margin)))
+                    pages_result.append((pm["page_no"], PageContent(margin=margin)))
                     continue
 
-                llm_needed.append((page_idx, pm))
+                llm_needed.append((local_idx, pm))
 
             # Phase 4: Concurrent LLM structure recognition (bounded by
             # max_llm_concurrent), results assembled in page order.  A
@@ -289,7 +348,8 @@ class ScannedParser:
             def _recognize_structure(
                 task: tuple[int, dict[str, Any]],
             ) -> tuple[int, PageContent, list[str]]:
-                page_idx, pm = task
+                local_idx, pm = task
+                page_no = pm["page_no"]
                 lines = pm["lines"]
                 margin = pm["margin"]
                 page_warnings: list[str] = []
@@ -298,7 +358,7 @@ class ScannedParser:
                         lines,
                         margin,
                         llm_client,
-                        image_paths[page_idx],
+                        image_paths[local_idx],
                         effective_config,
                         img_width=pm["img_width"],
                     )
@@ -306,11 +366,11 @@ class ScannedParser:
                     logger.warning(
                         "Scanned page %d: LLM structure recognition failed"
                         " (%s); falling back to rule engine",
-                        page_idx,
+                        page_no,
                         exc,
                     )
                     page_warnings.append(
-                        f"第 {page_idx + 1} 页 LLM 结构识别失败，" f"已回退为规则引擎分类：{exc}"
+                        f"第 {page_no + 1} 页 LLM 结构识别失败，" f"已回退为规则引擎分类：{exc}"
                     )
                     rule_warnings: list[str] = []
                     classified = StructureRuleEngine().classify_lines(
@@ -324,40 +384,34 @@ class ScannedParser:
                         margin,
                         warnings=rule_warnings,
                     )
-                    page_warnings.extend(f"第 {page_idx + 1} 页：{w}" for w in rule_warnings)
+                    page_warnings.extend(f"第 {page_no + 1} 页：{w}" for w in rule_warnings)
                 merge_spacing_into_page_content(
                     page_content,
                     pm["spacing_map"],
                     pm["indent_map"],
                     pm.get("left_right_indent_map"),
                 )
-                return page_idx, page_content, page_warnings
+                return page_no, page_content, page_warnings
 
             if llm_needed:
                 with ThreadPoolExecutor(max_workers=min(max_llm, len(llm_needed))) as executor:
                     structure_outcomes = list(executor.map(_recognize_structure, llm_needed))
-                for page_idx, page_content, page_warnings in structure_outcomes:
+                for page_no, page_content, page_warnings in structure_outcomes:
                     warnings.extend(page_warnings)
-                    pages_result.append((page_idx, page_content))
+                    pages_result.append((page_no, page_content))
 
-            # Phase 5: Assemble final document.
+            # Phase 5: Assemble pages sorted by original page number.
             pages_result.sort(key=lambda x: x[0])
             pages = []
-            for page_idx, page_content in pages_result:
+            for page_no, page_content in pages_result:
                 pages.append(
                     Page(
                         page_content=page_content,
-                        page_no=page_idx,
+                        page_no=page_no,
                     )
                 )
 
-            return Document(
-                doc_id=doc_id,
-                total_page_num=len(pages),
-                save_path=str(path.absolute()),
-                pages=pages,
-                warnings=warnings,
-            )
+            return pages, warnings
         finally:
             cleanup_temp_images(image_paths)
 

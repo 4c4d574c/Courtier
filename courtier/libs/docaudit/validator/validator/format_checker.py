@@ -137,8 +137,9 @@ def _margins_are_reliable(doc: dict) -> bool:
 
     优先读显式来源字段 ``doc["source"]``（docparse registry 在分派后回填）：
     - ``"docx"`` → 页边距直接取自 Word section 真实设置，可信 → 启用检查；
-    - ``"pdf"`` / ``"scanned"`` → 页边距由文字 bbox 推算或按经验估算，
-      噪声大，硬查会误报 → 跳过检查；
+    - ``"pdf"`` / ``"scanned"`` / ``"mixed"`` → 页边距由文字 bbox 推算或
+      按经验估算（mixed 含 OCR 页，同样带推算成分），噪声大，硬查会误报
+      → 跳过检查；
     - ``""``（旧缓存反序列化、或直接调用单个 parser 未回填）→ 回退
       "position 恒 0" 启发式：所有元素 position 恒为 0 → DOCX 来源 →
       启用；只要存在非 0 position → PDF/扫描来源 → 跳过。
@@ -146,7 +147,7 @@ def _margins_are_reliable(doc: dict) -> bool:
     source = doc.get("source") or ""
     if source == "docx":
         return True
-    if source in ("pdf", "scanned"):
+    if source in ("pdf", "scanned", "mixed"):
         return False
     for pos in _iter_position_dicts(doc):
         if any(float(pos.get(k, 0.0)) != 0.0 for k in ("x0", "y0", "x1", "y1")):
