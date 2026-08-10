@@ -16,7 +16,7 @@ processors:
 
 exporters:
   otlphttp/langfuse:
-    endpoint: http://langfuse:3000/api/public/otlp
+    endpoint: http://langfuse:3000/api/public/otel
     headers:
       Authorization: "Basic ${env:LANGFUSE_AUTH_HEADER}"
     # LANGFUSE_AUTH_HEADER must be set to the base64 encoding of
