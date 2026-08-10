@@ -8,6 +8,8 @@ version: "1.0"
 mode: auto
 timeout_seconds: 600
 retry_policy: on_error
+enabled: true
+
 ---
 
 # 目标
@@ -29,10 +31,11 @@ retry_policy: on_error
    - 问题描述
    - 违规风险等级（error / warning / info）
    - 修改建议
-3. 汇总所有问题，返回结构化审核结果。
+3. 不要在思考过程中长篇大论的分析，在思考过程中简要总结。
+4. 汇总所有问题，返回结构化审核结果。
 
 # 输出格式
-返回 JSON 形式的审核报告，包含：
+返回 markdown 形式的审核报告，包含：
 - `summary`: 总体结论与问题总数
 - `issues`: 问题列表，每项包含 `location`、`description`、`severity`、`suggestion`
 - 如未发现问题，明确给出 "未发现明显内容合规问题" 的结论。

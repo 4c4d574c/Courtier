@@ -36,7 +36,7 @@ retry_policy: on_error
 4. 汇总所有错误，返回结构化纠错结果。
 
 # 输出格式
-返回 JSON 形式的纠错报告，包含：
+返回 markdown 形式的纠错报告，包含：
 - `summary`: 总体结论，包含发现错误的总数
 - `results`: 逐句纠错结果列表，每项包含 `source`、`target`、`errors`
 - 每条 `error` 包含 `original`、`corrected`、`position`、`operation`、`context`

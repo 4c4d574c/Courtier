@@ -12,6 +12,8 @@ version: "1.0"
 mode: auto
 timeout_seconds: 600
 retry_policy: on_error
+enabled: false
+
 ---
 
 # 目标
@@ -31,7 +33,7 @@ retry_policy: on_error
 注意：你只负责汇总和编排，不需要自己逐项分析文档内容。各子技能会返回结构化的审核结果。
 
 # 输出格式
-返回 JSON 形式的综合审核报告，按格式、内容、风格、纠错、查重五个维度组织，每个维度包含：
+返回 markdown 形式的综合审核报告，按格式、内容、风格、纠错、查重五个维度组织，每个维度包含：
 - `summary`: 该维度总体结论与问题数
 - `issues`: 问题/纠错列表
 - 最后给出总体结论与优先处理建议。
