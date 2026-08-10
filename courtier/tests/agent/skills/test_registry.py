@@ -63,11 +63,15 @@ def test_real_skills_include_output_sanitization():
 
     enabled = registry.list_enabled()
     enabled_names = {s.name for s in enabled}
-    expected = {"format_audit", "content_audit", "plagiarism", "full_government_audit"}
+    # full_government_audit 被有意停用（frontmatter enabled: false），当前启用集为以下四个。
+    expected = {"format_audit", "content_audit", "plagiarism", "text_correction"}
     assert expected.issubset(enabled_names), (
         f"expected skills {expected} to be enabled, got {enabled_names}; "
         f"errors: {registry.errors}"
     )
+    # 停用的技能仍应能正常扫描，只是不出现在启用集中。
+    assert "full_government_audit" not in enabled_names
+    assert registry.get("full_government_audit") is not None
     assert not registry.errors, f"skill registry has errors: {registry.errors}"
     for skill in enabled:
         assert "最终报告中禁止出现" in skill.system_prompt, (
