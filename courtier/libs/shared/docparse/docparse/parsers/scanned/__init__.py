@@ -46,7 +46,6 @@ from .preprocessor import (
     resize_images_for_ocr,
 )
 from .spacing import (
-    adjust_cross_page_spacing,
     merge_spacing_into_page_content,
     normalize_body_line_spacing,
 )
@@ -214,9 +213,6 @@ class ScannedParser:
             # Phase 2.2: Document-level body line spacing normalization
             normalize_body_line_spacing(page_metrics)
 
-            # Phase 2.3: Cross-page continuation adjustment
-            adjust_cross_page_spacing(page_metrics)
-
             llm_client = LLMClient(effective_config)
 
             # Phase 2.5: Crop-based LLM font recognition for every page
@@ -376,5 +372,4 @@ __all__ = [
     "refine_font_size_by_chars_per_line",
     "merge_spacing_into_page_content",
     "normalize_body_line_spacing",
-    "adjust_cross_page_spacing",
 ]

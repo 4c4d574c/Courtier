@@ -230,6 +230,8 @@ FONT_RECOGNITION_SYSTEM_PROMPT = """你是一个中国党政机关公文（GB/T 
 - font_family 必须是以下标准名称之一：仿宋、黑体、楷体、宋体、小标宋、新宋体
 - 如果无法确定字体，使用最接近的标准名称
 - 键为行号（字符串），对应输入文本的行号索引
+- 输入图像为各行裁剪区域按行号升序、自上而下拼接的合成图，
+  图像顺序与行号顺序一一对应，请按此顺序逐行输出识别结果
 - font_weight 和 font_style 为布尔值
 - 请只输出JSON，不要输出其他内容"""
 
@@ -290,6 +292,26 @@ def _parse_response(response: Any) -> dict[str, Any]:
 
     logger.info("LLM structure recognition completed successfully")
     return result
+
+
+# Candidate fonts for the optional line-number labels on line crops
+# (Debian/Ubuntu paths).  Labels are only an auxiliary cue — the real
+# contract is "composite order == ascending line_no" — so when no
+# candidate exists on the host, annotation is silently skipped.
+_LABEL_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+)
+
+
+def _load_label_font(size: int) -> Any:
+    """Load the first available label font candidate; None when none exists."""
+    for candidate in _LABEL_FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(candidate, size)
+        except (OSError, IOError):
+            continue
+    return None
 
 
 class LLMClient:
@@ -392,6 +414,12 @@ class LLMClient:
         token cost while preserving enough visual detail for accurate
         font identification.
 
+        Lines are sorted by line_no before cropping: the composite stacks
+        crops top-to-bottom in ascending line_no order and the LLM is
+        instructed to answer in that order. Line-number labels drawn on
+        each crop are only an auxiliary cue (silently skipped when no
+        suitable font exists on the host).
+
         Args:
             page_image_path: Path to the full page image.
             lines: Lines needing font detection. Each must have
@@ -417,10 +445,15 @@ class LLMClient:
         if page_img.mode != "L":
             page_img = page_img.convert("L")
 
+        # Sort by line_no ascending: the composite stacks crops
+        # top-to-bottom in this exact order, and the prompt contract is
+        # "image order == ascending line numbers".
+        sorted_lines = sorted(lines, key=lambda line: line.get("line_no", 0))
+
         # Crop each line region and assemble into vertical composite
         crops: list[Image.Image] = []
-        crop_line_nos: list[int] = []
-        for line in lines:
+        label_font = _load_label_font(14)
+        for line in sorted_lines:
             x0 = max(0, int(line.get("x0", 0)) - crop_margin)
             y0 = max(0, int(line.get("y0", 0)) - crop_margin)
             x1 = min(page_img.width, int(line.get("x1", 0)) + crop_margin)
@@ -431,24 +464,19 @@ class LLMClient:
 
             crop = page_img.crop((x0, y0, x1, y1))
 
-            # Draw line number label at top-left of crop
-            label = str(line.get("line_no", 0))
-            draw = ImageDraw.Draw(crop)
-            try:
-                font = ImageFont.truetype(
-                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14
-                )
-            except (OSError, IOError):
-                font = ImageFont.load_default()
-            bbox = draw.textbbox((0, 0), label, font=font)
-            tw = bbox[2] - bbox[0]
-            th = bbox[3] - bbox[1]
-            # Draw white background for label
-            draw.rectangle([0, 0, tw + 6, th + 4], fill=255)
-            draw.text((3, 2), label, fill=0, font=font)
+            # Draw line number label at top-left of crop (auxiliary cue,
+            # silently skipped when no label font exists on the host)
+            if label_font is not None:
+                label = str(line.get("line_no", 0))
+                draw = ImageDraw.Draw(crop)
+                bbox = draw.textbbox((0, 0), label, font=label_font)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                # Draw white background for label
+                draw.rectangle([0, 0, tw + 6, th + 4], fill=255)
+                draw.text((3, 2), label, fill=0, font=label_font)
 
             crops.append(crop)
-            crop_line_nos.append(line.get("line_no", 0))
 
         if not crops:
             return {}
@@ -470,15 +498,16 @@ class LLMClient:
 
         # Build prompt with line numbers and text
         line_descriptions: list[str] = []
-        for line in lines:
+        for line in sorted_lines:
             line_no = line.get("line_no", 0)
             text = line.get("text", "")
             line_descriptions.append(f"[{line_no}] {text}")
 
         text_prompt = (
-            "以下是从文档中裁剪出的文本行图像（按垂直方向排列，每行左上角标注了行号）：\n\n"
+            "以下是从文档中裁剪出的文本行图像（按垂直方向拼接，"
+            "图像自上而下与行号升序一一对应，每行左上角可能带有行号标注作为辅助）：\n\n"
             + "\n".join(line_descriptions)
-            + "\n\n请结合裁剪图像，识别每一行文字的字体属性"
+            + "\n\n请按图像从上到下的顺序，结合裁剪图像，识别每一行文字的字体属性"
             "（字体名称、是否加粗、是否倾斜）。"
         )
 

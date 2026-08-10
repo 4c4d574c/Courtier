@@ -1,5 +1,9 @@
 """Tests for the LLM client: retry policy, response parsing, timeout config."""
 
+import base64
+import io
+from types import SimpleNamespace
+
 import httpx
 import openai
 import pytest
@@ -11,6 +15,8 @@ from docparse.parsers.llm_client import (
     _is_retryable,
     _parse_response,
 )
+from PIL import Image as PILImage
+from PIL import ImageDraw
 
 
 def _status_error(status: int) -> openai.APIStatusError:
@@ -184,3 +190,93 @@ class TestClientTimeout:
         )
         assert client._client.timeout == _LLM_TIMEOUT
         assert _LLM_TIMEOUT > 0
+
+
+class TestRecognizeFontsFromCrops:
+    """Crop-based font recognition: ordering contract and label-font fallback."""
+
+    @staticmethod
+    def _make_page(path) -> str:
+        """200x100 grayscale page: dark band on top, light band below."""
+        img = PILImage.new("L", (200, 100), 255)
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([0, 0, 200, 49], fill=30)  # dark band: rows 0-49
+        draw.rectangle([0, 50, 200, 99], fill=220)  # light band: rows 50-99
+        img.save(path)
+        return str(path)
+
+    @staticmethod
+    def _make_client(payload: str) -> tuple[LLMClient, SimpleNamespace]:
+        """LLMClient whose HTTP layer is replaced by a recording stub."""
+        client = LLMClient(
+            ParserConfig(
+                llm_base_url="http://localhost:1/v1",
+                llm_api_key="test-key",
+                llm_model="test-model",
+            )
+        )
+
+        def _create(**kwargs):
+            stub.kwargs = kwargs
+            message = SimpleNamespace(content=payload)
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        stub = SimpleNamespace(create=_create, kwargs={})
+        client._client = SimpleNamespace(chat=SimpleNamespace(completions=stub))
+        return client, stub
+
+    @staticmethod
+    def _extract_composite(stub: SimpleNamespace) -> PILImage.Image:
+        url = stub.kwargs["messages"][1]["content"][0]["image_url"]["url"]
+        data = base64.b64decode(url.split(",", 1)[1])
+        return PILImage.open(io.BytesIO(data)).convert("L")
+
+    @staticmethod
+    def _mean(img: PILImage.Image) -> float:
+        hist = img.histogram()
+        return sum(i * count for i, count in enumerate(hist)) / (img.width * img.height)
+
+    def test_crops_sorted_by_line_no_ascending(self, tmp_path):
+        """crops 按行号升序拼接（与输入顺序无关），font_info 键为行号 int。"""
+        page = self._make_page(tmp_path / "page.png")
+        payload = (
+            '{"font_info": {'
+            '"2": {"font_family": "黑体", "font_weight": false, "font_style": false},'
+            '"5": {"font_family": "仿宋", "font_weight": true, "font_style": false}'
+            "}}"
+        )
+        client, stub = self._make_client(payload)
+
+        # 输入乱序：行号 5（深色带区域）在前，行号 2（浅色带区域）在后
+        lines = [
+            {"line_no": 5, "text": "甲", "x0": 10, "y0": 10, "x1": 190, "y1": 40},
+            {"line_no": 2, "text": "乙", "x0": 10, "y0": 60, "x1": 190, "y1": 90},
+        ]
+        font_info = client.recognize_fonts_from_crops(page, lines)
+
+        assert set(font_info) == {2, 5}  # 键为行号 int
+        assert font_info[5]["font_weight"] is True
+
+        # 合成图上行号 2 的裁剪块（浅色带）必须在行号 5（深色带）之上
+        composite = self._extract_composite(stub)
+        w, h = composite.size
+        top = composite.crop((0, 0, w, h // 2 - 1))
+        bottom = composite.crop((0, h - h // 2 + 1, w, h))
+        assert self._mean(top) > self._mean(bottom)
+
+    def test_missing_label_font_skips_annotation(self, tmp_path, monkeypatch):
+        """无候选标注字体时静默跳过行号标注（不中断、不报错）。"""
+        monkeypatch.setattr("docparse.parsers.llm_client._LABEL_FONT_CANDIDATES", ())
+        page = self._make_page(tmp_path / "page.png")
+        payload = (
+            '{"font_info": {'
+            '"2": {"font_family": "仿宋", "font_weight": false, "font_style": false}'
+            "}}"
+        )
+        client, _stub = self._make_client(payload)
+
+        lines = [{"line_no": 2, "text": "乙", "x0": 10, "y0": 60, "x1": 190, "y1": 90}]
+        font_info = client.recognize_fonts_from_crops(page, lines)
+
+        assert set(font_info) == {2}
+        assert font_info[2]["font_family"] == "仿宋"

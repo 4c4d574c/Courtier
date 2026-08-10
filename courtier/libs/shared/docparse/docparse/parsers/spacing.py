@@ -1,18 +1,17 @@
 """Improved spacing, indent, and margin calculation for scanned documents.
 
-Provides paragraph boundary detection, margin computation with GB/T 9704
-calibration, paragraph spacing analysis, and first-line indent detection.
-All functions operate on OCR bounding box data in pixel coordinates and
-convert to standard units (mm, pt) with calibration to the
-GB/T 9704-2012 standard where applicable.
+Provides shared paragraph segmentation (segment_paragraphs), margin
+computation with GB/T 9704 calibration, paragraph spacing analysis, and
+first-line indent detection. All functions operate on OCR bounding box
+data in pixel coordinates and convert to standard units (mm, pt) with
+calibration to the GB/T 9704-2012 standard where applicable.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from docmodels import Margin
 
+from ._constants import MM_TO_PT, PT_TO_MM
 from .calibration import (
     STANDARD_FIRST_INDENT,
     calibrate_first_indent,
@@ -21,32 +20,8 @@ from .calibration import (
     compute_font_size,
 )
 
-# -- Threshold constants for paragraph boundary detection -------------------
-# These reflect GB/T 9704-2012 formatting rules and should be reviewed
-# when the standard is updated.
-_PARA_BREAK_FACTOR = 1.2  # line-height multiplier for paragraph breaks
-_MIN_PARA_BREAK_PX = 2.0  # minimum gap (px) that constitutes a break
-_PARA_SPACING_FACTOR = 1.5  # median-gap multiplier for spacing detection
-
-from ._constants import MM_TO_PT, PT_TO_MM  # noqa: E402
-
 # A4 page width in points (72 DPI)
 A4_WIDTH_PT: float = 595.28
-
-
-@dataclass(frozen=True)
-class ParagraphBoundary:
-    """Represents a contiguous group of text lines forming a paragraph.
-
-    Attributes:
-        start_index: Index of the first line in the paragraph (sorted by Y).
-        end_index: Index of the last line in the paragraph (sorted by Y).
-        line_indices: Original indices of all lines in the paragraph.
-    """
-
-    start_index: int
-    end_index: int
-    line_indices: list[int]
 
 
 def compute_font_size_from_ocr(
@@ -204,23 +179,36 @@ def compute_alignment_from_position(
     return "left"
 
 
-def detect_paragraph_boundaries(
+def segment_paragraphs(
     rec_boxes: list[list[float]],
-    img_height: int,
-    a4_height_pt: float,
-) -> list[ParagraphBoundary]:
-    """Detect paragraph boundaries by analyzing Y-coordinate gaps.
+    *,
+    img_width: float = 0,
+    a4_width_pt: float = A4_WIDTH_PT,
+) -> list[list[int]]:
+    """Group text lines into paragraphs — the shared segmentation used by
+    the spacing/indent metrics below (previously each had its own copy
+    with slightly different thresholds).
 
-    Sorts boxes by Y coordinate, computes line heights, finds the median,
-    and identifies paragraph breaks where gaps exceed 1.2x the median height.
+    Lines are sorted by Y coordinate; a paragraph break is declared
+    between consecutive lines when either:
+    - the bottom-to-top gap exceeds the adaptive threshold: 1.8x the
+      dominant gap cluster center (histogram clustering via
+      compute_body_line_spacing, median fallback), with a +5px floor; or
+    - the x0 positions differ by more than 40pt converted to pixels
+      (e.g. attachment-item lists).  40pt exceeds the standard 2-char
+      indent (32pt) with OCR jitter margin, so a normal
+      indent→continuation transition is not broken apart.  Disabled
+      when img_width <= 0.
 
     Args:
         rec_boxes: List of [x0, y0, x1, y1] bounding boxes.
-        img_height: Image height in pixels.
-        a4_height_pt: A4 page height in points.
+        img_width: Image width in pixels; <= 0 disables x0-based breaks.
+        a4_width_pt: A4 page width in points (for the 40pt→px conversion).
 
     Returns:
-        List of ParagraphBoundary objects, each representing a paragraph.
+        List of paragraphs in Y order; each paragraph is a list of
+        original line indices in Y order.  Empty input → []; a single
+        line → one single-line paragraph.
     """
     if not rec_boxes:
         return []
@@ -230,57 +218,35 @@ def detect_paragraph_boundaries(
     indexed_boxes.sort(key=lambda x: x[1][1])
 
     if len(indexed_boxes) == 1:
-        idx = indexed_boxes[0][0]
-        return [
-            ParagraphBoundary(
-                start_index=0,
-                end_index=0,
-                line_indices=[idx],
-            )
-        ]
+        return [[indexed_boxes[0][0]]]
 
-    # Compute line heights (y1 - y0) for each box
-    line_heights = [box[3] - box[1] for _, box in indexed_boxes]
-    sorted_heights = sorted(line_heights)
-    median_height = sorted_heights[len(sorted_heights) // 2]
+    scale_x = a4_width_pt / img_width if img_width > 0 else 1.0
+    x0_break_px = 40.0 / scale_x if img_width > 0 else float("inf")
 
-    # Threshold for paragraph break: 1.2x median line height
-    para_threshold = max(median_height * _PARA_BREAK_FACTOR, _MIN_PARA_BREAK_PX)
-
-    # Identify paragraph boundaries by gap between consecutive lines
-    boundaries: list[ParagraphBoundary] = []
-    current_start = 0
-    current_indices: list[int] = [indexed_boxes[0][0]]
-
+    gaps_px: list[float] = []
+    x0_diffs: list[float] = []
     for i in range(len(indexed_boxes) - 1):
-        curr_bottom = indexed_boxes[i][1][3]
-        next_top = indexed_boxes[i + 1][1][1]
-        gap = max(0, next_top - curr_bottom)
+        gaps_px.append(max(0.0, indexed_boxes[i + 1][1][1] - indexed_boxes[i][1][3]))
+        x0_diffs.append(abs(indexed_boxes[i + 1][1][0] - indexed_boxes[i][1][0]))
 
-        if gap > para_threshold:
-            # End current paragraph, start new one
-            boundaries.append(
-                ParagraphBoundary(
-                    start_index=current_start,
-                    end_index=i,
-                    line_indices=list(current_indices),
-                )
-            )
-            current_start = i + 1
-            current_indices = [indexed_boxes[i + 1][0]]
+    # Adaptive threshold: dominant cluster of bottom-to-top gaps (gaps
+    # exclude line height, making paragraph breaks easier to distinguish
+    # from inter-line gaps).
+    cluster_center_px, _ = compute_body_line_spacing(gaps_px)
+    if cluster_center_px <= 0.0:
+        sorted_gaps_px = sorted(gaps_px)
+        cluster_center_px = sorted_gaps_px[len(sorted_gaps_px) // 2]
+    para_threshold_px = max(cluster_center_px * 1.8, cluster_center_px + 5.0)
+
+    paragraphs: list[list[int]] = [[indexed_boxes[0][0]]]
+    for i in range(len(gaps_px)):
+        next_idx = indexed_boxes[i + 1][0]
+        if gaps_px[i] > para_threshold_px or x0_diffs[i] > x0_break_px:
+            paragraphs.append([next_idx])
         else:
-            current_indices.append(indexed_boxes[i + 1][0])
+            paragraphs[-1].append(next_idx)
 
-    # Add the last paragraph
-    boundaries.append(
-        ParagraphBoundary(
-            start_index=current_start,
-            end_index=len(indexed_boxes) - 1,
-            line_indices=list(current_indices),
-        )
-    )
-
-    return boundaries
+    return paragraphs
 
 
 def compute_margins(
@@ -338,12 +304,10 @@ def compute_paragraph_spacing(
 ) -> dict[int, dict[str, float | None]]:
     """Compute spacing between text lines with paragraph detection.
 
-    Uses histogram-based clustering to find the dominant body line spacing,
-    then detects paragraph breaks with an adaptive threshold (1.8x cluster
-    center). Body text within a paragraph gets uniform line spacing.
-
-    Also detects paragraph breaks when consecutive lines start at very
-    different x0 positions (e.g. attachment-item lists).
+    Uses histogram-based clustering to find the dominant body line spacing;
+    paragraph breaks come from the shared segment_paragraphs() segmentation
+    (adaptive gap threshold + x0-jump detection). Body text within a
+    paragraph gets uniform line spacing.
 
     space_before is always None: a scanned line's space_before cannot be
     measured (the visual gap above the line is the normal line gap plus
@@ -360,7 +324,6 @@ def compute_paragraph_spacing(
         rec_boxes: List of [x0, y0, x1, y1] bounding boxes.
         img_height: Image height in pixels.
         a4_height_pt: A4 page height in points.
-        outline_levels: Optional mapping from line index to outline_level.
         img_width: Image width in pixels (optional). If provided, enables
             x0-based paragraph break detection.
 
@@ -375,39 +338,25 @@ def compute_paragraph_spacing(
         return {0: {"space_before": None, "space_after": None, "line_spacing": None}}
 
     scale_y = a4_height_pt / img_height if img_height > 0 else 1.0
-    scale_x = A4_WIDTH_PT / img_width if img_width > 0 else 1.0
-
-    # When consecutive lines start at very different x0 positions, treat
-    # as a paragraph break even if the vertical gap is small.  Threshold
-    # (40pt) exceeds the standard 2-char indent (32pt) with OCR jitter
-    # margin, so normal indent→continuation is not broken apart.
-    _x0_break_px: float = 40.0 / scale_x if img_width > 0 else float("inf")
 
     # Sort boxes by Y coordinate, keeping original indices
     indexed_boxes = list(enumerate(rec_boxes))
     indexed_boxes.sort(key=lambda x: x[1][1])
 
-    # Compute bottom-to-top gaps (for paragraph break detection) and
-    # top-to-top distances (for line spacing).  Also record x0 positions
-    # for x0-based break detection.
-    gaps_px: list[float] = []
+    # Compute bottom-to-top gaps (for space_after measurement) and
+    # top-to-top distances (for line spacing).
     gaps: list[tuple[int, float, float]] = []  # (idx, gap_pt, curr_height_pt)
     top_distances_px: list[float] = []
-    x0_pairs: list[tuple[float, float]] = []  # (curr_x0, next_x0) per gap
     for i in range(len(indexed_boxes) - 1):
         curr_idx = indexed_boxes[i][0]
         curr_bottom = indexed_boxes[i][1][3]
         curr_top = indexed_boxes[i][1][1]
-        curr_x0 = indexed_boxes[i][1][0]
         next_top = indexed_boxes[i + 1][1][1]
-        next_x0 = indexed_boxes[i + 1][1][0]
         gap_px = max(0.0, next_top - curr_bottom)
         gap_pt = gap_px * scale_y
         curr_height_pt = max(0.0, curr_bottom - curr_top) * scale_y
-        gaps_px.append(gap_px)
         gaps.append((curr_idx, gap_pt, curr_height_pt))
         top_distances_px.append(max(0.0, next_top - curr_top))
-        x0_pairs.append((curr_x0, next_x0))
 
     # Line spacing: cluster top-to-top distances (true center-to-center spacing)
     top_cluster_center_px, _ = compute_body_line_spacing(top_distances_px)
@@ -419,29 +368,13 @@ def compute_paragraph_spacing(
     top_cluster_center_pt = top_cluster_center_px * scale_y
     calibrated_line_spacing = calibrate_line_spacing(top_cluster_center_pt)
 
-    # Paragraph break: cluster bottom-to-top gaps (gaps exclude line height,
-    # making paragraph breaks easier to distinguish from inter-line gaps)
-    cluster_center_px, _ = compute_body_line_spacing(gaps_px)
-
-    if cluster_center_px <= 0.0:
-        sorted_gaps_px = sorted(gaps_px)
-        cluster_center_px = sorted_gaps_px[len(sorted_gaps_px) // 2]
-
-    # Adaptive threshold for paragraph break (based on bottom-to-top gaps)
-    para_threshold_px = max(cluster_center_px * 1.8, cluster_center_px + 5.0)
-    para_threshold_pt = para_threshold_px * scale_y
-
-    def _is_para_break(gap_idx: int) -> bool:
-        """True if the gap at *gap_idx* separates two paragraphs."""
-        if gaps[gap_idx][1] > para_threshold_pt:
-            return True
-        if x0_pairs and abs(x0_pairs[gap_idx][1] - x0_pairs[gap_idx][0]) > _x0_break_px:
-            return True
-        return False
+    # Paragraph starts from the shared segmentation; a gap is a paragraph
+    # break iff the next line starts a new paragraph.
+    para_starts: set[int] = {para[0] for para in segment_paragraphs(rec_boxes, img_width=img_width)}
 
     result: dict[int, dict[str, float | None]] = {}
     for i, (idx, gap_pt, curr_height_pt) in enumerate(gaps):
-        is_break = _is_para_break(i)
+        is_break = indexed_boxes[i + 1][0] in para_starts
 
         # Only set space_after for paragraph breaks, and subtract the
         # normal intra-paragraph visual gap (line_spacing - text_height)
@@ -480,9 +413,9 @@ def compute_first_indent(
 ) -> dict[int, float]:
     """Compute first-line indent for paragraphs with calibration.
 
-    Detects paragraphs using detect_paragraph_boundaries, compares
-    the first line X position with the body X position, and calibrates
-    the indent to the GB/T 9704 standard (32.0pt).
+    Paragraphs come from the shared segment_paragraphs() segmentation;
+    the first line's X position is compared with the body X position,
+    and the indent is calibrated to the GB/T 9704 standard (32.0pt).
     Single-line body_text paragraphs fallback to the standard indent.
 
     Args:
@@ -498,49 +431,8 @@ def compute_first_indent(
     if not rec_boxes:
         return {}
 
-    # Sort by Y coordinate, keeping original indices
-    indexed_boxes = list(enumerate(rec_boxes))
-    indexed_boxes.sort(key=lambda x: x[1][1])
-
-    if len(rec_boxes) == 1:
-        idx = indexed_boxes[0][0]
-        if outline_levels and outline_levels.get(idx) == "body_text":
-            return {idx: calibrate_first_indent(STANDARD_FIRST_INDENT)}
-        return {idx: 0.0}
-
     scale_x = a4_width_pt / img_width if img_width > 0 else 1.0
 
-    # Find paragraph boundaries using gap analysis
-    gaps: list[float] = []
-    # x0 difference between consecutive lines (for x0-based break detection)
-    x0_diffs: list[float] = []
-    for i in range(len(indexed_boxes) - 1):
-        curr_bottom = indexed_boxes[i][1][3]
-        next_top = indexed_boxes[i + 1][1][1]
-        gaps.append(max(0, next_top - curr_bottom))
-        x0_diffs.append(abs(indexed_boxes[i + 1][1][0] - indexed_boxes[i][1][0]))
-
-    if not gaps:
-        idx = indexed_boxes[0][0]
-        if outline_levels and outline_levels.get(idx) == "body_text":
-            return {idx: calibrate_first_indent(STANDARD_FIRST_INDENT)}
-        return {idx: 0.0}
-
-    sorted_gaps = sorted(gaps)
-    median_gap = sorted_gaps[len(sorted_gaps) // 2]
-    para_threshold = max(median_gap * _PARA_SPACING_FACTOR, _MIN_PARA_BREAK_PX)
-
-    # x0 threshold for paragraph break: 40pt in pixels (exceeds standard
-    # 2-char indent of 32pt, so indent→continuation is not broken apart).
-    _x0_break_px_fi = (40.0 / scale_x) if scale_x > 0 else float("inf")
-
-    # Find paragraph start lines (gap-based and x0-based)
-    para_starts: set[int] = {indexed_boxes[0][0]}
-    for i in range(len(gaps)):
-        if gaps[i] > para_threshold or x0_diffs[i] > _x0_break_px_fi:
-            para_starts.add(indexed_boxes[i + 1][0])
-
-    # Group lines into paragraphs and compute indents
     # Compute dominant body x0 for single-line indent detection
     body_x0s = [
         box[0]
@@ -550,19 +442,15 @@ def compute_first_indent(
     if not body_x0s:
         body_x0s = [box[0] for box in rec_boxes]
     body_margin_x0 = sorted(body_x0s)[len(body_x0s) // 2] if body_x0s else 0.0
+
     result: dict[int, float] = {}
-    current_para: list[tuple[int, list[float]]] = []
-
-    for i, (idx, box) in enumerate(indexed_boxes):
-        is_para_start = idx in para_starts or not current_para
-        if is_para_start and current_para:
-            _compute_para_indent(current_para, scale_x, result, outline_levels, body_margin_x0)
-            current_para = []
-        current_para.append((idx, box))
-
-    # Process last paragraph
-    if current_para:
-        _compute_para_indent(current_para, scale_x, result, outline_levels, body_margin_x0)
+    for para_indices in segment_paragraphs(
+        rec_boxes,
+        img_width=img_width,
+        a4_width_pt=a4_width_pt,
+    ):
+        para_lines = [(idx, rec_boxes[idx]) for idx in para_indices]
+        _compute_para_indent(para_lines, scale_x, result, outline_levels, body_margin_x0)
 
     return result
 
@@ -657,79 +545,18 @@ def compute_left_right_indent(
 
     px_to_mm = page_width_mm / img_width if img_width > 0 else 0.0
 
-    # Sort by Y coordinate, keeping original indices
-    indexed_boxes = list(enumerate(rec_boxes))
-    indexed_boxes.sort(key=lambda x: x[1][1])
-
-    # Single-line page
-    if len(indexed_boxes) == 1:
-        idx = indexed_boxes[0][0]
-        left_pt, right_pt = _compute_para_left_right_indent(
-            [indexed_boxes[0]],
-            px_to_mm,
-            margin,
-            font_sizes,
-        )
-        return {idx: {"left_indent": left_pt, "right_indent": right_pt}}
-
-    # x0 scale for break detection: 40pt in pixels (same as compute_first_indent)
-    scale_x = A4_WIDTH_PT / img_width if img_width > 0 else 1.0
-    _x0_break_px = (40.0 / scale_x) if scale_x > 0 else float("inf")
-
-    # Detect paragraph boundaries via Y-gaps and x0 diffs
-    gaps: list[float] = []
-    x0_diffs: list[float] = []
-    for i in range(len(indexed_boxes) - 1):
-        curr_bottom = indexed_boxes[i][1][3]
-        next_top = indexed_boxes[i + 1][1][1]
-        gaps.append(max(0.0, next_top - curr_bottom))
-        x0_diffs.append(abs(indexed_boxes[i + 1][1][0] - indexed_boxes[i][1][0]))
-
-    if not gaps:
-        idx = indexed_boxes[0][0]
-        left_pt, right_pt = _compute_para_left_right_indent(
-            [indexed_boxes[0]],
-            px_to_mm,
-            margin,
-            font_sizes,
-        )
-        return {idx: {"left_indent": left_pt, "right_indent": right_pt}}
-
-    sorted_gaps = sorted(gaps)
-    median_gap = sorted_gaps[len(sorted_gaps) // 2]
-    para_threshold = max(median_gap * _PARA_SPACING_FACTOR, _MIN_PARA_BREAK_PX)
-
-    para_starts: set[int] = {indexed_boxes[0][0]}
-    for i in range(len(gaps)):
-        if gaps[i] > para_threshold or x0_diffs[i] > _x0_break_px:
-            para_starts.add(indexed_boxes[i + 1][0])
-
-    # Group lines into paragraphs and compute indents
+    # Group lines into paragraphs via the shared segmentation and compute
+    # per-paragraph indents.
     result: dict[int, dict[str, float]] = {}
-    current_para: list[tuple[int, list[float]]] = []
-
-    for i, (idx, box) in enumerate(indexed_boxes):
-        is_para_start = idx in para_starts or not current_para
-        if is_para_start and current_para:
-            left_pt, right_pt = _compute_para_left_right_indent(
-                current_para,
-                px_to_mm,
-                margin,
-                font_sizes,
-            )
-            for p_idx, _ in current_para:
-                result[p_idx] = {"left_indent": left_pt, "right_indent": right_pt}
-            current_para = []
-        current_para.append((idx, box))
-
-    if current_para:
+    for para_indices in segment_paragraphs(rec_boxes, img_width=img_width):
+        para_lines = [(idx, rec_boxes[idx]) for idx in para_indices]
         left_pt, right_pt = _compute_para_left_right_indent(
-            current_para,
+            para_lines,
             px_to_mm,
             margin,
             font_sizes,
         )
-        for p_idx, _ in current_para:
+        for p_idx, _ in para_lines:
             result[p_idx] = {"left_indent": left_pt, "right_indent": right_pt}
 
     # Fill any missing indices

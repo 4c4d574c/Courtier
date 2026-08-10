@@ -1,16 +1,15 @@
 """Tests for scanned-pipeline spacing semantics (scanned/spacing.py).
 
 Covers the None-vs-0.0 contract: unmeasurable values (space_before of
-scanned lines, space_after of a page's last line, cross-page continuation
-edges) are None (未测得), never a hardcoded 0.0; and paragraph-level
-space_after is taken from the paragraph's LAST line.
+scanned lines, space_after of a page's last line) are None (未测得),
+never a hardcoded 0.0; and paragraph-level space_after is taken from
+the paragraph's LAST line.
 """
 
 from __future__ import annotations
 
 from docmodels import Body, Font, LineElement, PageContent, Paragraph, Position
 from docparse.parsers.scanned.spacing import (
-    adjust_cross_page_spacing,
     merge_spacing_into_page_content,
     normalize_body_line_spacing,
 )
@@ -163,39 +162,3 @@ class TestNormalizeBodyLineSpacing:
         assert page_metrics[0]["spacing_map"][1]["space_after"] > 0.0
         # page1 line 0 是 10px 小间隙（非段断）→ 计算的 0.0 保持
         assert page_metrics[1]["spacing_map"][0]["space_after"] == 0.0
-
-
-class TestAdjustCrossPageSpacing:
-    def _metrics(self, last_text: str, first_text: str) -> list[dict]:
-        return [
-            {
-                "lines": [
-                    {"text": last_text, "y0": 700.0, "y1": 720.0, "outline_level": "body_text"}
-                ],
-                "spacing_map": {0: _spacing(5.0)},
-            },
-            {
-                "lines": [
-                    {"text": first_text, "y0": 100.0, "y1": 120.0, "outline_level": "body_text"}
-                ],
-                "spacing_map": {0: {**_spacing(0.0), "space_before": 3.0}},
-            },
-        ]
-
-    def test_continuation_clears_to_none(self):
-        """跨页续段：页 N 末行 space_after、页 N+1 首行 space_before 清为 None。"""
-        page_metrics = self._metrics("贯彻落实各项工作部署，扎实推进", "后续任务按时完成。")
-
-        adjust_cross_page_spacing(page_metrics)
-
-        assert page_metrics[0]["spacing_map"][0]["space_after"] is None
-        assert page_metrics[1]["spacing_map"][0]["space_before"] is None
-
-    def test_non_continuation_untouched(self):
-        """非续段（上页以句号收尾）保持原值。"""
-        page_metrics = self._metrics("各项工作部署已完成。", "下一步工作安排。")
-
-        adjust_cross_page_spacing(page_metrics)
-
-        assert page_metrics[0]["spacing_map"][0]["space_after"] == 5.0
-        assert page_metrics[1]["spacing_map"][0]["space_before"] == 3.0

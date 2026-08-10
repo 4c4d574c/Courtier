@@ -54,10 +54,15 @@ def prepare_images(file_path: str) -> list[str]:
 
 
 def pdf_to_images(pdf_path: str) -> list[str]:
-    """Render each page of a PDF to a temporary PNG image."""
+    """Render each page of a PDF to a temporary PNG image.
+
+    All pages share one per-document temp directory (registered in
+    _TEMP_DIRS at creation, removed by cleanup_temp_images).
+    """
     import fitz
 
     doc = fitz.open(pdf_path)
+    temp_dir = _make_temp_dir(prefix="docparse_")
     image_paths: list[str] = []
 
     try:
@@ -65,7 +70,6 @@ def pdf_to_images(pdf_path: str) -> list[str]:
             page = doc[page_idx]
             pix = page.get_pixmap(dpi=300)
 
-            temp_dir = _make_temp_dir(prefix="docparse_")
             img_path = f"{temp_dir}/page_{page_idx}.png"
             pix.save(img_path)
             image_paths.append(img_path)

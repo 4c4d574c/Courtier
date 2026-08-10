@@ -1,8 +1,7 @@
 """Spacing normalization for scanned documents.
 
 Provides page-content spacing merging, document-level body line spacing
-normalization, histogram clustering, and cross-page continuation detection
-for the scanned document pipeline.
+normalization, and histogram clustering for the scanned document pipeline.
 """
 
 from __future__ import annotations
@@ -14,8 +13,6 @@ from docmodels import PageContent
 from ..calibration import calibrate_line_spacing
 from ..spacing import compute_body_line_spacing
 from .structure import collect_all_paragraphs
-
-_SENTENCE_END = frozenset({"。", "！", "？", ".", "!", "?", "；", ";", "："})
 
 
 def merge_spacing_into_page_content(
@@ -80,6 +77,9 @@ def normalize_body_line_spacing(
     - space_after: re-classified using document-level paragraph break
       threshold (None for the page-last line — unmeasurable)
     - space_before: always None (unmeasurable for scanned lines)
+
+    跨页续接段的页末 space_after / 页首 space_before 因跨页间隙不可测量
+    而恒为 None（未测得），不做跨页修正。
 
     Args:
         page_metrics: List of per-page metrics dicts. Each must contain
@@ -196,90 +196,3 @@ def histogram_cluster_pt(
         outlier_median_multiplier=2.5,
         min_cluster_ratio=0.3,
     )
-
-
-def adjust_cross_page_spacing(
-    page_metrics: list[dict[str, Any]],
-) -> None:
-    """Adjust spacing at page boundaries for multi-page scanned documents.
-
-    Since each page's spacing is computed in isolation from its own OCR boxes,
-    page-boundary spacing values are meaningless without cross-page context.
-    This function detects paragraph continuations across pages and corrects
-    the spacing accordingly.
-
-    For a paragraph that continues from page N to page N+1:
-    - Page N's last-line space_after is cleared to None (the paragraph
-      keeps going — its real space_after is unmeasurable from this page;
-      None = 未测得, not a guessed 0.0)
-    - Page N+1's first-line space_before is cleared to None (continued
-      from above; space_before is unmeasurable for scanned lines anyway)
-
-    Args:
-        page_metrics: List of per-page metrics dicts, each containing
-            "lines" and "spacing_map". Modified in place.
-    """
-    if len(page_metrics) < 2:
-        return
-
-    for i in range(len(page_metrics) - 1):
-        curr = page_metrics[i]
-        next_pm = page_metrics[i + 1]
-
-        curr_lines: list[dict[str, Any]] = curr.get("lines", [])
-        next_lines: list[dict[str, Any]] = next_pm.get("lines", [])
-        curr_spacing: dict[int, dict[str, float | None]] = curr.get("spacing_map", {})
-        next_spacing: dict[int, dict[str, float | None]] = next_pm.get("spacing_map", {})
-
-        if not curr_lines or not next_lines:
-            continue
-
-        # Find last line of current page by Y position
-        curr_indexed = sorted(enumerate(curr_lines), key=lambda x: x[1].get("y0", 0))
-        last_idx, last_line = curr_indexed[-1]
-
-        # Find first line of next page by Y position
-        next_indexed = sorted(enumerate(next_lines), key=lambda x: x[1].get("y0", 0))
-        first_idx, first_line = next_indexed[0]
-
-        is_continuation = _is_cross_page_continuation(last_line, first_line)
-
-        if is_continuation:
-            if last_idx in curr_spacing:
-                curr_spacing[last_idx]["space_after"] = None
-            if first_idx in next_spacing:
-                next_spacing[first_idx]["space_before"] = None
-
-
-def _is_cross_page_continuation(
-    last_line: dict[str, Any],
-    first_line: dict[str, Any],
-) -> bool:
-    """Determine whether two lines across a page boundary form a continuation.
-
-    A continuation means the paragraph that ends on page N continues
-    naturally on page N+1, without a paragraph break or section change.
-
-    Returns True if the lines share the same outline level and the
-    last line does not end with sentence-ending punctuation (suggesting
-    the sentence continues).
-    """
-    if last_line.get("outline_level") != first_line.get("outline_level"):
-        return False
-
-    last_text = last_line.get("text", "")
-    if not last_text:
-        return False
-
-    stripped = last_text.rstrip()
-    if not stripped:
-        return False
-    if stripped[-1] in _SENTENCE_END:
-        return False
-
-    last_font = last_line.get("font_family", "")
-    first_font = first_line.get("font_family", "")
-    if last_font and first_font and last_font != first_font:
-        return False
-
-    return True

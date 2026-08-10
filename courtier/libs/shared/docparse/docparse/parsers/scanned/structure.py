@@ -17,14 +17,13 @@ def collect_all_paragraphs(
     # Header paragraphs
     header = page_content.header
     for field_name in (
-        "issuing_logo", "issuing_number", "signatory",
+        "issuing_logo",
+        "issuing_number",
+        "signatory",
         "ruling_line_pos",
-    ):
-        para = getattr(header, field_name, None)
-        if para:
-            paragraphs.append(para)
-    for field_name in (
-        "copy_number", "classification_duration", "urgency_level",
+        "copy_number",
+        "classification_duration",
+        "urgency_level",
     ):
         para = getattr(header, field_name, None)
         if para:
@@ -33,14 +32,19 @@ def collect_all_paragraphs(
     # Body paragraphs
     body = page_content.body
     for field_name in (
-        "title", "addressee", "issuing_signature",
+        "title",
+        "addressee",
+        "issuing_signature",
         "issue_date",
     ):
         para = getattr(body, field_name, None)
         if para:
             paragraphs.append(para)
     for field_name in (
-        "attachment_note", "stamp", "note", "attachments",
+        "attachment_note",
+        "stamp",
+        "note",
+        "attachments",
     ):
         para = getattr(body, field_name, None)
         if para:
@@ -50,13 +54,12 @@ def collect_all_paragraphs(
     # Footer paragraphs
     footer = page_content.footer
     for field_name in (
-        "closing_line", "issuing_office",
-        "distribution_date", "page_number",
+        "closing_line",
+        "issuing_office",
+        "distribution_date",
+        "page_number",
+        "carbon_copy",
     ):
-        para = getattr(footer, field_name, None)
-        if para:
-            paragraphs.append(para)
-    for field_name in ("carbon_copy",):
         para = getattr(footer, field_name, None)
         if para:
             paragraphs.append(para)

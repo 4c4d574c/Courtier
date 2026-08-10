@@ -1,8 +1,6 @@
 """Tests for improved spacing, indent, and margin calculation module."""
 
-import pytest
 from docparse.parsers.spacing import (
-    ParagraphBoundary,
     compute_alignment_from_position,
     compute_body_line_spacing,
     compute_first_indent,
@@ -10,7 +8,7 @@ from docparse.parsers.spacing import (
     compute_left_right_indent,
     compute_margins,
     compute_paragraph_spacing,
-    detect_paragraph_boundaries,
+    segment_paragraphs,
 )
 
 # ---------------------------------------------------------------------------
@@ -110,53 +108,46 @@ class TestComputeAlignment:
 
 
 # ---------------------------------------------------------------------------
-# TestDetectParagraphBoundaries
+# TestSegmentParagraphs
 # ---------------------------------------------------------------------------
 
 
-class TestDetectParagraphBoundaries:
-    """Verify paragraph boundary detection from line gaps."""
+class TestSegmentParagraphs:
+    """Verify the shared paragraph segmentation (segment_paragraphs)."""
 
     def test_single_paragraph(self) -> None:
         """Close lines are grouped into one paragraph."""
-        # Three close lines: gaps are small
         boxes = [[20, 100, 500, 120], [20, 125, 500, 145], [20, 150, 500, 170]]
-        boundaries = detect_paragraph_boundaries(boxes, 943, 841.89)
-        assert len(boundaries) == 1
-        assert boundaries[0].start_index == 0
-        assert boundaries[0].end_index == 2
-        assert boundaries[0].line_indices == [0, 1, 2]
+        assert segment_paragraphs(boxes) == [[0, 1, 2]]
 
-    def test_two_paragraphs(self) -> None:
-        """Large gap creates two paragraph boundaries."""
-        # Gap between line 2 and 3 is much larger (250-145=105 vs 125-120=5)
+    def test_two_paragraphs_by_gap(self) -> None:
+        """A large Y-gap splits lines into two paragraphs (original indices kept)."""
         boxes = [[20, 100, 500, 120], [20, 125, 500, 145], [20, 250, 500, 270]]
-        boundaries = detect_paragraph_boundaries(boxes, 943, 841.89)
-        assert len(boundaries) == 2
+        assert segment_paragraphs(boxes) == [[0, 1], [2]]
 
-        # First paragraph: lines 0, 1
-        assert boundaries[0].start_index == 0
-        assert boundaries[0].end_index == 1
-        assert boundaries[0].line_indices == [0, 1]
+    def test_x0_jump_splits_paragraph(self) -> None:
+        """x0 突变（超过 40pt 换算像素）即使 Y 间距很小也分段。"""
+        # img_width=500 → 40pt ≈ 33.6px；x0 从 20 跳到 120
+        boxes = [[20, 100, 500, 120], [120, 125, 500, 145]]
+        assert segment_paragraphs(boxes, img_width=500) == [[0], [1]]
 
-        # Second paragraph: line 2
-        assert boundaries[1].start_index == 2
-        assert boundaries[1].end_index == 2
-        assert boundaries[1].line_indices == [2]
+    def test_x0_jump_disabled_without_img_width(self) -> None:
+        """未传 img_width 时 x0 突变不分段。"""
+        boxes = [[20, 100, 500, 120], [120, 125, 500, 145]]
+        assert segment_paragraphs(boxes) == [[0, 1]]
 
     def test_empty(self) -> None:
-        """Empty input returns no boundaries."""
-        boundaries = detect_paragraph_boundaries([], 943, 841.89)
-        assert boundaries == []
+        """Empty input returns no paragraphs."""
+        assert segment_paragraphs([]) == []
 
     def test_single_line(self) -> None:
-        """Single line produces one paragraph with start == end."""
-        boxes = [[20, 100, 500, 120]]
-        boundaries = detect_paragraph_boundaries(boxes, 943, 841.89)
-        assert len(boundaries) == 1
-        assert boundaries[0].start_index == 0
-        assert boundaries[0].end_index == 0
-        assert boundaries[0].line_indices == [0]
+        """Single line produces one single-line paragraph."""
+        assert segment_paragraphs([[20, 100, 500, 120]]) == [[0]]
+
+    def test_indices_follow_original_positions(self) -> None:
+        """段落列表按 Y 排序，段落内保留原始索引。"""
+        boxes = [[20, 400, 500, 420], [20, 100, 500, 120], [20, 125, 500, 145]]
+        assert segment_paragraphs(boxes) == [[1, 2], [0]]
 
 
 # ---------------------------------------------------------------------------
@@ -462,28 +453,6 @@ class TestComputeLeftRightIndent:
             font_sizes=font_sizes,
         )
         assert result[0]["left_indent"] == 144.0
-
-
-# ---------------------------------------------------------------------------
-# TestParagraphBoundary dataclass
-# ---------------------------------------------------------------------------
-
-
-class TestParagraphBoundaryDataclass:
-    """Verify ParagraphBoundary dataclass structure."""
-
-    def test_fields(self) -> None:
-        """Dataclass has correct fields."""
-        b = ParagraphBoundary(start_index=0, end_index=2, line_indices=[0, 1, 2])
-        assert b.start_index == 0
-        assert b.end_index == 2
-        assert b.line_indices == [0, 1, 2]
-
-    def test_frozen(self) -> None:
-        """Dataclass is immutable (frozen)."""
-        b = ParagraphBoundary(start_index=0, end_index=0, line_indices=[0])
-        with pytest.raises(AttributeError):
-            b.start_index = 1  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
