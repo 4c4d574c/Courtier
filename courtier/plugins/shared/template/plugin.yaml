@@ -3,6 +3,12 @@ version: "1.0.0"
 api: "1.0"
 description: "Database-backed format template loading"
 
+dependencies:
+  host_services:
+    - template_store
+  permissions:
+    - read:templates
+
 capabilities:
   tools:
     - name: load_template

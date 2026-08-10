@@ -5,9 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core import detect_plagiarism
-
-from courtier.agent.artifacts.models import InputField
-from courtier.agent.tools.protocol import ToolResult
+from courtier_plugin_sdk import InputField, ToolResult
 
 
 class DetectPlagiarismTool:
@@ -47,9 +45,7 @@ class DetectPlagiarismTool:
         "required": ["new_doc", "library_docs"],
     }
     input_fields: tuple[InputField, ...] = (
-        InputField(
-            name="new_doc", artifact_type="core.plain_text", materialize_as="string"
-        ),
+        InputField(name="new_doc", artifact_type="core.plain_text", materialize_as="string"),
         InputField(
             name="library_docs",
             artifact_type="core.text_collection",

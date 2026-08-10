@@ -1,4 +1,3 @@
-
 import pytest
 
 from .conftest import _ensure_plugin_path

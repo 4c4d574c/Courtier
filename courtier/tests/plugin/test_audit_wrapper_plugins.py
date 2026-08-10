@@ -16,6 +16,7 @@ from .conftest import _ensure_plugin_path
 # format_audit
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_format_audit_plugin_registers_check_format():
     """Format audit plugin registers check_format tool."""
@@ -48,6 +49,58 @@ async def test_format_audit_tool_validates_doc():
 
 
 @pytest.mark.asyncio
+async def test_format_audit_tool_emits_issue_counts():
+    """check_format 按 issue_counts 机制输出计数（err 驱动卡片状态）。"""
+    _ensure_plugin_path("format_audit")
+
+    from plugins.docaudit.audit.format_audit.tools import FormatAuditTool
+
+    tool = FormatAuditTool()
+    sample_result = {
+        "total_pages": 2,
+        "errors": [{"block_name": "标题"}, {"block_name": "正文段落"}],
+        "unchecked": [{"block_name": "页面设置"}],
+    }
+
+    with patch("plugins.docaudit.audit.format_audit.tools.validator", return_value=sample_result):
+        result = await tool.execute(doc={"mock": "doc"}, doc_type="通知")
+
+    assert result.success is True
+    assert result.metadata["issue_counts"] == {
+        "err": 2,
+        "warn": 0,
+        "ok": 0,
+        "unchecked": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_format_audit_tool_issue_counts_clean_doc():
+    """无错误文档：ok=1，unchecked 计数仍透传。"""
+    _ensure_plugin_path("format_audit")
+
+    from plugins.docaudit.audit.format_audit.tools import FormatAuditTool
+
+    tool = FormatAuditTool()
+    sample_result = {
+        "total_pages": 1,
+        "errors": [],
+        "unchecked": [{"block_name": "页面设置"}, {"block_name": "正文"}],
+    }
+
+    with patch("plugins.docaudit.audit.format_audit.tools.validator", return_value=sample_result):
+        result = await tool.execute(doc={"mock": "doc"}, doc_type="通知")
+
+    assert result.success is True
+    assert result.metadata["issue_counts"] == {
+        "err": 0,
+        "warn": 0,
+        "ok": 1,
+        "unchecked": 2,
+    }
+
+
+@pytest.mark.asyncio
 async def test_format_audit_tool_handles_error():
     """check_format returns ToolResult with success=False on exception."""
     _ensure_plugin_path("format_audit")
@@ -69,6 +122,7 @@ async def test_format_audit_tool_handles_error():
 # ---------------------------------------------------------------------------
 # content_audit
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_content_audit_plugin_registers_check_content():
@@ -98,7 +152,7 @@ async def test_content_audit_tool_returns_violations():
     mock_checker = MagicMock()
     mock_checker.doc_type = "通知"
 
-    from courtier.plugin.types import ComplianceResult, Violation
+    from courtier_plugin_sdk.types import ComplianceResult, Violation
 
     mock_checker.check = AsyncMock(
         return_value=ComplianceResult(
@@ -110,9 +164,7 @@ async def test_content_audit_tool_returns_violations():
         )
     )
 
-    with patch(
-        "plugins.docaudit.audit.content_audit.tools.get_checker", return_value=mock_checker
-    ):
+    with patch("plugins.docaudit.audit.content_audit.tools.get_checker", return_value=mock_checker):
         result = await tool.execute(text="test text", doc_type="通知")
 
     assert result.success is True
@@ -151,9 +203,7 @@ async def test_content_audit_tool_handles_checker_exception():
     mock_checker = MagicMock()
     mock_checker.check = AsyncMock(side_effect=RuntimeError("checker crash"))
 
-    with patch(
-        "plugins.docaudit.audit.content_audit.tools.get_checker", return_value=mock_checker
-    ):
+    with patch("plugins.docaudit.audit.content_audit.tools.get_checker", return_value=mock_checker):
         result = await tool.execute(text="test", doc_type="通知")
 
     assert result.success is False
@@ -163,6 +213,7 @@ async def test_content_audit_tool_handles_checker_exception():
 # ---------------------------------------------------------------------------
 # text_correction
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_text_correction_plugin_registers_correct_text():
@@ -220,6 +271,7 @@ async def test_text_correction_tool_handles_error():
 # ---------------------------------------------------------------------------
 # plagiarism (existing — verify no regressions)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_plagiarism_plugin_registers_detect_plagiarism():

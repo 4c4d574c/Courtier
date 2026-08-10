@@ -2,28 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import copy
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
-from courtier.agent.tools.protocol import ToolResult
+from courtier_plugin_sdk import ToolResult
 
+# Keys stripped recursively from the dumped Document before it is returned.
+# Position and spacing fields (position, space_before, space_after,
+# line_spacing, first_indent, left_indent, right_indent) must be kept: the
+# format validator reads them for its spacing checks, and the artifact
+# projectors read the page_content header/body/footer slots from this output.
+# Only genuinely internal fields may be dropped here:
+# - save_path: host filesystem path — never leak it to callers
 _DROP_KEYS = frozenset(
     {
-        "raw",
-        "position",
-        "exist",
-        "block_no",
         "save_path",
-        "space_before",
-        "space_after",
-        "line_spacing",
     }
 )
 
 
 def _sanitize(obj: Any) -> Any:
-    """Recursively strip binary data and irrelevant fields for LLM context."""
+    """Recursively strip binary data and internal fields for LLM context."""
     if isinstance(obj, (bytes, bytearray)):
         return f"<binary:{base64.b64encode(obj).decode()[:64]}...>"
     if isinstance(obj, dict):
@@ -56,23 +60,39 @@ class ParseTool:
     output_schema: dict | None = {
         "type": "object",
         "properties": {
-            "metadata": {
-                "type": "object",
-                "properties": {
-                    "user_id": {"type": "str"},
-                    "doc_id": {"type": "str"},
-                    "total_page_num": {"type": "int"},
-                },
+            "schema_version": {
+                "type": "string",
+                "description": 'Document model structure version (e.g. "1.0").',
+            },
+            "doc_id": {"type": "string"},
+            "total_page_num": {"type": "integer"},
+            "warnings": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Non-fatal parse warnings (e.g. OCR degradation), if any.",
+            },
+            "warnings_summary": {
+                "type": "string",
+                "description": (
+                    "Human-readable summary of parse warnings, present only "
+                    "when warnings is non-empty."
+                ),
             },
             "pages": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "page_no": {"type": "int"},
-                        "header": {"type": "object"},
-                        "body": {"type": "array"},
-                        "footer": {"type": "object"},
+                        "page_no": {"type": "integer"},
+                        "page_content": {
+                            "type": "object",
+                            "properties": {
+                                "header": {"type": "object"},
+                                "body": {"type": "object"},
+                                "footer": {"type": "object"},
+                                "margin": {"type": "object"},
+                            },
+                        },
                     },
                 },
             },
@@ -84,21 +104,26 @@ class ParseTool:
     _MAX_CACHE_SIZE = 64
 
     def __init__(self) -> None:
-        self._cache: dict[str, ToolResult] = {}
+        # key: resolved absolute path -> ((mtime_ns, size) fingerprint, result)
+        self._cache: dict[str, tuple[tuple[int, int], ToolResult]] = {}
         self._cache_keys: list[str] = []  # LRU tracking (most recent last)
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
-            import os
-            from pathlib import Path
-
-            raw_path = kwargs["file_path"]
+            file_path = kwargs.get("file_path")
+            if not isinstance(file_path, str) or not file_path:
+                return ToolResult(
+                    success=False,
+                    error="缺少必填参数 file_path（文档绝对路径）",
+                )
 
             # Resolve the upload root from environment (prefer COURTIER_*, fall back
             # to legacy DOCAUDIT_* names for compatibility).
-            safe_root_raw = os.environ.get("COURTIER_UPLOAD_DIR") or os.environ.get(
-                "DOCAUDIT_UPLOAD_DIR"
-            ) or os.environ.get("UPLOAD_DIR")
+            safe_root_raw = (
+                os.environ.get("COURTIER_UPLOAD_DIR")
+                or os.environ.get("DOCAUDIT_UPLOAD_DIR")
+                or os.environ.get("UPLOAD_DIR")
+            )
             if not safe_root_raw:
                 return ToolResult(
                     success=False,
@@ -106,13 +131,7 @@ class ParseTool:
                 )
             safe_root = Path(safe_root_raw).resolve()
 
-            # Return cached result for same file path (LRU: move to end)
-            if raw_path in self._cache:
-                self._cache_keys.remove(raw_path)
-                self._cache_keys.append(raw_path)
-                return self._cache[raw_path]
-
-            p = Path(raw_path)
+            p = Path(file_path)
             if p.is_absolute():
                 resolved = p.resolve()
             else:
@@ -122,32 +141,64 @@ class ParseTool:
             try:
                 resolved.relative_to(safe_root)
             except ValueError:
-                logging.getLogger(__name__).warning(
-                    "Path escape attempt blocked: %s", raw_path
-                )
-                return ToolResult(
-                    success=False, error=f"Access denied: {raw_path}"
-                )
+                logging.getLogger(__name__).warning("Path escape attempt blocked: %s", file_path)
+                return ToolResult(success=False, error=f"Access denied: {file_path}")
 
             if not resolved.is_file():
                 return ToolResult(
                     success=False,
-                    error=f"File not found or not a regular file: {raw_path}",
+                    error=f"File not found or not a regular file: {file_path}",
                 )
+
+            # Cache lookup happens only after the sandbox checks above. The key
+            # is the normalized absolute path and the entry is invalidated by a
+            # (mtime_ns, size) fingerprint, so overwriting the file forces a
+            # re-parse instead of serving stale data.
+            stat = resolved.stat()
+            fingerprint = (stat.st_mtime_ns, stat.st_size)
+            cache_key = str(resolved)
+            cached = self._cache.get(cache_key)
+            if cached is not None and cached[0] == fingerprint:
+                # LRU: move to end
+                self._cache_keys.remove(cache_key)
+                self._cache_keys.append(cache_key)
+                # Return a private copy so callers mutating the result cannot
+                # pollute the cached entry.
+                return copy.deepcopy(cached[1])
 
             from docparse import parse
 
-            doc = parse(str(resolved))
-            data = _sanitize(doc.model_dump())
-            result = ToolResult(success=True, data=data)
+            # docparse.parse is synchronous and can take minutes on scanned
+            # files (OCR + multimodal LLM) — run it off the event loop so the
+            # plugin keeps answering health checks and cancellation requests.
+            doc = await asyncio.to_thread(parse, str(resolved))
+            # exclude_none=True：None 槽位/间距不再序列化（下游 validator
+            # 全用 .get() 取数、projectors 均 None 安全，缺失键与显式 None
+            # 行为一致）。不用 exclude_defaults，以免丢掉 page_no=0、
+            # font_weight=False 等有语义的默认值。
+            data = _sanitize(doc.model_dump(exclude_none=True))
+            # Surface non-fatal parse warnings on the visible layers: data
+            # keeps ``warnings`` verbatim, while ``warnings_summary`` (data
+            # top-level) and metadata["warnings"] still reach the model when
+            # the payload is large enough to be persisted behind a $ref.
+            metadata: dict[str, Any] = {}
+            warnings = [w for w in doc.warnings if isinstance(w, str) and w.strip()]
+            if warnings:
+                preview = "；".join(warnings[:5])
+                if len(warnings) > 5:
+                    preview += f" 等（共 {len(warnings)} 条）"
+                data["warnings_summary"] = f"解析警告 {len(warnings)} 条：{preview}"
+                metadata["warnings"] = warnings
+            result = ToolResult(success=True, data=data, metadata=metadata)
             # LRU eviction: remove oldest if at capacity
-            if raw_path not in self._cache and len(self._cache) >= self._MAX_CACHE_SIZE:
+            if cache_key not in self._cache and len(self._cache) >= self._MAX_CACHE_SIZE:
                 oldest = self._cache_keys.pop(0)
                 self._cache.pop(oldest, None)
-            self._cache[raw_path] = result
-            if raw_path in self._cache_keys:
-                self._cache_keys.remove(raw_path)
-            self._cache_keys.append(raw_path)
+            # Store a private copy; every returned object stays caller-owned.
+            self._cache[cache_key] = (fingerprint, copy.deepcopy(result))
+            if cache_key in self._cache_keys:
+                self._cache_keys.remove(cache_key)
+            self._cache_keys.append(cache_key)
             return result
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))

@@ -3,21 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import platform
 import re
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from courtier_plugin_sdk.protocol import STREAM_LIMIT_BYTES
+
 from courtier.agent.core.context_manager import ContextManager
 from courtier.agent.telemetry.metrics import PLUGIN_STATE
 from courtier.config import get_settings
+from courtier.storage import client as storage_client
 
 from .client import JSONRPCClient, PluginCrashedError
 from .lifecycle import PluginHandle, PluginLifecycle
@@ -35,9 +40,15 @@ from .protocol import (
     METHOD_HOST_SERVICES,
     METHOD_NOT_FOUND,
     METHOD_RUNTIME_CONTEXT,
+    METHOD_STORAGE_PUT,
+    METHOD_TEMPLATE_STORE_GET,
 )
 from .registry import ExtensionRegistry
 from .scanner import PluginScanResult
+
+# Presigned download URLs handed to plugins for stored outputs live this long
+# (S3 SigV4 presigned URLs are capped at 7 days).
+_STORAGE_URL_EXPIRES_SECONDS = 7 * 24 * 3600
 
 
 def _find_project_root(plugin_dir: Path) -> Path:
@@ -56,67 +67,87 @@ def _find_project_root(plugin_dir: Path) -> Path:
     return plugin_dir.resolve()
 
 
-def _configured_domain_names() -> list[str]:
-    """Return the list of configured domain package names.
-
-    Reads ``COURTIER_DOMAIN_PACKAGES`` (comma-separated) and falls back to
-    ``docaudit`` so shared plugins can import domain models such as
-    ``docmodels`` regardless of which domain owns the plugin.
-    """
-    raw = os.environ.get("COURTIER_DOMAIN_PACKAGES", "docaudit")
-    return [name.strip() for name in raw.split(",") if name.strip()]
-
-
-def _build_plugin_pythonpath(
-    plugin_dir: Path, project_root: Path, existing_pythonpath: str = ""
-) -> str:
-    """Build the PYTHONPATH for a plugin subprocess.
-
-    Includes the project root, shared libraries, and all configured domain
-    package directories so imports like ``docmodels`` resolve correctly in
-    both shared and domain plugins.
-    """
-    parts = [str(project_root)]
-
-    parts.append(str(project_root / "libs" / "shared"))
-    parts.append(str(project_root / "libs" / "docaudit"))
-
-    # Shared libraries (e.g. docparse) depend on domain models (e.g.
-    # docmodels), so every configured domain package must be on PYTHONPATH.
-    for domain_name in _configured_domain_names():
-        domain_path = project_root / "domains" / domain_name
-        if domain_path.is_dir():
-            parts.append(str(domain_path))
-
-    if existing_pythonpath:
-        parts.append(existing_pythonpath)
-
-    return ":".join(parts)
-
-
 logger = logging.getLogger(__name__)
 
 # Environment variables that may be resolved from ${ENV:VAR_NAME} references in
 # plugin manifests. Restricting this list prevents a plugin manifest from
-# exfiltrating database/LLM/cloud credentials from the host process.
-_ALLOWED_MANIFEST_ENV_VARS: frozenset[str] = frozenset({
-    "PATH",
-    "HOME",
-    "USER",
-    "TMPDIR",
-    "TEMP",
-    "TMP",
-    "PYTHONPATH",
-    "PYTHONUNBUFFERED",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TZ",
-    "COURTIER_UPLOAD_DIR",
-    "DOCAUDIT_UPLOAD_DIR",
-    "UPLOAD_DIR",
-    "COURTIER_REPO_ROOT",
-})
+# exfiltrating database/cloud credentials from the host process. The LLM_* and
+# DOCPARSE_OCR_* entries are required by the parse plugin's scanned-document
+# pipeline, CEC_* by text_correction's correction model, and ES_* by the
+# search plugin's chunk index access; manifests are first-party (shipped in
+# plugins/) and plugin subprocesses already run with host OS permissions, so
+# exposing endpoint credentials to declaring plugins is accepted. DB/MinIO/cloud
+# credentials remain excluded.
+_ALLOWED_MANIFEST_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "PYTHONPATH",
+        "PYTHONUNBUFFERED",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "COURTIER_UPLOAD_DIR",
+        "DOCAUDIT_UPLOAD_DIR",
+        "UPLOAD_DIR",
+        "COURTIER_REPO_ROOT",
+        "LLM_IP",
+        "LLM_API_KEY",
+        "LLM_NAME",
+        "DOCPARSE_OCR_API_URL",
+        "DOCPARSE_OCR_LANG",
+        "DOCPARSE_OCR_ENGINE",
+        "DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE",
+        "CEC_API_BASE",
+        "CEC_API_KEY",
+        "CEC_MODEL_NAME",
+        "CEC_MAX_LENGTH",
+        "CEC_USER_DICT",
+        "ES_HOSTS",
+        "ES_INDEX_CHUNKS",
+        "ES_USERNAME",
+        "ES_PASSWORD",
+    }
+)
+
+# ${ENV:VAR} references to these variables fall back to the host Settings
+# singleton when the variable is absent from os.environ. pydantic-settings
+# reads .env into the Settings object without writing os.environ, so without
+# this bridge manifests could only reference shell-exported variables and
+# .env-only configuration would silently resolve to empty strings.
+_SETTINGS_ENV_FALLBACK: dict[str, str] = {
+    "LLM_IP": "llm_base_url",
+    "LLM_API_KEY": "llm_api_key",
+    "LLM_NAME": "llm_model",
+    "DOCPARSE_OCR_API_URL": "docparse_ocr_api_url",
+    "DOCPARSE_OCR_LANG": "docparse_ocr_lang",
+    "DOCPARSE_OCR_ENGINE": "docparse_ocr_engine",
+    "DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE": "docparse_ocr_max_image_long_side",
+    "CEC_API_BASE": "cec_api_base",
+    "CEC_API_KEY": "cec_api_key",
+    "CEC_MODEL_NAME": "cec_model_name",
+    "CEC_MAX_LENGTH": "cec_max_length",
+    "CEC_USER_DICT": "cec_user_dict",
+    "ES_HOSTS": "es_hosts",
+    "ES_INDEX_CHUNKS": "es_index_chunks",
+    "ES_USERNAME": "es_username",
+    "ES_PASSWORD": "es_password",
+}
+
+
+def _settings_env_fallback(var_name: str) -> str:
+    """Resolve *var_name* from the host Settings singleton, or "" if unmapped/empty."""
+    attr = _SETTINGS_ENV_FALLBACK.get(var_name)
+    if not attr:
+        return ""
+    from courtier.config import get_settings
+
+    return str(getattr(get_settings(), attr, "") or "")
 
 
 def _resolve_plugin_entry_path(plugin_dir: Path, entry: str) -> Path:
@@ -187,8 +218,9 @@ async def _micro_compact_dict_messages(
         return d
 
     model_messages = tuple(_to_message(m) for m in messages)
-    cm = ContextManager(model=None, artifact_store=artifact_store, recent_tool_results=5)
-    compacted = await cm.micro_compact(model_messages)
+    cm = ContextManager(model=None, artifact_store=artifact_store)
+    # The plugin explicitly requested compaction — skip the budget gate.
+    compacted = await cm.micro_compact(model_messages, force=True)
     return [_to_dict(m) for m in compacted]
 
 
@@ -211,6 +243,7 @@ def _is_error_line(line: str) -> bool:
 # Window (seconds) after reaching ACTIVE within which a crash is treated as
 # a deterministic startup failure -> FATAL with no restart attempts.
 _IMMEDIATE_CRASH_WINDOW = 5.0
+_MAX_STDERR_LOG_BYTES = 1_000_000
 
 
 def _resolve_env(value: str) -> str:
@@ -218,7 +251,9 @@ def _resolve_env(value: str) -> str:
 
     Only variables explicitly listed in _ALLOWED_MANIFEST_ENV_VARS are
     resolved; all other references are left unchanged so secrets cannot be
-    pulled into the plugin environment via manifest configuration.
+    pulled into the plugin environment via manifest configuration. Allowed
+    variables resolve from os.environ first, then fall back to the host
+    Settings singleton for names in _SETTINGS_ENV_FALLBACK.
     """
 
     def _replace(match: re.Match[str]) -> str:
@@ -229,7 +264,9 @@ def _resolve_env(value: str) -> str:
                 var_name,
             )
             return match.group(0)
-        return os.environ.get(var_name, "")
+        # Real environment wins; fall back to the host Settings (.env) so
+        # plugin manifests work without requiring shell-exported variables.
+        return os.environ.get(var_name, "") or _settings_env_fallback(var_name)
 
     return _ENV_REF_RE.sub(_replace, value)
 
@@ -266,9 +303,7 @@ class PluginProcess:
     @property
     def client(self) -> JSONRPCClient:
         if self._client is None:
-            raise RuntimeError(
-                f"Plugin '{self.name}' is not ready (state: {self.state.value})"
-            )
+            raise RuntimeError(f"Plugin '{self.name}' is not ready (state: {self.state.value})")
         return self._client
 
 
@@ -296,6 +331,7 @@ class ProcessManager:
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
         plugin_lifecycle: PluginLifecycle | None = None,
+        log_dir: str | Path = ".agent_logs/plugins",
     ) -> None:
         self._plugin_dir = plugin_dir
         self._extension_registry = extension_registry
@@ -303,7 +339,9 @@ class ProcessManager:
         self._health_interval = health_interval
         self._artifact_store = artifact_store
         self._artifact_store_registry = artifact_store_registry
+        self._log_dir = Path(log_dir)
         self._processes: dict[str, PluginProcess] = {}
+        self._scan_results: dict[str, PluginScanResult] = {}
 
         # Use a provided lifecycle or create one wired to the capability registry.
         cap_registry = getattr(extension_registry, "_capability_registry", None)
@@ -324,8 +362,97 @@ class ProcessManager:
         """Return a copy of the process map keyed by plugin name."""
         return dict(self._processes)
 
+    # -- Crash diagnostics: stderr tee + exit-code reporting ---------------------
+
+    def _stderr_log_path(self, name: str) -> Path:
+        return self._log_dir / f"{name}.log"
+
+    def _append_stderr_log(self, name: str, text: str) -> None:
+        """Append a line to the plugin's stderr log (bounded file size)."""
+        try:
+            path = self._stderr_log_path(name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size > _MAX_STDERR_LOG_BYTES:
+                # Keep the tail so the log stays bounded.
+                tail = path.read_bytes()[-_MAX_STDERR_LOG_BYTES // 4 :]
+                path.write_bytes(tail)
+            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            with path.open("a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {text}\n")
+        except Exception:
+            logger.debug("Failed to write plugin stderr log", exc_info=True)
+
+    @staticmethod
+    def _describe_exit_code(returncode: int | None) -> str:
+        """Human-readable exit status: code, or signal name for negative codes."""
+        if returncode is None:
+            return "unknown"
+        if returncode >= 0:
+            return str(returncode)
+        try:
+            import signal
+
+            return f"{returncode} (signal {-returncode}={signal.Signals(-returncode).name})"
+        except (ValueError, KeyError):
+            return f"{returncode} (signal {-returncode})"
+
+    def get_scan_results(self) -> dict[str, PluginScanResult]:
+        """Return the last scan results keyed by plugin name (valid + blocked)."""
+        return dict(self._scan_results)
+
+    async def start_plugin(self, name: str) -> PluginState:
+        """Start a stopped/fatal/never-started plugin by name.
+
+        Manual starts get a fresh crash budget.  No-op when already running.
+        """
+        proc = self._processes.get(name)
+        if proc is not None and proc.state in (
+            PluginState.ACTIVE,
+            PluginState.REGISTERING,
+            PluginState.LOADING,
+            PluginState.RESTARTING,
+        ):
+            return proc.state
+        if proc is None:
+            result = self._scan_results.get(name)
+            if result is None or result.manifest is None:
+                raise KeyError(f"Unknown plugin: {name}")
+            proc = PluginProcess(
+                name=result.name,
+                manifest=result.manifest,
+                plugin_dir=result.dir,
+            )
+            self._processes[name] = proc
+        proc._restart_count = 0
+        proc._health_failures = 0
+        try:
+            await self._start_one(proc)
+        except Exception:
+            logger.error("Manual start of plugin '%s' failed", name, exc_info=True)
+            await self._on_crash(proc)
+        return proc.state
+
+    async def stop_plugin(self, name: str) -> PluginState:
+        """Stop a running plugin and unregister its capabilities."""
+        proc = self._processes.get(name)
+        if proc is None:
+            raise KeyError(f"Unknown plugin: {name}")
+        await self._stop_one(proc)
+        return proc.state
+
+    async def restart_plugin(self, name: str) -> PluginState:
+        """Stop (when running) then start a plugin."""
+        proc = self._processes.get(name)
+        if proc is not None and proc.state in (
+            PluginState.ACTIVE,
+            PluginState.REGISTERING,
+        ):
+            await self._stop_one(proc)
+        return await self.start_plugin(name)
+
     async def start_all(self, results: list[PluginScanResult]) -> None:
         """Start all valid plugins from scan results."""
+        self._scan_results = {result.name: result for result in results}
         for result in results:
             if result.status.value != "VALID":
                 continue
@@ -349,9 +476,7 @@ class ProcessManager:
                     PluginState.ACTIVE,
                 ):
                     proc.state = PluginState.FATAL
-                    PLUGIN_STATE.labels(
-                        plugin_name=proc.name, state=PluginState.FATAL.value
-                    ).set(1)
+                    PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
             except Exception:
                 logger.error(
                     "Failed to start plugin '%s'",
@@ -359,9 +484,7 @@ class ProcessManager:
                     exc_info=True,
                 )
                 proc.state = PluginState.FATAL
-                PLUGIN_STATE.labels(
-                    plugin_name=proc.name, state=PluginState.FATAL.value
-                ).set(1)
+                PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
 
         # Validate artifact contracts after all plugins are loaded so
         # the full producer graph is available — per-tool registration-time
@@ -371,9 +494,7 @@ class ProcessManager:
     async def _start_one(self, proc: PluginProcess) -> None:
         """Start a single plugin subprocess and wait for registration."""
         proc.state = PluginState.LOADING
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.LOADING.value).set(
-            1
-        )
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.LOADING.value).set(1)
 
         entry = proc.manifest.runtime.entry if proc.manifest else "entry.py"
         try:
@@ -408,22 +529,12 @@ class ProcessManager:
             for key, value in proc.manifest.runtime.env.items():
                 env[key] = _resolve_env(value)
 
-        # Add project root to PYTHONPATH so plugins can import from
-        # libs/ (courtier.* and domain libs).
-        # Walk up from plugin_dir to find project root (identified by
-        # pyproject.toml and a courtier/ package directory).
+        # Locate the project root (identified by pyproject.toml and a
+        # courtier/ package directory) for COURTIER_REPO_ROOT.  Plugin
+        # imports resolve from the plugin's own venv — libs and the plugin
+        # SDK are installed packages, no PYTHONPATH assembly needed.
         _project_root_path = _find_project_root(proc.plugin_dir)
         project_root = str(_project_root_path)
-
-        # Build PYTHONPATH with project root + libs directories.
-        # Plugins import from libs/shared (docparse, docannot) and
-        # libs/docaudit (validator, content_compliance, doccorrector).
-        # Domain plugins also need the domain package directory so models
-        # such as docmodels are importable.
-        existing = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = _build_plugin_pythonpath(
-            proc.plugin_dir, _project_root_path, existing
-        )
 
         # Expose the repo root so plugins can resolve relative paths correctly.
         # The plugin subprocess CWD is the plugin directory, not the project
@@ -438,15 +549,30 @@ class ProcessManager:
         env["COURTIER_UPLOAD_DIR"] = upload_dir
         env["DOCAUDIT_UPLOAD_DIR"] = upload_dir  # deprecated fallback
 
+        # Spawn the plugin's own venv python directly when available.
+        # `uv run` wraps the real interpreter: SIGKILL then hits the wrapper
+        # while the grandchild keeps the stdio pipes open, so wait() hangs
+        # ("did not exit after SIGKILL").  A direct interpreter keeps the
+        # process tree flat and kill/wait reliable.
+        # .absolute(), NOT .resolve(): bin/python in a venv is a symlink to
+        # the system interpreter — resolving it would drop the venv's
+        # site-packages and the plugin would fail to start.
+        venv_python = (proc.plugin_dir / ".venv" / "bin" / "python").absolute()
+        if venv_python.is_file():
+            cmd = [str(venv_python), entry]
+        else:
+            cmd = ["uv", "run", entry]
         proc._process = await asyncio.create_subprocess_exec(
-            "uv",
-            "run",
-            entry,
+            *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(proc.plugin_dir),
             env=env,
+            # Responses carry whole parsed documents on one JSON-RPC line —
+            # the default 64 KiB stream limit made the host misdiagnose
+            # healthy plugins as crashed (LimitOverrunError → kill).
+            limit=STREAM_LIMIT_BYTES,
         )
 
         # CRITICAL: Any failure after subprocess creation must clean up the
@@ -454,11 +580,7 @@ class ProcessManager:
         # below ensures cleanup on all error paths.
         try:
             # Create client with crash callback wired to _on_crash
-            client_timeout = (
-                proc.manifest.timeout_ms / 1000.0
-                if proc.manifest
-                else 30.0
-            )
+            client_timeout = proc.manifest.timeout_ms / 1000.0 if proc.manifest else 30.0
             proc._client = JSONRPCClient(
                 reader=proc._process.stdout,
                 writer=proc._process.stdin,
@@ -469,16 +591,12 @@ class ProcessManager:
 
             # Wait for register notification
             proc.state = PluginState.REGISTERING
-            PLUGIN_STATE.labels(
-                plugin_name=proc.name, state=PluginState.REGISTERING.value
-            ).set(1)
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.REGISTERING.value).set(1)
             try:
                 capabilities = await proc._client.wait_for_register(timeout=10.0)
             except asyncio.TimeoutError:
                 proc.state = PluginState.FATAL
-                PLUGIN_STATE.labels(
-                    plugin_name=proc.name, state=PluginState.FATAL.value
-                ).set(1)
+                PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
                 logger.error(
                     "Plugin '%s' did not send register notification within 10s, marking FATAL",
                     proc.name,
@@ -493,9 +611,7 @@ class ProcessManager:
                 system_prompt=proc._client._register_system_prompt,
             )
             proc.state = PluginState.ACTIVE
-            PLUGIN_STATE.labels(
-                plugin_name=proc.name, state=PluginState.ACTIVE.value
-            ).set(1)
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.ACTIVE.value).set(1)
             proc._started_at = asyncio.get_event_loop().time()
             proc._restart_count = 0
             proc._health_failures = 0
@@ -518,20 +634,16 @@ class ProcessManager:
             proc._health_task = asyncio.create_task(self._health_loop(proc))
 
             # Register host service handler and tell the plugin which services it may use.
-            proc._client.set_host_request_handler(
-                self._create_host_request_handler(proc)
-            )
+            proc._client.set_host_request_handler(self._create_host_request_handler(proc))
             await proc._client.notify(
                 METHOD_HOST_SERVICES,
                 {
-                    "host_services": list(
-                        proc.manifest.dependencies.host_services or []
-                    ),
+                    "host_services": list(proc.manifest.dependencies.host_services or []),
                     "permissions": list(proc.manifest.dependencies.permissions or []),
                 },
             )
 
-            # Send runtime context (DRUDGE.md, environment) so plugins can
+            # Send runtime context (COURTIER.md, environment) so plugins can
             # inject project-level rules into their tool system prompts.
             await proc._client.notify(
                 METHOD_RUNTIME_CONTEXT,
@@ -616,20 +728,13 @@ class ProcessManager:
                 return compacted
 
             if method == METHOD_ARTIFACT_STORE_PUT:
-                if (
-                    "artifact_store" not in host_services
-                    or "write:artifacts" not in perms
-                ):
+                if "artifact_store" not in host_services or "write:artifacts" not in perms:
                     return _deny(INVALID_PARAMS, "Missing write:artifacts permission")
                 if artifact_registry is None:
-                    return _deny(
-                        INTERNAL_ERROR, "Host artifact store registry not available"
-                    )
+                    return _deny(INTERNAL_ERROR, "Host artifact store registry not available")
                 store = artifact_registry.get(session_id)
                 if store is None:
-                    return _deny(
-                        INVALID_PARAMS, f"No artifact store for session {session_id}"
-                    )
+                    return _deny(INVALID_PARAMS, f"No artifact store for session {session_id}")
                 from courtier.agent.artifacts.models import Artifact
 
                 artifact = Artifact(**params.get("artifact", {}))
@@ -638,40 +743,89 @@ class ProcessManager:
 
             if method == METHOD_ARTIFACT_STORE_GET:
                 if "artifact_store" not in host_services:
-                    return _deny(
-                        INVALID_PARAMS, "Artifact store host service not declared"
-                    )
+                    return _deny(INVALID_PARAMS, "Artifact store host service not declared")
                 if not ({"read:artifacts", "read:documents"} & perms):
                     return _deny(INVALID_PARAMS, "Missing read artifact permission")
                 if artifact_registry is None:
-                    return _deny(
-                        INTERNAL_ERROR, "Host artifact store registry not available"
-                    )
+                    return _deny(INTERNAL_ERROR, "Host artifact store registry not available")
                 store = artifact_registry.get(session_id)
                 if store is None:
-                    return _deny(
-                        INVALID_PARAMS, f"No artifact store for session {session_id}"
-                    )
+                    return _deny(INVALID_PARAMS, f"No artifact store for session {session_id}")
                 artifact = store.get(params.get("artifact_id"))
                 return artifact.model_dump() if artifact is not None else None
 
             if method == METHOD_ARTIFACT_STORE_LIST:
                 if "artifact_store" not in host_services:
-                    return _deny(
-                        INVALID_PARAMS, "Artifact store host service not declared"
-                    )
+                    return _deny(INVALID_PARAMS, "Artifact store host service not declared")
                 if not ({"read:artifacts", "read:documents"} & perms):
                     return _deny(INVALID_PARAMS, "Missing read artifact permission")
                 if artifact_registry is None:
-                    return _deny(
-                        INTERNAL_ERROR, "Host artifact store registry not available"
-                    )
+                    return _deny(INTERNAL_ERROR, "Host artifact store registry not available")
                 store = artifact_registry.get(session_id)
                 if store is None:
-                    return _deny(
-                        INVALID_PARAMS, f"No artifact store for session {session_id}"
-                    )
+                    return _deny(INVALID_PARAMS, f"No artifact store for session {session_id}")
                 return [a.model_dump() for a in store.list_all()]
+
+            if method == METHOD_STORAGE_PUT:
+                if "storage" not in host_services or "write:storage" not in perms:
+                    return _deny(INVALID_PARAMS, "Missing write:storage permission")
+                settings = get_settings()
+                if not settings.minio_endpoint:
+                    return _deny(INTERNAL_ERROR, "MinIO 未配置，无法存储文件")
+                # basename 防路径穿越；uuid 目录避免同名文件互相覆盖。
+                filename = Path(str(params.get("filename") or "output.bin")).name
+                try:
+                    data = base64.b64decode(params.get("data_b64") or "")
+                except Exception:
+                    return _deny(INVALID_PARAMS, "data_b64 不是合法的 base64 编码")
+                if not data:
+                    return _deny(INVALID_PARAMS, "文件内容为空")
+                content_type = str(params.get("content_type") or "application/octet-stream")
+                object_key = f"plugin-outputs/{uuid.uuid4().hex}/{filename}"
+                bucket = settings.minio_bucket_docs
+                try:
+                    await asyncio.to_thread(
+                        storage_client.put_object, bucket, object_key, data, content_type
+                    )
+                    url = await asyncio.to_thread(
+                        storage_client.get_presigned_url,
+                        bucket,
+                        object_key,
+                        _STORAGE_URL_EXPIRES_SECONDS,
+                    )
+                except Exception as exc:
+                    logger.warning("storage.put 上传失败: %s", object_key, exc_info=True)
+                    return _deny(INTERNAL_ERROR, f"文件存储失败: {exc}")
+                return {
+                    "bucket": bucket,
+                    "object_key": object_key,
+                    "download_url": url,
+                    "expires_in": _STORAGE_URL_EXPIRES_SECONDS,
+                    "size_bytes": len(data),
+                }
+
+            if method == METHOD_TEMPLATE_STORE_GET:
+                if "template_store" not in host_services or "read:templates" not in perms:
+                    return _deny(INVALID_PARAMS, "Missing read:templates permission")
+                doc_type = str(params.get("doc_type") or "")
+                if not doc_type:
+                    return _deny(INVALID_PARAMS, "doc_type is required")
+                template_id = params.get("template_id")
+                try:
+                    from courtier.agent.api.db import get_db
+                    from courtier.db import CRUDRepository
+                    from courtier.db.tables import FormatTemplateTable
+
+                    repo = CRUDRepository(FormatTemplateTable)
+                    async with get_db().session() as session:
+                        if template_id is not None:
+                            row = await repo.get(session, int(template_id))
+                            return row.content if row else None
+                        rows = await repo.list(session, doc_type=doc_type, is_default=True, limit=1)
+                        return rows[0].content if rows else None
+                except Exception as exc:
+                    logger.warning("template_store.get 查询失败: %s", exc, exc_info=True)
+                    return _deny(INTERNAL_ERROR, f"模板查询失败: {exc}")
 
             return _deny(METHOD_NOT_FOUND, f"Unknown host service method: {method}")
 
@@ -703,6 +857,7 @@ class ProcessManager:
             while proc._process and proc._process.stderr:
                 line = await proc._process.stderr.readline()
                 if not line:  # EOF — subprocess exited
+                    self._append_stderr_log(proc.name, "<stderr closed (process exited)>")
                     if proc.state == PluginState.ACTIVE:
                         logger.warning(
                             "Plugin '%s' stderr closed unexpectedly (state=%s), treating as crash",
@@ -712,6 +867,9 @@ class ProcessManager:
                         await self._on_crash(proc)
                     break
                 text = line.decode().rstrip()
+                # Tee every stderr line to the per-plugin log so crashes
+                # (which often carry no Python traceback) stay diagnosable.
+                self._append_stderr_log(proc.name, text)
                 if _is_error_line(text):
                     logger.warning("[plugin:%s] %s", proc.name, text)
         except Exception:
@@ -767,8 +925,24 @@ class ProcessManager:
             # Atomically mark CRASHED to prevent re-entrant calls from passing the
             # guard above.
             proc.state = PluginState.CRASHED
-            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CRASHED.value).set(
-                1
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CRASHED.value).set(1)
+
+            # Crash diagnostics first (every crash path records these):
+            # exit code/signal + a marker line in the plugin's stderr log.
+            returncode = proc._process.returncode if proc._process is not None else None
+            if returncode is None and proc._process is not None:
+                # Pipes hit EOF before the child is reaped — give it a brief
+                # moment so we record the real exit code instead of "unknown".
+                try:
+                    await asyncio.wait_for(proc._process.wait(), timeout=0.5)
+                    returncode = proc._process.returncode
+                except (TimeoutError, ProcessLookupError):
+                    pass
+            exit_desc = self._describe_exit_code(returncode)
+            self._append_stderr_log(
+                proc.name,
+                f"<crash detected: exit={exit_desc}, "
+                f"restart={proc._restart_count}/{self._max_restarts}>",
             )
 
             # Cancel in-flight requests BEFORE unregistering so callers get a
@@ -803,14 +977,10 @@ class ProcessManager:
             # Fall back to the local restart policy only when no lifecycle is
             # available.
             if self._lifecycle is not None:
-                lifecycle_fatal = (
-                    self._lifecycle.health_check(proc.name) == "unhealthy"
-                )
+                lifecycle_fatal = self._lifecycle.health_check(proc.name) == "unhealthy"
                 if lifecycle_fatal:
                     proc.state = PluginState.FATAL
-                    PLUGIN_STATE.labels(
-                        plugin_name=proc.name, state=PluginState.FATAL.value
-                    ).set(1)
+                    PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
                 # Restart scheduling is handled by the lifecycle listener.
                 lifecycle_handled = True
             else:
@@ -826,18 +996,20 @@ class ProcessManager:
                         ).set(1)
                         logger.error(
                             "Plugin '%s' crashed %.1fs after startup "
-                            "(< %.0fs window), marking FATAL",
+                            "(< %.0fs window, exit=%s), marking FATAL",
                             proc.name,
                             uptime,
                             _IMMEDIATE_CRASH_WINDOW,
+                            exit_desc,
                         )
                         return
 
         logger.error(
-            "Plugin '%s' crashed (restart %d/%d)",
+            "Plugin '%s' crashed (restart %d/%d, exit=%s)",
             proc.name,
             proc._restart_count,
             self._max_restarts,
+            exit_desc,
         )
 
         # Cancel background tasks
@@ -868,9 +1040,7 @@ class ProcessManager:
             logger.error("PluginLifecycle asked to restart unknown provider '%s'", provider)
             return
         proc.state = PluginState.RESTARTING
-        PLUGIN_STATE.labels(
-            plugin_name=proc.name, state=PluginState.RESTARTING.value
-        ).set(1)
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.RESTARTING.value).set(1)
         try:
             await self._start_one(proc)
         except Exception:
@@ -885,9 +1055,7 @@ class ProcessManager:
         """
         if proc._restart_count >= self._max_restarts:
             proc.state = PluginState.FATAL
-            PLUGIN_STATE.labels(
-                plugin_name=proc.name, state=PluginState.FATAL.value
-            ).set(1)
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
             logger.error(
                 "Plugin '%s' exceeded max restarts (%d), marking FATAL",
                 proc.name,
@@ -898,9 +1066,7 @@ class ProcessManager:
         proc._restart_count += 1
         delay = min(1 * (2 ** (proc._restart_count - 1)), 30)
         proc.state = PluginState.RESTARTING
-        PLUGIN_STATE.labels(
-            plugin_name=proc.name, state=PluginState.RESTARTING.value
-        ).set(1)
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.RESTARTING.value).set(1)
         await asyncio.sleep(delay)
         try:
             await self._start_one(proc)
@@ -926,48 +1092,52 @@ class ProcessManager:
                         exc_info=True,
                     )
 
+    async def _stop_one(self, proc: PluginProcess) -> None:
+        """Stop a single plugin subprocess and unregister its capabilities."""
+        if proc.state not in (PluginState.ACTIVE, PluginState.REGISTERING):
+            return
+        proc.state = PluginState.STOPPING
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPING.value).set(1)
+        if self._lifecycle is not None:
+            handle = self._lifecycle.get_handle(proc.name)
+            if handle is not None:
+                handle.state = "stopped"
+        self._extension_registry.on_unregister(proc.name)
+
+        # Cancel background tasks
+        if proc._health_task:
+            proc._health_task.cancel()
+            proc._health_task = None
+        if proc._stderr_task:
+            proc._stderr_task.cancel()
+            proc._stderr_task = None
+
+        if proc._client:
+            await proc._client.notify("plugin.shutdown")
+
+        try:
+            if proc._process:
+                await asyncio.wait_for(proc._process.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("Plugin '%s' shutdown timeout, force killing", proc.name)
+            await self._kill_process(proc)
+
+        if proc._client:
+            # Detach the crash callback BEFORE closing: the intentional kill
+            # closes the connection, and a stale on_disconnect racing the next
+            # start would otherwise pass the _on_crash state guard (LOADING)
+            # and tear down the fresh registration with a duplicate restart.
+            proc._client._on_disconnect = None
+            proc._client.close()
+            proc._client = None
+
+        proc.state = PluginState.STOPPED
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPED.value).set(1)
+
     async def shutdown(self) -> None:
         """Gracefully shut down all plugins."""
         for proc in self._processes.values():
-            if proc.state in (PluginState.ACTIVE, PluginState.REGISTERING):
-                proc.state = PluginState.STOPPING
-                PLUGIN_STATE.labels(
-                    plugin_name=proc.name, state=PluginState.STOPPING.value
-                ).set(1)
-                if self._lifecycle is not None:
-                    handle = self._lifecycle.get_handle(proc.name)
-                    if handle is not None:
-                        handle.state = "stopped"
-                self._extension_registry.on_unregister(proc.name)
-
-                # Cancel background tasks
-                if proc._health_task:
-                    proc._health_task.cancel()
-                    proc._health_task = None
-                if proc._stderr_task:
-                    proc._stderr_task.cancel()
-                    proc._stderr_task = None
-
-                if proc._client:
-                    await proc._client.notify("plugin.shutdown")
-
-                try:
-                    if proc._process:
-                        await asyncio.wait_for(proc._process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Plugin '%s' shutdown timeout, force killing", proc.name
-                    )
-                    await self._kill_process(proc)
-
-                if proc._client:
-                    proc._client.close()
-                    proc._client = None
-
-                proc.state = PluginState.STOPPED
-                PLUGIN_STATE.labels(
-                    plugin_name=proc.name, state=PluginState.STOPPED.value
-                ).set(1)
+            await self._stop_one(proc)
 
         if self._lifecycle is not None:
             await self._lifecycle.shutdown()
@@ -1003,7 +1173,7 @@ class ProcessManager:
 def _build_runtime_context() -> dict[str, str]:
     """Build the runtime context sent to plugins after registration.
 
-    Includes the project DRUDGE.md content, environment info, and artifact
+    Includes the project COURTIER.md content, environment info, and artifact
     system instructions so plugin tools have the same project-level context
     as the main orchestrator agent.
     """
@@ -1013,13 +1183,13 @@ def _build_runtime_context() -> dict[str, str]:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     ctx["environment"] = f"- 日期: {now}\n" f"- 平台: {platform.system().lower()}"
 
-    # DRUDGE.md — project rules at the repo root
-    drudge_md_path = Path(__file__).resolve().parent.parent.parent / "DRUDGE.md"
+    # COURTIER.md — project rules at the repo root
+    courtier_md_path = Path(__file__).resolve().parent.parent.parent / "COURTIER.md"
     try:
-        if drudge_md_path.exists():
-            ctx["drudge_md"] = drudge_md_path.read_text(encoding="utf-8")
+        if courtier_md_path.exists():
+            ctx["courtier_md"] = courtier_md_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        logger.warning("Failed to read DRUDGE.md at %s", drudge_md_path)
+        logger.warning("Failed to read COURTIER.md at %s", courtier_md_path)
 
     # Artifact system instructions for plugin tools
     ctx["artifact_instructions"] = (

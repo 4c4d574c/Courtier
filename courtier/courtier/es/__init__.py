@@ -6,7 +6,6 @@ from .client import (
     get_es_client,
     index_chunk,
     init_index,
-    search_chunks,
     update_chunk,
 )
 
@@ -18,6 +17,5 @@ __all__ = [
     "get_es_client",
     "index_chunk",
     "init_index",
-    "search_chunks",
     "update_chunk",
 ]

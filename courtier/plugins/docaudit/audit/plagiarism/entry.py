@@ -1,8 +1,7 @@
 """Plagiarism plugin — similarity-based plagiarism detection."""
 
+from courtier_plugin_sdk import PluginRuntime
 from tools import DetectPlagiarismTool
-
-from courtier.plugin.sdk import PluginRuntime
 
 
 class PlagiarismPlugin(PluginRuntime):

@@ -19,3 +19,14 @@ capabilities:
   system_prompt: |
     # 文本纠错
     检测并纠正中文文本中的拼写错误、语法错误、全角半角混用和标点符号错误。
+
+# The correction model endpoint is read from the process environment by
+# TextCorrectionTool. ${ENV:VAR} resolves from the host os.environ first,
+# then falls back to the host Settings (.env).
+runtime:
+  env:
+    CEC_API_BASE: "${ENV:CEC_API_BASE}"
+    CEC_API_KEY: "${ENV:CEC_API_KEY}"
+    CEC_MODEL_NAME: "${ENV:CEC_MODEL_NAME}"
+    CEC_MAX_LENGTH: "${ENV:CEC_MAX_LENGTH}"
+    CEC_USER_DICT: "${ENV:CEC_USER_DICT}"

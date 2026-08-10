@@ -1,14 +1,15 @@
-"""Template loading tool — wrap templates subpackage for DB-backed template loading."""
+"""Template loading tool — loads format templates via the template_store host service."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from courtier.agent.tools.protocol import ToolResult
+from courtier_plugin_sdk import HostTemplateStore, ToolResult
 
 
 class LoadTemplateTool:
-    """Load a format template from the database."""
+    """Load a format template from the host's database."""
 
     name: str = "load_template"
     display_name: str | None = "加载模板"
@@ -26,42 +27,35 @@ class LoadTemplateTool:
             "template_id": {
                 "type": "integer",
                 "description": (
-                    "Optional specific template ID. If omitted, loads the default "
-                    "template."
+                    "Optional specific template ID. If omitted, loads the default " "template."
                 ),
             },
         },
         "required": ["doc_type"],
     }
 
-    def __init__(self, db: Any = None) -> None:
-        self._db = db
+    def __init__(self, host_client_getter: Callable[[], Any] | None = None) -> None:
+        # Lazy getter: the host-service client only exists after the
+        # registration handshake, i.e. after tool construction.
+        self._host_client_getter = host_client_getter
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
-            if self._db is None:
+            client = self._host_client_getter() if self._host_client_getter else None
+            if client is None:
                 return ToolResult(
                     success=False,
                     error=(
-                        "Database backend not configured. "
-                        "Pass an AsyncDatabase instance as `db=` when creating "
-                        "LoadTemplateTool, e.g. LoadTemplateTool(db=async_db). "
-                        "If using the chat agent, template loading is not available "
-                        "without a database connection; use the audit pipeline instead."
+                        "template_store host service not available. "
+                        "Declare host_services: [template_store] and "
+                        "permissions: [read:templates] in plugin.yaml."
                     ),
                 )
-            from validator.templates.crud import load_template_from_db
-
-            doc_type = kwargs["doc_type"]
-            template_id = kwargs.get("template_id")
-            async with self._db.session() as session:
-                result = await load_template_from_db(
-                    session, doc_type=doc_type, template_id=template_id
-                )
+            store = HostTemplateStore(client)
+            result = await store.get(
+                doc_type=kwargs["doc_type"],
+                template_id=kwargs.get("template_id"),
+            )
             return ToolResult(success=True, data=result)
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
-
-
-def create_load_template_tool(db: Any = None) -> LoadTemplateTool:
-    return LoadTemplateTool(db=db)

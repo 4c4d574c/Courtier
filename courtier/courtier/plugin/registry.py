@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from courtier_plugin_sdk.types import CheckerRegistryLike
+
 from courtier.agent.core.capability import (
     Capability,
     CapabilityRegistry,
     CapabilityType,
 )
 from courtier.agent.tools.registry import ToolRegistry
-from courtier.plugin.types import CheckerRegistryLike
 
 from .client import JSONRPCClient
 from .proxies import ProxyChecker, ProxyRoute, ProxyTool
@@ -65,9 +66,7 @@ class ExtensionRegistry:
             if cap_type == "tool":
                 self._register_tool(plugin_name, client, cap)
                 registrations.setdefault("tool", []).append(cap["name"])
-                self._register_capability(
-                    "tool", cap["name"], plugin_name, cap, instance=None
-                )
+                self._register_capability("tool", cap["name"], plugin_name, cap, instance=None)
 
             elif cap_type == "checker":
                 self._register_checker(plugin_name, client, cap)
@@ -79,9 +78,7 @@ class ExtensionRegistry:
             elif cap_type == "route":
                 self._register_route(plugin_name, cap)
                 registrations.setdefault("route", []).append(cap["prefix"])
-                self._register_capability(
-                    "route", cap["prefix"], plugin_name, cap, instance=None
-                )
+                self._register_capability("route", cap["prefix"], plugin_name, cap, instance=None)
 
             else:
                 logger.warning(
@@ -146,9 +143,16 @@ class ExtensionRegistry:
         """Return all plugin-provided route proxies for FastAPI mounting."""
         return dict(self._routes)
 
-    def _register_tool(
-        self, plugin_name: str, client: JSONRPCClient, cap: dict
-    ) -> None:
+    def get_system_prompts(self) -> dict[str, str]:
+        """Return plugin_name → system_prompt for currently registered plugins.
+
+        Entries appear on ``plugin.register`` and are dropped on unregister
+        (crash/shutdown), so the mapping only covers live plugins.  Consumed
+        by the agent system-prompt assembly as tool-usage guidance.
+        """
+        return dict(self._system_prompts)
+
+    def _register_tool(self, plugin_name: str, client: JSONRPCClient, cap: dict) -> None:
         if self._tool_registry is None:
             return
         proxy = ProxyTool(client, cap)
@@ -156,15 +160,12 @@ class ExtensionRegistry:
             self._tool_registry.register(proxy)
         except ValueError:
             logger.error(
-                "Plugin '%s' tool '%s' conflicts with an existing tool; "
-                "skipping registration",
+                "Plugin '%s' tool '%s' conflicts with an existing tool; " "skipping registration",
                 plugin_name,
                 cap["name"],
             )
 
-    def _register_checker(
-        self, plugin_name: str, client: JSONRPCClient, cap: dict
-    ) -> None:
+    def _register_checker(self, plugin_name: str, client: JSONRPCClient, cap: dict) -> None:
         if self._checker_registry is None:
             return
         proxy = ProxyChecker(client, cap)

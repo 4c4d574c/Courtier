@@ -1,7 +1,7 @@
 """Template plugin — database-backed template loading."""
-from tools import LoadTemplateTool
 
-from courtier.plugin.sdk import PluginRuntime
+from courtier_plugin_sdk import PluginRuntime
+from tools import LoadTemplateTool
 
 
 class TemplatePlugin(PluginRuntime):
@@ -12,11 +12,14 @@ class TemplatePlugin(PluginRuntime):
         }
 
     def _setup_handlers(self):
-        tool = LoadTemplateTool()
+        tool = LoadTemplateTool(
+            host_client_getter=lambda: self.host_service_client,
+        )
         # register_tool() makes the tool available to the built-in dispatcher.
         self.register_tool(tool)
 
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(TemplatePlugin().run())

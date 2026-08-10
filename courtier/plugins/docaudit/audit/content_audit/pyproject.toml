@@ -2,7 +2,11 @@
 name = "courtier-plugin-content-audit"
 version = "1.0.0"
 requires-python = ">=3.12"
-dependencies = ["courtier"]
+dependencies = [
+    "content_compliance",
+    "courtier-plugin-sdk",
+]
 
 [tool.uv.sources]
-courtier = { path = "../../../..", editable = true }
+content_compliance = { path = "../../../../libs/docaudit/content_compliance", editable = true }
+courtier-plugin-sdk = { path = "../../../../libs/shared/plugin_sdk", editable = true }

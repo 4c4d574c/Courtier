@@ -1,6 +1,7 @@
 """Tests for PluginLifecycle."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -58,7 +59,9 @@ class TestPluginLifecycle:
     def test_should_restart_respects_immediate_crash_window(self):
         lifecycle = PluginLifecycle(immediate_crash_window=5.0)
         # A process that started just now and crashed immediately should not restart.
-        just_now = asyncio.get_event_loop().time()
+        # time.monotonic() matches the clock PluginLifecycle uses; unlike
+        # get_event_loop().time() it does not depend on a current event loop.
+        just_now = time.monotonic()
         assert lifecycle.should_restart("p1", started_at=just_now, restart_count=0) is False
 
     @pytest.mark.asyncio
@@ -115,9 +118,7 @@ class TestPluginLifecycle:
             capability_registry=registry,
             restart_callback=callback,
         )
-        lifecycle.track_process(
-            PluginHandle(provider="p1", process=MagicMock())
-        )
+        lifecycle.track_process(PluginHandle(provider="p1", process=MagicMock()))
 
         cap = Capability(type="tool", name="t1", provider="p1")
         registry.register(cap)

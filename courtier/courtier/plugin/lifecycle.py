@@ -127,11 +127,16 @@ class PluginLifecycle:
             )
             return False
 
-        uptime = asyncio.get_event_loop().time() - started_at
+        # time.monotonic() is the same clock asyncio loop.time() uses, but
+        # does not depend on a current event loop existing — get_event_loop()
+        # raises RuntimeError in sync contexts after other tests/runs closed
+        # the thread's loop.
+        import time as _time
+
+        uptime = _time.monotonic() - started_at
         if started_at > 0 and uptime < self._immediate_crash_window:
             logger.error(
-                "Plugin '%s' crashed %.1fs after startup (< %.0fs window), "
-                "marking fatal",
+                "Plugin '%s' crashed %.1fs after startup (< %.0fs window), " "marking fatal",
                 provider,
                 uptime,
                 self._immediate_crash_window,
@@ -201,8 +206,7 @@ class PluginLifecycle:
             handle.restart_count += 1
             delay = min(1 * (2 ** (handle.restart_count - 1)), 30)
             logger.warning(
-                "Plugin '%s' capability unregistered, scheduling restart %d/%d "
-                "in %.1fs",
+                "Plugin '%s' capability unregistered, scheduling restart %d/%d " "in %.1fs",
                 provider,
                 handle.restart_count,
                 self._max_restarts,

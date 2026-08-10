@@ -1,8 +1,7 @@
 """Format audit plugin — validates document formatting against rule templates."""
 
+from courtier_plugin_sdk import PluginRuntime
 from tools import FormatAuditTool
-
-from courtier.plugin.sdk import PluginRuntime
 
 
 class FormatAuditPlugin(PluginRuntime):

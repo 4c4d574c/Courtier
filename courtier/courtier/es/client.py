@@ -87,7 +87,6 @@ def bulk_index_chunks(actions: list[dict]) -> None:
     client.bulk(body=actions)
 
 
-_MAX_ES_SIZE = 10_000
 _es_index_name_cache: str | None = None
 
 
@@ -97,19 +96,6 @@ def _es_index_name() -> str:
     if _es_index_name_cache is None:
         _es_index_name_cache = _get_settings().es_index_chunks
     return _es_index_name_cache
-
-
-def search_chunks(query_body: dict, skip: int = 0, limit: int = 20) -> dict:
-    """执行搜索查询。*limit* is clamped to ``_MAX_ES_SIZE`` (10 000)."""
-    client = get_es_client()
-    resp = client.search(
-        index=_es_index_name(),
-        body=query_body,
-        from_=skip,
-        size=min(limit, _MAX_ES_SIZE),
-    )
-    # elasticsearch-py returns ObjectApiResponse; convert to plain dict for JSON serialization
-    return dict(resp)
 
 
 def update_chunk(doc_id: str, body: dict) -> None:

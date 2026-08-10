@@ -2,7 +2,11 @@
 name = "courtier-plugin-annotate"
 version = "1.0.0"
 requires-python = ">=3.12"
-dependencies = ["courtier"]
+dependencies = [
+    "courtier-plugin-sdk",
+    "docannot",
+]
 
 [tool.uv.sources]
-courtier = { path = "../../..", editable = true }
+courtier-plugin-sdk = { path = "../../../libs/shared/plugin_sdk", editable = true }
+docannot = { path = "../../../libs/shared/docannot", editable = true }

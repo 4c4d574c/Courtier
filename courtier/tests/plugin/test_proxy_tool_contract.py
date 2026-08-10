@@ -1,4 +1,5 @@
 """Test that ProxyTool correctly reads contract fields from plugin tool spec."""
+
 from courtier.plugin.proxies import ProxyTool
 
 
@@ -25,6 +26,7 @@ class TestProxyToolContractPropagation:
 
     def test_reads_input_fields(self):
         from courtier.agent.artifacts.models import InputField
+
         tool_spec = {
             "name": "audit_content",
             "description": "Audit content",
@@ -41,6 +43,7 @@ class TestProxyToolContractPropagation:
 
     def test_reads_runtime_policy(self):
         from courtier.agent.artifacts.models import RuntimePolicy
+
         tool_spec = {
             "name": "limited_tool",
             "description": "Has limits",

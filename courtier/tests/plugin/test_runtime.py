@@ -6,9 +6,8 @@ import threading
 import time
 
 import pytest
-
-from courtier.plugin.sdk.protocol import METHOD_TOOL_EXECUTE
-from courtier.plugin.sdk.runtime import PluginRuntime, _sanitize_rpc_log
+from courtier_plugin_sdk.protocol import METHOD_TOOL_EXECUTE
+from courtier_plugin_sdk.runtime import PluginRuntime, _sanitize_rpc_log
 
 
 class TestPluginRuntime:
@@ -41,9 +40,7 @@ class TestPluginRuntime:
         runtime._writer = self._make_writer(output_lines)
 
         # Feed a health check and EOF
-        input_queue.put_nowait(
-            json.dumps({"id": 1, "method": "plugin.health", "params": {}})
-        )
+        input_queue.put_nowait(json.dumps({"id": 1, "method": "plugin.health", "params": {}}))
         input_queue.put_nowait("")  # EOF
 
         await runtime.run()
@@ -65,9 +62,7 @@ class TestPluginRuntime:
         runtime._writer = self._make_writer(output_lines)
 
         # Feed health check + EOF
-        input_queue.put_nowait(
-            json.dumps({"id": 1, "method": "plugin.health", "params": {}})
-        )
+        input_queue.put_nowait(json.dumps({"id": 1, "method": "plugin.health", "params": {}}))
         input_queue.put_nowait("")
 
         await runtime.run()
@@ -96,9 +91,7 @@ class TestPluginRuntime:
         runtime._reader = input_queue
         runtime._writer = self._make_writer(output_lines)
 
-        input_queue.put_nowait(
-            json.dumps({"id": 2, "method": "unknown.method", "params": {}})
-        )
+        input_queue.put_nowait(json.dumps({"id": 2, "method": "unknown.method", "params": {}}))
         input_queue.put_nowait("")
 
         await runtime.run()
@@ -119,9 +112,7 @@ class TestPluginRuntime:
         runtime._writer = self._make_writer(output_lines)
 
         input_queue.put_nowait("this is not valid json {{{")
-        input_queue.put_nowait(
-            json.dumps({"id": 1, "method": "plugin.health", "params": {}})
-        )
+        input_queue.put_nowait(json.dumps({"id": 1, "method": "plugin.health", "params": {}}))
         input_queue.put_nowait("")
 
         await runtime.run()
@@ -269,15 +260,13 @@ class TestPluginContextManager:
 
     @pytest.mark.asyncio
     async def test_persist_large_output_forwards_to_host(self):
-        from courtier.plugin.sdk.context_manager import PluginContextManager
-        from courtier.plugin.sdk.protocol import METHOD_CACHE_PERSIST
+        from courtier_plugin_sdk.context_manager import PluginContextManager
+        from courtier_plugin_sdk.protocol import METHOD_CACHE_PERSIST
 
         calls: list[tuple[str, dict]] = []
 
         class MockHost:
-            async def call(
-                self, method: str, params: dict | None = None, timeout: float = 30.0
-            ):
+            async def call(self, method: str, params: dict | None = None, timeout: float = 30.0):
                 calls.append((method, params or {}))
                 if method == METHOD_CACHE_PERSIST:
                     return {
@@ -300,13 +289,11 @@ class TestPluginContextManager:
 
     @pytest.mark.asyncio
     async def test_resolve_refs_forwards_to_host(self):
-        from courtier.plugin.sdk.context_manager import PluginContextManager
-        from courtier.plugin.sdk.protocol import METHOD_CACHE_RESOLVE
+        from courtier_plugin_sdk.context_manager import PluginContextManager
+        from courtier_plugin_sdk.protocol import METHOD_CACHE_RESOLVE
 
         class MockHost:
-            async def call(
-                self, method: str, params: dict | None = None, timeout: float = 30.0
-            ):
+            async def call(self, method: str, params: dict | None = None, timeout: float = 30.0):
                 if method == METHOD_CACHE_RESOLVE:
                     return {"doc": "loaded content"}
                 return None

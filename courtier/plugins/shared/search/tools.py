@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Any
 
-from courtier.agent.tools.protocol import ToolResult
+from courtier_plugin_sdk import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,10 @@ _INCLUDE_FIELDS = frozenset(
         "chunk_no",
     }
 )
+
+# Sentinel distinguishing "host injected no scope" (internal/test callers —
+# no visibility filter) from "injected None" (anonymous — public only).
+_QUERY_UNSET = object()
 
 
 def _parse_query(query: str) -> tuple[list[str], str]:
@@ -78,8 +82,16 @@ def _build_es_query(
     doc_type: str | None = None,
     tags: list[str] | None = None,
     search_fields: list[str] | None = None,
+    owner_scope: Any = _QUERY_UNSET,
 ) -> dict[str, Any]:
-    """Build ES query body from simplified parameters."""
+    """Build ES query body from simplified parameters.
+
+    *owner_scope* is host-injected (never model-supplied): an int restricts
+    results to public chunks + the caller's own personal chunks; ``None``
+    (anonymous) restricts to public only.  ``_QUERY_UNSET`` (internal/test
+    callers) applies no visibility filter.  Chunks predating the visibility
+    field are treated as public.
+    """
     if len(query) > _MAX_QUERY_CHARS:
         query = query[:_MAX_QUERY_CHARS]
         logger.warning("Query truncated to %d chars", _MAX_QUERY_CHARS)
@@ -113,6 +125,13 @@ def _build_es_query(
         filter_clauses.append({"term": {"doc_type": doc_type}})
     if tags:
         filter_clauses.append({"terms": {"tags": tags}})
+    if owner_scope is not _QUERY_UNSET:
+        should: list[dict] = [{"term": {"visibility": "public"}}]
+        if isinstance(owner_scope, int):
+            should.append({"term": {"owner_id": owner_scope}})
+        # Chunks indexed before the visibility split are legacy public data.
+        should.append({"bool": {"must_not": [{"exists": {"field": "visibility"}}]}})
+        filter_clauses.append({"bool": {"should": should, "minimum_should_match": 1}})
     if filter_clauses:
         query_dict["bool"]["filter"] = filter_clauses
 
@@ -240,12 +259,13 @@ class SearchDocumentsTool:
                 doc_type=kwargs.get("doc_type"),
                 tags=kwargs.get("tags"),
                 search_fields=kwargs.get("search_fields"),
+                owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
             )
         except Exception as exc:
             return ToolResult(success=False, error=f"查询构建失败: {exc}")
 
         try:
-            from courtier.es.client import search_chunks
+            from es_client import search_chunks
 
             skip = kwargs.get("skip", 0)
             limit = kwargs.get("limit", 10)

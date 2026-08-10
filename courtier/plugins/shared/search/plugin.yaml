@@ -14,3 +14,13 @@ capabilities:
     通过自然语言关键词搜索已索引的文档块。
     ## 使用方式
     调用 `search_documents` 工具，传入 `query`（搜索关键词）。
+
+# The ES endpoint is read from the process environment by es_client.py.
+# ${ENV:VAR} resolves from the host os.environ first, then falls back to
+# the host Settings (.env).
+runtime:
+  env:
+    ES_HOSTS: "${ENV:ES_HOSTS}"
+    ES_INDEX_CHUNKS: "${ENV:ES_INDEX_CHUNKS}"
+    ES_USERNAME: "${ENV:ES_USERNAME}"
+    ES_PASSWORD: "${ENV:ES_PASSWORD}"

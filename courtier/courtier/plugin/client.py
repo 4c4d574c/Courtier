@@ -89,15 +89,24 @@ class JSONRPCClient:
             while not self._closed:
                 try:
                     line = await self._reader.readline()
-                except (
-                    ValueError, asyncio.IncompleteReadError,
-                    ConnectionResetError, BrokenPipeError
-                ):
+                except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+                    break
+                except ValueError as exc:
+                    # StreamReader limit overrun (a single response line larger
+                    # than the stream limit) lands here.  Without this log the
+                    # failure is silent and looks exactly like a plugin crash.
+                    logger.error(
+                        "Read error for plugin '%s' — likely a response line "
+                        "exceeding the stream limit: %s",
+                        self.plugin_name,
+                        exc,
+                    )
                     break
                 except Exception:
                     logger.warning(
                         "Unexpected exception in %s read loop, closing connection",
-                        self.plugin_name, exc_info=True,
+                        self.plugin_name,
+                        exc_info=True,
                     )
                     break
 
@@ -110,7 +119,8 @@ class JSONRPCClient:
                         except Exception:
                             logger.warning(
                                 "on_disconnect callback failed for plugin '%s'",
-                                self.plugin_name, exc_info=True,
+                                self.plugin_name,
+                                exc_info=True,
                             )
                     break
 
@@ -131,7 +141,8 @@ class JSONRPCClient:
                 except json.JSONDecodeError:
                     logger.warning(
                         "JSON decode failed for plugin '%s': %.200s",
-                        self.plugin_name, line_str,
+                        self.plugin_name,
+                        line_str,
                     )
                     continue
 
@@ -146,7 +157,8 @@ class JSONRPCClient:
                 except Exception:
                     logger.debug(
                         "on_disconnect callback failed for plugin '%s'",
-                        self.plugin_name, exc_info=True,
+                        self.plugin_name,
+                        exc_info=True,
                     )
 
     async def _dispatch(self, data: dict) -> None:
@@ -296,7 +308,11 @@ class JSONRPCClient:
             raw = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
-            raise
+            # Bare TimeoutError stringifies to "" — the model would see an
+            # empty error.  Re-raise with an actionable Chinese message.
+            raise asyncio.TimeoutError(
+                f"插件 '{self.plugin_name}' 调用超时（{timeout:g}s），请重试或拆分任务"
+            ) from None
 
         # The _dispatch sets the raw response dict as the future result.
         # Extract the "result" field for regular responses.
@@ -315,7 +331,9 @@ class JSONRPCClient:
         except Exception:
             logger.warning(
                 "Failed to send notification '%s' to plugin '%s'",
-                method, self.plugin_name, exc_info=True,
+                method,
+                self.plugin_name,
+                exc_info=True,
             )
 
     async def wait_for_register(self, timeout: float = 10.0) -> list[dict]:
@@ -374,5 +392,6 @@ class JSONRPCClient:
         except Exception:
             logger.debug(
                 "Error closing writer for plugin '%s'",
-                self.plugin_name, exc_info=True,
+                self.plugin_name,
+                exc_info=True,
             )

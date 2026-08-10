@@ -1,7 +1,7 @@
 """Annotate plugin — DOCX keyword-based annotation."""
-from tools import AnnotateDocumentTool
 
-from courtier.plugin.sdk import PluginRuntime
+from courtier_plugin_sdk import PluginRuntime
+from tools import AnnotateDocumentTool
 
 
 class AnnotatePlugin(PluginRuntime):
@@ -15,11 +15,14 @@ class AnnotatePlugin(PluginRuntime):
         }
 
     def _setup_handlers(self):
-        tool = AnnotateDocumentTool()
+        tool = AnnotateDocumentTool(
+            host_client_getter=lambda: self.host_service_client,
+        )
         # register_tool() makes the tool available to the built-in dispatcher.
         self.register_tool(tool)
 
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(AnnotatePlugin().run())

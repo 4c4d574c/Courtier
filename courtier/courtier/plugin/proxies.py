@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol, runtime_checkable
 
+from courtier_plugin_sdk.types import ComplianceResult, Violation
+
 from courtier.agent.artifacts.models import InputField, RuntimePolicy
 from courtier.agent.tools.protocol import OnToolProgress, ToolResult
 from courtier.agent.tools.summary import ToolSummary, summarize_result
-from courtier.plugin.types import ComplianceResult, Violation
 
 
 @runtime_checkable
@@ -72,9 +73,7 @@ class ProxyTool:
     # forwarded to plugin subprocesses (they are not JSON-serializable).
     _HOST_KWARGS = frozenset({"context_manager", "artifact_store", "audit_logger"})
 
-    async def execute(
-        self, *, on_progress: OnToolProgress, **kwargs: Any
-    ) -> ToolResult:
+    async def execute(self, *, on_progress: OnToolProgress, **kwargs: Any) -> ToolResult:
         """Forward the execute call to the plugin subprocess via JSON-RPC."""
         args = {k: v for k, v in kwargs.items() if k not in self._HOST_KWARGS}
         on_progress(
@@ -114,8 +113,7 @@ class ProxyTool:
             return ToolResult(
                 success=False,
                 error=(
-                    f"插件 {self._client.plugin_name} 工具 {self.name} "
-                    f"响应缺少 'success' 字段"
+                    f"插件 {self._client.plugin_name} 工具 {self.name} " f"响应缺少 'success' 字段"
                 ),
                 metadata=resp,
             )
@@ -133,9 +131,7 @@ class ProxyTool:
 class ProxyChecker:
     """Implements ContentChecker Protocol by forwarding check() over JSON-RPC."""
 
-    def __init__(
-        self, client: _JSONRPCClientLike, checker_spec: dict[str, Any]
-    ) -> None:
+    def __init__(self, client: _JSONRPCClientLike, checker_spec: dict[str, Any]) -> None:
         self._client = client
         self._checker_name = checker_spec["name"]
         self.doc_type: str = checker_spec["doc_type"]
@@ -162,10 +158,7 @@ class ProxyChecker:
                 violations=(
                     Violation(
                         rule_id="malformed_checker_response",
-                        message=(
-                            f"Checker returned {type(resp).__name__} "
-                            f"instead of dict"
-                        ),
+                        message=(f"Checker returned {type(resp).__name__} " f"instead of dict"),
                         severity="error",
                     ),
                 ),

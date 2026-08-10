@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
+from courtier_plugin_sdk import ToolResult
 from doccorrector.corrector import ErrorCorrect
-
-from courtier.agent.tools.protocol import ToolResult
 
 
 class TextCorrectionTool:
@@ -35,7 +35,14 @@ class TextCorrectionTool:
 
     def _get_corrector(self) -> ErrorCorrect:
         if self._corrector is None:
-            self._corrector = ErrorCorrect()
+            # CEC_* vars are injected by the host from plugin.yaml runtime.env.
+            self._corrector = ErrorCorrect(
+                api_base=os.environ.get("CEC_API_BASE", ""),
+                api_key=os.environ.get("CEC_API_KEY", ""),
+                model_name=os.environ.get("CEC_MODEL_NAME", "ChineseErrorCorrector3-4B"),
+                max_length=int(os.environ.get("CEC_MAX_LENGTH") or "16383"),
+                user_dict=os.environ.get("CEC_USER_DICT", ""),
+            )
         return self._corrector
 
     async def execute(self, text: str, **kwargs: Any) -> ToolResult:

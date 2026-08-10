@@ -2,7 +2,14 @@
 name = "courtier-plugin-parse"
 version = "1.0.0"
 requires-python = ">=3.12"
-dependencies = ["courtier"]
+# The parsing stack (docparse and its transitive deps) is declared on the
+# docparse library itself; the plugin only needs the SDK and docparse.
+dependencies = [
+    "courtier-plugin-sdk",
+    "docparse",
+]
 
 [tool.uv.sources]
-courtier = { path = "../../..", editable = true }
+courtier-plugin-sdk = { path = "../../../libs/shared/plugin_sdk", editable = true }
+docparse = { path = "../../../libs/shared/docparse", editable = true }
+docmodels = { path = "../../../libs/shared/docmodels", editable = true }

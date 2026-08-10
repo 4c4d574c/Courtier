@@ -2,7 +2,13 @@
 name = "courtier-plugin-format-audit"
 version = "1.0.0"
 requires-python = ">=3.12"
-dependencies = ["courtier"]
+dependencies = [
+    "courtier-plugin-sdk",
+    "validator",
+]
 
 [tool.uv.sources]
-courtier = { path = "../../../..", editable = true }
+courtier-plugin-sdk = { path = "../../../../libs/shared/plugin_sdk", editable = true }
+validator = { path = "../../../../libs/docaudit/validator", editable = true }
+docparse = { path = "../../../../libs/shared/docparse", editable = true }
+docmodels = { path = "../../../../libs/shared/docmodels", editable = true }

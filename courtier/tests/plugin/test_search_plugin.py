@@ -1,4 +1,5 @@
 """Test search plugin entry point handler logic."""
+
 import asyncio
 import json
 
@@ -35,17 +36,20 @@ async def test_search_plugin_unknown_tool():
             if isinstance(data, bytes):
                 data = data.decode("utf-8")
             output_lines.append(data)
+
         def flush(self):
             pass
 
     plugin._reader = input_queue
     plugin._writer = TestWriter()
 
-    req = json.dumps({
-        "id": 1,
-        "method": "tool.execute",
-        "params": {"tool": "nonexistent_tool", "args": {}},
-    })
+    req = json.dumps(
+        {
+            "id": 1,
+            "method": "tool.execute",
+            "params": {"tool": "nonexistent_tool", "args": {}},
+        }
+    )
     input_queue.put_nowait(req)
     input_queue.put_nowait("")  # EOF
 

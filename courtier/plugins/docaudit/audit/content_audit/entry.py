@@ -1,8 +1,7 @@
 """Content audit plugin — validates document body text against content compliance rules."""
 
+from courtier_plugin_sdk import PluginRuntime
 from tools import ContentAuditTool
-
-from courtier.plugin.sdk import PluginRuntime
 
 
 class ContentAuditPlugin(PluginRuntime):

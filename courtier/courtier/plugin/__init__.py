@@ -67,6 +67,7 @@ class PluginSystem:
         checker_registry: Any = None,
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
+        log_dir: str | Path = ".agent_logs/plugins",
     ) -> None:
         self._plugins_dir = Path(plugins_dir)
         self._scanner = PluginScanner()
@@ -79,6 +80,7 @@ class PluginSystem:
             extension_registry=self._registry,
             artifact_store=artifact_store,
             artifact_store_registry=artifact_store_registry,
+            log_dir=log_dir,
         )
         self._started = False
 
@@ -88,9 +90,7 @@ class PluginSystem:
             raise RuntimeError("PluginSystem already started")
 
         if not self._plugins_dir.exists():
-            logger.info(
-                "Plugins directory '%s' does not exist, creating it", self._plugins_dir
-            )
+            logger.info("Plugins directory '%s' does not exist, creating it", self._plugins_dir)
             self._plugins_dir.mkdir(parents=True, exist_ok=True)
 
         results = self._scanner.scan(self._plugins_dir)
@@ -138,3 +138,42 @@ class PluginSystem:
                 "restart_count": proc._restart_count,
             }
         return status
+
+    def get_system_prompts(self) -> dict[str, str]:
+        """Return plugin_name → system_prompt for all live plugins.
+
+        Delegates to ExtensionRegistry; used to inject plugin-provided tool
+        usage guidance into agent system prompts.
+        """
+        return self._registry.get_system_prompts()
+
+    def get_scan_results(self):
+        """Return the last scan results (valid + blocked) keyed by name."""
+        return self._manager.get_scan_results()
+
+    def get_log_path(self, name: str) -> Path | None:
+        """Return the plugin's stderr log file path, or None for unknown plugins.
+
+        The file captures everything the plugin writes to stderr (its runtime
+        log), tee'd by the host with timestamps.  Exposed for the admin
+        log-viewing API; the name must come from the scan results so this
+        cannot be abused for path traversal.
+        """
+        if name not in self._manager.get_scan_results():
+            return None
+        return self._manager._log_dir / f"{name}.log"
+
+    async def start_plugin(self, name: str) -> str:
+        """Start a stopped/fatal/never-started plugin; return its final state."""
+        state = await self._manager.start_plugin(name)
+        return state.value
+
+    async def stop_plugin(self, name: str) -> str:
+        """Stop a running plugin; return its final state."""
+        state = await self._manager.stop_plugin(name)
+        return state.value
+
+    async def restart_plugin(self, name: str) -> str:
+        """Restart a plugin; return its final state."""
+        state = await self._manager.restart_plugin(name)
+        return state.value

@@ -3,6 +3,12 @@ version: "1.0.0"
 api: "1.0"
 description: "DOCX keyword-based annotation"
 
+dependencies:
+  host_services:
+    - storage
+  permissions:
+    - write:storage
+
 capabilities:
   tools:
     - name: annotate_document

@@ -3,14 +3,7 @@
 import json
 
 import pytest
-from pydantic import ValidationError
-
-from courtier.plugin.protocol import (
-    JSONRPCNotification,
-    JSONRPCRequest,
-    JSONRPCResponse,
-)
-from courtier.plugin.sdk.protocol import (
+from courtier_plugin_sdk.protocol import (
     INTERNAL_ERROR,
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
@@ -18,6 +11,13 @@ from courtier.plugin.sdk.protocol import (
     PLUGIN_CRASHED,
     TIMEOUT_ERROR,
     TOOL_NOT_FOUND,
+)
+from pydantic import ValidationError
+
+from courtier.plugin.protocol import (
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
 )
 
 

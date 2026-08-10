@@ -39,9 +39,7 @@ class TestExtensionRegistry:
             checker_registry=checker_registry,
         )
 
-    def test_register_tool_injects_proxy_into_tool_registry(
-        self, ext_registry, tool_registry
-    ):
+    def test_register_tool_injects_proxy_into_tool_registry(self, ext_registry, tool_registry):
         client = MockClient()
         caps = [
             {
@@ -78,9 +76,7 @@ class TestExtensionRegistry:
         assert checker is not None
         assert checker.doc_type == "通知"
 
-    def test_register_ignores_unknown_capability_type(
-        self, ext_registry, tool_registry, caplog
-    ):
+    def test_register_ignores_unknown_capability_type(self, ext_registry, tool_registry, caplog):
         """Unknown capability types should be ignored with a warning."""
         client = MockClient()
         caps = [{"type": "unknown_type", "name": "whatever"}]
@@ -90,9 +86,7 @@ class TestExtensionRegistry:
 
         assert "unknown_type" in caplog.text.lower()
 
-    def test_register_multiple_capabilities(
-        self, ext_registry, tool_registry, checker_registry
-    ):
+    def test_register_multiple_capabilities(self, ext_registry, tool_registry, checker_registry):
         client = MockClient()
         caps = [
             {"type": "tool", "name": "tool_a", "description": "Tool A"},
@@ -106,9 +100,7 @@ class TestExtensionRegistry:
         assert tool_registry.get("tool_b") is not None
         assert checker_registry.get("报告") is not None
 
-    def test_register_duplicate_is_rejected_with_error(
-        self, ext_registry, tool_registry, caplog
-    ):
+    def test_register_duplicate_is_rejected_with_error(self, ext_registry, tool_registry, caplog):
         """Duplicate tool names from different plugins are rejected — first wins."""
         client1 = MockClient("plugin_1")
         client2 = MockClient("plugin_2")
@@ -137,9 +129,7 @@ class TestExtensionRegistry:
         assert tool is not None
         assert "conflicts with an existing tool" in caplog.text
 
-    def test_unregister_removes_all_proxies(
-        self, ext_registry, tool_registry, checker_registry
-    ):
+    def test_unregister_removes_all_proxies(self, ext_registry, tool_registry, checker_registry):
         client = MockClient()
         caps = [
             {"type": "tool", "name": "tool_x", "description": "X"},
@@ -157,9 +147,7 @@ class TestExtensionRegistry:
             tool_registry.get("tool_x")
         assert checker_registry.get("请示") is None
 
-    def test_register_agent_capability_is_treated_as_unknown(
-        self, ext_registry, caplog
-    ):
+    def test_register_agent_capability_is_treated_as_unknown(self, ext_registry, caplog):
         """Plugin sub-agent capabilities are no longer supported."""
         client = MockClient()
         caps = [

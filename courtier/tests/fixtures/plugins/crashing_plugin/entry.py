@@ -4,7 +4,7 @@ This triggers the immediate-crash circuit breaker in ProcessManager._on_crash,
 which marks the plugin FATAL without restart retries (crashed within 5s of
 reaching ACTIVE).
 """
-from courtier.plugin.sdk import PluginRuntime
+from courtier_plugin_sdk import PluginRuntime
 
 
 class CrashingPlugin(PluginRuntime):

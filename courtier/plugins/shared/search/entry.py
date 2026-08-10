@@ -1,7 +1,7 @@
 """Search plugin — Elasticsearch document chunk search."""
-from tools import SearchDocumentsTool
 
-from courtier.plugin.sdk import PluginRuntime
+from courtier_plugin_sdk import PluginRuntime
+from tools import SearchDocumentsTool
 
 
 class SearchPlugin(PluginRuntime):
@@ -23,4 +23,5 @@ class SearchPlugin(PluginRuntime):
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(SearchPlugin().run())

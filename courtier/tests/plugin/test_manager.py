@@ -9,7 +9,6 @@ from courtier.plugin.manager import (
     PluginProcess,
     PluginState,
     ProcessManager,
-    _build_plugin_pythonpath,
     _find_project_root,
     _resolve_plugin_entry_path,
 )
@@ -24,11 +23,13 @@ FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "plugins"
 
 @pytest.fixture
 def echo_scan_result():
-    manifest = PluginManifest.model_validate({
-        "name": "echo_plugin",
-        "version": "0.1.0",
-        "api": "1.0",
-    })
+    manifest = PluginManifest.model_validate(
+        {
+            "name": "echo_plugin",
+            "version": "0.1.0",
+            "api": "1.0",
+        }
+    )
     manifest.dir = FIXTURES_DIR / "echo_plugin"
     return PluginScanResult(
         name="echo_plugin",
@@ -40,11 +41,13 @@ def echo_scan_result():
 
 @pytest.fixture
 def crashing_scan_result():
-    manifest = PluginManifest.model_validate({
-        "name": "crashing_plugin",
-        "version": "0.1.0",
-        "api": "1.0",
-    })
+    manifest = PluginManifest.model_validate(
+        {
+            "name": "crashing_plugin",
+            "version": "0.1.0",
+            "api": "1.0",
+        }
+    )
     manifest.dir = FIXTURES_DIR / "crashing_plugin"
     return PluginScanResult(
         name="crashing_plugin",
@@ -93,6 +96,7 @@ class TestProcessManager:
     def test_shutdown_on_empty_manager(self, manager):
         """Shutdown with no plugins should not error."""
         import asyncio
+
         asyncio.run(manager.shutdown())
 
     @pytest.mark.asyncio
@@ -132,6 +136,7 @@ class TestProcessManager:
         # With the re-entrancy guard in _on_crash, the restart cycle completes
         # without double-call interference.
         import asyncio
+
         for _ in range(60):  # 60 * 0.5s = 30s; crash+backoff+restarts can be slow
             if proc.state == PluginState.FATAL:
                 break
@@ -179,50 +184,6 @@ class TestFindProjectRoot:
 
         result = _find_project_root(plugin_dir)
         assert result == plugin_dir
-
-
-class TestBuildPluginPythonpath:
-    def test_includes_project_root_and_libs(self, tmp_path):
-        project_root = tmp_path / "courtier"
-        plugin_dir = project_root / "plugins" / "shared" / "parse"
-        plugin_dir.mkdir(parents=True)
-
-        result = _build_plugin_pythonpath(plugin_dir, project_root)
-        parts = result.split(":")
-
-        assert str(project_root) in parts
-        assert str(project_root / "libs" / "shared") in parts
-        assert str(project_root / "libs" / "docaudit") in parts
-
-    def test_adds_domain_package_for_domain_plugins(self, tmp_path):
-        project_root = tmp_path / "courtier"
-        plugin_dir = project_root / "plugins" / "docaudit" / "audit" / "format_audit"
-        plugin_dir.mkdir(parents=True)
-
-        result = _build_plugin_pythonpath(plugin_dir, project_root)
-        parts = result.split(":")
-
-        assert str(project_root / "domains" / "docaudit") in parts
-
-    def test_skips_domain_package_for_shared_plugins(self, tmp_path):
-        project_root = tmp_path / "courtier"
-        plugin_dir = project_root / "plugins" / "shared" / "parse"
-        plugin_dir.mkdir(parents=True)
-
-        result = _build_plugin_pythonpath(plugin_dir, project_root)
-        parts = result.split(":")
-
-        assert str(project_root / "domains" / "shared") not in parts
-
-    def test_appends_existing_pythonpath(self, tmp_path):
-        project_root = tmp_path / "courtier"
-        plugin_dir = project_root / "plugins" / "shared" / "parse"
-        plugin_dir.mkdir(parents=True)
-
-        result = _build_plugin_pythonpath(plugin_dir, project_root, "/existing/path")
-        parts = result.split(":")
-
-        assert parts[-1] == "/existing/path"
 
 
 # TODO: Add a health_check integration test that verifies ProcessManager.health_check()

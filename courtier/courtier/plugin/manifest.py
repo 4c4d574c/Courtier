@@ -17,16 +17,20 @@ class RuntimeConfig(BaseModel):
 
 
 # Known host services that plugins can declare dependencies on
-KNOWN_HOST_SERVICES = frozenset({"cache", "artifact_store"})
+KNOWN_HOST_SERVICES = frozenset({"cache", "artifact_store", "storage", "template_store"})
 
 # Known permission scopes
-KNOWN_PERMISSIONS = frozenset({
-    "read:documents",
-    "write:artifacts",
-    "read:cache",
-    "write:cache",
-    "network:outbound",
-})
+KNOWN_PERMISSIONS = frozenset(
+    {
+        "read:documents",
+        "write:artifacts",
+        "read:cache",
+        "write:cache",
+        "write:storage",
+        "read:templates",
+        "network:outbound",
+    }
+)
 
 
 class Dependencies(BaseModel):

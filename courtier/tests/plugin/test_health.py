@@ -45,9 +45,7 @@ class TestHealthCheck:
         """health_check returns True when plugin responds with status ok."""
         manifest = _minimal_manifest()
         proc = _make_proc(manifest)
-        proc._client.call = AsyncMock(
-            return_value={"status": "ok", "dependencies": {}}
-        )
+        proc._client.call = AsyncMock(return_value={"status": "ok", "dependencies": {}})
 
         manager = ProcessManager(
             plugin_dir=Path("/tmp"),
@@ -72,9 +70,7 @@ class TestHealthCheck:
     async def test_health_check_returns_false_on_unexpected_response(self):
         """health_check returns False when plugin returns unexpected status."""
         proc = _make_proc()
-        proc._client.call = AsyncMock(
-            return_value={"status": "degraded", "dependencies": {}}
-        )
+        proc._client.call = AsyncMock(return_value={"status": "degraded", "dependencies": {}})
 
         manager = ProcessManager(
             plugin_dir=Path("/tmp"),

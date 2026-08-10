@@ -62,10 +62,14 @@ class TestJSONRPCClient:
 
     @pytest.mark.asyncio
     async def test_call_receives_error_response(self, client, streams):
-        streams.feed_line(json.dumps({
-            "id": 1,
-            "error": {"code": -32000, "message": "Tool not found"},
-        }))
+        streams.feed_line(
+            json.dumps(
+                {
+                    "id": 1,
+                    "error": {"code": -32000, "message": "Tool not found"},
+                }
+            )
+        )
 
         with pytest.raises(PluginRPCError, match="Tool not found"):
             await client.call("bad_tool", {})
@@ -99,15 +103,19 @@ class TestJSONRPCClient:
 
     @pytest.mark.asyncio
     async def test_wait_for_register_receives_capabilities(self, client, streams):
-        streams.feed_line(json.dumps({
-            "method": "plugin.register",
-            "params": {
-                "capabilities": [
-                    {"type": "tool", "name": "echo"},
-                    {"type": "checker", "doc_type": "通知"},
-                ]
-            },
-        }))
+        streams.feed_line(
+            json.dumps(
+                {
+                    "method": "plugin.register",
+                    "params": {
+                        "capabilities": [
+                            {"type": "tool", "name": "echo"},
+                            {"type": "checker", "doc_type": "通知"},
+                        ]
+                    },
+                }
+            )
+        )
 
         caps = await client.wait_for_register(timeout=1.0)
         assert len(caps) == 2
@@ -143,7 +151,8 @@ class TestJSONRPCClient:
             disconnect_called.set()
 
         client = JSONRPCClient(
-            streams, streams,
+            streams,
+            streams,
             plugin_name="test_plugin",
             on_disconnect=on_disconnect,
         )
@@ -174,11 +183,15 @@ class TestJSONRPCClient:
         await client._ensure_reader()
         await asyncio.sleep(0.02)
 
-        streams.feed_line(json.dumps({
-            "id": -1,
-            "method": "cache.load",
-            "params": {"ref_id": "$ref:x:1"},
-        }))
+        streams.feed_line(
+            json.dumps(
+                {
+                    "id": -1,
+                    "method": "cache.load",
+                    "params": {"ref_id": "$ref:x:1"},
+                }
+            )
+        )
 
         await asyncio.wait_for(handled.wait(), timeout=1.0)
         assert received.get("method") == "cache.load"
@@ -198,11 +211,15 @@ class TestJSONRPCClient:
         await client._ensure_reader()
         await asyncio.sleep(0.02)
 
-        streams.feed_line(json.dumps({
-            "id": -2,
-            "method": "cache.load",
-            "params": {},
-        }))
+        streams.feed_line(
+            json.dumps(
+                {
+                    "id": -2,
+                    "method": "cache.load",
+                    "params": {},
+                }
+            )
+        )
 
         for _ in range(100):
             for msg in streams.written:
@@ -212,3 +229,69 @@ class TestJSONRPCClient:
                     return
             await asyncio.sleep(0.01)
         pytest.fail("No error response was written")
+
+
+class TestLargeResponses:
+    @pytest.mark.asyncio
+    async def test_response_larger_than_64kib_roundtrips(self):
+        """Regression: a single-line response above the old 64 KiB default
+        stream limit must not kill the connection.  It used to break the
+        read loop and make the host kill perfectly healthy plugins.
+        """
+        import sys
+
+        from courtier_plugin_sdk.protocol import STREAM_LIMIT_BYTES
+
+        big = "x" * 200_000
+        # The payload is generated inside the child — embedding it in argv
+        # trips E2BIG (argument list too long).
+        script = (
+            "import sys, json\n"
+            "sys.stdin.buffer.readline()\n"
+            "resp = json.dumps({'id': 1, 'result': {'success': True, 'data': 'x' * 200000}})\n"
+            "sys.stdout.buffer.write(resp.encode() + b'\\n')\n"
+            "sys.stdout.buffer.flush()\n"
+        )
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            script,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            limit=STREAM_LIMIT_BYTES,
+        )
+        client = JSONRPCClient(proc.stdout, proc.stdin, plugin_name="big")
+        try:
+            result = await client.call("echo", {})
+            assert result == {"success": True, "data": big}
+        finally:
+            proc.kill()
+            await proc.wait()
+
+    @pytest.mark.asyncio
+    async def test_default_limit_would_break(self):
+        """Document the failure mode: with the asyncio default 64 KiB limit,
+        an oversized line raises ValueError from readline."""
+        import sys
+
+        script = (
+            "import sys, json\n"
+            "sys.stdin.buffer.readline()\n"
+            "resp = json.dumps({'id': 1, 'result': {'data': 'x' * 200000}})\n"
+            "sys.stdout.buffer.write(resp.encode() + b'\\n')\n"
+            "sys.stdout.buffer.flush()\n"
+        )
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            script,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            # no limit= → 64 KiB default
+        )
+        proc.stdin.write(b'{"id": 1, "method": "echo"}\n')
+        await proc.stdin.drain()
+        with pytest.raises(ValueError):
+            await proc.stdout.readline()
+        proc.kill()
+        await proc.wait()
