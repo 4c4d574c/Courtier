@@ -86,16 +86,26 @@ class TestCacheStorePersistJson:
         assert shape["type"] == "string"
         assert shape["len"] == 5000
 
-    async def test_ref_id_increments_per_tool(self, cache_store):
-        """Ref IDs should increment independently per tool name."""
+    async def test_identical_data_deduped_per_tool(self, cache_store):
+        """Identical output from the same tool reuses the cache file (dedup)."""
         data = {"text": "x" * 3500}
         r1 = await cache_store.persist(data, "tool_a")
         r2 = await cache_store.persist(data, "tool_a")
         r3 = await cache_store.persist(data, "tool_b")
 
         assert r1.ref_id == "$ref:tool_a:1"
-        assert r2.ref_id == "$ref:tool_a:2"
+        # Dedup hit: same ref, no second file.
+        assert r2.ref_id == "$ref:tool_a:1"
+        assert r2.data.get("dedup_hit") is True
         assert r3.ref_id == "$ref:tool_b:1"
+
+    async def test_ref_id_increments_for_different_data(self, cache_store):
+        """Ref IDs still increment per tool when the content differs."""
+        r1 = await cache_store.persist({"text": "a" * 3500}, "tool_a")
+        r2 = await cache_store.persist({"text": "b" * 3500}, "tool_a")
+
+        assert r1.ref_id == "$ref:tool_a:1"
+        assert r2.ref_id == "$ref:tool_a:2"
 
     async def test_ref_map_tracks_all(self, cache_store):
         """ref_map should contain entries for all persisted ref_ids."""
@@ -161,9 +171,7 @@ class TestCacheStorePersistJson:
         assert result.data["__persisted_output__"] is True
         assert result.data["size_chars"] < 3000
 
-    async def test_label_with_hyphen_sanitized_and_ref_id_matches_pattern(
-        self, cache_store
-    ):
+    async def test_label_with_hyphen_sanitized_and_ref_id_matches_pattern(self, cache_store):
         """Label containing hyphens is sanitized and ref_id matches _REF_PATTERN."""
         data = {"text": "x" * 3500}
         result = await cache_store.persist(data, "test_tool", label="my-label")
@@ -269,9 +277,7 @@ class TestCacheStoreResolveRefs:
         result = await cache_store.persist(data, "search_documents")
         ref_id = result.ref_id
 
-        resolved = cache_store.resolve_refs(
-            {"items": [ref_id, "plain", ref_id]}
-        )
+        resolved = cache_store.resolve_refs({"items": [ref_id, "plain", ref_id]})
         assert resolved["items"][0] == data
         assert resolved["items"][1] == "plain"
         assert resolved["items"][2] == data
@@ -282,9 +288,7 @@ class TestCacheStoreResolveRefs:
         result = await cache_store.persist(data, "search_documents")
         ref_id = result.ref_id
 
-        resolved = cache_store.resolve_refs(
-            {"outer": {"inner": ref_id}}
-        )
+        resolved = cache_store.resolve_refs({"outer": {"inner": ref_id}})
         assert resolved["outer"]["inner"] == data
 
     async def test_resolves_marker_dict(self, cache_store):
@@ -426,7 +430,8 @@ class TestCacheStoreSourceMetadata:
         """Source metadata should appear in __persisted_output__ marker."""
         data = {"text": "x" * 3500}
         result = await cache_store.persist(
-            data, "test_tool",
+            data,
+            "test_tool",
             source_ref_id="$ref:parent:1",
             source_query="some query",
         )
@@ -437,7 +442,8 @@ class TestCacheStoreSourceMetadata:
         """Marker should handle partial source metadata (only ref_id)."""
         data = {"text": "x" * 3500}
         result = await cache_store.persist(
-            data, "test_tool",
+            data,
+            "test_tool",
             source_ref_id="$ref:parent:1",
         )
         assert "source" in result.data
@@ -520,12 +526,16 @@ class TestCacheStoreEndToEnd:
 
         # Persist two different query results
         r1 = await store.persist(
-            {"id": 1}, "debug_tool", force=True,
+            {"id": 1},
+            "debug_tool",
+            force=True,
             source_ref_id="$ref:parse_document:1",
             source_query=".docs[0].id",
         )
         r2 = await store.persist(
-            {"id": 2}, "debug_tool", force=True,
+            {"id": 2},
+            "debug_tool",
+            force=True,
             source_ref_id="$ref:parse_document:1",
             source_query=".docs[1].id",
         )
@@ -564,3 +574,56 @@ class TestCacheStoreObjectSchemaStrict:
         )
         assert isinstance(resolved["query"], list)
         assert resolved["query"] == data
+
+
+@pytest.mark.asyncio
+class TestCacheStoreHashIndexSalt:
+    """Version-salted dedup keys and bounded hash-index growth."""
+
+    async def test_dedup_hit_within_same_salt(self, tmp_path):
+        store = CacheStore(cache_dir=str(tmp_path), cache_salt="v1")
+        data = {"text": "x" * 4000}
+        r1 = await store.persist(data, "parse_document")
+        r2 = await store.persist(data, "parse_document")
+        assert r2.data.get("dedup_hit") is True
+        assert r2.ref_id == r1.ref_id
+
+    async def test_different_salt_misses_old_entries(self, tmp_path):
+        """After an upgrade (new salt) identical content is re-persisted
+        instead of reusing the previous generation's cache file."""
+        data = {"text": "x" * 4000}
+        old_store = CacheStore(cache_dir=str(tmp_path), cache_salt="v1")
+        r1 = await old_store.persist(data, "parse_document")
+
+        new_store = CacheStore(cache_dir=str(tmp_path), cache_salt="v2")
+        r2 = await new_store.persist(data, "parse_document")
+
+        assert not r2.data.get("dedup_hit")
+        # Re-persisted to a NEW cache file rather than reusing the old one.
+        assert r2.data["file"] != r1.data["file"]
+        assert new_store.load(r2.ref_id) == data
+
+    async def test_default_salt_is_nonempty_and_deterministic(self, tmp_path):
+        from courtier.agent.core.cache_store import _default_cache_salt
+
+        salt = _default_cache_salt()
+        assert isinstance(salt, str)
+        assert salt == _default_cache_salt()
+
+    async def test_save_prunes_stale_index_entries(self, tmp_path):
+        """Writing the index drops entries whose cache file was removed, so
+        .hash_index.json does not grow unboundedly."""
+        store = CacheStore(cache_dir=str(tmp_path), cache_salt="v1")
+        r1 = await store.persist({"text": "x" * 4000}, "parse_document")
+        index_path = tmp_path / ".hash_index.json"
+        index_before = json.loads(index_path.read_text(encoding="utf-8"))
+        assert len(index_before) == 1
+
+        # GC removes the cache file; the next write must prune its entry.
+        os.remove(store.ref_map[r1.ref_id])
+        r2 = await store.persist({"text": "y" * 4000}, "search_documents")
+        assert r2.persisted
+
+        index_after = json.loads(index_path.read_text(encoding="utf-8"))
+        assert len(index_after) == 1
+        assert all(v["ref_id"] == r2.ref_id for v in index_after.values())

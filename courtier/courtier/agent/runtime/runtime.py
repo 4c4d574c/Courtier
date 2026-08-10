@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
-from courtier.agent.artifacts.store import ArtifactStore
+from courtier.agent.artifacts.scoped_store import ScopedArtifactView
 from courtier.agent.core.capability import CapabilityRegistry
 from courtier.agent.core.context_manager import ContextManager
 from courtier.agent.core.event_bus import EventBus
@@ -75,6 +75,7 @@ class AgentRuntime:
     session_id: str = ""
     capability_registry: CapabilityRegistry | None = None
     event_bus: EventBus | None = None
+    cache_dir: str = ".agent_cache"  # used when a fallback MemoryManager is needed
 
     def __post_init__(self) -> None:
         self._configs: dict[str, AgentConfig] = {}
@@ -146,7 +147,6 @@ class AgentRuntime:
         parent_handle: AgentHandle | None = None,
         context_mode: str = "transparent",
         context: dict[str, str] | None = None,
-        artifact_store: Any = None,
         ref_ids: list[str] | None = None,
         model_config: dict[str, Any] | None = None,
         budget: AgentRuntimeBudget | None = None,
@@ -175,10 +175,6 @@ class AgentRuntime:
             max_turns=config.max_turns,
         )
 
-        artifact_context: list[dict[str, Any]] = []
-        if artifact_store is not None:
-            artifact_context = self._build_artifact_context(artifact_store)
-
         self._scope_counter += 1
         scope_id = f"scope-{self._scope_counter}"
 
@@ -192,7 +188,6 @@ class AgentRuntime:
             parent_subagent_name=parent_handle.agent_name if parent_handle else None,
             context_mode=context_mode,
             context=context,
-            artifact_context=artifact_context,
             ref_ids=ref_ids,
             model_config=model_config,
             metadata={"session_id": self.session_id},
@@ -255,13 +250,16 @@ class AgentRuntime:
             ),
         )
 
-        scoped_store = self._build_scoped_store(artifact_store)
+        scoped_store = self._build_scoped_store(artifact_store, handle)
         if context_manager is not None:
-            cm = context_manager
+            # Sub-agents share the cache store but get an independent
+            # CompactState — their compactions must not interleave with the
+            # parent's guard and numbering.
+            cm = context_manager.fork()
         else:
             cm = MemoryManager(
                 model=self.model,
-                cache_dir=".agent_cache",
+                cache_dir=self.cache_dir,
                 session_id=self.session_id or "default",
             )
 
@@ -290,7 +288,11 @@ class AgentRuntime:
         start = asyncio.get_running_loop().time()
         task: asyncio.Task | None = None
         try:
-            agent = self._build_agent(config, exclude_skills=set(handle.budget.agent_chain))
+            agent = self._build_agent(
+                config,
+                exclude_skills=set(handle.budget.agent_chain),
+                result_store=scoped_store,
+            )
 
             # Wire parent handle and event callbacks into any SkillTools
             # the sub-agent carries, so nested skill calls inherit the
@@ -326,7 +328,6 @@ class AgentRuntime:
                 "context": self._build_context(handle, config),
                 "context_manager": cm,
                 "artifact_store": scoped_store,
-                "artifact_context": handle.artifact_context,
                 "audit_logger": sub_audit_logger or audit_logger,
                 "session_id": self.session_id,
                 **wrapped_callbacks,
@@ -407,7 +408,11 @@ class AgentRuntime:
                 pass
 
     def _build_agent(
-        self, config: AgentConfig, *, exclude_skills: set[str] | None = None
+        self,
+        config: AgentConfig,
+        *,
+        exclude_skills: set[str] | None = None,
+        result_store: Any = None,
     ) -> "Agent":
         """Construct an Agent instance scoped to the config's declared tools and skills.
 
@@ -479,21 +484,27 @@ class AgentRuntime:
             role=config.system_prompt,
             model=self.model,
             tools=tools,
+            agent_name=self._skill_display_name(config.name) or "",
         )
         # Sync summarizer / result_store from the runtime's shared registry
         # so large tool results are summarised before entering the sub-agent's
         # LLM context.  The Agent(tools=…) path does not receive a shared
-        # registry, so infrastructure state must be copied explicitly.
+        # registry, so infrastructure state must be copied explicitly.  When
+        # the delegate path provided a scoped artifact view, hand the view
+        # (not the shared root store) to the sub-agent's private registry so
+        # any result-store access stays inside the sub-agent's scope.
         if hasattr(self.tool_registry, "configure_result_handling"):
             agent.tool_registry.configure_result_handling(
-                result_store=getattr(self.tool_registry, "_result_store", None),
+                result_store=(
+                    result_store
+                    if result_store is not None
+                    else getattr(self.tool_registry, "_result_store", None)
+                ),
                 summarizer=getattr(self.tool_registry, "_summarizer", None),
             )
         return agent
 
-    def _build_context(
-        self, handle: AgentHandle, config: AgentConfig
-    ) -> dict[str, str] | None:
+    def _build_context(self, handle: AgentHandle, config: AgentConfig) -> dict[str, str] | None:
         """Build the run-time context for the spawned agent.
 
         If the parent passed explicit context (e.g. file_path), surface it as
@@ -501,32 +512,37 @@ class AgentRuntime:
         """
         return handle.context
 
-    def _build_scoped_store(self, artifact_store: Any) -> Any:
-        # Sub-agents share the parent's artifact store directly so they can
-        # see artifacts created by the parent both before AND after spawn.
-        # The snapshot-based ScopedArtifactStore was causing sub-agents to
-        # see empty artifact lists because it only captured artifacts that
-        # existed at spawn time.  Uniform access is the intended model —
-        # sub-agents are trusted components, not sandboxed adversaries.
-        return artifact_store
+    def _build_scoped_store(self, artifact_store: Any, handle: AgentHandle) -> Any:
+        """Return a live visibility-scoped view over the shared artifact store.
 
-    def _build_artifact_context(self, artifact_store: Any) -> list[dict[str, Any]]:
-        if not isinstance(artifact_store, ArtifactStore):
-            return []
-        entries: list[dict[str, Any]] = []
-        for artifact in artifact_store.list_all():
-            if artifact.metadata.debug_only:
-                continue
-            entries.append(
-                {
-                    "artifact_id": artifact.artifact_id,
-                    "artifact_type": artifact.artifact_type,
-                    "created_by": artifact.metadata.created_by,
-                    "content_hash": artifact.metadata.content_hash,
-                    "semantic_role": artifact.metadata.semantic_role,
-                }
-            )
-        return entries
+        Sub-agents share the parent's artifact store (so artifacts the parent
+        creates both before AND after spawn stay visible), but reads/writes go
+        through a ``ScopedArtifactView``:
+
+        - everything the sub-agent writes is stamped with its ``handle_id``,
+          hiding it from sibling sub-agents;
+        - artifacts written directly to the root store (``subject="unknown"``)
+          and artifacts owned by the ancestor chain stay visible;
+        - ``handle.ref_ids`` acts as an explicit allow-list, so the
+          orchestrator can deliberately hand a sibling's output to a sub-agent.
+
+        When the incoming store is already a view (nested skill dispatch),
+        the child view inherits the parent's allowed set plus the parent's own
+        scope, so a nested sub-agent sees its whole ancestor chain but never
+        siblings or side branches.
+        """
+        if artifact_store is None:
+            return None
+        if isinstance(artifact_store, ScopedArtifactView):
+            allowed = artifact_store.allowed | {artifact_store.scope}
+        else:
+            allowed = frozenset()
+        return ScopedArtifactView(
+            artifact_store,
+            scope=handle.handle_id,
+            allowed=allowed,
+            extra_allowed=handle.ref_ids,
+        )
 
     def _wrap_callbacks(
         self,
@@ -575,30 +591,29 @@ class AgentRuntime:
                 await original(token)
 
         async def _on_content_token(token: str) -> None:
-            await _emit(
-                _event("conclusion", text=token, detail={"handle_id": handle.handle_id})
-            )
+            await _emit(_event("conclusion", text=token, detail={"handle_id": handle.handle_id}))
             original = callbacks.get("on_content_token")
             if original is not None:
                 await original(token)
 
         async def _on_step(event: str, detail: str) -> None:
             if event == "think":
-                await _emit(
-                    _event("think", text=detail, detail={"handle_id": handle.handle_id})
-                )
+                await _emit(_event("think", text=detail, detail={"handle_id": handle.handle_id}))
             original = callbacks.get("on_step")
             if original is not None:
                 await original(event, detail)
 
         async def _on_tool_result(tool_name: str, result: Any, summary: str) -> None:
             success = getattr(result, "success", True)
+            metadata = getattr(result, "metadata", None) or {}
+            issue_counts = metadata.get("issue_counts")
             await _emit(
                 _event(
                     "tool_result",
                     tool_name=tool_name,
                     tool_status="ok" if success else "error",
                     tool_summary=summary,
+                    tool_issue_counts=issue_counts if isinstance(issue_counts, dict) else None,
                     detail={"handle_id": handle.handle_id},
                 )
             )
@@ -724,6 +739,4 @@ class AgentRuntime:
         return chain[0] if chain else handle.handle_id
 
     def _record_runtime(self, root_id: str, elapsed: float) -> None:
-        self._cumulative_runtime[root_id] = (
-            self._cumulative_runtime.get(root_id, 0.0) + elapsed
-        )
+        self._cumulative_runtime[root_id] = self._cumulative_runtime.get(root_id, 0.0) + elapsed

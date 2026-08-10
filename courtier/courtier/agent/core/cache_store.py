@@ -11,6 +11,7 @@ PersistResult.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -18,7 +19,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+from ..telemetry.metrics import record_context_ref_recover
 from .schema_utils import extract_field_paths, merge_schema
 
 logger = logging.getLogger(__name__)
@@ -29,10 +32,9 @@ LARGE_OUTPUT_THRESHOLD = 3000
 MAX_RECENT_FILES = 100
 PREVIEW_MAX_CHARS = 200
 _RESOLVE_MAX_DEPTH = 32
+_HASH_INDEX_FILE = ".hash_index.json"
 
-_REF_PATTERN = re.compile(
-    r"^\$ref:([a-zA-Z_][a-zA-Z0-9_.]*):(\d+)(?::([a-zA-Z_][a-zA-Z0-9_]*))?$"
-)
+_REF_PATTERN = re.compile(r"^\$ref:([a-zA-Z_][a-zA-Z0-9_.]*):(\d+)(?::([a-zA-Z_][a-zA-Z0-9_]*))?$")
 
 # Pattern for finding $ref references embedded anywhere in a string
 # (no ^/$ anchors).  Used as a fallback when a string value contains a
@@ -40,6 +42,26 @@ _REF_PATTERN = re.compile(
 _EMBEDDED_REF_PATTERN = re.compile(
     r"\$ref:([a-zA-Z_][a-zA-Z0-9_.]*):(\d+)(?::([a-zA-Z_][a-zA-Z0-9_]*))?"
 )
+
+
+def _default_cache_salt() -> str:
+    """Default version salt mixed into the content-hash dedup key.
+
+    Derived from the installed courtier distribution version so cache entries
+    written by an older release are never reused after an upgrade (persisted
+    result semantics may have changed).  Deployments that need explicit
+    control can pass ``cache_salt=`` to ArtifactStore instead.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("courtier")
+    except PackageNotFoundError:
+        # Source checkout without an installed distribution — fall back to a
+        # static salt.  Bump it manually when persisted semantics change.
+        return "0"
+    except Exception:  # pragma: no cover - defensive
+        return "0"
 
 
 # -- PersistResult ------------------------------------------------------------
@@ -87,17 +109,89 @@ class _PersistenceBackend:
         self,
         cache_dir: str = ".agent_cache",
         large_output_threshold: int = LARGE_OUTPUT_THRESHOLD,
+        preview_max_chars: int = PREVIEW_MAX_CHARS,
         primary_backend: Any | None = None,
+        cache_salt: str | None = None,
     ) -> None:
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self.large_output_threshold = large_output_threshold
+        self._preview_max_chars = preview_max_chars
         self._primary_backend = primary_backend
+        # Version salt mixed into the dedup hash key: entries written before a
+        # parser/plugin upgrade must not be reused, so the key is never a bare
+        # content hash.  Defaults to the courtier distribution version.
+        self._cache_salt = cache_salt if cache_salt is not None else _default_cache_salt()
 
         self._lock = asyncio.Lock()
         self.ref_map: dict[str, str] = {}
         self.ref_counters: dict[str, int] = {}
         self.recent_files: list[str] = []
+        # Content-hash dedup index: "tool_name:sha256" -> {ref_id, file}.
+        # Persisted in the cache dir so it survives per-request store
+        # instances; stale entries (file deleted by GC) self-heal on lookup.
+        self._hash_index: dict[str, dict[str, str]] = self._load_hash_index()
+
+    # -- Content-hash dedup ------------------------------------------------------
+
+    def _load_hash_index(self) -> dict[str, dict[str, str]]:
+        index_path = self._cache_dir / _HASH_INDEX_FILE
+        try:
+            raw = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {k: v for k, v in raw.items() if isinstance(v, dict)}
+
+    def _save_hash_index(self) -> None:
+        """Best-effort atomic write of the dedup index.
+
+        Prunes entries whose target file no longer exists before writing so
+        the index does not grow unboundedly (lookups self-heal individually,
+        but without this the on-disk file only ever grew).
+        """
+        stale = [k for k, v in self._hash_index.items() if not Path(v.get("file", "")).exists()]
+        for key in stale:
+            self._hash_index.pop(key, None)
+        index_path = self._cache_dir / _HASH_INDEX_FILE
+        try:
+            tmp_path = index_path.with_suffix(".tmp")
+            tmp_path.write_text(json.dumps(self._hash_index, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(index_path)
+        except OSError:
+            logger.warning("Failed to persist hash index", exc_info=True)
+
+    def _dedup_key(self, tool_name: str, serialized: str) -> str:
+        """Version-salted dedup key: ``tool_name:salt:sha256``."""
+        digest = hashlib.sha256(f"{self._cache_salt}\n{serialized}".encode("utf-8")).hexdigest()
+        return f"{tool_name}:{digest}"
+
+    def _dedup_lookup(self, tool_name: str, serialized: str) -> tuple[str, str] | None:
+        """Return (ref_id, filepath) when identical content was persisted before.
+
+        The dedup key is ``tool_name:salt:sha256`` — repeat calls of the SAME
+        tool with identical output share one cache file, and entries written
+        under a different version salt simply miss.  Entries whose file was
+        removed (GC) are dropped and treated as a miss.
+        """
+        key = self._dedup_key(tool_name, serialized)
+        entry = self._hash_index.get(key)
+        if entry is None:
+            return None
+        filepath = entry.get("file", "")
+        ref_id = entry.get("ref_id", "")
+        if not ref_id or not filepath or not Path(filepath).exists():
+            self._hash_index.pop(key, None)
+            return None
+        return ref_id, filepath
+
+    def _dedup_record(self, tool_name: str, serialized: str, ref_id: str, filepath: str) -> None:
+        self._hash_index[self._dedup_key(tool_name, serialized)] = {
+            "ref_id": ref_id,
+            "file": filepath,
+        }
+        self._save_hash_index()
 
     # -- Public API -----------------------------------------------------------
 
@@ -126,9 +220,31 @@ class _PersistenceBackend:
         if not force and len(serialized) <= self.large_output_threshold:
             return PersistResult(data=data, ref_id="", persisted=False)
 
+        # Content-hash dedup: identical output from the same tool reuses the
+        # existing cache file instead of writing a duplicate.
+        dedup_hit = self._dedup_lookup(tool_name, serialized)
+        if dedup_hit is not None:
+            ref_id, filepath_str = dedup_hit
+            async with self._lock:
+                self.ref_map[ref_id] = filepath_str
+            marker = self._build_marker(
+                ref_id,
+                filepath_str,
+                serialized,
+                content_type,
+                label=label,
+                source_ref_id=source_ref_id,
+                source_query=source_query,
+            )
+            marker["data_shape"] = self._build_data_shape(data)
+            marker["dedup_hit"] = True
+            logger.debug("persist dedup hit: %s -> %s", tool_name, ref_id)
+            return PersistResult(data=marker, ref_id=ref_id, persisted=True)
+
         ref_id = self._next_ref_id(tool_name, label)
         ext = "txt" if content_type == "text/plain" else "json"
         filepath_str = await self._write_file(tool_name, ref_id, serialized, ext)
+        self._dedup_record(tool_name, serialized, ref_id, filepath_str)
 
         # Persist schema alongside data (best-effort)
         if content_type == "application/json" and isinstance(data, (dict, list)):
@@ -150,12 +266,14 @@ class _PersistenceBackend:
         if self._primary_backend is not None:
             try:
                 await self._primary_backend.store(
-                    ref_id, data,
+                    ref_id,
+                    data,
                     metadata={"tool_name": tool_name, "label": label},
                 )
             except Exception:
                 logger.warning(
-                    "Primary backend persist failed for %s (data still on disk)", ref_id,
+                    "Primary backend persist failed for %s (data still on disk)",
+                    ref_id,
                 )
 
         return PersistResult(data=marker, ref_id=ref_id, persisted=True)
@@ -187,7 +305,8 @@ class _PersistenceBackend:
                 metadata["primary_error"] = primary_result.get("error")
             except Exception as exc:
                 logger.warning(
-                    "Primary backend read failed for %s, falling back to disk", ref_id,
+                    "Primary backend read failed for %s, falling back to disk",
+                    ref_id,
                 )
                 metadata["primary_error"] = f"primary_backend_failed: {exc}"
 
@@ -226,6 +345,7 @@ class _PersistenceBackend:
     def _truncate_data(data: Any, max_tokens: int) -> Any:
         """Truncate data to fit within *max_tokens* (roughly 4 chars/token)."""
         from .loop_utils import truncate_data
+
         return truncate_data(data, max_tokens)
 
     # -- Helper methods -------------------------------------------------------
@@ -264,9 +384,7 @@ class _PersistenceBackend:
                 ref_id += f":{sanitized}"
         return ref_id
 
-    async def _write_file(
-        self, tool_name: str, ref_id: str, serialized: str, ext: str
-    ) -> str:
+    async def _write_file(self, tool_name: str, ref_id: str, serialized: str, ext: str) -> str:
         """Write *serialized* to disk and update ``ref_map`` / ``recent_files``.
 
         Returns the absolute or relative path string of the written file.
@@ -276,8 +394,13 @@ class _PersistenceBackend:
         match = self._REF_PATTERN.match(ref_id)
         seq = match.group(2) if match else "0"
         ts = int(time.time() * 1000)
+        # Uniqueness suffix: ref_counters are per-instance, so two fresh stores
+        # (concurrent requests, or a post-upgrade store) can emit the same seq
+        # within the same millisecond — without entropy they would overwrite
+        # each other's cache file.
+        uniq = uuid4().hex[:6]
         safe_name = tool_name.replace("/", "_").replace(" ", "_")
-        filename = f"{safe_name}_{seq}_{ts}.{ext}"
+        filename = f"{safe_name}_{seq}_{ts}_{uniq}.{ext}"
         filepath = self._cache_dir / filename
         await asyncio.to_thread(filepath.write_text, serialized, encoding="utf-8")
         filepath_str = str(filepath)
@@ -316,9 +439,7 @@ class _PersistenceBackend:
                 json.dumps(merged, ensure_ascii=False), encoding="utf-8"
             )
         except Exception:
-            logger.warning(
-                "Schema extraction failed for %s", filepath_str, exc_info=True
-            )
+            logger.warning("Schema extraction failed for %s", filepath_str, exc_info=True)
 
     @staticmethod
     def _build_data_shape(data: Any) -> dict[str, Any]:
@@ -362,8 +483,9 @@ class _PersistenceBackend:
         source_query: str | None,
     ) -> dict[str, Any]:
         """Build the ``__persisted_output__`` marker dict for *persist*."""
-        preview = serialized[:PREVIEW_MAX_CHARS]
-        if len(serialized) > PREVIEW_MAX_CHARS:
+        preview_max = self._preview_max_chars
+        preview = serialized[:preview_max]
+        if len(serialized) > preview_max:
             preview += (
                 f"\n...[truncated, full output ({len(serialized)} chars)"
                 f" saved to {filepath_str}]"
@@ -452,8 +574,18 @@ class _PersistenceBackend:
 
         Safe for direct use by external components (e.g., artifact rehydration)
         that need to sync ref_map without going through :meth:`store`.
+
+        Also advances the per-tool numbering counter past any numeric ref it
+        sees: session restore re-registers historical refs via this method,
+        and without the counter bump a later persist would reissue
+        ``$ref:<tool>:1`` and silently overwrite the restored entry.
         """
         self.ref_map[ref_id] = filepath
+        match = self._REF_PATTERN.match(ref_id)
+        if match:
+            prefix, seq = match.group(1), int(match.group(2))
+            if seq > self.ref_counters.get(prefix, 0):
+                self.ref_counters[prefix] = seq
 
     def exists(self, ref_id: str) -> bool:
         """Return ``True`` if *ref_id* has a persisted file on disk."""
@@ -480,9 +612,7 @@ class _PersistenceBackend:
             "exists": True,
         }
 
-    def _load_and_adapt(
-        self, ref_id: str, param_schema: dict[str, Any] | None = None
-    ) -> Any:
+    def _load_and_adapt(self, ref_id: str, param_schema: dict[str, Any] | None = None) -> Any:
         """Load data for *ref_id* and adapt based on *param_schema* type.
 
         Returns ``None`` when the ref cannot be loaded, signalling that the
@@ -570,7 +700,9 @@ class _PersistenceBackend:
             if m:
                 result = self._load_and_adapt(value, schema)
                 if result is not None:
+                    record_context_ref_recover("hit")
                     return self._resolve_value(result, schema, depth + 1)
+                record_context_ref_recover("miss")
                 return value  # Keep original on failure
 
             # Fallback: resolve $ref patterns embedded inside a longer string.
@@ -590,7 +722,9 @@ class _PersistenceBackend:
                 if ref_id:
                     loaded = self._load_and_adapt(ref_id, schema)
                     if loaded is not None:
+                        record_context_ref_recover("hit")
                         return self._resolve_value(loaded, schema, depth + 1)
+                    record_context_ref_recover("miss")
                     return ref_id  # Keep ref_id string on failure
 
             resolved_dict: dict[str, Any] = {}
@@ -678,9 +812,7 @@ class _PersistenceBackend:
         return resolved_kwargs
 
 
-def _sample_field_paths(
-    data: Any, *, max_depth: int = 3, max_paths: int = 12
-) -> list[str]:
+def _sample_field_paths(data: Any, *, max_depth: int = 3, max_paths: int = 12) -> list[str]:
     """Extract representative field-path strings from nested data.
 
     Prioritizes leaf paths (scalar values) over container paths,
@@ -691,9 +823,7 @@ def _sample_field_paths(
     return paths[:max_paths]
 
 
-def _collect_paths(
-    obj: Any, prefix: str, out: list[str], max_depth: int, max_paths: int
-) -> None:
+def _collect_paths(obj: Any, prefix: str, out: list[str], max_depth: int, max_paths: int) -> None:
     if len(out) >= max_paths:
         return
     if max_depth <= 0:

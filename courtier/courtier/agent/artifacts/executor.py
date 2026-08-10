@@ -56,29 +56,19 @@ class MaterializerRegistry:
         registry.register(
             "core.text_collection",
             "list_string",
-            lambda artifact: [
-                item.get("text", "") for item in artifact.data.get("items", [])
-            ],
+            lambda artifact: [item.get("text", "") for item in artifact.data.get("items", [])],
         )
-        registry.register(
-            "docaudit.document_metadata", "dict", lambda artifact: artifact.data
-        )
-        registry.register(
-            "docaudit.parsed_document", "dict", lambda artifact: artifact.data
-        )
+        registry.register("docaudit.parsed_document", "dict", lambda artifact: artifact.data)
         registry.register(
             "docaudit.paragraph_list",
             "list_string",
-            lambda artifact: [
-                p.get("text", "") for p in artifact.data.get("paragraphs", [])
-            ],
+            lambda artifact: [p.get("text", "") for p in artifact.data.get("paragraphs", [])],
         )
-        registry.register(
-            "docaudit.paragraph_list", "dict", lambda artifact: artifact.data
-        )
+        registry.register("docaudit.paragraph_list", "dict", lambda artifact: artifact.data)
         registry.register(
             "docaudit.paragraph_list",
-            "list_dict", lambda artifact: artifact.data.get("paragraphs", [])
+            "list_dict",
+            lambda artifact: artifact.data.get("paragraphs", []),
         )
         return registry
 
@@ -136,16 +126,10 @@ def validate_materialized_value(
     if isinstance(value, list):
         min_items = constraints.get("min_items")
         if isinstance(min_items, int) and len(value) < min_items:
-            return (
-                f"Field {field.name}: {len(value)} items is below "
-                f"minimum {min_items}"
-            )
+            return f"Field {field.name}: {len(value)} items is below " f"minimum {min_items}"
         max_items = constraints.get("max_items")
         if isinstance(max_items, int) and len(value) > max_items:
-            return (
-                f"Field {field.name}: {len(value)} items exceeds "
-                f"maximum {max_items}"
-            )
+            return f"Field {field.name}: {len(value)} items exceeds " f"maximum {max_items}"
         # item_min_chars for list items
         item_min_chars = constraints.get("item_min_chars")
         if isinstance(item_min_chars, int):
@@ -209,9 +193,7 @@ class ProjectionExecutor:
             },
         )
         for step in plan.steps:
-            cache_key = self._step_cache_key(
-                current, step.projector_name, step.constraints
-            )
+            cache_key = self._step_cache_key(current, step.projector_name, step.constraints)
             if cache_key in self._step_cache:
                 current = self._step_cache[cache_key]
                 emit_event(
@@ -274,9 +256,7 @@ class ProjectionExecutor:
                 )
             )
         value = self._materializers.materialize(current, plan.materializer)
-        materializer_desc = (
-            f"{plan.materializer.artifact_type}.{plan.materializer.materialize_as}"
-        )
+        materializer_desc = f"{plan.materializer.artifact_type}.{plan.materializer.materialize_as}"
         trace = ProjectionTrace(
             field=plan.field_name,
             source_artifact=plan.source_artifact_id,

@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from dataclasses import replace as _dc_replace
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as otel_trace
@@ -21,6 +22,7 @@ from ..telemetry.metrics import (
     record_llm_tokens,
     record_tool_execution,
     record_tool_latency,
+    set_context_tokens,
 )
 from ..telemetry.tracer import AgentTracer
 from ..tools.protocol import ToolProgress
@@ -39,6 +41,7 @@ from .loop_hints import _get_ready_terminal_tools, check_and_inject_hints
 from .loop_phases import execute_tools_phase, think_phase
 from .state import AgentState, Message
 from .state_machine import AgentStateMachine
+from .tool_call import ToolCall
 
 if TYPE_CHECKING:
     from ..hooks.chain import HookChain
@@ -70,9 +73,7 @@ def _maybe_write_audit_turn(
     )
 
 
-def _inject_reminder(
-    messages: tuple[Message, ...], reminder: str
-) -> tuple[Message, ...]:
+def _inject_reminder(messages: tuple[Message, ...], reminder: str) -> tuple[Message, ...]:
     """Append *reminder*, removing any earlier occurrence of the same reminder.
 
     Pre-turn and periodic reminders are injected every turn.  Without
@@ -82,7 +83,8 @@ def _inject_reminder(
     confused with genuine user messages that happen to contain the same text.
     """
     msgs = [
-        m for m in messages
+        m
+        for m in messages
         if not (m.role == "user" and m.source == "reminder" and m.content == reminder)
     ]
     msgs.append(Message(role="user", content=reminder, source="reminder"))
@@ -145,6 +147,8 @@ async def _run_think_phase(
     tracer: AgentTracer,
     audit_logger: AuditLogger | None,
     agent_name: str,
+    forced_first_tool_call: ToolCall | None = None,
+    pre_turn_reminder: str = "",
 ) -> _ThinkPhaseOutcome:
     """Run a single think phase: hook, guards, reminder, model call, transitions.
 
@@ -181,9 +185,7 @@ async def _run_think_phase(
         )
         if guard_result.action == "block":
             reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
-            current_state = await state_machine.transition_async(
-                current_state, "blocked", reason
-            )
+            current_state = await state_machine.transition_async(current_state, "blocked", reason)
             return _ThinkPhaseOutcome(
                 state=current_state,
                 think=None,
@@ -198,20 +200,17 @@ async def _run_think_phase(
     # prevent first-tool-call paralysis and mid-conversation
     # deliberation loops.  Uses role="user" because many API
     # providers reject interleaved system messages.
-    current_state = current_state.model_copy(
-        update={"messages": _inject_reminder(current_state.messages, PRE_TURN_REMINDER)}
-    )
+    if pre_turn_reminder:
+        current_state = current_state.model_copy(
+            update={"messages": _inject_reminder(current_state.messages, pre_turn_reminder)}
+        )
 
     # State transition: idle/thinking -> thinking
-    current_state = await state_machine.transition_async(
-        current_state, "thinking", "turn_start"
-    )
+    current_state = await state_machine.transition_async(current_state, "thinking", "turn_start")
 
     # Publish LLM request metadata before invoking the model.
     tools_schemas = (
-        tool_registry.get_schemas(hide_debug_for_task_agents=True)
-        if tool_registry
-        else None
+        tool_registry.get_schemas(hide_debug_for_task_agents=True) if tool_registry else None
     )
     await _publish(
         "llm.request",
@@ -230,6 +229,13 @@ async def _run_think_phase(
     # frontend has no step during the first think turn and its thoughts only
     # become visible when a later event creates one.
     await _publish("think.text_response", {})
+
+    # Publish the estimated context size before the think phase so the
+    # context_tokens gauge tracks budget pressure over time.
+    if context_manager is not None:
+        budget_usage = getattr(context_manager, "budget_usage", None)
+        if budget_usage is not None:
+            set_context_tokens(agent_name or "unknown", budget_usage(current_state.messages))
 
     # THINK phase with OTel LLM span
     with tracer.llm_span(
@@ -251,9 +257,7 @@ async def _run_think_phase(
         if llm_request_msgs:
             last_msg = llm_request_msgs[-1]
             content = (
-                str(last_msg.get("content", ""))
-                if isinstance(last_msg, dict)
-                else str(last_msg)
+                str(last_msg.get("content", "")) if isinstance(last_msg, dict) else str(last_msg)
             )
             tracer.log_prompt(llm_span, content)
         if think.llm_response.content:
@@ -270,9 +274,7 @@ async def _run_think_phase(
                 usage.get("completion_tokens", 0),
             )
         if think.failed:
-            llm_span.set_status(
-                Status(StatusCode.ERROR, "LLM call failed")
-            )
+            llm_span.set_status(Status(StatusCode.ERROR, "LLM call failed"))
     current_state = think.state
     recent_reasoning[:] = think.recent_reasoning
 
@@ -288,6 +290,56 @@ async def _run_think_phase(
             "finish_reason": think.llm_response.finish_reason,
         },
     )
+
+    # Forced first tool call (e.g. parse-before-anything for an uploaded
+    # document): when the model's first think did not call the required tool,
+    # rewrite the batch to just that call.  The tool phase then runs it
+    # through the normal machinery (steps, UI cards, artifact registration),
+    # and the model re-plans next turn with the result in context.
+    if forced_first_tool_call is not None and not think.failed and not think.reasoning_loop:
+        existing_calls = current_state.tool_calls
+        expected_path = forced_first_tool_call.arguments.get("file_path")
+        if any(
+            tc.name == forced_first_tool_call.name
+            and tc.arguments.get("file_path") == expected_path
+            for tc in existing_calls
+        ):
+            pass  # model complied on its own (same tool AND same file)
+        else:
+            msgs = list(current_state.messages)
+            if msgs and msgs[-1].role == "assistant":
+                msgs[-1] = _dc_replace(msgs[-1], tool_calls=(forced_first_tool_call,))
+                current_state = current_state.model_copy(
+                    update={
+                        "messages": tuple(msgs),
+                        "tool_calls": (forced_first_tool_call,),
+                    }
+                )
+                logger.info(
+                    "Forced first tool call: %s (overrode %d model call(s))",
+                    forced_first_tool_call.name,
+                    len(existing_calls),
+                )
+
+    # A failed first think must not waste the mandatory first call: the
+    # forced call needs no model output, so run it anyway and let the model
+    # re-plan on the next turn with the result in context.  Without this the
+    # whole run dies on a transient model error before the required parse.
+    if think.failed and forced_first_tool_call is not None:
+        msgs = list(current_state.messages)
+        msgs.append(Message(role="assistant", content=None, tool_calls=(forced_first_tool_call,)))
+        current_state = current_state.model_copy(
+            update={
+                "messages": tuple(msgs),
+                "tool_calls": (forced_first_tool_call,),
+                "termination_reason": None,
+            }
+        )
+        think.failed = False
+        logger.info(
+            "Forced first tool call: %s (recovered from failed first think)",
+            forced_first_tool_call.name,
+        )
 
     # State transition: thinking -> waiting_for_tool / completed / error
     if think.failed:
@@ -409,6 +461,7 @@ async def _run_tool_phase(
     consecutive_exploratory: int,
     event_bus: EventBus | None,
     hooks: Any | None,
+    periodic_reminder: str = "",
 ) -> _ToolPhaseOutcome:
     """Run a single tool phase: guards, permission gate, execute, observe, hooks.
 
@@ -426,9 +479,7 @@ async def _run_tool_phase(
         )
         if guard_result.action == "block":
             reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
-            current_state = await state_machine.transition_async(
-                current_state, "blocked", reason
-            )
+            current_state = await state_machine.transition_async(current_state, "blocked", reason)
             return _ToolPhaseOutcome(
                 state=current_state,
                 think=think,
@@ -471,9 +522,7 @@ async def _run_tool_phase(
         )
         if guard_result.action == "block":
             reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
-            current_state = await state_machine.transition_async(
-                current_state, "blocked", reason
-            )
+            current_state = await state_machine.transition_async(current_state, "blocked", reason)
             return _ToolPhaseOutcome(
                 state=current_state,
                 think=think,
@@ -528,9 +577,7 @@ async def _run_tool_phase(
     # add_observation clears them, so downstream tracking and guard
     # checks see the calls made this turn.
     executed_tool_calls = current_state.tool_calls
-    current_state = current_state.add_observation(
-        tuple(results), set_status=False
-    )
+    current_state = current_state.add_observation(tuple(results), set_status=False)
     current_state = current_state.record_turn()
     current_state = await state_machine.transition_async(
         current_state, "observing", "tools_executed"
@@ -542,9 +589,7 @@ async def _run_tool_phase(
             tool_name=record.tool_name,
             parameters=record.arguments,
         ) as tool_span:
-            tool_span.set_attribute(
-                "gen_ai.tool.latency_ms", record.duration_ms
-            )
+            tool_span.set_attribute("gen_ai.tool.latency_ms", record.duration_ms)
             tool_span.set_attribute(
                 "gen_ai.tool.status",
                 "success" if record.result_success else "error",
@@ -574,14 +619,15 @@ async def _run_tool_phase(
         )
         if guard_result.action == "block":
             reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
-            current_state = await state_machine.transition_async(
-                current_state, "completed", reason
-            )
+            current_state = await state_machine.transition_async(current_state, "completed", reason)
             await _terminate_loop_step(
                 reason=reason,
-                on_step=on_step, audit_logger=audit_logger,
-                turn_index=turn_index, timestamp=timestamp,
-                think=think, tool_records=tuple(tool_records),
+                on_step=on_step,
+                audit_logger=audit_logger,
+                turn_index=turn_index,
+                timestamp=timestamp,
+                think=think,
+                tool_records=tuple(tool_records),
             )
             return _ToolPhaseOutcome(
                 state=current_state,
@@ -619,9 +665,12 @@ async def _run_tool_phase(
         )
         await _terminate_loop_step(
             reason=force_complete_reason,
-            on_step=on_step, audit_logger=audit_logger,
-            turn_index=turn_index, timestamp=timestamp,
-            think=think, tool_records=tuple(tool_records),
+            on_step=on_step,
+            audit_logger=audit_logger,
+            turn_index=turn_index,
+            timestamp=timestamp,
+            think=think,
+            tool_records=tuple(tool_records),
         )
         return _ToolPhaseOutcome(
             state=current_state,
@@ -631,41 +680,31 @@ async def _run_tool_phase(
         )
 
     # Gap 4: emit terminal_tool_called when a terminal tool was invoked
-    if (
-        consecutive_exploratory == 0
-        and artifact_store is not None
-        and tool_registry is not None
-    ):
-        ready_tools_set = set(
-            _get_ready_terminal_tools(tool_registry, artifact_store)
-        )
-        called_terminal = [
-            tc.name for tc in executed_tool_calls
-            if tc.name in ready_tools_set
-        ]
+    if consecutive_exploratory == 0 and artifact_store is not None and tool_registry is not None:
+        ready_tools_set = set(_get_ready_terminal_tools(tool_registry, artifact_store))
+        called_terminal = [tc.name for tc in executed_tool_calls if tc.name in ready_tools_set]
         if called_terminal:
-            emit_event("terminal_tool_called", {
-                "tools": called_terminal,
-            })
+            emit_event(
+                "terminal_tool_called",
+                {
+                    "tools": called_terminal,
+                },
+            )
 
     # Write audit log for this turn
-    _maybe_write_audit_turn(
-        audit_logger, turn_index, timestamp, think, tuple(tool_records)
-    )
+    _maybe_write_audit_turn(audit_logger, turn_index, timestamp, think, tuple(tool_records))
 
     # --- Context budget: Layer 2 micro-compact old tool results ---
     if context_manager:
         compacted_messages = await context_manager.micro_compact(current_state.messages)
-        current_state = current_state.model_copy(
-            update={"messages": compacted_messages}
-        )
+        current_state = current_state.model_copy(update={"messages": compacted_messages})
 
     # Periodic behavioral reminder — reinforces system-prompt rules
     # that drift out of attention during long conversations.
     # Injected every 5 turns (starting from turn 5).
-    if turn_index > 0 and turn_index % 5 == 0:
+    if periodic_reminder and turn_index > 0 and turn_index % 5 == 0:
         current_state = current_state.model_copy(
-            update={"messages": _inject_reminder(current_state.messages, PERIODIC_REMINDER)}
+            update={"messages": _inject_reminder(current_state.messages, periodic_reminder)}
         )
 
     await on_step("observe", "results_collected")
@@ -702,6 +741,9 @@ async def agent_loop(
     agent_name: str = "",
     event_bus: EventBus | None = None,
     guardrail_system: GuardrailSystem | None = None,
+    forced_first_tool_call: ToolCall | None = None,
+    pre_turn_reminder: str = PRE_TURN_REMINDER,
+    periodic_reminder: str = PERIODIC_REMINDER,
 ) -> AgentState:
     """Agent 主循环 — think → gate → act → observe.
 
@@ -715,6 +757,11 @@ async def agent_loop(
     event_bus: optional publish/subscribe bus for AgentEvent instances. When
         provided, the loop publishes structured events and legacy callbacks are
         still invoked unless overridden by the caller.
+    pre_turn_reminder / periodic_reminder: reminder texts injected into the
+        message stream.  Production agents pass PromptEngine-rendered text
+        (``behavioral.pre_turn_reminder`` / ``behavioral.periodic_reminder``);
+        the defaults preserve the historical hardcoded strings for direct
+        loop usage.  Empty string disables the respective injection.
     """
     tracer = AgentTracer()
     if not agent_name:
@@ -773,6 +820,15 @@ async def agent_loop(
             )
 
     async def _on_step(event: str, detail: str) -> None:
+        if event == "compact":
+            # Full compaction silently rewrites history. Publish it on the
+            # bus as well — production consumers (SSE adapter) are bus-driven
+            # and never see the legacy callback path.
+            await _publish("context.compacted", {"detail": detail})
+        elif event == "compacting":
+            # Compaction just started (the LLM summarization may take a
+            # while) — let the frontend show an in-progress indicator.
+            await _publish("context.compacting", {"detail": detail})
         if on_step is not None:
             await _safe_call(on_step, event, detail)
 
@@ -807,6 +863,7 @@ async def agent_loop(
                 "summary": summary,
                 "success": result.success,
                 "error": result.error,
+                "issue_counts": result.metadata.get("issue_counts"),
             },
         )
         if on_tool_result is not None:
@@ -866,6 +923,9 @@ async def agent_loop(
         # once at the tail below. Turns aborted before tool execution
         # (blocked / guard-forced stops) are intentionally not recorded.
         turn_pending_record = False
+        # The forced first tool call applies only to the first think of the
+        # run; it is cleared after that think regardless of the outcome.
+        pending_forced_call = forced_first_tool_call
         try:
             while not current_state.is_terminal():
                 think_outcome = await _run_think_phase(
@@ -884,7 +944,10 @@ async def agent_loop(
                     tracer=tracer,
                     audit_logger=audit_logger,
                     agent_name=agent_name,
+                    forced_first_tool_call=pending_forced_call,
+                    pre_turn_reminder=pre_turn_reminder,
                 )
+                pending_forced_call = None
                 current_state = think_outcome.state
                 total_prompt_tokens += think_outcome.prompt_tokens
                 total_completion_tokens += think_outcome.completion_tokens
@@ -915,6 +978,7 @@ async def agent_loop(
                     consecutive_exploratory=consecutive_exploratory,
                     event_bus=event_bus,
                     hooks=hooks,
+                    periodic_reminder=periodic_reminder,
                 )
                 current_state = tool_outcome.state
                 consecutive_exploratory = tool_outcome.consecutive_exploratory

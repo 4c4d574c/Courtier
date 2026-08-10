@@ -48,9 +48,10 @@ class OrchestratorAgent(Agent):
         tool_registry: Any = None,
         skill_registry: SkillRegistry | None = None,
         agent_runtime: AgentRuntime | None = None,
-        drudge_md_content: str | None = None,
+        courtier_md_content: str | None = None,
         prompt_engine: PromptEngine | None = None,
         agent_name: str = "Courtier Orchestrator",
+        first_required_tool: str | None = None,
     ) -> None:
         self._audit_results: dict[str, Any] = {}
         self._agent_runtime = agent_runtime
@@ -82,10 +83,12 @@ class OrchestratorAgent(Agent):
         skill_list = []
         if skill_registry is not None:
             for skill in skill_registry.list_enabled():
-                skill_list.append({
-                    "name": skill.name,
-                    "description": skill.description,
-                })
+                skill_list.append(
+                    {
+                        "name": skill.name,
+                        "description": skill.description,
+                    }
+                )
 
         if prompt_engine is not None:
             role = prompt_engine.render(
@@ -114,9 +117,10 @@ class OrchestratorAgent(Agent):
             hooks=hooks,
             permissions=permissions,
             tool_registry=tool_registry,
-            drudge_md_content=drudge_md_content,
+            courtier_md_content=courtier_md_content,
             prompt_engine=prompt_engine,
             agent_name=agent_name,
+            first_required_tool=first_required_tool,
         )
         self._prompt_pipeline.set_rules(workflow_rules)
 
@@ -139,9 +143,7 @@ class OrchestratorAgent(Agent):
         on_step: Callable[[str, str], Awaitable[None]] | None = None,
         on_token: Callable[[str], Awaitable[None]] | None = None,
         on_content_token: Callable[[str], Awaitable[None]] | None = None,
-        on_tool_result: (
-            Callable[[str, ExecutionResult, str], Awaitable[None]] | None
-        ) = None,
+        on_tool_result: Callable[[str, ExecutionResult, str], Awaitable[None]] | None = None,
         on_tool_start: Callable[[str], Awaitable[None]] | None = None,
         on_tool_progress: Callable[[str, ToolProgress], Awaitable[None]] | None = None,
         on_subagent_event: Callable[..., Awaitable[None]] | None = None,
@@ -149,7 +151,6 @@ class OrchestratorAgent(Agent):
         state: AgentState | None = None,
         audit_logger: Any | None = None,
         artifact_store: Any | None = None,
-        artifact_context: list[dict[str, Any]] | None = None,
         model_config: dict[str, str] | None = None,
         session_id: str = "",
         event_bus: Any | None = None,
@@ -205,7 +206,6 @@ class OrchestratorAgent(Agent):
                 agent_type="orchestrator",
                 task=task,
                 budget=self._agent_runtime.default_budget,
-                artifact_context=artifact_context or [],
             )
 
         # Forward sub-agent event streaming and parent handle to SkillTool instances.
@@ -230,7 +230,6 @@ class OrchestratorAgent(Agent):
             state=state,
             audit_logger=audit_logger,
             artifact_store=artifact_store,
-            artifact_context=artifact_context,
             model_config=model_config,
             session_id=session_id,
             event_bus=event_bus,
@@ -266,18 +265,14 @@ class OrchestratorAgent(Agent):
     def _runtime_skill_names(self) -> set[str]:
         """Return the set of skill names registered as runtime tools."""
         return {
-            tool.name
-            for tool in self.tool_registry.list_tools()
-            if isinstance(tool, SkillTool)
+            tool.name for tool in self.tool_registry.list_tools() if isinstance(tool, SkillTool)
         }
 
     @property
     def skill_names(self) -> list[str]:
         """Names of skills registered as runtime tools, in registry order."""
         return [
-            tool.name
-            for tool in self.tool_registry.list_tools()
-            if isinstance(tool, SkillTool)
+            tool.name for tool in self.tool_registry.list_tools() if isinstance(tool, SkillTool)
         ]
 
     @property

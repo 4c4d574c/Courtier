@@ -76,15 +76,11 @@ class SkillRegistry:
             return
 
         if config.name in self._configs:
-            self._errors.append(
-                f"Duplicate skill name '{config.name}' from {path}; overwriting"
-            )
+            self._errors.append(f"Duplicate skill name '{config.name}' from {path}; overwriting")
 
         self._configs[config.name] = config
 
-    def _build_config(
-        self, stem: str, path: Path, meta: dict[str, Any], body: str
-    ) -> SkillConfig:
+    def _build_config(self, stem: str, path: Path, meta: dict[str, Any], body: str) -> SkillConfig:
         name = meta.get("name", stem)
         description = meta.get("description", body.split("\n")[0].lstrip("#").strip())
         tools = tuple(meta.get("tools") or [])
@@ -105,9 +101,7 @@ class SkillRegistry:
             try:
                 mode = SkillMode(mode)
             except ValueError:
-                self._errors.append(
-                    f"Skill '{name}' has invalid mode {mode!r}; using 'auto'"
-                )
+                self._errors.append(f"Skill '{name}' has invalid mode {mode!r}; using 'auto'")
                 mode = SkillMode.AUTO
         output_schema = meta.get("output_schema")
         timeout_seconds = int(meta.get("timeout_seconds", 600))
@@ -183,6 +177,10 @@ class SkillRegistry:
 
     def get(self, name: str) -> SkillConfig | None:
         return self._configs.get(name)
+
+    def list_all(self) -> list[SkillConfig]:
+        """Return all scanned skills, including disabled ones."""
+        return list(self._configs.values())
 
     def list_enabled(self) -> list[SkillConfig]:
         return [c for c in self._configs.values() if c.enabled]

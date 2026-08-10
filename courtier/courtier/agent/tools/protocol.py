@@ -5,21 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Protocol, TypedDict, runtime_checkable
 
-from pydantic import BaseModel, Field
-
 if TYPE_CHECKING:
     from courtier.agent.tools.summary import ToolSummary
 
+# ToolResult is defined in the plugin SDK so plugin tools can return the
+# standard result shape without depending on the core application.
+# Re-exported here; existing ``tools.protocol.ToolResult`` imports keep working.
+from courtier_plugin_sdk.models import ToolResult  # noqa: F401
+
 from courtier.agent.core.execution_result import ExecutionResult
-
-
-class ToolResult(BaseModel):
-    """Standardized tool execution result."""
-
-    success: bool
-    data: Any = None
-    error: str | None = None
-    metadata: dict = Field(default_factory=dict)
 
 
 class ToolProgress(TypedDict):

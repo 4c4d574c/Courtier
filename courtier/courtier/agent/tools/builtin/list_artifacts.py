@@ -31,8 +31,8 @@ class ListArtifactsTool:
         "列出 artifact store 中当前可用的类型化数据工件。"
         "返回每个工件的 artifact_id、类型、语义角色、主题、来源工具、"
         "内容哈希和质量信息。"
-        "在调用 get_artifact 之前必须先调用本工具，"
-        "获取 artifact_id 后再调用 get_artifact 获取投影数据。"
+        "需要浏览有哪些工件可用时调用本工具；"
+        "若已知 $ref 引用（工具输出的 result_id），可直接调 get_artifact 获取数据。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -54,9 +54,7 @@ class ListArtifactsTool:
             },
             "subject": {
                 "type": "string",
-                "description": (
-                    "按主题过滤，如 current（当前文档）、search_results（搜索结果）。"
-                ),
+                "description": ("按主题过滤，如 current（当前文档）、search_results（搜索结果）。"),
             },
         },
     }
@@ -71,9 +69,7 @@ class ListArtifactsTool:
         subject: str | None = None,
         **kwargs: Any,
     ) -> ToolResult:
-        on_progress(
-            {"status": "running", "message": f"开始执行 {self.name}...", "detail": None}
-        )
+        on_progress({"status": "running", "message": f"开始执行 {self.name}...", "detail": None})
         if artifact_store is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
@@ -133,10 +129,10 @@ class ListArtifactsTool:
                 "artifacts": items,
                 "count": len(items),
                 "hint": (
-                    "使用 get_artifact 并传入 artifact_id 获取投影后的数据。"
-                    "如需文本内容，将 artifact_id 与目标 artifact_type "
-                    "（如 core.plain_text）结合使用，系统会自动执行投影链。"
-                    "projectable_to_types 字段列出了每个 artifact 可直接投影到的目标类型。"
+                    "把上面某个 artifact_id 字段的值作为 get_artifact 工具的 "
+                    "id 参数传入，即可获取该工件的数据（注意参数名是 id）；"
+                    "需要把数据转换为另一种类型时，再附带 artifact_type 参数，"
+                    "取值见该工件的 projectable_to_types 字段。"
                 ),
             },
         )

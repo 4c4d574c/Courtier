@@ -41,8 +41,7 @@ class TestInjectReminder:
         )
         result = _inject_reminder(msgs, PRE_TURN_REMINDER)
         reminder_count = sum(
-            1 for m in result
-            if m.role == "user" and m.content == PRE_TURN_REMINDER
+            1 for m in result if m.role == "user" and m.content == PRE_TURN_REMINDER
         )
         assert reminder_count == 1
         assert result[-1].content == PRE_TURN_REMINDER
@@ -62,9 +61,7 @@ class TestInjectReminder:
             Message(role="assistant", content="Think"),
         )
         result = _inject_reminder(msgs, PERIODIC_REMINDER)
-        assert any(
-            m.content == PRE_TURN_REMINDER and m.source == "reminder" for m in result
-        )
+        assert any(m.content == PRE_TURN_REMINDER and m.source == "reminder" for m in result)
         assert result[-1].content == PERIODIC_REMINDER
         assert result[-1].source == "reminder"
 
@@ -79,8 +76,7 @@ class TestInjectReminder:
         )
         result = _inject_reminder(msgs, PRE_TURN_REMINDER)
         reminder_count = sum(
-            1 for m in result
-            if m.role == "user" and m.content == PRE_TURN_REMINDER
+            1 for m in result if m.role == "user" and m.content == PRE_TURN_REMINDER
         )
         assert reminder_count == 1
         assert result[-1].content == PRE_TURN_REMINDER
@@ -94,11 +90,52 @@ class TestInjectReminder:
             Message(role="assistant", content="Think"),
         )
         result = _inject_reminder(msgs, PRE_TURN_REMINDER)
-        assert any(
-            m.content == PRE_TURN_REMINDER and m.source is None for m in result
-        )
+        assert any(m.content == PRE_TURN_REMINDER and m.source is None for m in result)
         assert result[-1].content == PRE_TURN_REMINDER
         assert result[-1].source == "reminder"
+
+
+class TestLoopReminderParams:
+    """agent_loop 的提醒文本参数化（生产路径由 PromptEngine 渲染传入）。"""
+
+    @pytest.mark.asyncio
+    async def test_custom_pre_turn_reminder_injected(self):
+        state = AgentState.initial(task="测试任务", system_prompt="sys")
+        final = await agent_loop(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            pre_turn_reminder="【自定义本轮约束】",
+        )
+        assert any(
+            m.content == "【自定义本轮约束】" and m.source == "reminder" for m in final.messages
+        )
+        # 硬编码默认文本不再注入
+        assert not any(m.content == PRE_TURN_REMINDER for m in final.messages)
+
+    @pytest.mark.asyncio
+    async def test_empty_pre_turn_reminder_disables_injection(self):
+        state = AgentState.initial(task="测试任务", system_prompt="sys")
+        final = await agent_loop(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            pre_turn_reminder="",
+        )
+        assert not any(m.source == "reminder" for m in final.messages)
+
+    @pytest.mark.asyncio
+    async def test_default_pre_turn_reminder_preserved(self):
+        """不传参时保持历史默认（硬编码常量），直接调 loop 的测试不受影响。"""
+        state = AgentState.initial(task="测试任务", system_prompt="sys")
+        final = await agent_loop(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+        )
+        assert any(
+            m.content == PRE_TURN_REMINDER and m.source == "reminder" for m in final.messages
+        )
 
 
 class TestAgentLoop:
@@ -109,9 +146,7 @@ class TestAgentLoop:
         model = MockModelClient(tool_calls=[tc])
 
         state = AgentState.initial(task="echo hello world")
-        final = await agent_loop(
-            state=state, model=model, tool_registry=registry_with_echo
-        )
+        final = await agent_loop(state=state, model=model, tool_registry=registry_with_echo)
 
         assert final.status == "completed"
         assert len(final.tool_results) == 1
@@ -124,9 +159,7 @@ class TestAgentLoop:
         model = MockModelClient(tool_calls=[tc])
 
         state = AgentState.initial(task="echo ping")
-        final = await agent_loop(
-            state=state, model=model, tool_registry=registry_with_echo
-        )
+        final = await agent_loop(state=state, model=model, tool_registry=registry_with_echo)
 
         assert final.status == "completed"
         assert len(final.tool_results) == 1
@@ -363,7 +396,6 @@ class TestLoopRefResolution:
         mock_cm = MagicMock()
         mock_cm.compact_if_needed = AsyncMock(return_value=[])
         mock_cm.micro_compact = AsyncMock(return_value=[])
-        mock_cm.persist_large_output = MagicMock(return_value="persisted")
         mock_cm.resolve_refs = MagicMock(side_effect=lambda kwargs: kwargs)
 
         state = AgentState.initial(task="echo hello")
@@ -379,9 +411,7 @@ class TestLoopRefResolution:
         # Context manager is passed either as a keyword argument or the second
         # positional argument (after tool_name).
         cm_from_kwargs = call_kwargs.kwargs.get("context_manager")
-        cm_from_args = (
-            call_kwargs.args[1] if len(call_kwargs.args) > 1 else None
-        )
+        cm_from_args = call_kwargs.args[1] if len(call_kwargs.args) > 1 else None
         assert cm_from_kwargs is mock_cm or cm_from_args is mock_cm
 
 
@@ -409,12 +439,15 @@ async def test_business_artifact_guard_terminates_after_no_progress():
     store = ArtifactStore()
     # Pre-populate with one business artifact
     from courtier.agent.artifacts.models import Artifact
-    store.put(Artifact(
-        artifact_id="business_1",
-        artifact_type="core.plain_text",
-        data={"text": "initial"},
-        metadata=ArtifactMetadata(created_by="test", debug_only=False),
-    ))
+
+    store.put(
+        Artifact(
+            artifact_id="business_1",
+            artifact_type="core.plain_text",
+            data={"text": "initial"},
+            metadata=ArtifactMetadata(created_by="test", debug_only=False),
+        )
+    )
 
     tc = ToolCall(id="call_1", name="echo", arguments={})
     # Each turn: model calls echo → produces no new business artifacts
@@ -422,7 +455,9 @@ async def test_business_artifact_guard_terminates_after_no_progress():
 
     state = AgentState.initial(task="echo forever", max_steps=20)
     final = await agent_loop(
-        state=state, model=model, tool_registry=registry,
+        state=state,
+        model=model,
+        tool_registry=registry,
         artifact_store=store,
     )
 
@@ -462,10 +497,7 @@ class TestModelErrorEvents:
         assert len(completed) == 1
         assert completed[0].payload["status"] == "error"
         assert completed[0].payload["termination_reason"]
-        assert any(
-            e.type == "state.transition" and e.payload["to"] == "error"
-            for e in events
-        )
+        assert any(e.type == "state.transition" and e.payload["to"] == "error" for e in events)
 
     @pytest.mark.asyncio
     async def test_unexpected_phase_error_is_contained(self):
@@ -476,9 +508,7 @@ class TestModelErrorEvents:
         from courtier.agent.core.event_bus import EventBus
 
         mock_cm = MagicMock()
-        mock_cm.compact_if_needed = AsyncMock(
-            side_effect=RuntimeError("compact blew up")
-        )
+        mock_cm.compact_if_needed = AsyncMock(side_effect=RuntimeError("compact blew up"))
 
         bus = EventBus()
         sub = bus.subscribe()
@@ -526,3 +556,169 @@ class TestLoopHints:
         )
         assert reason is None
         assert new_state is state
+
+
+@pytest.mark.asyncio
+class TestForcedFirstToolCall:
+    async def _run(self, model, forced, registry):
+        from courtier.agent.core.loop import agent_loop
+        from courtier.agent.core.state import AgentState
+
+        state = AgentState.initial(task="审核文档", system_prompt="sys")
+        return await agent_loop(
+            state=state,
+            model=model,
+            tool_registry=registry,
+            forced_first_tool_call=forced,
+        )
+
+    @staticmethod
+    def _registry(executed: list[str]):
+        from courtier.agent.core.execution_result import ExecutionResult
+        from courtier.agent.tools.registry import ToolRegistry
+
+        registry = ToolRegistry()
+
+        async def fake_execute(name, **kwargs):
+            executed.append(name)
+            return ExecutionResult(
+                success=True, actor_type="tool", actor_name=name, raw_data={"ok": True}
+            )
+
+        registry.execute = fake_execute
+        return registry
+
+    async def test_overrides_models_first_calls(self):
+        """Model asked for echo first — the forced parse call wins the first turn."""
+        from courtier.agent.core.model import MockModelClient, ToolCall
+
+        executed: list[str] = []
+        registry = self._registry(executed)
+        model = MockModelClient(
+            tool_calls=[ToolCall(id="c1", name="echo", arguments={"text": "hi"})]
+        )
+        forced = ToolCall(
+            id="forced-first-parse_document",
+            name="parse_document",
+            arguments={"file_path": "/tmp/x.docx"},
+        )
+
+        final = await self._run(model, forced, registry)
+
+        assert executed[0] == "parse_document"
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        assert tool_msgs[0].tool_call_id == "forced-first-parse_document"
+        # The assistant message carrying the forced call pairs correctly.
+        assistant_with_calls = [m for m in final.messages if m.role == "assistant" and m.tool_calls]
+        assert assistant_with_calls[0].tool_calls[0].id == "forced-first-parse_document"
+
+    async def test_no_override_when_model_complies(self):
+        """Model already calls parse_document first — nothing is rewritten."""
+        from courtier.agent.core.model import MockModelClient, ToolCall
+
+        executed: list[str] = []
+        registry = self._registry(executed)
+        model = MockModelClient(
+            tool_calls=[
+                ToolCall(
+                    id="c9",
+                    name="parse_document",
+                    arguments={"file_path": "/tmp/x.docx"},
+                )
+            ]
+        )
+        forced = ToolCall(
+            id="forced-first-parse_document",
+            name="parse_document",
+            arguments={"file_path": "/tmp/x.docx"},
+        )
+
+        final = await self._run(model, forced, registry)
+
+        assert executed[0] == "parse_document"
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        # The model's own call id survived — no synthetic call was injected.
+        assert tool_msgs[0].tool_call_id == "c9"
+
+    async def test_injected_when_model_would_answer_directly(self):
+        """Without the forced call the loop would end on a text response."""
+        from courtier.agent.core.model import MockModelClient, ToolCall
+
+        executed: list[str] = []
+        registry = self._registry(executed)
+        model = MockModelClient(tool_calls=[])
+        forced = ToolCall(
+            id="forced-first-parse_document",
+            name="parse_document",
+            arguments={"file_path": "/tmp/x.docx"},
+        )
+
+        final = await self._run(model, forced, registry)
+
+        assert executed == ["parse_document"]
+        assert final.status == "completed"
+
+    async def test_override_when_model_calls_same_tool_with_wrong_path(self):
+        """Model called parse_document but for the WRONG file — that is not
+        compliance, so the forced call for the session file still wins."""
+        from courtier.agent.core.model import MockModelClient, ToolCall
+
+        executed: list[str] = []
+        registry = self._registry(executed)
+        model = MockModelClient(
+            tool_calls=[
+                ToolCall(
+                    id="c9",
+                    name="parse_document",
+                    arguments={"file_path": "/tmp/wrong.docx"},
+                )
+            ]
+        )
+        forced = ToolCall(
+            id="forced-first-parse_document-1",
+            name="parse_document",
+            arguments={"file_path": "/tmp/x.docx"},
+        )
+
+        final = await self._run(model, forced, registry)
+
+        assert executed[0] == "parse_document"
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        # The model's wrong-path call was replaced by the forced one.
+        assert tool_msgs[0].tool_call_id == "forced-first-parse_document-1"
+
+    async def test_forced_call_survives_failed_first_think(self):
+        """A transient model error on the first think must not kill the run
+        before the mandatory parse: the forced call still executes and the
+        model re-plans with its result on the next turn."""
+        from courtier.agent.core.model import MockModelClient, ToolCall
+
+        class _FlakyModel(MockModelClient):
+            def __init__(self) -> None:
+                super().__init__(tool_calls=[])
+                self._failed_once = False
+
+            async def generate(self, messages, tools=None, **kwargs):
+                if not self._failed_once:
+                    self._failed_once = True
+                    raise RuntimeError("transient LLM outage")
+                return await super().generate(messages, tools, **kwargs)
+
+        executed: list[str] = []
+        registry = self._registry(executed)
+        forced = ToolCall(
+            id="forced-first-parse_document-1",
+            name="parse_document",
+            arguments={"file_path": "/tmp/x.docx"},
+        )
+
+        final = await self._run(_FlakyModel(), forced, registry)
+
+        assert executed == ["parse_document"]
+        assert final.status == "completed"
+        assert final.termination_reason != "Model error: transient LLM outage"
+        # The injected assistant/tool pair is consistent.
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        assert tool_msgs[0].tool_call_id == "forced-first-parse_document-1"
+        assistant_with_calls = [m for m in final.messages if m.role == "assistant" and m.tool_calls]
+        assert assistant_with_calls[0].tool_calls[0].id == "forced-first-parse_document-1"

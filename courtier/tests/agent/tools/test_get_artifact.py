@@ -92,8 +92,8 @@ class TestGetArtifactTool:
         assert result.metadata.get("label") == "my_label"
 
     @pytest.mark.asyncio
-    async def test_non_ref_id_without_artifact_type_errors(self):
-        """Non-$ref id without artifact_type should return an error."""
+    async def test_non_ref_id_without_artifact_type_returns_data(self):
+        """Non-$ref id without artifact_type returns the stored data directly."""
         store = ArtifactStore()
         store.put(_make_artifact("a1"))
         result = await GetArtifactTool().execute(
@@ -101,8 +101,9 @@ class TestGetArtifactTool:
             artifact_store=store,
             id="a1",
         )
-        assert not result.success
-        assert "artifact_type" in result.error
+        assert result.success
+        assert result.data == {"text": "hello", "language": "zh", "source_scope": "full_document"}
+        assert result.metadata.get("artifact_id") == "a1"
 
 
 class TestGetArtifactViaRef:

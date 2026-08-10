@@ -109,3 +109,24 @@ class TestPromptPipeline:
         assert "# 思考规范" in result2
         assert "直接给出结论" in result2
         assert "默认值时直接用默认值" in result2
+
+    def test_tool_usage_notes_rendered_after_tools(self):
+        pp = PromptPipeline()
+        pp.set_tools("可用工具: parse_document")
+        pp.set_tool_usage_notes("## parse\n解析插件用法")
+        pp.set_context_instructions("ref 说明")
+        result = pp.build()
+        assert "# 工具使用说明" in result
+        assert "解析插件用法" in result
+        assert (
+            result.index("# 可用工具")
+            < result.index("# 工具使用说明")
+            < result.index("# 上下文规则")
+        )
+
+    def test_tool_usage_notes_empty_clears_section(self):
+        pp = PromptPipeline()
+        pp.set_tool_usage_notes("## parse\n用法")
+        assert "# 工具使用说明" in pp.build()
+        pp.set_tool_usage_notes("")
+        assert "# 工具使用说明" not in pp.build()

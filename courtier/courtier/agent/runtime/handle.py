@@ -26,7 +26,6 @@ class AgentHandle:
     parent_subagent_name: str | None = None
     context_mode: str = "blackbox"
     context: dict[str, str] | None = None
-    artifact_context: list[dict[str, Any]] = field(default_factory=list)
     ref_ids: list[str] = field(default_factory=list)
     model_config: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -45,7 +44,6 @@ class AgentHandle:
         parent_subagent_name: str | None = None,
         context_mode: str = "blackbox",
         context: dict[str, str] | None = None,
-        artifact_context: list[dict[str, Any]] | None = None,
         ref_ids: list[str] | None = None,
         model_config: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -62,7 +60,6 @@ class AgentHandle:
             parent_subagent_name=parent_subagent_name,
             context_mode=context_mode,
             context=context,
-            artifact_context=artifact_context or [],
             ref_ids=ref_ids or [],
             model_config=model_config or {},
             metadata=metadata or {},
@@ -78,7 +75,6 @@ class AgentHandle:
         budget: AgentRuntimeBudget,
         context_mode: str = "blackbox",
         context: dict[str, str] | None = None,
-        artifact_context: list[dict[str, Any]] | None = None,
         ref_ids: list[str] | None = None,
         model_config: dict[str, Any] | None = None,
         scope_id: str | None = None,
@@ -93,7 +89,6 @@ class AgentHandle:
             parent_subagent_name=self.agent_name,
             context_mode=context_mode,
             context=context if context is not None else self.context,
-            artifact_context=artifact_context or list(self.artifact_context),
             ref_ids=ref_ids or list(self.ref_ids),
             model_config=model_config or dict(self.model_config),
             metadata={"parent_agent_type": self.agent_type},

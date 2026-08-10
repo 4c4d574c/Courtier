@@ -42,31 +42,34 @@ class GetArtifactTool:
     runtime_policy = RuntimePolicy(max_calls=30, max_consecutive=5)
     output_artifact_type: str | None = None
     description: str = (
-        "获取 artifact 数据。统一使用 id 参数：\n"
-        "1. 只传 id（$ref:tool:N 格式，来自工具输出中的 result_id 字段）："
-        "直接返回原始数据。\n"
-        "2. 传 id + artifact_type：执行类型投影，将数据转换为目标类型。\n"
+        "获取 artifact 数据。id 为唯一必填参数：\n"
+        "1. 只传 id —— 直接返回原始数据（最常用，覆盖绝大多数场景）。"
+        "id 填工具/Skill 输出中的 result_id（$ref:...:N 格式），"
+        "或 list_artifacts 输出中的 artifact_id 字段值。\n"
+        "2. 传 id + artifact_type —— 仅在需要把数据【转换为另一种类型】时使用，"
+        "系统执行类型投影链。\n"
         "支持 query/chunk_index/max_tokens 分页读取。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
+        "required": ["id"],
         "properties": {
             "id": {
                 "type": "string",
                 "description": (
-                    "要获取的 artifact 标识。两种来源：\n"
-                    "① $ref 引用（如 $ref:parse_document:1）—— 来自工具/Skill 输出中的"
-                    " result_id 字段，最常用；\n"
-                    "② artifact ID —— 来自 list_artifacts 的输出，"
-                    "仅在需要类型投影时配合 artifact_type 使用。"
+                    "要获取的数据标识（本参数名为 id，不是 artifact_id）。两个来源：\n"
+                    "① 工具/Skill 输出中的 result_id 字段（$ref:...:N 格式）—— 最常用；\n"
+                    "② list_artifacts 输出中的 artifact_id 字段值 —— 原样填入本参数即可，"
+                    "无需额外参数。"
                 ),
             },
             "artifact_type": {
                 "type": "string",
                 "description": (
-                    "可选。目标 artifact 类型，用于执行类型投影链。\n"
-                    "不传则直接返回原始数据（推荐，大多数情况不需要投影）。\n"
-                    "常见类型：core.plain_text、core.text_collection、docaudit.paragraph_list 等。"
+                    "可选。仅在需要【转换数据类型】时传，"
+                    "取值见 list_artifacts 输出的 projectable_to_types"
+                    "（如 core.plain_text、docaudit.paragraph_list）。\n"
+                    "不传则按原始数据直接返回（推荐，大多数情况不需要转换）。"
                 ),
             },
             "query": {
@@ -147,9 +150,7 @@ class GetArtifactTool:
         label: str | None = None,
         **kwargs: Any,
     ) -> ToolResult:
-        on_progress(
-            {"status": "running", "message": f"开始执行 {self.name}...", "detail": None}
-        )
+        on_progress({"status": "running", "message": f"开始执行 {self.name}...", "detail": None})
         if artifact_store is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
@@ -157,13 +158,21 @@ class GetArtifactTool:
                 error="Artifact store 不可用，无法获取工件",
             )
 
+        # Tolerate the artifact_id alias: list_artifacts outputs an
+        # ``artifact_id`` field, so models occasionally pass it under that
+        # name instead of the canonical ``id`` parameter.
+        if not id:
+            alias = kwargs.get("artifact_id")
+            if isinstance(alias, str) and alias:
+                id = alias
+
         if not id:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
                 error="必须提供 id 参数。"
-                      "使用工具输出中的 result_id 字段（$ref:...:N 格式），"
-                      "或 list_artifacts 返回的 artifact_id。",
+                "使用工具输出中的 result_id 字段（$ref:...:N 格式），"
+                "或 list_artifacts 返回的 artifact_id 字段值。",
             )
 
         # Unified dispatch: $ref → resolve from persistence, otherwise look up
@@ -187,14 +196,26 @@ class GetArtifactTool:
                 on_progress=on_progress,
             )
 
-        # Non-$ref id: must be a typed artifact in the registry.
-        # Projection requires artifact_type.
+        # Non-$ref id: a typed artifact in the registry. Without artifact_type
+        # there is nothing to convert — return the stored data directly.
         if not artifact_type:
+            artifact = artifact_store.get(id)
+            data = getattr(artifact, "data", None) if artifact is not None else None
             on_progress({"status": "done", "message": "执行完成", "detail": None})
+            if data is not None:
+                return ToolResult(
+                    success=True,
+                    data=data,
+                    metadata={"result_id": id, "artifact_id": id},
+                )
             return ToolResult(
                 success=False,
-                error="使用非 $ref 的 artifact ID 时必须指定 artifact_type。"
-                      "使用 list_artifacts 查看每个工件可用的 projectable_to_types。",
+                error=(
+                    f"未找到 id={id} 的工件数据。"
+                    "id 参数可填：工具输出中的 result_id（$ref:...:N 格式），"
+                    "或 list_artifacts 输出中的 artifact_id 字段值；"
+                    "需要转换类型时再附带 artifact_type（取值见 projectable_to_types）。"
+                ),
             )
 
         return await self._project_artifact(
@@ -249,7 +270,14 @@ class GetArtifactTool:
 
         if "error" in raw:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error=raw["error"])
+            error = str(raw["error"])
+            if error.startswith("result not found"):
+                error += (
+                    "。该引用不存在或不属于当前任务可见范围，"
+                    "请使用当前任务链中工具实际返回的 result_id，"
+                    "或先调用 list_artifacts 查看可用工件。"
+                )
+            return ToolResult(success=False, error=error)
 
         data = raw.get("data")
         if data is None:
@@ -359,9 +387,7 @@ class GetArtifactTool:
                 hint = "请先调用 list_artifacts 查看可用工件及其 artifact_id。"
             return ToolResult(
                 success=False,
-                error=(
-                    f"未找到 artifact_id={artifact_id} 的工件。{hint}"
-                ),
+                error=(f"未找到 artifact_id={artifact_id} 的工件。{hint}"),
             )
 
         field = InputField(
@@ -409,9 +435,7 @@ class GetArtifactTool:
             field = fields[0]
             validation_err = validate_materialized_value(binding.value, field)
         except KeyError as exc:
-            available_types = ", ".join(
-                sorted(MaterializerRegistry.default().materializable_types)
-            )
+            available_types = ", ".join(sorted(MaterializerRegistry.default().materializable_types))
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
@@ -472,7 +496,6 @@ def _default_materialize_as(artifact_type: str) -> str:
     defaults: dict[str, str] = {
         "core.plain_text": "string",
         "core.text_collection": "list_string",
-        "docaudit.document_metadata": "dict",
         "docaudit.paragraph_list": "dict",
         "docaudit.reference_text_list": "dict",
         "docaudit.search_results": "dict",

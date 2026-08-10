@@ -51,10 +51,19 @@ class TestToolRegistry:
         assert result.raw_data == "default"
 
     @pytest.mark.asyncio
-    async def test_execute_missing_raises(self):
+    async def test_execute_missing_returns_guidance(self):
+        """Unknown tools return a recoverable error listing available tools —
+        the model can self-correct instead of the loop logging a traceback."""
         reg = ToolRegistry()
-        with pytest.raises(KeyError, match="Tool not found"):
-            await reg.execute("nonexistent")
+        result = await reg.execute("nonexistent")
+        assert not result.success
+        assert "nonexistent" in (result.error or "")
+
+    @pytest.mark.asyncio
+    async def test_execute_missing_lists_available_tools(self, registry_with_fake):
+        result = await registry_with_fake.execute("nonexistent")
+        assert not result.success
+        assert "fake" in (result.error or "")
 
 
 class TestExecuteWithRefResolution:
@@ -105,7 +114,8 @@ class TestToolRegistryWithCacheStore:
 
         # Pass $ref as value
         result = await registry.execute(
-            "fake", artifact_store=store,
+            "fake",
+            artifact_store=store,
             value="$ref:parse_document:1",
         )
         assert result.success
@@ -132,7 +142,8 @@ class TestToolRegistryWithCacheStore:
         registry.register(_FakeTool())
 
         result = await registry.execute(
-            "fake", context_manager=mock_cm,
+            "fake",
+            context_manager=mock_cm,
             value="$ref:some_tool:1",
         )
         mock_cm.resolve_refs.assert_called_once_with({"value": "$ref:some_tool:1"})
@@ -159,6 +170,7 @@ class TestToolRegistryWithCacheStore:
                 },
                 "required": ["content"],
             }
+
             async def execute(self, content="", context_manager=None, **kwargs):
                 return ToolResult(success=True, data={"length": len(content)})
 
@@ -166,7 +178,8 @@ class TestToolRegistryWithCacheStore:
         registry.register(StringParamTool())
 
         result = await registry.execute(
-            "string_tool", artifact_store=store,
+            "string_tool",
+            artifact_store=store,
             content="$ref:run_shell:1",
         )
         assert result.success
@@ -203,7 +216,8 @@ class TestToolRegistryWithCacheStore:
         registry.register(ReadCacheLikeTool())
 
         result = await registry.execute(
-            "read_cache", artifact_store=store,
+            "read_cache",
+            artifact_store=store,
             ref_id="$ref:parse_document:1",
         )
         assert result.success
@@ -241,7 +255,8 @@ class TestToolRegistryWithCacheStore:
         registry.register(NormalTool())
 
         result = await registry.execute(
-            "normal_tool", artifact_store=store,
+            "normal_tool",
+            artifact_store=store,
             ref_id="$ref:parse_document:1",
         )
         assert result.success
@@ -285,7 +300,8 @@ class TestToolRegistryWithCacheStore:
         registry.register(ReadCacheLikeTool())
 
         result = await registry.execute(
-            "read_cache", context_manager=mock_cm,
+            "read_cache",
+            context_manager=mock_cm,
             ref_id="$ref:parse_document:1",
         )
         # context_manager.resolve_refs should NOT be called
@@ -317,7 +333,8 @@ class TestAutoRegisterArtifacts:
         registry.register(PlainTool())
 
         result = await registry.execute(
-            "plain_tool", artifact_store=store,
+            "plain_tool",
+            artifact_store=store,
         )
         assert result.success
 
@@ -347,7 +364,8 @@ class TestAutoRegisterArtifacts:
         registry.register(ParseDocumentTool())
 
         result = await registry.execute(
-            "parse_document", artifact_store=store,
+            "parse_document",
+            artifact_store=store,
         )
         assert result.success
 
@@ -375,7 +393,8 @@ class TestAutoRegisterArtifacts:
         registry.register(SkippedTool())
 
         result = await registry.execute(
-            "skipped_tool", artifact_store=store,
+            "skipped_tool",
+            artifact_store=store,
         )
         assert result.success
 
@@ -400,9 +419,7 @@ class TestLargeResultPersistedOnce:
 
         store = ArtifactStore(cache_dir=str(tmp_path))
         registry = ToolRegistry()
-        registry.configure_result_handling(
-            summarizer=ResultSummarizer(artifact_store=store)
-        )
+        registry.configure_result_handling(summarizer=ResultSummarizer(artifact_store=store))
 
         # > large_output_threshold (3000) so the registry persists, and
         # > summary_inline_max_chars (6000) so the summarizer would persist too.
@@ -437,9 +454,7 @@ class TestLargeResultPersistedOnce:
 
         store = ArtifactStore(cache_dir=str(tmp_path))
         registry = ToolRegistry()
-        registry.configure_result_handling(
-            summarizer=ResultSummarizer(artifact_store=store)
-        )
+        registry.configure_result_handling(summarizer=ResultSummarizer(artifact_store=store))
 
         big_text = "y" * 7000
 

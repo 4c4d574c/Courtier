@@ -64,12 +64,16 @@ async def test_orchestrator_can_run_skill(skill_registry, tool_registry):
 
     assert result.status == "completed"
     # The echo skill tool executed and produced a sub-agent result.
-    skill_results = [
-        tr for tr in result.tool_results if tr.metadata.get("skill") == "echo_skill"
-    ]
+    skill_results = [tr for tr in result.tool_results if tr.metadata.get("skill") == "echo_skill"]
     assert skill_results, "expected a skill result tagged with skill=echo_skill"
     assert skill_results[0].success is True
     assert skill_results[0].metadata.get("is_subagent_result") is True
+    # Dispatch records are classified so the UI merges them into the
+    # sub-agent tree node instead of rendering a duplicate tool card.
+    assert skill_results[0].metadata.get("call_kind") == "subagent_run"
+    assert skill_results[0].metadata.get("call_scope") == "parent"
+    assert skill_results[0].metadata.get("subagent_name") == "echo_skill"
+    assert skill_results[0].metadata.get("handle_id")
 
 
 @pytest.mark.asyncio
@@ -99,11 +103,13 @@ async def test_orchestrator_load_unknown_skill_completes_with_failure(
         agent_runtime=runtime,
     )
 
-    result = await agent.run(
-        "use missing skill", context={"file_path": "/tmp/test.txt"}
-    )
+    result = await agent.run("use missing skill", context={"file_path": "/tmp/test.txt"})
 
     assert result.status == "completed"
     failed = [tr for tr in result.tool_results if not tr.success]
     assert failed, "expected a failed tool result"
-    assert "not found" in (failed[0].error or "").lower()
+    # The recoverable guidance error names the missing tool and lists
+    # what IS available so the model can self-correct.
+    assert "does_not_exist" in (failed[0].error or "")
+    assert "未注册" in (failed[0].error or "")
+    assert "echo_skill" in (failed[0].error or "")

@@ -85,6 +85,18 @@ MODEL_STREAM_TOOL_CALLS_LOST_TOTAL = Counter(
     ["model"],
 )
 
+CONTEXT_COMPACTION_TOTAL = Counter(
+    "context_compaction_total",
+    "Context compactions by type",
+    ["type"],  # type: "full", "micro", "fallback", "failed"
+)
+
+CONTEXT_REF_RECOVER_TOTAL = Counter(
+    "context_ref_recover_total",
+    "$ref resolution attempts by outcome",
+    ["result"],  # result: "hit", "miss"
+)
+
 # ── Histograms ────────────────────────────────────────────
 
 AGENT_LATENCY_SECONDS = Histogram(
@@ -99,6 +111,12 @@ TOOL_LATENCY_SECONDS = Histogram(
     "Tool execution latency",
     ["tool_name"],
     buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0],
+)
+
+CONTEXT_COMPACTION_DURATION_SECONDS = Histogram(
+    "context_compaction_duration_seconds",
+    "Full compaction duration (including the summary LLM call)",
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
 )
 
 # ── Gauges ────────────────────────────────────────────────
@@ -121,7 +139,14 @@ CONVERSATION_TREE_BRANCHES = Gauge(
     ["session_id"],
 )
 
+CONTEXT_TOKENS = Gauge(
+    "context_tokens",
+    "Estimated context size in tokens before each think phase",
+    ["agent_name"],
+)
+
 # ── Recording helpers ─────────────────────────────────────
+
 
 def record_agent_request(agent_name: str, status: str) -> None:
     AGENT_REQUESTS_TOTAL.labels(agent_name=agent_name, status=status).inc()
@@ -153,35 +178,25 @@ def record_tool_latency(tool_name: str, seconds: float) -> None:
 
 
 def record_subagent_dispatch(subagent_name: str, status: str) -> None:
-    SUBAGENT_DISPATCH_TOTAL.labels(
-        subagent_name=subagent_name, status=status
-    ).inc()
+    SUBAGENT_DISPATCH_TOTAL.labels(subagent_name=subagent_name, status=status).inc()
 
 
 def record_event_bus_dropped(event_type: str, strategy: str) -> None:
-    EVENT_BUS_DROPPED_TOTAL.labels(
-        event_type=event_type, strategy=strategy
-    ).inc()
+    EVENT_BUS_DROPPED_TOTAL.labels(event_type=event_type, strategy=strategy).inc()
 
 
-def record_model_router_fallback(
-    from_backend: str, to_backend: str, reason: str
-) -> None:
+def record_model_router_fallback(from_backend: str, to_backend: str, reason: str) -> None:
     MODEL_ROUTER_FALLBACK_TOTAL.labels(
         from_backend=from_backend, to_backend=to_backend, reason=reason
     ).inc()
 
 
 def record_state_machine_invalid(from_status: str, to_status: str) -> None:
-    STATE_MACHINE_INVALID_TOTAL.labels(
-        from_status=from_status, to_status=to_status
-    ).inc()
+    STATE_MACHINE_INVALID_TOTAL.labels(from_status=from_status, to_status=to_status).inc()
 
 
 def record_plugin_lifecycle_restart(provider: str, outcome: str) -> None:
-    PLUGIN_LIFECYCLE_RESTART_TOTAL.labels(
-        provider=provider, outcome=outcome
-    ).inc()
+    PLUGIN_LIFECYCLE_RESTART_TOTAL.labels(provider=provider, outcome=outcome).inc()
 
 
 def record_guardrail_blocked(layer: str, guard_name: str) -> None:
@@ -202,3 +217,19 @@ def set_capability_registry_size(capability_type: str, size: int) -> None:
 
 def set_conversation_tree_branches(session_id: str, branches: int) -> None:
     CONVERSATION_TREE_BRANCHES.labels(session_id=session_id).set(branches)
+
+
+def set_context_tokens(agent_name: str, tokens: int) -> None:
+    CONTEXT_TOKENS.labels(agent_name=agent_name).set(tokens)
+
+
+def record_context_compaction(compact_type: str) -> None:
+    CONTEXT_COMPACTION_TOTAL.labels(type=compact_type).inc()
+
+
+def record_context_compaction_duration(seconds: float) -> None:
+    CONTEXT_COMPACTION_DURATION_SECONDS.observe(seconds)
+
+
+def record_context_ref_recover(result: str) -> None:
+    CONTEXT_REF_RECOVER_TOTAL.labels(result=result).inc()

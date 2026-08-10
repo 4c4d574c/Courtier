@@ -113,7 +113,7 @@ class SkillTool:
                 success=False,
                 error=(
                     f"Skill {self.name} requires a 'mode' parameter. "
-                    f"请指定 mode=\"subagent\"（复杂任务）或 mode=\"inline\"（简单任务）。"
+                    f'请指定 mode="subagent"（复杂任务）或 mode="inline"（简单任务）。'
                 ),
             )
 
@@ -155,7 +155,6 @@ class SkillTool:
                 name=self.name,
                 task=task,
                 parent_handle=self._parent_handle,
-                artifact_store=kwargs.get("artifact_store"),
                 ref_ids=ref_ids or [],
                 context=context,
             )
@@ -197,10 +196,23 @@ class SkillTool:
             **result.metadata,
             "skill": self.name,
             "is_subagent_result": True,
+            # Classify as a sub-agent dispatch so the API/SSE layer and the
+            # frontend merge this tool record into the sub-agent tree node
+            # instead of rendering a duplicate standalone tool card.  The
+            # orchestrator's root handle is a bookkeeping artifact, not a
+            # sub-agent, so top-level dispatches stay "parent" scope.
+            "call_kind": "subagent_run",
+            "call_scope": (
+                "subagent"
+                if (
+                    self._parent_handle is not None
+                    and getattr(self._parent_handle, "agent_type", None) != "orchestrator"
+                )
+                else "parent"
+            ),
+            "subagent_name": self.name,
             "parent_subagent_name": (
-                self._parent_handle.agent_name
-                if self._parent_handle is not None
-                else None
+                self._parent_handle.agent_name if self._parent_handle is not None else None
             ),
             "handle_id": handle.handle_id,
             "parent_handle_id": handle.parent_handle_id,
@@ -238,9 +250,7 @@ class SkillTool:
         if required_tools:
             available = set()
             if self._runtime is not None and hasattr(self._runtime, "tool_registry"):
-                available = {
-                    t.name for t in self._runtime.tool_registry.list_tools()
-                }
+                available = {t.name for t in self._runtime.tool_registry.list_tools()}
             missing = set(required_tools) - available
             if missing:
                 return ToolResult(

@@ -23,6 +23,9 @@ class SubAgentStreamEvent:
     tool_status: str | None = None
     tool_duration: float | None = None
     tool_summary: str | None = None
+    tool_issue_counts: dict[str, int] | None = None
+    """Issue counts from the tool result's metadata (e.g. {"err": 3, "warn": 0,
+    "ok": 1, "unchecked": 2}), forwarded to the display layer for count cards."""
     task: str | None = None
     result: Any = None
     display_name: str | None = None

@@ -93,8 +93,9 @@ class TestOrchestratorSkillIntegration:
         prompt = agent.build_system_prompt()
         # Fallback: no workflow rules injected, but skills should be in the role
         assert "dummy" in prompt
-        # Core identity should be present
-        assert "OrchestratorAgent" in prompt
+        # Core identity should be present — rendered from the display name
+        # (agent_name), not the internal class name.
+        assert "Courtier Orchestrator" in prompt
 
     def test_skill_tool_exposes_file_path_parameter(self, tmp_path):
         """Skill tools must accept file_path so it can be propagated to sub-agents."""

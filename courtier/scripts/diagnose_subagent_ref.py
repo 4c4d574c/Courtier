@@ -41,16 +41,26 @@ MOCK_DOC = {
                     "classification_duration": None,
                     "urgency_level": None,
                     "issuing_logo": {
-                        "first_indent": 0.0, "left_indent": 0.0, "right_indent": 0.0,
-                        "outline_level": 0, "alignment": "center",
-                        "font_size": 22.0, "font_name": "方正小标宋简体",
-                        "bold": True, "text": "XX市人民政府办公厅文件",
+                        "first_indent": 0.0,
+                        "left_indent": 0.0,
+                        "right_indent": 0.0,
+                        "outline_level": 0,
+                        "alignment": "center",
+                        "font_size": 22.0,
+                        "font_name": "方正小标宋简体",
+                        "bold": True,
+                        "text": "XX市人民政府办公厅文件",
                     },
                     "issuing_number": {
-                        "first_indent": 0.0, "left_indent": 0.0, "right_indent": 0.0,
-                        "outline_level": 0, "alignment": "center",
-                        "font_size": 16.0, "font_name": "仿宋_GB2312",
-                        "bold": False, "text": "X政发〔2026〕1号",
+                        "first_indent": 0.0,
+                        "left_indent": 0.0,
+                        "right_indent": 0.0,
+                        "outline_level": 0,
+                        "alignment": "center",
+                        "font_size": 16.0,
+                        "font_name": "仿宋_GB2312",
+                        "bold": False,
+                        "text": "X政发〔2026〕1号",
                     },
                 },
                 "body": {
@@ -88,20 +98,26 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
     ref_id = "$ref:parse_document:1"
 
     # Step 1: Check if ref is in CacheStore
-    print(f"  1. CacheStore.ref_map 有 '{ref_id}'? "
-          f"{'✅ YES' if ref_id in cache_store.ref_map else '❌ NO'}")
+    print(
+        f"  1. CacheStore.ref_map 有 '{ref_id}'? "
+        f"{'✅ YES' if ref_id in cache_store.ref_map else '❌ NO'}"
+    )
 
     # Step 2: Try resolve_refs (what ToolRegistry does)
     kwargs_before = {"document": ref_id, "doc_type": "通知", "task": "对文档进行格式审计"}
     kwargs_after = cache_store.resolve_refs(kwargs_before, param_props)
     doc = kwargs_after["document"]
     resolved = isinstance(doc, dict)
-    print(f"  2. resolve_refs 结果: document = "
-          f"{'dict ✅' if resolved else f'str({repr(doc)[:80]}) ❌'}")
+    print(
+        f"  2. resolve_refs 结果: document = "
+        f"{'dict ✅' if resolved else f'str({repr(doc)[:80]}) ❌'}"
+    )
 
     # Step 3: _SubAgentTool.execute() — cache_store not in kwargs
-    print("  3. _SubAgentTool.execute(): cache_store from kwargs.pop = None "
-          "(registry 不传递 cache_store)")
+    print(
+        "  3. _SubAgentTool.execute(): cache_store from kwargs.pop = None "
+        "(registry 不传递 cache_store)"
+    )
 
     # Step 4: FormatAuditorInput creation
     execute_kwargs = dict(kwargs_after)
@@ -123,19 +139,19 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
             if isinstance(field_value, str):
                 input_context[field_name] = field_value
             else:
-                input_context[field_name] = json.dumps(
-                    field_value, ensure_ascii=False, default=str
-                )
+                input_context[field_name] = json.dumps(field_value, ensure_ascii=False, default=str)
 
     runner_context = {"file_path": "uploads/test.docx", "audit_base_dir": ".agent_logs"}
     merged = dict(runner_context)
     merged.update(input_context)
 
     doc_in_merged = merged.get("document", "")
-    print(f"  6. merged context: document = "
-          f"{repr(doc_in_merged[:80])}... ({len(doc_in_merged)} chars)"
-          if len(doc_in_merged) > 80 else
-          f"  6. merged context: document = {repr(doc_in_merged)}")
+    print(
+        f"  6. merged context: document = "
+        f"{repr(doc_in_merged[:80])}... ({len(doc_in_merged)} chars)"
+        if len(doc_in_merged) > 80
+        else f"  6. merged context: document = {repr(doc_in_merged)}"
+    )
 
     # Step 7: PromptPipeline truncation
     pipeline = PromptPipeline()
@@ -161,11 +177,15 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
     sub_resolved = cache_store.resolve_refs(sub_kwargs, audit_param_props)
     sub_doc = sub_resolved["document"]
     sub_ok = isinstance(sub_doc, dict)
-    print(f"     子代理 cache_store.resolve_refs → "
-          f"{'dict ✅' if sub_ok else f'str({repr(sub_doc)[:80]}) ❌'}")
+    print(
+        f"     子代理 cache_store.resolve_refs → "
+        f"{'dict ✅' if sub_ok else f'str({repr(sub_doc)[:80]}) ❌'}"
+    )
     if not sub_ok:
-        print("     → audit_format.execute() 将报错: "
-              "'document 参数必须是 dict 或有效的 JSON 字符串，收到 str'")
+        print(
+            "     → audit_format.execute() 将报错: "
+            "'document 参数必须是 dict 或有效的 JSON 字符串，收到 str'"
+        )
 
 
 def main() -> None:
@@ -178,7 +198,8 @@ def main() -> None:
 
     # ── Scenario B: 多轮 session，新 CacheStore 但旧缓存文件 ──
     # 模拟：新请求创建新的 CacheStore（ref_map 为空），
-    # 但磁盘上还有 parse_document 的缓存文件（由 _rehydrate_artifact_store 加载到 ArtifactStore）
+    # 但磁盘上还有 parse_document 的缓存文件（历史上由 rehydrate 加载；
+    # 现恢复路径已统一为 artifact snapshot）
     cache_b = CacheStore(cache_dir=cache_dir)  # ref_map 为空！
     trace_ref_resolution(cache_b, "B: 多轮 session (CacheStore.ref_map 为空，文件在磁盘)")
 
@@ -190,12 +211,13 @@ def main() -> None:
 
   这就是日志中看到的 bug：
   - 多轮 HTTP 请求每次创建新的 CacheStore（ref_map 为空）
-  - ArtifactStore 被 _rehydrate_artifact_store 重建（有 artifact）
+  - ArtifactStore 被重建（历史上由 rehydrate；现为 artifact snapshot）
   - 但 CacheStore.ref_map 没有被同步重建
   - 导致 registry.resolve_refs() 找不到 ref → 子代理收到 $ref 字符串 → audit_format 报错
     """)
 
     import shutil
+
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 

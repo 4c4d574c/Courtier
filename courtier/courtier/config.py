@@ -158,8 +158,7 @@ class Settings(BaseSettings):
         default=0.0,
         alias="llm_presence_penalty",
         description=(
-            "存在惩罚，鼓励新话题（环境变量: LLM_PRESENCE_PENALTY）。"
-            "temperature=0 时设 0。"
+            "存在惩罚，鼓励新话题（环境变量: LLM_PRESENCE_PENALTY）。" "temperature=0 时设 0。"
         ),
     )
     llm_extra_body: dict[str, Any] | None = Field(
@@ -180,9 +179,7 @@ class Settings(BaseSettings):
             try:
                 parsed = json.loads(v)
             except json.JSONDecodeError:
-                raise ValueError(
-                    f"llm_extra_body must be a valid JSON string, got: {v!r}"
-                )
+                raise ValueError(f"llm_extra_body must be a valid JSON string, got: {v!r}")
             if not isinstance(parsed, dict):
                 raise ValueError(
                     f"llm_extra_body must be a JSON object, got: {type(parsed).__name__}"
@@ -192,15 +189,52 @@ class Settings(BaseSettings):
             f"llm_extra_body must be a dict, JSON string, or null, got: {type(v).__name__}"
         )
 
+    # -- Context budget (token-based, model-aware) --
+    llm_context_window_tokens: int = Field(
+        default=32768,
+        alias="llm_context_window_tokens",
+        description="部署模型的上下文窗口 token 数（环境变量: LLM_CONTEXT_WINDOW_TOKENS）",
+    )
+    context_budget_ratio: float = Field(
+        default=0.75,
+        alias="context_budget_ratio",
+        description="触发全量压缩的窗口占比（环境变量: CONTEXT_BUDGET_RATIO）",
+    )
+    context_micro_compact_ratio: float = Field(
+        default=0.60,
+        alias="context_micro_compact_ratio",
+        description="启用微压缩的窗口占比（环境变量: CONTEXT_MICRO_COMPACT_RATIO）",
+    )
+    context_compact_target_ratio: float = Field(
+        default=0.50,
+        alias="context_compact_target_ratio",
+        description="压缩后的目标占比（环境变量: CONTEXT_COMPACT_TARGET_RATIO）",
+    )
+    context_recent_tool_results_tokens: int = Field(
+        default=4000,
+        alias="context_recent_tool_results_tokens",
+        description=(
+            "微压缩保留最近工具结果的 token 预算" "（环境变量: CONTEXT_RECENT_TOOL_RESULTS_TOKENS）"
+        ),
+    )
+    context_preview_max_chars: int = Field(
+        default=1000,
+        alias="context_preview_max_chars",
+        description="大结果落盘时的预览长度（环境变量: CONTEXT_PREVIEW_MAX_CHARS）",
+    )
+    context_max_user_message_chars: int = Field(
+        default=10000,
+        alias="context_max_user_message_chars",
+        description="大用户输入 persist 治理阈值（环境变量: CONTEXT_MAX_USER_MESSAGE_CHARS）",
+    )
+
     docparse_ocr_api_url: str = Field(default="", alias="docparse_ocr_api_url")
     docparse_ocr_lang: str = Field(default="ch", alias="docparse_ocr_lang")
     docparse_ocr_engine: str = Field(default="ppstructure", alias="docparse_ocr_engine")
     docparse_ocr_max_image_long_side: int = Field(
         default=2048, alias="docparse_ocr_max_image_long_side"
     )
-    docparse_classify_mode: str = Field(
-        default="rule_only", alias="docparse_classify_mode"
-    )
+    docparse_classify_mode: str = Field(default="rule_only", alias="docparse_classify_mode")
 
     cec_api_base: str = ""
     cec_api_key: str = ""
@@ -221,9 +255,7 @@ class Settings(BaseSettings):
         default="看一看,想一想,试一试,人人,一一", alias="cec_allowed_patterns"
     )
 
-    minio_endpoint: str = Field(
-        default="", description="MinIO 服务端点，如 localhost:9000"
-    )
+    minio_endpoint: str = Field(default="", description="MinIO 服务端点，如 localhost:9000")
     minio_access_key: str = Field(default="", description="MinIO access key")
     minio_secret_key: str = Field(default="", description="MinIO secret key")
     minio_secure: bool = Field(default=False, description="MinIO 是否使用 HTTPS")
@@ -272,13 +304,9 @@ class Settings(BaseSettings):
         default=["http://localhost:5173"],
         description="允许的 CORS 来源列表，JSON 数组格式",
     )
-    cors_allow_credentials: bool = Field(
-        default=False, description="是否允许携带凭证的跨域请求"
-    )
+    cors_allow_credentials: bool = Field(default=False, description="是否允许携带凭证的跨域请求")
 
-    jwt_secret: str = Field(
-        default="", description="JWT 签名密钥，生产环境必须设置为强随机字符串"
-    )
+    jwt_secret: str = Field(default="", description="JWT 签名密钥，生产环境必须设置为强随机字符串")
     jwt_algorithm: str = Field(default="HS256", description="JWT 签名算法")
     jwt_expire_seconds: int = Field(
         default=86400, description="JWT token 过期时间（秒），默认 24 小时"
@@ -286,9 +314,7 @@ class Settings(BaseSettings):
     jwt_access_expire_seconds: int = Field(
         default=900, description="Access token 过期时间（秒），默认 15 分钟"
     )
-    bcrypt_rounds: int = Field(
-        default=12, ge=4, le=14, description="bcrypt 哈希轮数"
-    )
+    bcrypt_rounds: int = Field(default=12, ge=4, le=14, description="bcrypt 哈希轮数")
     admin_user: str = Field(default="admin", description="管理员用户名")
     admin_password: str = Field(default="", description="管理员密码，生产环境必须设置")
 
@@ -365,9 +391,7 @@ class Settings(BaseSettings):
         if not self.admin_password:
             missing.append("ADMIN_PASSWORD")
         if missing:
-            raise ValueError(
-                f"Production environment requires {', '.join(missing)} to be set."
-            )
+            raise ValueError(f"Production environment requires {', '.join(missing)} to be set.")
         return self
 
     model_config = {
@@ -417,6 +441,11 @@ class CourtierConfig:
     # Domain package names to load (e.g. ["docaudit"])
     domain_names: list[str] = field(default_factory=list)
 
+    # True when COURTIER_DOMAIN_PACKAGES was explicitly set — then it acts
+    # as an allowlist.  When unset, discover() scans all domain packages on
+    # disk minus the names in domains/.disabled.
+    explicit_domain_names: bool = False
+
     # Default locale
     locale: str = "zh-CN"
 
@@ -448,18 +477,38 @@ class CourtierConfig:
             else:
                 repo_root = Path(".")
 
-        domain_names = [
-            name.strip()
-            for name in os.getenv("COURTIER_DOMAIN_PACKAGES", "docaudit").split(",")
-            if name.strip()
-        ]
+        raw_domains = os.getenv("COURTIER_DOMAIN_PACKAGES", "").strip()
+        domain_names = [name.strip() for name in raw_domains.split(",") if name.strip()]
         locale = os.getenv("COURTIER_LOCALE", "zh-CN")
 
         return cls(
             repo_root=repo_root,
             domain_names=domain_names,
+            explicit_domain_names=bool(raw_domains),
             locale=locale,
         )
+
+    def _resolve_domain_names(self, domains_dir: Path) -> list[str]:
+        """Resolve which domain packages to load.
+
+        Explicit allowlist (COURTIER_DOMAIN_PACKAGES set) wins.  Otherwise
+        scan every on-disk package (a dir with config/domain.yaml) minus the
+        names in domains/.disabled.
+        """
+        if self.explicit_domain_names:
+            return self.domain_names
+        if not domains_dir.is_dir():
+            return []
+        from courtier.domain.disabled import read_disabled_domains
+
+        disabled = read_disabled_domains(domains_dir)
+        return [
+            entry.name
+            for entry in sorted(domains_dir.iterdir())
+            if entry.is_dir()
+            and (entry / "config" / "domain.yaml").is_file()
+            and entry.name not in disabled
+        ]
 
     def discover(self) -> list[DomainPackage]:
         """Discover and load all configured domain packages.
@@ -467,18 +516,19 @@ class CourtierConfig:
         Returns:
             List of loaded DomainPackage instances.
         Raises:
-            FileNotFoundError: If a configured domain package does not exist.
+            FileNotFoundError: If an explicitly configured domain package does not exist.
         """
         domains_dir = self.repo_root / "domains"
+        names = self._resolve_domain_names(domains_dir)
         if not domains_dir.is_dir():
-            if not self.domain_names:
+            if not names:
                 logger.warning("No domains directory found at %s", domains_dir)
                 return []
             # Domains are configured but the directory doesn't exist —
             # fall through to raise FileNotFoundError for each domain.
 
         self._domains = []
-        for name in self.domain_names:
+        for name in names:
             domain_path = domains_dir / name
             if not domain_path.is_dir():
                 raise FileNotFoundError(
@@ -530,10 +580,7 @@ class CourtierConfig:
         Domain prompt bundles are merged in order — later domains
         override template keys from earlier ones.
         """
-        domain_paths = [
-            self.repo_root / "domains" / name
-            for name in self.domain_names
-        ]
+        domain_paths = [self.repo_root / "domains" / name for name in self.domain_names]
         return PromptEngine.from_domain_directories(
             domain_paths=domain_paths,
             locale=self.locale,

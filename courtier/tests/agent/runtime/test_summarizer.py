@@ -34,6 +34,8 @@ async def test_small_result_returns_raw_data(summarizer):
 
 @pytest.mark.asyncio
 async def test_medium_result_returns_summary_and_excerpts(summarizer):
+    """Above the inline limit the raw_data is dropped, but a recoverable $ref
+    must be attached (no more 1500–6000 "death zone" without a result_id)."""
     data = "line1\nline2\nline3\nline4\nline5"
     result = await summarizer.from_data(
         success=True,
@@ -44,7 +46,25 @@ async def test_medium_result_returns_summary_and_excerpts(summarizer):
     assert result.raw_data is None
     assert result.summary is not None
     assert len(result.key_excerpts) > 0
-    assert result.result_id is None
+    # Dropped raw_data must always carry a recoverable result_id.
+    assert result.result_id is not None
+    assert result.metadata["stored"]["result_id"] == result.result_id
+
+
+@pytest.mark.asyncio
+async def test_medium_result_is_recoverable_from_store(summarizer):
+    """The $ref attached to a summarised tool result resolves back to the
+    full payload via the artifact store."""
+    data = {"text": "x" * 50}  # > raw_inline_max_chars(20), < old death zone cap
+    result = await summarizer.from_data(
+        success=True,
+        actor_type="tool",
+        actor_name="echo",
+        data=data,
+    )
+    assert result.raw_data is None
+    assert result.result_id is not None
+    assert summarizer.artifact_store.load(result.result_id) == data
 
 
 @pytest.mark.asyncio

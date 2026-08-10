@@ -28,6 +28,7 @@ from .protocol import (
 
 logger = logging.getLogger(__name__)
 
+
 class ToolRegistry:
     """Agent 通过它发现和调用工具。
 
@@ -273,7 +274,23 @@ class ToolRegistry:
           - Auto-bind contract fields from typed artifacts.
           - Register tool output as typed artifact via output_artifact_type.
         """
-        tool = self.get(name)
+        try:
+            tool = self.get(name)
+        except KeyError:
+            # Recoverable guidance instead of a bare KeyError traceback: the
+            # model sees which tools ARE available and can self-correct on
+            # the next turn (e.g. after hallucinating a skill name or when a
+            # skill was disabled mid-session).
+            available = ", ".join(sorted(t.name for t in self.list_tools())) or "(无)"
+            logger.warning("Tool %r not registered; returning guidance error", name)
+            return ExecutionResult.from_error(
+                actor_type="tool",
+                actor_name=name,
+                error=(
+                    f"工具 {name!r} 未注册，无法调用。当前可用工具：{available}。"
+                    "请改用可用工具，或直接给出文本回答。"
+                ),
+            )
 
         # --- Enforce runtime policy ---
         runtime_policy = getattr(tool, "runtime_policy", None)
@@ -297,9 +314,7 @@ class ToolRegistry:
         ):
             effective_fields = build_contract_from_input_fields(name, input_fields)
             if self._policy.features.resolver_dry_run:
-                logger.info(
-                    "Dry-run: would auto-bind %s fields from artifacts", name
-                )
+                logger.info("Dry-run: would auto-bind %s fields from artifacts", name)
             else:
                 producers = self._get_producers()
                 binding_result = self._bind_contract_arguments(
@@ -328,9 +343,7 @@ class ToolRegistry:
                 result = on_tool_progress(name, progress)
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
-                    task.add_done_callback(
-                        lambda t: t.exception() if not t.cancelled() else None
-                    )
+                    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
         raw_result = await tool.execute(
             on_progress=on_progress,
@@ -342,9 +355,7 @@ class ToolRegistry:
 
         # Preserve the original data before persist replaces it with a $ref marker.
         original_data = (
-            raw_result.raw_data
-            if isinstance(raw_result, ExecutionResult)
-            else raw_result.data
+            raw_result.raw_data if isinstance(raw_result, ExecutionResult) else raw_result.data
         )
         output_data = original_data
 
@@ -372,7 +383,8 @@ class ToolRegistry:
                 source_query = tr.metadata.get("source_query")
                 label = tr.metadata.get("label")
                 persist_result = await persist_store.persist(
-                    tr.data, tool.name,
+                    tr.data,
+                    tool.name,
                     tool_registry=self,
                     source_ref_id=source_ref_id,
                     source_query=source_query,
@@ -396,6 +408,7 @@ class ToolRegistry:
         if metadata_updates:
             if isinstance(raw_result, ExecutionResult):
                 from dataclasses import replace
+
                 raw_result = replace(
                     raw_result, metadata={**raw_result.metadata, **metadata_updates}
                 )
@@ -408,7 +421,9 @@ class ToolRegistry:
         # conversion point for legacy ToolResults; everything below handles
         # only ExecutionResult.
         result = await self._to_execution_result(
-            name, raw_result, original_data=original_data,
+            name,
+            raw_result,
+            original_data=original_data,
             skip_summarize=getattr(tool, "skip_summarize", False),
         )
 
@@ -418,27 +433,31 @@ class ToolRegistry:
         # registered even when the tool doesn't declare output_artifact_type.
         if artifact_store is not None and result.success:
             try:
-                skip_artifact_registration = getattr(
-                    tool, "skip_artifact_registration", False
-                )
+                skip_artifact_registration = getattr(tool, "skip_artifact_registration", False)
                 if not skip_artifact_registration:
                     output_artifact_type = getattr(tool, "output_artifact_type", None)
                     if output_artifact_type:
                         self._register_output_artifact(
-                            tool_name=name, artifact_type=output_artifact_type,
-                            data=output_data, artifact_store=artifact_store,
+                            tool_name=name,
+                            artifact_type=output_artifact_type,
+                            data=output_data,
+                            artifact_store=artifact_store,
                         )
                     else:
                         # Auto-register with derived type — no tool left invisible.
                         derived_type = self._derive_artifact_type(tool_name=name)
                         self._register_output_artifact(
-                            tool_name=name, artifact_type=derived_type,
-                            data=output_data, artifact_store=artifact_store,
+                            tool_name=name,
+                            artifact_type=derived_type,
+                            data=output_data,
+                            artifact_store=artifact_store,
                             debug_only=derived_type == "core.cached_output",
                         )
             except Exception:
                 logger.warning(
-                    "Failed to register output artifact for %s", name, exc_info=True,
+                    "Failed to register output artifact for %s",
+                    name,
+                    exc_info=True,
                 )
 
         return result
@@ -449,9 +468,7 @@ class ToolRegistry:
         """Enforce runtime policy. Returns ToolResult if blocked, None if allowed."""
         self._tool_call_counts[name] = self._tool_call_counts.get(name, 0) + 1
         if self._last_tool_called == name:
-            self._tool_consecutive_counts[name] = (
-                self._tool_consecutive_counts.get(name, 0) + 1
-            )
+            self._tool_consecutive_counts[name] = self._tool_consecutive_counts.get(name, 0) + 1
         else:
             self._tool_consecutive_counts[name] = 1
         self._last_tool_called = name
@@ -460,10 +477,15 @@ class ToolRegistry:
         max_consecutive = policy.max_consecutive
 
         if max_calls is not None and self._tool_call_counts[name] > max_calls:
-            emit_event("repeated_tool_call_blocked", {
-                "tool": name, "reason": "max_calls",
-                "count": self._tool_call_counts[name], "limit": max_calls,
-            })
+            emit_event(
+                "repeated_tool_call_blocked",
+                {
+                    "tool": name,
+                    "reason": "max_calls",
+                    "count": self._tool_call_counts[name],
+                    "limit": max_calls,
+                },
+            )
             return ToolResult(
                 success=False,
                 error=(
@@ -474,10 +496,15 @@ class ToolRegistry:
             )
         current_consecutive = self._tool_consecutive_counts.get(name, 0)
         if max_consecutive is not None and current_consecutive > max_consecutive:
-            emit_event("repeated_tool_call_blocked", {
-                "tool": name, "reason": "max_consecutive_calls",
-                "count": current_consecutive, "limit": max_consecutive,
-            })
+            emit_event(
+                "repeated_tool_call_blocked",
+                {
+                    "tool": name,
+                    "reason": "max_consecutive_calls",
+                    "count": current_consecutive,
+                    "limit": max_consecutive,
+                },
+            )
             return ToolResult(
                 success=False,
                 error=(
@@ -500,9 +527,13 @@ class ToolRegistry:
         # Lazy import to break circular dependency:
         # artifacts.binder → artifacts.models → tools.registry
         from courtier.agent.artifacts.binder import ContractBinder
+
         binder = ContractBinder(artifact_store, self._policy)
         return binder.bind_tool_inputs(
-            fields, tool_name, explicit_kwargs, producers=producers,
+            fields,
+            tool_name,
+            explicit_kwargs,
+            producers=producers,
         )
 
     def _resolve_persisted_data(self, data: Any) -> Any | None:
@@ -523,14 +554,16 @@ class ToolRegistry:
         try:
             return json.loads(Path(filepath).read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
-            logger.warning(
-                "Failed to load persisted output from %s: %s", filepath, exc
-            )
+            logger.warning("Failed to load persisted output from %s: %s", filepath, exc)
             return None
 
     def _register_output_artifact(
-        self, *, tool_name: str, artifact_type: str,
-        data: Any, artifact_store: ArtifactStore,
+        self,
+        *,
+        tool_name: str,
+        artifact_type: str,
+        data: Any,
+        artifact_store: ArtifactStore,
         debug_only: bool = False,
     ) -> None:
         """Register a tool output as an artifact via ``register_cached_ref``.
@@ -554,22 +587,29 @@ class ToolRegistry:
         # Artifacts are projection-allowed so downstream tools
         # can discover them via list_artifacts.
         artifact_store.register_cached_ref(
-            ref_id=ref_id, artifact_type=artifact_type,
-            created_by=tool_name, data=data,
-            role="intermediate", subject="unknown",
-            projection_allowed=True, debug_only=debug_only,
+            ref_id=ref_id,
+            artifact_type=artifact_type,
+            created_by=tool_name,
+            data=data,
+            role="intermediate",
+            subject="unknown",
+            projection_allowed=True,
+            debug_only=debug_only,
         )
-        emit_event("artifact_created", {
-            "artifact_type": artifact_type,
-            "created_by": tool_name, "ref_id": ref_id,
-        })
+        emit_event(
+            "artifact_created",
+            {
+                "artifact_type": artifact_type,
+                "created_by": tool_name,
+                "ref_id": ref_id,
+            },
+        )
 
     # -- Artifact type derivation -----------------------------------------------
 
-    # Centralized tool-name → artifact-type mapping.  Formerly scattered across
-    # stream_service._TOOL_ARTIFACT_TYPE and individual tool classes.  Tools
-    # that declare ``output_artifact_type`` take precedence; this mapping
-    # provides sensible defaults for tools that don't.
+    # Centralized tool-name → artifact-type mapping.  Tools that declare
+    # ``output_artifact_type`` take precedence; this mapping provides sensible
+    # defaults for tools that don't.
     _TOOL_ARTIFACT_TYPE: dict[str, str] = {
         "parse_document": "docaudit.parsed_document",
     }
@@ -597,7 +637,8 @@ class ToolRegistry:
         """返回缓存的 producers 映射，延迟计算."""
         if self._producer_cache is None:
             self._producer_cache = derive_upstream_producers(
-                list(self._tools.values()), self._projector_registry,
+                list(self._tools.values()),
+                self._projector_registry,
             )
         return self._producer_cache
 

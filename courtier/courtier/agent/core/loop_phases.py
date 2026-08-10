@@ -56,17 +56,30 @@ async def think_phase(
 
     # --- Context budget: Layer 3 full compaction before think ---
     if context_manager:
-        state = state.model_copy(
-            update={
-                "messages": await context_manager.compact_if_needed(state.messages)
-            }
+        before_messages = state.messages
+        compacted = await context_manager.compact_if_needed(
+            before_messages,
+            # Fires only when the budget is actually exceeded, before the
+            # slow LLM summarization — lets the frontend show "compacting".
+            on_compact_start=((lambda: on_step("compacting", "")) if on_step is not None else None),
         )
+        if len(compacted) != len(before_messages):
+            # Notify the frontend that context was compacted (the summary
+            # silently replaced history — users should know).
+            if on_step is not None:
+                detail = f"{len(before_messages)} 条消息 → {len(compacted)} 条"
+                if getattr(
+                    getattr(context_manager, "state", None),
+                    "last_compact_over_budget",
+                    False,
+                ):
+                    detail += "（压缩后仍超预算）"
+                await on_step("compact", detail)
+        state = state.model_copy(update={"messages": compacted})
         if state.is_terminal():
             return ThinkResult(
                 state=state,
-                llm_request=LLMRequestRecord(
-                    messages=[], tools=None, model="", temperature=None
-                ),
+                llm_request=LLMRequestRecord(messages=[], tools=None, model="", temperature=None),
                 llm_response=LLMResponseRecord(
                     content=None,
                     reasoning=None,
@@ -83,9 +96,7 @@ async def think_phase(
     # THINK: model generates next action
     messages = state.to_openai_messages()
     tools_schemas = (
-        tool_registry.get_schemas(hide_debug_for_task_agents=True)
-        if tool_registry
-        else None
+        tool_registry.get_schemas(hide_debug_for_task_agents=True) if tool_registry else None
     )
     model_name = getattr(model, "model_name", "unknown")
     temperature = getattr(model, "temperature", None)
@@ -141,12 +152,18 @@ async def think_phase(
 
     llm_duration_ms = int((time.perf_counter() - llm_start) * 1000)
 
+    # Calibrate the context budget with the provider-reported prompt tokens
+    # so the next compaction check never triggers late (heuristic can
+    # underestimate, especially for mixed CJK/ASCII content).
+    update_usage = getattr(context_manager, "update_actual_usage", None)
+    if update_usage is not None and response.usage:
+        update_usage(response.usage.get("prompt_tokens"))
+
     llm_response = LLMResponseRecord(
         content=response.content,
         reasoning=response.reasoning_content,
         tool_calls=[
-            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-            for tc in response.tool_calls
+            {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls
         ],
         usage=response.usage,
         finish_reason=response.finish_reason,

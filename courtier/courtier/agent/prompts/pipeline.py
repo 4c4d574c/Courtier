@@ -6,7 +6,7 @@ Sections are assembled in stability order:
 3. Context instructions
 === DYNAMIC_BOUNDARY ===
 4. Memory content
-5. DRUDGE.md instruction chain
+5. COURTIER.md instruction chain
 6. Environmental context            (least stable)
 
 Learning from: https://learn.shareai.run/zh/s10/
@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 MAX_SECTION_LENGTH = 50_000
 
 _PLACEHOLDER_RE = re.compile(r"\{\{(.+?)\}\}")
-_DYNAMIC_BOUNDARY = (
-    "# ====== STABLE LAYER (above) / DYNAMIC LAYER (below) ======"
-)
+_DYNAMIC_BOUNDARY = "# ====== STABLE LAYER (above) / DYNAMIC LAYER (below) ======"
 
 
 def _resolve_placeholder(match: re.Match[str], context: dict[str, str]) -> str:
@@ -51,10 +49,11 @@ class PromptPipeline:
         self._identity: str = ""
         self._behavioral_rules: str = ""
         self._tools_block: str = ""
+        self._tool_usage_notes: str = ""
         self._context_instructions: str = ""
         self._rules_block: str = ""
         self._memory_block: str = ""
-        self._drudge_md_block: str = ""
+        self._courtier_md_block: str = ""
         self._environment_block: str = ""
 
     def _validate_section_length(self, content: str, section_name: str) -> str:
@@ -71,9 +70,7 @@ class PromptPipeline:
 
     # -- Structured setters (s10 six-section model) ---------------------------
 
-    def set_identity(
-        self, name: str, role: str, thinking_directive: str = ""
-    ) -> None:
+    def set_identity(self, name: str, role: str, thinking_directive: str = "") -> None:
         """Section 1: Core identity and behavioral instructions.
 
         Args:
@@ -100,14 +97,24 @@ class PromptPipeline:
         reinforce the thinking directive with stronger, imperative language
         (e.g. "禁止...") that applies to every turn of the agent loop.
         """
-        self._behavioral_rules = self._validate_section_length(
-            rules, "behavioral_rules"
-        )
+        self._behavioral_rules = self._validate_section_length(rules, "behavioral_rules")
 
     def set_tools(self, tools_block: str) -> None:
         """Section 2: Available tools and their descriptions."""
-        self._tools_block = self._validate_section_length(
-            f"# 可用工具\n{tools_block}", "tools"
+        self._tools_block = self._validate_section_length(f"# 可用工具\n{tools_block}", "tools")
+
+    def set_tool_usage_notes(self, notes: str) -> None:
+        """Section 2.6: Plugin-provided tool usage guidance.
+
+        Carries the ``system_prompt`` text declared by enabled plugins
+        (plugin.yaml); an empty string clears the section so stale notes
+        never linger after a plugin is unregistered.
+        """
+        if not notes:
+            self._tool_usage_notes = ""
+            return
+        self._tool_usage_notes = self._validate_section_length(
+            f"# 工具使用说明\n{notes}", "tool_usage_notes"
         )
 
     def set_context_instructions(self, text: str) -> None:
@@ -123,14 +130,12 @@ class PromptPipeline:
 
     def set_memory(self, memory_block: str) -> None:
         """Section 4: Cross-session retained information."""
-        self._memory_block = self._validate_section_length(
-            f"# 记忆\n{memory_block}", "memory"
-        )
+        self._memory_block = self._validate_section_length(f"# 记忆\n{memory_block}", "memory")
 
-    def set_drudge_md(self, drudge_md_block: str) -> None:
-        """Section 5: Long-term rule specifications (DRUDGE.md chain)."""
-        self._drudge_md_block = self._validate_section_length(
-            f"# 项目规则\n{drudge_md_block}", "drudge_md"
+    def set_courtier_md(self, courtier_md_block: str) -> None:
+        """Section 5: Long-term rule specifications (COURTIER.md chain)."""
+        self._courtier_md_block = self._validate_section_length(
+            f"# 项目规则\n{courtier_md_block}", "courtier_md"
         )
 
     def set_environment(self, env: dict[str, str] | None = None) -> None:
@@ -150,9 +155,7 @@ class PromptPipeline:
 
     def set_rules(self, rules: str) -> None:
         """Section 3: Additional rules / strategy appended after context instructions."""
-        self._rules_block = self._validate_section_length(
-            f"# 规则与策略\n{rules}", "rules"
-        )
+        self._rules_block = self._validate_section_length(f"# 规则与策略\n{rules}", "rules")
 
     # -- Build ----------------------------------------------------------------
 
@@ -161,7 +164,7 @@ class PromptPipeline:
 
         Sections are rendered in stability order: identity → behavioral_rules
         → tools → context_instructions → rules → [dynamic boundary]
-        → memory → drudge_md → environment.
+        → memory → courtier_md → environment.
 
         Context keys that are not consumed by {{placeholder}} substitution
         are surfaced in a final "Task Context" section so the model can
@@ -185,6 +188,9 @@ class PromptPipeline:
         if self._tools_block:
             blocks.append(self._tools_block)
 
+        if self._tool_usage_notes:
+            blocks.append(self._tool_usage_notes)
+
         if self._context_instructions:
             blocks.append(self._context_instructions)
 
@@ -196,8 +202,8 @@ class PromptPipeline:
         dynamic_blocks: list[str] = []
         if self._memory_block:
             dynamic_blocks.append(self._memory_block)
-        if self._drudge_md_block:
-            dynamic_blocks.append(self._drudge_md_block)
+        if self._courtier_md_block:
+            dynamic_blocks.append(self._courtier_md_block)
         if self._environment_block:
             dynamic_blocks.append(self._environment_block)
 
@@ -206,9 +212,7 @@ class PromptPipeline:
             blocks.extend(dynamic_blocks)
 
         # Surface unconsumed context values so the model sees them
-        remaining = {
-            k: v for k, v in context.items() if k not in consumed_keys and v
-        }
+        remaining = {k: v for k, v in context.items() if k not in consumed_keys and v}
         if remaining:
             lines = ["# 任务上下文"]
             for k, v in remaining.items():

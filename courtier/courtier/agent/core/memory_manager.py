@@ -19,14 +19,22 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from courtier.agent.memory.store import FileMemoryStore, MemoryStore
 
-from .context_manager import ContextManager, _build_summary
+from .context_manager import (
+    COMPACT_TARGET_TOKENS,
+    LARGE_OUTPUT_THRESHOLD,
+    MAX_CONTEXT_TOKENS,
+    MICRO_COMPACT_TOKENS,
+    RECENT_TOOL_RESULTS_TOKENS,
+    ContextManager,
+    _build_summary,
+)
 from .state import Message
 
 if TYPE_CHECKING:
@@ -63,7 +71,7 @@ class MemoryManager(ContextManager):
 
     Backwards compatibility: all ``ContextManager`` methods are preserved and
     behave identically. New code can use the async memory APIs while old code
-    continues to call ``persist_large_output`` / ``compact_if_needed``.
+    continues to call ``micro_compact`` / ``compact_if_needed``.
     """
 
     def __init__(
@@ -72,26 +80,32 @@ class MemoryManager(ContextManager):
         cache_dir: str = ".agent_cache",
         memory_store: MemoryStore | None = None,
         session_id: str = "default",
-        max_context_chars: int | None = None,
-        large_output_threshold: int | None = None,
-        recent_tool_results: int | None = None,
+        max_context_tokens: int = MAX_CONTEXT_TOKENS,
+        micro_compact_tokens: int = MICRO_COMPACT_TOKENS,
+        compact_target_tokens: int = COMPACT_TARGET_TOKENS,
+        recent_tool_results_tokens: int = RECENT_TOOL_RESULTS_TOKENS,
+        large_output_threshold: int = LARGE_OUTPUT_THRESHOLD,
+        preview_max_chars: int | None = None,
+        compact_prompt_template: str | None = None,
+        compact_merge_prompt_template: str | None = None,
         artifact_store: Any | None = None,
     ) -> None:
         super().__init__(
             model=model,
             cache_dir=cache_dir,
-            max_context_chars=max_context_chars if max_context_chars is not None else 40_000,
-            large_output_threshold=large_output_threshold
-            if large_output_threshold is not None
-            else 3_000,
-            recent_tool_results=recent_tool_results if recent_tool_results is not None else 5,
+            max_context_tokens=max_context_tokens,
+            micro_compact_tokens=micro_compact_tokens,
+            compact_target_tokens=compact_target_tokens,
+            recent_tool_results_tokens=recent_tool_results_tokens,
+            large_output_threshold=large_output_threshold,
+            preview_max_chars=preview_max_chars,
+            compact_prompt_template=compact_prompt_template,
+            compact_merge_prompt_template=compact_merge_prompt_template,
             artifact_store=artifact_store,
         )
         self.session_id = session_id
         self._memory_store = memory_store or FileMemoryStore(
-            root_dir=str(Path(cache_dir).parent / ".agent_memory")
-            if cache_dir
-            else ".agent_memory"
+            root_dir=str(Path(cache_dir).parent / ".agent_memory") if cache_dir else ".agent_memory"
         )
         # Working memory snapshot (last compacted view) used by retrieval tier.
         self._working_summary: str | None = None
@@ -189,10 +203,13 @@ class MemoryManager(ContextManager):
     # -- Working tier (inherited from ContextManager) -------------------------
 
     async def compact_if_needed(
-        self, messages: tuple[Message, ...]
+        self,
+        messages: tuple[Message, ...],
+        *,
+        on_compact_start: Callable[[], Awaitable[None]] | None = None,
     ) -> tuple[Message, ...]:
         """Layer-3 compaction, updating the working-memory summary."""
-        compacted = await super().compact_if_needed(messages)
+        compacted = await super().compact_if_needed(messages, on_compact_start=on_compact_start)
         self._working_summary = _build_summary(compacted)
         return compacted
 

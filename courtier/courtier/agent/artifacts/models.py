@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Literal
 
+# InputField is defined in the plugin SDK so plugins can declare artifact
+# input contracts without depending on the core application.  Re-exported
+# here to keep a single definition on both sides of the JSON-RPC boundary.
+from courtier_plugin_sdk.models import InputField  # noqa: F401
 from pydantic import BaseModel, Field
 
 ProjectorStability = Literal["stable", "experimental", "deprecated", "disabled"]
@@ -190,25 +194,6 @@ def _build_artifact_type_schemas() -> dict[str, ArtifactSchema]:
         description="Raw search results from document search, containing total count and hit list.",
     )
 
-    schemas["docaudit.document_metadata"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["doc_id"],
-            "properties": {
-                "doc_id": {"type": "string"},
-                "title": {"type": "string"},
-                "doc_type": {"type": "string"},
-                "issuing_number": {"type": "string"},
-                "publish_date": {"type": "string"},
-                "author": {"type": "string"},
-                "total_pages": {"type": "integer"},
-            },
-        },
-        description="Document-level metadata extracted from parsed document.",
-    )
-
     schemas["docaudit.document_structure"] = ArtifactSchema(
         schema_version="1.0",
         schema_format="type_hint",
@@ -355,29 +340,17 @@ def validate_artifact_data(artifact_type: str, data: Any) -> list[str]:
         value = data[key]
         expected_type = prop_schema.get("type", "")
         if expected_type == "string" and not isinstance(value, str):
-            errors.append(
-                f"{artifact_type}.{key}: expected string, got {type(value).__name__}"
-            )
+            errors.append(f"{artifact_type}.{key}: expected string, got {type(value).__name__}")
         elif expected_type == "integer" and not isinstance(value, int):
-            errors.append(
-                f"{artifact_type}.{key}: expected integer, got {type(value).__name__}"
-            )
+            errors.append(f"{artifact_type}.{key}: expected integer, got {type(value).__name__}")
         elif expected_type == "number" and not isinstance(value, (int, float)):
-            errors.append(
-                f"{artifact_type}.{key}: expected number, got {type(value).__name__}"
-            )
+            errors.append(f"{artifact_type}.{key}: expected number, got {type(value).__name__}")
         elif expected_type == "boolean" and not isinstance(value, bool):
-            errors.append(
-                f"{artifact_type}.{key}: expected boolean, got {type(value).__name__}"
-            )
+            errors.append(f"{artifact_type}.{key}: expected boolean, got {type(value).__name__}")
         elif expected_type == "array" and not isinstance(value, list):
-            errors.append(
-                f"{artifact_type}.{key}: expected array, got {type(value).__name__}"
-            )
+            errors.append(f"{artifact_type}.{key}: expected array, got {type(value).__name__}")
         elif expected_type == "object" and not isinstance(value, dict):
-            errors.append(
-                f"{artifact_type}.{key}: expected object, got {type(value).__name__}"
-            )
+            errors.append(f"{artifact_type}.{key}: expected object, got {type(value).__name__}")
     return errors
 
 
@@ -567,21 +540,6 @@ class MaterializedBinding(BaseModel, frozen=True):
 
 
 @dataclass(frozen=True)
-class InputField:
-    """A single input field requirement for a tool.
-
-    Declares that the tool's parameter ``name`` should be auto-bound
-    from an artifact of ``artifact_type``.
-    """
-
-    name: str
-    artifact_type: str
-    materialize_as: str | None = None  # derived from artifact_type if None
-    required: bool = True
-    constraints: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class RuntimePolicy:
     """Runtime safety policy for a tool.
 
@@ -609,7 +567,6 @@ _MATERIALIZE_AS_DEFAULTS: dict[str, str] = {
     "docaudit.parsed_document": "dict",
     "docaudit.paragraph_list": "list_dict",
     "docaudit.search_results": "dict",
-    "docaudit.document_metadata": "dict",
     "docaudit.document_structure": "dict",
     "docaudit.audit_finding_list": "list_dict",
     "docaudit.audit_report": "dict",

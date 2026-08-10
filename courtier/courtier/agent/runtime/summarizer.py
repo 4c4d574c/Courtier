@@ -85,10 +85,17 @@ class RuleBasedSummaryStrategy:
     # Field names whose values are always internal identifiers (hashes, UUIDs,
     # internal refs).  These provide zero signal to the LLM so we skip them
     # when collecting excerpts.  Keep this list small — only truly opaque IDs.
-    _METADATA_KEY_NAMES: frozenset[str] = frozenset({
-        "user_id", "doc_id", "content_hash", "artifact_id", "ref_id",
-        "session_id", "run_id", "trace_id",
-    })
+    _METADATA_KEY_NAMES: frozenset[str] = frozenset(
+        {
+            "doc_id",
+            "content_hash",
+            "artifact_id",
+            "ref_id",
+            "session_id",
+            "run_id",
+            "trace_id",
+        }
+    )
 
     @classmethod
     def _extract_nested_excerpts(
@@ -165,6 +172,8 @@ class ResultSummarizer:
     artifact_store: Any | None = None  # ArtifactStore for large-result persistence
     strategy: SummaryStrategy | None = None
     raw_inline_max_chars: int = 1_500
+    # Deprecated: no longer consulted.  Persistence now triggers as soon as
+    # the inline limit is exceeded so a dropped raw_data always has a $ref.
     summary_inline_max_chars: int = 6_000
     max_key_excerpts: int = 5
     excerpt_max_chars: int = 500
@@ -190,9 +199,7 @@ class ResultSummarizer:
 
         serialized = self._serialize(data)
         size_bytes = len(serialized.encode("utf-8"))
-        content_type = (
-            "application/json" if isinstance(data, (dict, list)) else "text/plain"
-        )
+        content_type = "application/json" if isinstance(data, (dict, list)) else "text/plain"
 
         if len(serialized) <= self.raw_inline_max_chars:
             summary, _ = await self._strategy.summarize(data, actor_name)
@@ -210,30 +217,14 @@ class ResultSummarizer:
         summary, key_excerpts = await self._strategy.summarize(data, actor_name)
         excerpts = tuple(key_excerpts[: self.max_key_excerpts])
 
-        # Sub-agent / skill results are critical for the parent to see in full.
-        # Use the lower raw_inline_max_chars threshold so they always get a
-        # result_id when summarised, avoiding the "death zone" (1500–6000 chars)
-        # where raw_data was dropped but no $ref was generated.
-        persist_threshold = (
-            self.raw_inline_max_chars
-            if actor_type in ("agent", "skill")
-            else self.summary_inline_max_chars
-        )
-
-        if len(serialized) <= persist_threshold:
-            return ExecutionResult(
-                success=True,
-                actor_type=actor_type,
-                actor_name=actor_name,
-                summary=summary,
-                key_excerpts=excerpts,
-                metadata=metadata or {},
-                size_bytes=size_bytes,
-                content_type=content_type,
-            )
-
-        # Large result (or sub-agent/skill result above inline threshold):
-        # persist to the artifact store and return a reference with result_id.
+        # Above the inline limit (any actor type): persist to the artifact
+        # store and return a reference with result_id.  Every summarised
+        # result (raw_data dropped) must carry a recoverable $ref — this
+        # closes the "death zone" (raw_inline_max_chars ~
+        # summary_inline_max_chars) where tool results lost their raw_data
+        # without gaining a result_id, leaving downstream consumers no way to
+        # reload the full payload.  summary_inline_max_chars is retained for
+        # constructor compatibility but no longer gates persistence.
         stored_ref_id: str | None = None
         stored_preview: str = ""
         stored_size: int = 0
@@ -246,7 +237,9 @@ class ResultSummarizer:
             stored_size = len(serialized)
         elif self._store is not None:
             persist_result = await self._store.persist(
-                data, actor_name, force=True,
+                data,
+                actor_name,
+                force=True,
             )
             if persist_result.persisted:
                 stored_ref_id = persist_result.ref_id
@@ -270,12 +263,16 @@ class ResultSummarizer:
             key_excerpts=excerpts,
             metadata={
                 **(metadata or {}),
-                "stored": {
-                    "result_id": stored_ref_id,
-                    "backend": "artifact_store",
-                    "size_bytes": stored_size,
-                    "preview": stored_preview,
-                } if stored_ref_id else None,
+                "stored": (
+                    {
+                        "result_id": stored_ref_id,
+                        "backend": "artifact_store",
+                        "size_bytes": stored_size,
+                        "preview": stored_preview,
+                    }
+                    if stored_ref_id
+                    else None
+                ),
             },
             size_bytes=size_bytes,
             content_type=content_type,

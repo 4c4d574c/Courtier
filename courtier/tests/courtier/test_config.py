@@ -10,9 +10,10 @@ class TestCourtierConfig:
     """Tests for CourtierConfig discovery and env-based initialization."""
 
     def test_from_env_defaults(self):
-        """Defaults to docaudit domain and zh-CN locale."""
+        """Unset COURTIER_DOMAIN_PACKAGES means scan mode (not an allowlist)."""
         config = CourtierConfig.from_env(repo_root=Path("/tmp"))
-        assert config.domain_names == ["docaudit"]
+        assert config.domain_names == []
+        assert config.explicit_domain_names is False
         assert config.locale == "zh-CN"
 
     def test_from_env_custom_domains(self, monkeypatch):
@@ -68,6 +69,7 @@ class TestCourtierConfig:
         config = CourtierConfig(
             repo_root=Path("/nonexistent/repo"),
             domain_names=["nonexistent-domain"],
+            explicit_domain_names=True,
             locale="en-US",
         )
         try:
@@ -100,6 +102,7 @@ class TestCourtierConfig:
         config = CourtierConfig(
             repo_root=Path("/tmp"),
             domain_names=["docaudit"],
+            explicit_domain_names=True,
             locale="en-US",
         )
         # /tmp/domains doesn't exist, so discover logs a warning

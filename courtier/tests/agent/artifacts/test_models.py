@@ -21,6 +21,7 @@ from courtier.agent.artifacts.projectors import create_default_projector_registr
 
 # -- Gap 2: ArtifactMetadata schema_version -----------------------------------
 
+
 def test_artifact_metadata_defaults_schema_version():
     meta = ArtifactMetadata(created_by="test")
     assert meta.schema_version == "1.0"
@@ -104,6 +105,7 @@ def test_projection_policy_defaults_are_safe():
 
 # -- Gap 4: ProjectorSpec source/target schema version + test_fixtures ---------
 
+
 def test_projector_spec_defaults_schema_versions():
     spec = ProjectorSpec(
         name="test.projector",
@@ -129,19 +131,19 @@ def test_projector_spec_explicit_fixtures():
 
 # -- Gap 5: MaterializerSpec path field ----------------------------------------
 
+
 def test_materializer_spec_default_path_is_empty():
     spec = MaterializerSpec(artifact_type="core.plain_text", materialize_as="string")
     assert spec.path == ""
 
 
 def test_materializer_spec_explicit_path():
-    spec = MaterializerSpec(
-        artifact_type="core.plain_text", materialize_as="string", path="$.text"
-    )
+    spec = MaterializerSpec(artifact_type="core.plain_text", materialize_as="string", path="$.text")
     assert spec.path == "$.text"
 
 
 # -- Gap 12: core.json_object and core.error_report schemas -------------------
+
 
 def test_core_json_object_schema_exists():
     schema = get_artifact_schema("core.json_object")
@@ -156,6 +158,7 @@ def test_core_error_report_schema_exists():
 
 
 # -- Gap 1: ArtifactSchema validation -----------------------------------------
+
 
 def test_validate_plain_text_passes_for_valid_data():
     errors = validate_artifact_data("core.plain_text", {"text": "hello", "language": "zh"})
@@ -221,9 +224,7 @@ def test_derive_upstream_producers_direct():
         name = "parse"
         output_artifact_type = "docaudit.parsed_document"
 
-    producers = derive_upstream_producers(
-        [FakeTool()], create_default_projector_registry()
-    )
+    producers = derive_upstream_producers([FakeTool()], create_default_projector_registry())
     assert "docaudit.parsed_document" in producers
     assert "parse" in producers["docaudit.parsed_document"]
 
@@ -234,11 +235,6 @@ def test_derive_upstream_producers_unknown_type_absent():
 
 
 # -- Gap 4: new artifact type schemas -----------------------------------------
-
-def test_docaudit_document_metadata_schema_exists():
-    schema = get_artifact_schema("docaudit.document_metadata")
-    assert schema is not None
-    assert "doc_id" in schema.schema_body.get("required", [])
 
 
 def test_docaudit_document_structure_schema_exists():
@@ -261,6 +257,7 @@ def test_docaudit_audit_report_schema_exists():
 
 # -- Gap 7: feature flags -----------------------------------------------------
 
+
 def test_feature_flags_default_all_enabled():
     flags = ProjectionFeatureFlags()
     assert flags.artifact_contracts_enabled is True
@@ -276,6 +273,7 @@ def test_projection_policy_includes_feature_flags():
 
 
 # -- Gap 8: ArtifactRef URL scheme --------------------------------------------
+
 
 def test_parse_artifact_ref_uri():
     parsed = parse_artifact_ref("artifact://docaudit.parsed_document/parse_document/1")

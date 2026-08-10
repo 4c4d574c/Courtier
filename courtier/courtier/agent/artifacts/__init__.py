@@ -32,6 +32,7 @@ from .models import (
     stable_content_hash,
     validate_artifact_data,
 )
+from .scoped_store import ScopedArtifactView
 from .store import ArtifactStore, ScopedArtifactStore
 
 __all__ = [
@@ -58,6 +59,7 @@ __all__ = [
     "ProjectorSpec",
     "RuntimePolicy",
     "ScopedArtifactStore",
+    "ScopedArtifactView",
     "build_contract_from_input_fields",
     "check_schema_version_compatible",
     "derive_upstream_producers",
