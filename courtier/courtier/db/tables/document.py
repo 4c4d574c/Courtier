@@ -1,11 +1,10 @@
-
 from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, utcnow
@@ -17,19 +16,23 @@ if TYPE_CHECKING:
 class DocumentCreate(BaseModel):
     """创建文档时的数据模型"""
 
-    user_id: str = Field(..., description="文件所属用户的id值")
-    doc_id: str = Field(..., description="文件的内容的md5值")
+    doc_id: str = Field(..., description="文件内容的sha256值")
     total_page_num: int = Field(..., description="文件总页数")
     save_path: str = Field(default="默认路径", description="保存路径")
+    schema_version: str = Field(default="1.0", description="模型结构版本号")
+    warnings: list | None = Field(default=None, description="解析过程告警信息列表")
+
 
 class DocumentUpdate(BaseModel):
     """更新文档时的数据模型（所有字段可选）"""
 
-    user_id: str | None = None
     doc_id: str | None = None
     total_page_num: int | None = None
     save_path: str | None = None
+    schema_version: str | None = None
+    warnings: list | None = None
     reconstructed_path: str | None = None
+
 
 class DocumentTable(Base):
     """文档表 ORM 模型"""
@@ -37,11 +40,13 @@ class DocumentTable(Base):
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[str] = mapped_column(
-        String(512), nullable=False, default="", comment="文件所属用户的id值"
-    )
     doc_id: Mapped[str] = mapped_column(
-        String(512), nullable=False, default="", comment="文件的内容的md5值"
+        String(512), nullable=False, default="", comment="文件内容的sha256值"
+    )
+    # 与 docmodels.Document.schema_version 对齐；非空 + 默认 "1.0"，
+    # 迁移通过 server_default 回填存量行。
+    schema_version: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="1.0", comment="模型结构版本号"
     )
     total_page_num: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="文件总页数"
@@ -49,9 +54,13 @@ class DocumentTable(Base):
     save_path: Mapped[str] = mapped_column(
         String(512), nullable=False, default="默认路径", comment="保存路径"
     )
+    # 与 docmodels.Document.warnings 对齐；nullable——存量行为 NULL，
+    # 读出时按 NULL → [] 归一化。
+    warnings: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, default=None, comment="解析过程告警信息列表（JSON数组）"
+    )
     reconstructed_path: Mapped[str | None] = mapped_column(
-        String(512), nullable=True, default=None,
-        comment="重建/转换后的docx MinIO存储路径"
+        String(512), nullable=True, default=None, comment="重建/转换后的docx MinIO存储路径"
     )
     create_time: Mapped[datetime] = mapped_column(DateTime, default=utcnow, comment="创建时间")
     imported_to_resource: Mapped[bool] = mapped_column(

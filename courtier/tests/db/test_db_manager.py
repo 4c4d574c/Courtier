@@ -1,4 +1,5 @@
 """Tests for AsyncDatabase and database utilities."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -35,9 +36,7 @@ class TestEnsureDatabaseExists:
         with patch(
             "courtier.db.db_manager.create_async_engine", return_value=mock_engine
         ) as mock_create_engine:
-            await ensure_database_exists(
-                "mysql+asyncmy://root:pwd@127.0.0.1:3366/doc_audit"
-            )
+            await ensure_database_exists("mysql+asyncmy://root:pwd@127.0.0.1:3366/doc_audit")
 
         mock_create_engine.assert_called_once()
         call_url = make_url(mock_create_engine.call_args[0][0])
@@ -60,11 +59,10 @@ class TestAsyncDatabase:
         """ensure_database passes an unmasked URL to ensure_database_exists."""
         db_url = "mysql+asyncmy://root:pwd@127.0.0.1:3366/doc_audit"
 
-        with patch(
-            "courtier.db.db_manager.ensure_database_exists"
-        ) as mock_ensure, patch(
-            "courtier.db.db_manager.create_async_engine"
-        ) as mock_create_engine:
+        with (
+            patch("courtier.db.db_manager.ensure_database_exists") as mock_ensure,
+            patch("courtier.db.db_manager.create_async_engine") as mock_create_engine,
+        ):
             mock_engine = MagicMock()
             mock_engine.url = make_url(db_url)
             mock_create_engine.return_value = mock_engine
@@ -75,3 +73,57 @@ class TestAsyncDatabase:
         mock_ensure.assert_awaited_once()
         passed_url = make_url(mock_ensure.await_args[0][0])
         assert passed_url.password == "pwd"
+
+
+class TestAsyncDatabaseSession:
+    """session() 上下文管理器：提交/回滚行为与日志分级。
+
+    HTTPException 是路由故意抛出的控制流（401/404...），回滚必须发生但
+    不应产生 ERROR 级日志；其余异常照旧记 ERROR。
+    """
+
+    @staticmethod
+    def _db_with_mock_session():
+        db = AsyncDatabase.__new__(AsyncDatabase)  # 绕过 engine 初始化
+        mock_session = AsyncMock()
+        db.session_factory = MagicMock(return_value=mock_session)
+        return db, mock_session
+
+    async def test_commit_on_success(self):
+        db, mock_session = self._db_with_mock_session()
+        async with db.session():
+            pass
+        mock_session.commit.assert_awaited_once()
+        mock_session.rollback.assert_not_awaited()
+
+    async def test_http_exception_rolls_back_quietly(self, caplog):
+        import logging
+
+        import pytest
+        from fastapi import HTTPException
+
+        db, mock_session = self._db_with_mock_session()
+        with caplog.at_level(logging.ERROR, logger="courtier.db.db_manager"):
+            with pytest.raises(HTTPException):
+                async with db.session():
+                    raise HTTPException(status_code=401, detail="refresh token 无效或已过期")
+
+        mock_session.rollback.assert_awaited_once()
+        mock_session.commit.assert_not_awaited()
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    async def test_unexpected_error_rolls_back_with_error_log(self, caplog):
+        import logging
+
+        import pytest
+
+        db, mock_session = self._db_with_mock_session()
+        with caplog.at_level(logging.ERROR, logger="courtier.db.db_manager"):
+            with pytest.raises(RuntimeError):
+                async with db.session():
+                    raise RuntimeError("db blew up")
+
+        mock_session.rollback.assert_awaited_once()
+        assert any(
+            r.levelno >= logging.ERROR and "Session rollback" in r.message for r in caplog.records
+        )

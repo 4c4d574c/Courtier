@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from starlette.exceptions import HTTPException
 
 from .tables import Base
 
@@ -82,9 +83,7 @@ class AsyncDatabase:
 
     async def ensure_database(self) -> None:
         """Ensure the configured database exists before connecting."""
-        await ensure_database_exists(
-            self.engine.url.render_as_string(hide_password=False)
-        )
+        await ensure_database_exists(self.engine.url.render_as_string(hide_password=False))
 
     async def create_all(self):
         async with self.engine.begin() as conn:
@@ -96,9 +95,7 @@ class AsyncDatabase:
         WARNING: This is destructive. Only allowed when testing=True.
         """
         if not testing:
-            raise RuntimeError(
-                "drop_all() is destructive. Pass testing=True to confirm."
-            )
+            raise RuntimeError("drop_all() is destructive. Pass testing=True to confirm.")
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
 
@@ -108,6 +105,12 @@ class AsyncDatabase:
         try:
             yield session
             await session.commit()
+        except HTTPException:
+            # Control-flow exception raised deliberately by routes (401/403/
+            # 404 ...). The rollback is still required, but it is not a server
+            # error — re-raise without error-level log noise.
+            await session.rollback()
+            raise
         except Exception:
             await session.rollback()
             logger.exception("Session rollback due to error")

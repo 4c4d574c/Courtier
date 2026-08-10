@@ -27,6 +27,7 @@ from courtier.db.tables import (
 
 logger = logging.getLogger(__name__)
 
+
 async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
     """将 Page 对象保存到数据库。
 
@@ -39,16 +40,16 @@ async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
     paragraph_repo: CRUDRepository[ParagraphTable, ParagraphCreate, ParagraphUpdate] = (
         CRUDRepository(ParagraphTable)
     )
-    element_repo: CRUDRepository[ElementTable, ElementCreate, ElementUpdate] = (
-        CRUDRepository(ElementTable)
+    element_repo: CRUDRepository[ElementTable, ElementCreate, ElementUpdate] = CRUDRepository(
+        ElementTable
     )
 
+    # 模型重构后 Page 不再有 save_path/raw 字段；pages.save_path 列本轮已删除，
+    # raw 列上一轮已删除。
     margin = page.page_content.margin
     page_data = {
         "document_id": doc_id,
         "page_no": page.page_no,
-        "save_path": page.save_path,
-        "raw": page.raw,
         "top_margin": margin.top_margin,
         "bottom_margin": margin.bottom_margin,
         "left_margin": margin.left_margin,
@@ -61,9 +62,10 @@ async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
 
     # Maps docmodels.Paragraph → dict for DB insertion.  A Pydantic
     # ParagraphCreate schema exists but cannot be used directly because:
-    # (a) Paragraph has extra fields (elements, alignment) not in the DB
-    #     model, and (b) ParagraphCreate requires page_id/section_type/
-    #     create_time that Paragraph does not provide.
+    # (a) Paragraph has extra fields (elements) not in the DB model, and
+    # (b) ParagraphCreate requires page_id/section_type/create_time that
+    #     Paragraph does not provide.
+    # 间距/缩进字段 None 直通入库（对应列均为 nullable）。
     def paragraph_to_dict(p: Paragraph, section_type: str, order_idx: int = 0) -> dict[str, Any]:
         return {
             "page_id": page_id,
@@ -75,7 +77,7 @@ async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
             "first_indent": p.first_indent,
             "left_indent": p.left_indent,
             "right_indent": p.right_indent,
-            "block_no": p.block_no,
+            "alignment": p.alignment,
             "outline_level": p.outline_level,
         }
 
@@ -114,7 +116,6 @@ async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
                     "font_style": meta.font.font_style,
                     "text": meta.font.text,
                     "line_no": meta.font.line_no,
-                    "exist": meta.exist,
                 }
             )
 
@@ -131,11 +132,14 @@ async def save_page(session: AsyncSession, page: Page, doc_id: int) -> None:
         len(elements_data),
     )
 
+
 async def save_doc(doc: Document, db: AsyncDatabase | None = None, db_url: str = ""):
     """保存文档。
 
-    如果同一 user_id + doc_id 已有记录，先删除旧记录（级联删除
+    如果同一 doc_id 已有记录，先删除旧记录（级联删除
     pages/paragraphs/elements）再重新插入，确保不重复。
+    （模型重构后 Document 不再有 user_id 字段，去重键从
+    user_id + doc_id 简化为 doc_id。）
 
     整个操作在同一个事务中完成，要么全部成功，要么全部回滚。
 
@@ -157,28 +161,25 @@ async def save_doc(doc: Document, db: AsyncDatabase | None = None, db_url: str =
                 CRUDRepository(DocumentTable)
             )
 
-            existing = await doc_repo.list(
-                session,
-                user_id=doc.user_id,
-                doc_id=doc.doc_id,
-            )
+            existing = await doc_repo.list(session, doc_id=doc.doc_id)
             for old in existing:
                 await session.execute(
                     delete(ResourceTable).where(ResourceTable.document_id == old.id)
                 )
                 await doc_repo.delete(session, old.id)
                 logger.info(
-                    "Dedup: deleted old document id=%d (user_id=%s, doc_id=%s)",
+                    "Dedup: deleted old document id=%d (doc_id=%s)",
                     old.id,
-                    doc.user_id,
                     doc.doc_id,
                 )
 
+            # 模型重构后 Document 无 user_id 字段；documents.user_id 列本轮已删除。
             doc_data = {
-                "user_id": doc.user_id,
                 "doc_id": doc.doc_id,
+                "schema_version": doc.schema_version,
                 "total_page_num": doc.total_page_num,
                 "save_path": doc.save_path,
+                "warnings": doc.warnings,
             }
             doc_table = await doc_repo.create(session, doc_data)
 
