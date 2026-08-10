@@ -4,92 +4,18 @@ import base64
 import io
 import json
 import logging
-import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from openai import APIStatusError, OpenAI
+from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
 
+from ._retry import _call_with_retry
 from .base import ParserConfig
 
 logger = logging.getLogger(__name__)
 
-_MAX_RETRIES = 3
-_BASE_DELAY = 1.0  # seconds, doubled each retry
 _LLM_TIMEOUT = 120.0  # seconds, per-request timeout for the OpenAI client
-
-
-def _is_retryable(exc: Exception) -> bool:
-    """Decide whether a failed LLM call is worth retrying.
-
-    4xx client errors (openai.APIStatusError with 400 <= status < 500) are
-    permanent — retrying the identical request will fail again — except
-    429 (rate limit), which is transient. Network errors, timeouts, and
-    5xx server errors are all retryable.
-    """
-    if isinstance(exc, APIStatusError):
-        status = exc.status_code
-        if 400 <= status < 500 and status != 429:
-            return False
-    return True
-
-
-def _call_with_retry(
-    call_fn: Callable[[], Any],
-    description: str,
-    *,
-    max_retries: int = _MAX_RETRIES,
-    base_delay: float = _BASE_DELAY,
-) -> Any:
-    """Call an LLM API with exponential backoff retry on transient failures.
-
-    Args:
-        call_fn: Callable that performs the single API request.
-        description: Human-readable label for log messages.
-        max_retries: Maximum number of retries (default 3, for 4 total attempts).
-        base_delay: Initial backoff delay in seconds, doubled each retry.
-
-    Returns:
-        The raw API response object on success.
-
-    Raises:
-        Exception: The original exception, unchanged, when it is not
-            retryable (e.g. a 4xx client error other than 429).
-        RuntimeError: When all attempts (1 + max_retries) are exhausted.
-    """
-    last_exc: Exception | None = None
-    total_attempts = max_retries + 1
-    for attempt in range(total_attempts):
-        try:
-            return call_fn()
-        except Exception as exc:
-            if not _is_retryable(exc):
-                logger.error("%s failed with non-retryable error: %s", description, exc)
-                raise
-            last_exc = exc
-            if attempt < max_retries:
-                delay = base_delay * (2**attempt)
-                logger.warning(
-                    "%s failed (attempt %d/%d), retrying in %.1fs: %s",
-                    description,
-                    attempt + 1,
-                    total_attempts,
-                    delay,
-                    exc,
-                )
-                time.sleep(delay)
-            else:
-                logger.error(
-                    "%s failed after %d attempts: %s",
-                    description,
-                    total_attempts,
-                    exc,
-                )
-    raise RuntimeError(
-        f"{description} failed after {total_attempts} attempts: {last_exc}"
-    ) from last_exc
 
 
 # ruff: noqa: E501

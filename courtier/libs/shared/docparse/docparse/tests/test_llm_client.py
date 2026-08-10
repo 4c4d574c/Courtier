@@ -7,12 +7,12 @@ from types import SimpleNamespace
 import httpx
 import openai
 import pytest
+import requests
+from docparse.parsers._retry import _call_with_retry, _is_retryable
 from docparse.parsers.base import ParserConfig
 from docparse.parsers.llm_client import (
     _LLM_TIMEOUT,
     LLMClient,
-    _call_with_retry,
-    _is_retryable,
     _parse_response,
 )
 from PIL import Image as PILImage
@@ -60,6 +60,12 @@ class TestIsRetryable:
 
     def test_generic_error_retryable(self):
         assert _is_retryable(OSError("boom")) is True
+
+    def test_file_not_found_not_retryable(self):
+        assert _is_retryable(FileNotFoundError("missing")) is False
+
+    def test_requests_error_retryable(self):
+        assert _is_retryable(requests.ConnectionError("boom")) is True
 
 
 class TestCallWithRetry:

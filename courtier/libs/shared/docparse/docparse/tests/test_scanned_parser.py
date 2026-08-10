@@ -2,6 +2,7 @@
 
 import threading
 import time
+from types import SimpleNamespace
 
 import docparse.parsers.scanned as scanned_mod
 import pytest
@@ -21,6 +22,16 @@ from docparse.parsers.scanned.ocr_engine import (
 )
 from docparse.parsers.spacing import compute_font_size_from_ocr
 from PIL import Image as PILImage
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_sleep(monkeypatch):
+    """Keep OCR retry backoff out of test wall-clock time."""
+    monkeypatch.setattr(
+        "docparse.parsers._retry.time",
+        SimpleNamespace(sleep=lambda *_a, **_k: None),
+    )
+
 
 SAMPLE_OCR_PAGE_RESULT = OCRPageResult(
     width=1472,
@@ -383,7 +394,25 @@ class _StubOcrEngine:
         return outcome
 
 
-def _ok_result(width: int = 400, height: int = 600) -> OCRPageResult:
+class _FlakyOnceOcrEngine:
+    """OCR engine stub: fails the first N calls per path, then succeeds."""
+
+    def __init__(self, fail_times: int = 1):
+        self._fail_times = fail_times
+        self.calls: list[str] = []
+
+    def recognize(self, image_path: str) -> OCRPageResult:
+        self.calls.append(image_path)
+        if self.calls.count(image_path) <= self._fail_times:
+            raise RuntimeError("transient OCR boom")
+        return _ok_result()
+
+
+def _ok_result(
+    width: int = 400,
+    height: int = 600,
+    blocks: list | None = None,
+) -> OCRPageResult:
     return OCRPageResult(
         width=width,
         height=height,
@@ -398,6 +427,7 @@ def _ok_result(width: int = 400, height: int = 600) -> OCRPageResult:
                 confidence=0.99,
             )
         ],
+        blocks=blocks or [],
     )
 
 
@@ -455,6 +485,44 @@ class TestParallelOcrFailures:
         assert len(warnings) == 1
         assert "第 2 页 OCR 识别失败" in warnings[0]
         assert "OCR boom" in warnings[0]
+
+    def test_transient_failure_retried_and_recovers(self):
+        """One retry per page: a first-attempt transient failure is absorbed."""
+        from docparse.parsers.scanned.ocr_engine import parallel_ocr
+
+        engine = _FlakyOnceOcrEngine(fail_times=1)
+        warnings: list[str] = []
+        results = parallel_ocr(engine, ["p0.png"], 4, warnings=warnings)
+
+        assert len(results) == 1
+        assert len(results[0].lines) == 1
+        # First attempt raises, the retry succeeds — no warning at all.
+        assert engine.calls == ["p0.png", "p0.png"]
+        assert warnings == []
+
+    def test_retry_exhausted_degrades_page(self):
+        """A page failing both attempts degrades with a warning."""
+        from docparse.parsers.scanned.ocr_engine import parallel_ocr
+
+        paths = ["p0.png", "p1.png"]
+        engine = _StubOcrEngine(
+            {
+                "p0.png": RuntimeError("OCR boom"),
+                "p1.png": _ok_result(),
+            }
+        )
+        warnings: list[str] = []
+        failed_pages: list[int] = []
+        results = parallel_ocr(engine, paths, 4, warnings=warnings, failed_pages=failed_pages)
+
+        assert failed_pages == [0]
+        assert results[0].lines == []
+        assert len(results[1].lines) == 1
+        assert len(warnings) == 1
+        assert "OCR boom" in warnings[0]
+        # The failing page was attempted twice (1 retry); the healthy page once.
+        assert engine.calls.count("p0.png") == 2
+        assert engine.calls.count("p1.png") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +646,22 @@ class TestScannedParserPipeline:
 
         assert "raw" not in Page.model_fields
         assert "save_path" not in Page.model_fields
+
+    def test_table_block_adds_warning(self, monkeypatch, tmp_path):
+        """A page whose OCR blocks include a table region gets a warning."""
+        src = tmp_path / "page_0.png"
+        _write_png(src)
+        pages = [str(src)]
+
+        table_block = OCRBlock(label="table", x0=0, y0=0, x1=50, y1=50)
+        engine = _StubOcrEngine({pages[0]: _ok_result(blocks=[table_block])})
+        _patch_pipeline(monkeypatch, pages, engine)
+
+        doc = ScannedParser().parse(pages[0], _make_config())
+
+        table_warnings = [w for w in doc.warnings if "表格区域" in w]
+        assert len(table_warnings) == 1
+        assert "第 1 页检测到表格区域" in table_warnings[0]
 
     def test_llm_structure_failure_falls_back_to_rules(self, monkeypatch, tmp_path):
         """A page whose LLM call fails is classified by the rule engine."""

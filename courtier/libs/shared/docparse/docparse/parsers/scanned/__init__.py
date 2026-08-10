@@ -158,6 +158,10 @@ class ScannedParser:
                 if not extracted_lines and page_idx not in ocr_failed:
                     warnings.append(f"第 {page_idx + 1} 页 OCR 未识别到文本内容，该页内容为空")
 
+                # 版面块含 table 标签时提示：表格目前只按文本行解析（无单元格结构）。
+                if any("table" in block.label for block in page_result.blocks):
+                    warnings.append(f"第 {page_idx + 1} 页检测到表格区域，表格内容按文本行解析")
+
                 rec_boxes = [
                     [line["x0"], line["y0"], line["x1"], line["y1"]] for line in extracted_lines
                 ]

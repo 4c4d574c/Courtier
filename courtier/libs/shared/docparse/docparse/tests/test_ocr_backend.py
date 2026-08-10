@@ -180,6 +180,54 @@ class TestPPStructureAdapter:
         assert first_line.chars[0]["y1"] == 76.0
 
 
+class TestParseBlocks:
+    """Layout block parsing from legacy and current PPStructure responses."""
+
+    @staticmethod
+    def _adapter():
+        return PPStructureAdapter(api_url="http://localhost:8006/ocr")
+
+    def test_legacy_parsing_res_list(self):
+        page_data = {
+            "rec_texts": ["标题"],
+            "rec_scores": [0.99],
+            "rec_boxes": [[0, 0, 200, 50]],
+            "parsing_res_list": [
+                {"block_label": "Paragraph_Title", "block_bbox": [0, 0, 200, 50]},
+                {"layout_label": "text", "block_bbox": [0, 60, 400, 80]},
+            ],
+        }
+        result = self._adapter().parse_response(page_data)
+
+        assert len(result.blocks) == 2
+        # Labels are lowercased to match BLOCK_LABEL_TO_OUTLINE keys.
+        assert result.blocks[0].label == "paragraph_title"
+        assert result.blocks[0].x1 == 200.0
+        assert result.blocks[1].label == "text"
+
+    def test_current_layout_det_res(self):
+        page_data = {
+            "rec_texts": ["表格内容"],
+            "rec_scores": [0.9],
+            "rec_boxes": [[1, 2, 300, 400]],
+            "layout_det_res": [{"label": "Table", "bbox": [1, 2, 300, 400]}],
+        }
+        result = self._adapter().parse_response(page_data)
+
+        assert len(result.blocks) == 1
+        assert result.blocks[0].label == "table"
+
+    def test_no_block_fields_stays_empty(self):
+        page_data = {
+            "rec_texts": ["正文"],
+            "rec_scores": [0.9],
+            "rec_boxes": [[0, 0, 100, 10]],
+        }
+        result = self._adapter().parse_response(page_data)
+
+        assert result.blocks == []
+
+
 class TestFactory:
     """Test OCR engine factory."""
 

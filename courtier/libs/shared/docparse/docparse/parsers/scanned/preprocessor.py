@@ -53,8 +53,14 @@ def prepare_images(file_path: str) -> list[str]:
     raise ValueError(f"Unsupported file type for OCR: {ext}")
 
 
-def pdf_to_images(pdf_path: str) -> list[str]:
+def pdf_to_images(pdf_path: str, target_long_side: int = 2048) -> list[str]:
     """Render each page of a PDF to a temporary PNG image.
+
+    Each page is rendered at a zoom that maps its long side to
+    *target_long_side* pixels (~175 DPI for A4 — matching the OCR
+    service's own long-side cap, so resize_images_for_ocr becomes a
+    pass-through in the common case).  Pages with a degenerate (zero)
+    size fall back to a fixed 150 DPI render.
 
     All pages share one per-document temp directory (registered in
     _TEMP_DIRS at creation, removed by cleanup_temp_images).
@@ -68,7 +74,12 @@ def pdf_to_images(pdf_path: str) -> list[str]:
     try:
         for page_idx in range(len(doc)):
             page = doc[page_idx]
-            pix = page.get_pixmap(dpi=300)
+            long_side_pt = max(page.rect.width, page.rect.height)
+            if long_side_pt > 0:
+                zoom = target_long_side / long_side_pt
+                pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            else:
+                pix = page.get_pixmap(dpi=150)
 
             img_path = f"{temp_dir}/page_{page_idx}.png"
             pix.save(img_path)
@@ -89,6 +100,10 @@ def resize_images_for_ocr(
     are relative to the resized image. This function applies the same transform
     locally so that subsequent cropping (e.g. font recognition) uses coordinates
     that match the actual image dimensions.
+
+    PDF pages rendered by pdf_to_images already target this long side, so
+    for them this is normally a pass-through; it remains as the fallback
+    for direct image inputs and abnormal page sizes.
 
     Original files are never modified — resized copies are written to temp dirs.
 

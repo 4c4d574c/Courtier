@@ -10,6 +10,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from .._retry import _call_with_retry
 from ..ocr import OCRPageResult
 from ..spacing import (
     compute_alignment_from_position,
@@ -70,9 +71,18 @@ def parallel_ocr(
         if warnings is not None:
             warnings.append(f"第 {idx + 1} 页 OCR 识别失败：{exc}")
 
+    def recognize_with_retry(idx: int, img: str) -> OCRPageResult:
+        # One retry (2 attempts total) per page: transient OCR service
+        # failures get a second chance while bounding the added latency.
+        return _call_with_retry(
+            lambda: ocr_engine.recognize(img),
+            f"OCR page {idx}",
+            max_retries=1,
+        )
+
     if len(image_paths) == 1:
         try:
-            return [ocr_engine.recognize(image_paths[0])]
+            return [recognize_with_retry(0, image_paths[0])]
         except Exception as exc:
             record_failure(0, exc)
             raise RuntimeError(f"所有 1 页 OCR 识别均失败：{exc}") from exc
@@ -83,7 +93,8 @@ def parallel_ocr(
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(ocr_engine.recognize, img): idx for idx, img in enumerate(image_paths)
+            executor.submit(recognize_with_retry, idx, img): idx
+            for idx, img in enumerate(image_paths)
         }
         for future in as_completed(futures):
             idx = futures[future]

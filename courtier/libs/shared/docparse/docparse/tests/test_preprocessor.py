@@ -92,12 +92,28 @@ class TestPdfToImages:
         for p in paths:
             assert Path(p).exists()
             assert str(Path(p).parent) in _TEMP_DIRS
+            # Each page is rendered so its long side meets the 2048px
+            # target — well above a fixed 150 DPI render (~1754px for A4).
+            with PILImage.open(p) as img:
+                assert 1900 <= max(img.size) <= 2048
 
         cleanup_temp_images(paths)
 
         for p in paths:
             assert not Path(p).parent.exists()
             assert str(Path(p).parent) not in _TEMP_DIRS
+
+    def test_rendered_pages_pass_through_resize(self, tmp_path):
+        """PDF pages rendered at the target long side need no resize copy."""
+        pdf = _make_pdf(tmp_path / "scan.pdf", num_pages=1)
+
+        paths = pdf_to_images(pdf, target_long_side=2048)
+        before = set(_TEMP_DIRS)
+
+        out = resize_images_for_ocr(paths, 2048)
+
+        assert out == paths
+        assert set(_TEMP_DIRS) == before
 
 
 class TestResizeImagesForOcr:

@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from .base import OCRLineResult, OCRPageResult
+from .base import OCRBlock, OCRLineResult, OCRPageResult
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,7 @@ class PPStructureAdapter:
             return OCRPageResult(lines=[], width=0, height=0)
 
         lines = _parse_lines(response)
+        blocks = _parse_blocks(response)
 
         width = response.get("width")
         height = response.get("height")
@@ -107,9 +108,63 @@ class PPStructureAdapter:
             lines=lines,
             width=width,
             height=height,
-            blocks=[],
+            blocks=blocks,
             raw=response,
         )
+
+
+def _parse_blocks(page_data: dict[str, Any]) -> list[OCRBlock]:
+    """Defensively parse layout blocks from a PPStructure response.
+
+    Tries, in order:
+    - ``parsing_res_list`` (legacy): items like
+      ``{"block_label"/"layout_label": str, "block_bbox": [x0,y0,x1,y1]}``
+    - ``layout_det_res`` (current PPStructureV3): items like
+      ``{"label": str, "bbox": [x0,y0,x1,y1]}``
+
+    Labels are lowercased so they match the lowercase keys of
+    BLOCK_LABEL_TO_OUTLINE downstream.  When neither field yields any
+    usable block, returns [] and logs once — same as the previous
+    hardcoded empty behavior.
+    """
+    legacy = page_data.get("parsing_res_list")
+    if isinstance(legacy, list):
+        blocks: list[OCRBlock] = []
+        for item in legacy:
+            if not isinstance(item, dict):
+                continue
+            label = item.get("block_label") or item.get("layout_label")
+            block = _make_block(label, item.get("block_bbox"))
+            if block is not None:
+                blocks.append(block)
+        if blocks:
+            return blocks
+
+    current = page_data.get("layout_det_res")
+    if isinstance(current, list):
+        blocks = []
+        for item in current:
+            if not isinstance(item, dict):
+                continue
+            block = _make_block(item.get("label"), item.get("bbox"))
+            if block is not None:
+                blocks.append(block)
+        if blocks:
+            return blocks
+
+    logger.info("OCR response carries no parseable layout blocks; blocks stay empty")
+    return []
+
+
+def _make_block(label: Any, bbox: Any) -> OCRBlock | None:
+    """Build an OCRBlock from a raw label/bbox pair, or None if unusable."""
+    if not label or not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return None
+    try:
+        x0, y0, x1, y1 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
+    except (TypeError, ValueError):
+        return None
+    return OCRBlock(label=str(label).strip().lower(), x0=x0, y0=y0, x1=x1, y1=y1)
 
 
 def _get_ocr_arrays(page_data: dict[str, Any]) -> tuple[list, list, list, list, list, list]:
