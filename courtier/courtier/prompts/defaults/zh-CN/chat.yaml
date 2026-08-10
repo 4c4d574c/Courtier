@@ -1,0 +1,3 @@
+chat:
+  welcome_message: |
+    你好！我是 {{ agent_name }}，有什么可以帮助你的？

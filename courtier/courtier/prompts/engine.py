@@ -1,8 +1,15 @@
 """PromptEngine — Jinja2-based prompt rendering with zero hardcoded text.
 
-All natural-language text lives in PromptBundle YAML files loaded from
-domain packages. The Core engine contains no hardcoded prompts, error
-messages, or UI labels.
+Template resolution is three-tier:
+1. Domain package bundles (config/prompts/{locale}/*.yaml) — domain-specific
+   templates (orchestrator.*, chat.system_prompt) plus optional overrides of
+   any core default.
+2. Core default bundles shipped with the platform
+   (courtier/prompts/defaults/{locale}/*.yaml) — full localized text for all
+   domain-agnostic keys (errors, context, behavioral, tools, subagent,
+   chat.welcome_message).
+3. FALLBACK_TEMPLATES — minimal en-US strings below, the last resort so the
+   platform still boots when a domain-owned key has no template at all.
 """
 
 from __future__ import annotations
@@ -17,32 +24,46 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Core default prompt bundles shipped with the platform (full localized text
+# for every domain-agnostic key).  Loaded as the merge base in
+# ``from_domain_directories`` so domain packages only carry domain-specific
+# templates and optional overrides.
+_CORE_DEFAULTS_DIR = Path(__file__).resolve().parent / "defaults"
+_CORE_DEFAULTS_FALLBACK_LOCALE = "en-US"
+
 # Reserved template keys — the complete set of named slots that domain
 # packages can fill.  No template outside this set is recognized by Core.
-RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset({
-    "orchestrator.system_prompt",
-    "orchestrator.task_decomposition",
-    "orchestrator.workflow_rules",
-    "subagent.system_prompt",
-    "subagent.tool_call_reminder",
-    "chat.system_prompt",
-    "chat.welcome_message",
-    "behavioral.thinking_directive",
-    "behavioral.rules",
-    "behavioral.pre_turn_reminder",
-    "behavioral.periodic_reminder",
-    "errors.tool_timeout",
-    "errors.permission_denied",
-    "errors.tool_not_found",
-    "errors.internal_error",
-    "ui.session_title",
-    "ui.step_label",
-    "ui.agent_name",
-    "tools.invocation_rules",
-})
+RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
+    {
+        "orchestrator.system_prompt",
+        "orchestrator.task_decomposition",
+        "orchestrator.workflow_rules",
+        "subagent.system_prompt",
+        "subagent.tool_call_reminder",
+        "chat.system_prompt",
+        "chat.welcome_message",
+        "behavioral.thinking_directive",
+        "behavioral.rules",
+        "behavioral.pre_turn_reminder",
+        "behavioral.periodic_reminder",
+        "errors.tool_timeout",
+        "errors.permission_denied",
+        "errors.tool_not_found",
+        "errors.internal_error",
+        "ui.session_title",
+        "ui.step_label",
+        "ui.agent_name",
+        "tools.invocation_rules",
+        "context.compact_prompt",
+        "context.compact_merge_prompt",
+    }
+)
 
-# Minimal en-US fallback templates shipped with Core so the platform
-# boots even when no domain package is installed.
+# Minimal en-US last-resort templates.  Domain-agnostic keys are normally
+# covered by the core default bundles (prompts/defaults/); these strings keep
+# the platform booting when a template is missing everywhere — most notably
+# domain-owned keys (orchestrator.*, chat.system_prompt) with no domain
+# package installed.
 FALLBACK_TEMPLATES: dict[str, str] = {
     "orchestrator.system_prompt": (
         "You are {{ agent_name }}, an intelligent task orchestration Agent.\n\n"
@@ -73,16 +94,12 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "Complete the task and return your results.\n"
     ),
     "subagent.tool_call_reminder": (
-        "# Tool Call Reminder\n"
-        "Call tools when needed. Do not describe plans in text.\n"
+        "# Tool Call Reminder\n" "Call tools when needed. Do not describe plans in text.\n"
     ),
     "chat.system_prompt": (
-        "You are {{ agent_name }}, an AI assistant.\n"
-        "Provide helpful, accurate responses.\n"
+        "You are {{ agent_name }}, an AI assistant.\n" "Provide helpful, accurate responses.\n"
     ),
-    "chat.welcome_message": (
-        "Welcome! I am {{ agent_name }}, how can I help?\n"
-    ),
+    "chat.welcome_message": ("Welcome! I am {{ agent_name }}, how can I help?\n"),
     "behavioral.thinking_directive": (
         "# Thinking Directive\n"
         "- Be concise in your reasoning.\n"
@@ -94,27 +111,15 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "- Do not fabricate information.\n"
     ),
     "behavioral.pre_turn_reminder": (
-        "# Pre-Turn Reminder\n"
-        "- Stay on task.\n"
-        "- Use tools when appropriate.\n"
+        "# Pre-Turn Reminder\n" "- Stay on task.\n" "- Use tools when appropriate.\n"
     ),
     "behavioral.periodic_reminder": (
-        "# Periodic Reminder\n"
-        "- Review progress.\n"
-        "- Adjust approach if needed.\n"
+        "# Periodic Reminder\n" "- Review progress.\n" "- Adjust approach if needed.\n"
     ),
-    "errors.tool_timeout": (
-        "Tool '{{ tool_name }}' timed out after {{ timeout }}s.\n"
-    ),
-    "errors.permission_denied": (
-        "Permission denied for tool '{{ tool_name }}'.\n"
-    ),
-    "errors.tool_not_found": (
-        "Tool '{{ tool_name }}' not found.\n"
-    ),
-    "errors.internal_error": (
-        "Internal error occurred: {{ error_message }}.\n"
-    ),
+    "errors.tool_timeout": ("Tool '{{ tool_name }}' timed out after {{ timeout }}s.\n"),
+    "errors.permission_denied": ("Permission denied for tool '{{ tool_name }}'.\n"),
+    "errors.tool_not_found": ("Tool '{{ tool_name }}' not found.\n"),
+    "errors.internal_error": ("Internal error occurred: {{ error_message }}.\n"),
     "ui.session_title": "{{ title }}",
     "ui.step_label": "Step {{ index }}: {{ label }}",
     "ui.agent_name": "{{ agent_name }}",
@@ -122,6 +127,27 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "# Tool Invocation Rules\n"
         "1. Minimize tool calls.\n"
         "2. Call tools directly, don't describe plans in text.\n"
+    ),
+    "context.compact_prompt": (
+        "You are a context compaction assistant. Compress the conversation "
+        "history below into a compact summary. You MUST preserve:\n"
+        "1. Current task goal\n"
+        "2. Completed key operations\n"
+        "3. Files involved\n"
+        "4. Key decisions and constraints\n"
+        "5. Next concrete action\n"
+        "6. All available $ref IDs and file paths\n\n"
+        "Conversation history:\n{history}\n---\n"
+        "Compress the history above. Output only the summary."
+    ),
+    "context.compact_merge_prompt": (
+        "You are a context compaction assistant. Merge the NEW SEGMENT into "
+        "the EXISTING SUMMARY and output the updated full summary. Preserve "
+        "the same six information categories (including all $ref IDs and "
+        "file paths).\n\n"
+        "EXISTING SUMMARY:\n{previous_summary}\n\n"
+        "NEW SEGMENT:\n{new_segment}\n---\n"
+        "Merge and output the updated summary."
     ),
 }
 
@@ -177,9 +203,7 @@ class PromptBundle(BaseModel):
         return PromptBundle(locale=self.locale, templates=merged)
 
 
-def _flatten_yaml_keys(
-    d: dict[str, Any], prefix: str = ""
-) -> list[tuple[str, str]]:
+def _flatten_yaml_keys(d: dict[str, Any], prefix: str = "") -> list[tuple[str, str]]:
     """Flatten nested YAML dict into dot-notation key-value pairs."""
     result: list[tuple[str, str]] = []
     for key, value in d.items():
@@ -190,9 +214,7 @@ def _flatten_yaml_keys(
             result.extend(_flatten_yaml_keys(value, full_key))
         elif isinstance(value, list):
             # Join list items as newline-separated string
-            joined = "\n".join(
-                str(item) for item in value if isinstance(item, str)
-            )
+            joined = "\n".join(str(item) for item in value if isinstance(item, str))
             result.append((full_key, joined))
     return result
 
@@ -231,9 +253,7 @@ class PromptEngine:
         if template_str is None:
             template_str = FALLBACK_TEMPLATES.get(template_name, "")
             if not template_str:
-                logger.warning(
-                    "Template '%s' not found in bundle or fallbacks", template_name
-                )
+                logger.warning("Template '%s' not found in bundle or fallbacks", template_name)
                 return ""
         try:
             template = self._env.from_string(template_str)
@@ -248,14 +268,16 @@ class PromptEngine:
         domain_paths: list[Path],
         locale: str = "en-US",
     ) -> "PromptEngine":
-        """Load and merge PromptBundles from multiple domain packages.
+        """Load and merge PromptBundles from core defaults + domain packages.
 
-        Each domain contributes config/prompts/{locale}/*.yaml.
-        Bundles are merged in order; later domains override earlier ones.
-        Falls back to the domain's first declared locale if *locale* is
-        unavailable, then to FALLBACK_TEMPLATES.
+        The merge base is the core default bundle for *locale* (en-US when
+        the requested locale has no core defaults).  Each domain then
+        contributes config/prompts/{locale}/*.yaml on top; later domains
+        override earlier ones.  A domain falls back to its first declared
+        locale when the requested one is unavailable.  Keys left undefined
+        everywhere resolve to FALLBACK_TEMPLATES at render time.
         """
-        merged = PromptBundle(locale=locale)
+        merged = _load_core_defaults(locale)
         for domain_path in domain_paths:
             prompts_dir = domain_path / "config" / "prompts" / locale
             used_locale = locale
@@ -269,7 +291,8 @@ class PromptEngine:
                 if not prompts_dir.is_dir():
                     logger.warning(
                         "No prompts found for domain %s (tried %s)",
-                        domain_path.name, locale,
+                        domain_path.name,
+                        locale,
                     )
                     continue
             bundle = PromptBundle.from_directory(prompts_dir, used_locale)
@@ -278,10 +301,29 @@ class PromptEngine:
         if not merged.templates:
             logger.warning(
                 "from_domain_directories: no templates loaded from any domain "
-                "(paths: %s, locale: %s). Engine will use FALLBACK_TEMPLATES.",
-                [str(p) for p in domain_paths], locale,
+                "or core defaults (paths: %s, locale: %s). "
+                "Engine will use FALLBACK_TEMPLATES.",
+                [str(p) for p in domain_paths],
+                locale,
             )
-        return cls(bundle=merged)
+        # Report the requested locale regardless of fallback sources,
+        # matching the historical behavior of this factory.
+        return cls(bundle=PromptBundle(locale=locale, templates=merged.templates))
+
+
+def _load_core_defaults(locale: str) -> PromptBundle:
+    """Load the core default bundle for *locale* (en-US fallback)."""
+    defaults_dir = _CORE_DEFAULTS_DIR / locale
+    used_locale = locale
+    if not defaults_dir.is_dir():
+        logger.warning(
+            "No core default prompts for locale '%s'; falling back to '%s'",
+            locale,
+            _CORE_DEFAULTS_FALLBACK_LOCALE,
+        )
+        defaults_dir = _CORE_DEFAULTS_DIR / _CORE_DEFAULTS_FALLBACK_LOCALE
+        used_locale = _CORE_DEFAULTS_FALLBACK_LOCALE
+    return PromptBundle.from_directory(defaults_dir, used_locale)
 
 
 def _first_domain_locale(domain_yaml_path: Path) -> str | None:

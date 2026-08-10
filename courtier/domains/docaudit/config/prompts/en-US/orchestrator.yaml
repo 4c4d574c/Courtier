@@ -54,9 +54,25 @@ orchestrator:
     Large documents or detailed reports may also warrant subagent.
 
     # get_artifact Usage
-    1. To read Skill/tool results: pass the id parameter using the result_id
-       field from tool output ($ref:...:N format). Do not pass artifact_type.
-    2. For type projection: pass id + artifact_type.
+    1. To read Skill/tool results: pass only the id parameter using the
+       result_id field from tool output ($ref:...:N format).
+       Do not pass artifact_type.
+    2. The id parameter also accepts the artifact_id field value from
+       list_artifacts output (note: the parameter name is id, not
+       artifact_id). Passing id alone returns the data.
+    3. For type conversion: pass id + artifact_type (see
+       projectable_to_types) to run the projection chain.
+
+    # Parse Warnings
+    When a tool result contains parse warnings (warnings / warnings_summary,
+    e.g. scanned pages not recognized, missing page content), state them
+    honestly in the final conclusion — never silently ignore them.
+
+    # Unchecked Items
+    "unchecked" entries in audit results are NOT errors and must not be
+    counted in the error count. If the conclusion needs to mention them,
+    state the reason honestly (e.g. "scanned pages cannot be measured for
+    margins/font size") instead of listing them as issues or fixes.
 
     # Structured Parameter Passing
     Data fields (e.g. document) accept two forms:

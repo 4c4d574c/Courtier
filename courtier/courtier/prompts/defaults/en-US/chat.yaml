@@ -1,0 +1,3 @@
+chat:
+  welcome_message: |
+    Hello! I'm {{ agent_name }}. How can I help you?

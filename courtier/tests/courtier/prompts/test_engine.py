@@ -91,8 +91,7 @@ class TestPromptEngine:
             locale="en-US",
             templates={
                 "test.skills": (
-                    "Skills:\n"
-                    "{% for s in skills %}- {{ s.name }}: {{ s.desc }}\n{% endfor %}"
+                    "Skills:\n" "{% for s in skills %}- {{ s.name }}: {{ s.desc }}\n{% endfor %}"
                 ),
             },
         )
@@ -123,9 +122,9 @@ class TestPromptEngine:
         """Every reserved key should be a valid string and present in fallbacks."""
         for key in RESERVED_TEMPLATE_KEYS:
             assert isinstance(key, str)
-            assert key in FALLBACK_TEMPLATES, (
-                f"Reserved key '{key}' missing from FALLBACK_TEMPLATES"
-            )
+            assert (
+                key in FALLBACK_TEMPLATES
+            ), f"Reserved key '{key}' missing from FALLBACK_TEMPLATES"
 
 
 class TestFromDomainDirectories:
@@ -136,13 +135,13 @@ class TestFromDomainDirectories:
             prompts_dir = domain / "config" / "prompts" / "zh-CN"
             prompts_dir.mkdir(parents=True)
             (prompts_dir / "orchestrator.yaml").write_text(
-                "orchestrator:\n"
-                "  system_prompt: 'Hello from app_audit'\n",
+                "orchestrator:\n" "  system_prompt: 'Hello from app_audit'\n",
                 encoding="utf-8",
             )
 
             engine = PromptEngine.from_domain_directories(
-                [domain], locale="zh-CN",
+                [domain],
+                locale="zh-CN",
             )
 
             result = engine.render("orchestrator.system_prompt")
@@ -167,7 +166,8 @@ class TestFromDomainDirectories:
 
             # Request a locale that doesn't exist, should fall back to zh-CN
             engine = PromptEngine.from_domain_directories(
-                [domain], locale="ja-JP",
+                [domain],
+                locale="ja-JP",
             )
 
             result = engine.render("chat.system_prompt")
@@ -196,7 +196,8 @@ class TestFromDomainDirectories:
             )
 
             engine = PromptEngine.from_domain_directories(
-                [domain1, domain2], locale="en-US",
+                [domain1, domain2],
+                locale="en-US",
             )
 
             # Overridden by domain2
@@ -218,7 +219,71 @@ class TestFromDomainDirectories:
                 PromptBundle.from_directory(prompts_dir, "en-US")
 
             assert any(
-                "custom.unknown_key" in r.message
-                and "RESERVED_TEMPLATE_KEYS" in r.message
+                "custom.unknown_key" in r.message and "RESERVED_TEMPLATE_KEYS" in r.message
                 for r in caplog.records
             )
+
+
+class TestCoreDefaults:
+    """Core 默认 prompt bundle（prompts/defaults/）作为合并基底的行为。"""
+
+    def test_generic_keys_come_from_core_defaults_without_domain(self):
+        """无领域包时，领域无关 key 由 Core 默认（本地化）提供。"""
+        engine = PromptEngine.from_domain_directories([], locale="zh-CN")
+
+        assert "工具未找到" in engine.render("errors.tool_not_found", tool_name="t")
+        assert "# 行为准则" in engine.render("behavioral.rules")
+        assert "上下文压缩助手" in engine.render("context.compact_prompt", history="h")
+        assert "工具调用规则" in engine.render("tools.invocation_rules")
+        assert "SubAgent" in engine.render("subagent.system_prompt", task="t")
+        assert "有什么可以帮助你的" in engine.render("chat.welcome_message", agent_name="X")
+
+    def test_domain_owned_keys_fall_back_to_english_minimal(self):
+        """领域专属 key 无领域包时落到最小英文 fallback。"""
+        engine = PromptEngine.from_domain_directories([], locale="zh-CN")
+        result = engine.render("orchestrator.system_prompt", agent_name="X")
+        assert "You are X" in result
+
+    def test_domain_overrides_core_default_key(self):
+        """领域包可按 key 覆盖 Core 默认。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            domain = Path(tmp) / "app_audit"
+            prompts_dir = domain / "config" / "prompts" / "zh-CN"
+            prompts_dir.mkdir(parents=True)
+            (prompts_dir / "errors.yaml").write_text(
+                "errors:\n  tool_not_found: '自定义：工具不见了 {{ tool_name }}'\n",
+                encoding="utf-8",
+            )
+
+            engine = PromptEngine.from_domain_directories([domain], locale="zh-CN")
+
+            assert "工具不见了" in engine.render("errors.tool_not_found", tool_name="t")
+            # 未覆盖的 key 仍来自 Core 默认
+            assert "上下文压缩助手" in engine.render("context.compact_prompt", history="h")
+
+    def test_core_defaults_locale_fallback_to_en(self):
+        """请求的 locale 无 Core 默认时回退 en-US。"""
+        engine = PromptEngine.from_domain_directories([], locale="ja-JP")
+        assert "Tool not found" in engine.render("errors.tool_not_found", tool_name="t")
+        # locale 属性仍报告请求的 locale（与历史行为一致）
+        assert engine.locale == "ja-JP"
+
+    def test_core_defaults_cover_all_generic_reserved_keys(self):
+        """zh-CN Core 默认覆盖所有领域无关的 reserved key。
+
+        领域专属（orchestrator.*, chat.system_prompt）与琐碎占位（ui.*）
+        不在 Core 默认中，仍由 FALLBACK_TEMPLATES 兜底。
+        """
+        domain_owned = {
+            "orchestrator.system_prompt",
+            "orchestrator.task_decomposition",
+            "orchestrator.workflow_rules",
+            "chat.system_prompt",
+        }
+        trivial = {k for k in RESERVED_TEMPLATE_KEYS if k.startswith("ui.")}
+        bundle = PromptBundle.from_directory(
+            Path(__file__).resolve().parents[3] / "courtier" / "prompts" / "defaults" / "zh-CN",
+            "zh-CN",
+        )
+        missing = RESERVED_TEMPLATE_KEYS - domain_owned - trivial - bundle.templates.keys()
+        assert not missing, f"Core 默认缺少领域无关 key: {sorted(missing)}"

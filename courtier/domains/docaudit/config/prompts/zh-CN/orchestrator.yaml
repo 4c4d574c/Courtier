@@ -49,11 +49,22 @@ orchestrator:
     但如果文档内容较多或要求详细报告，也可以选择 subagent。
 
     # get_artifact 使用规范
-    1. 【最常用】读取 Skill/tool 返回的结果：传入 id 参数，
+    1. 【最常用】读取 Skill/tool 返回的结果：只传 id 参数，
        值直接取工具输出中的 result_id 字段（$ref:...:N 格式）。
        不要传 artifact_type。
-    2. 【类型投影】需要将数据转换为特定类型时：
-       传入 id + artifact_type，系统自动执行类型投影链。
+    2. id 参数也可以取 list_artifacts 输出中的 artifact_id 字段值
+       （注意：参数名是 id，不是 artifact_id），只传 id 即可返回数据。
+    3. 【类型投影】确需把数据转换为另一种类型时：
+       传入 id + artifact_type（取值见 projectable_to_types），系统自动执行类型投影链。
+
+    # 解析警告处理
+    工具结果中出现解析警告（warnings / warnings_summary，如扫描页未识别、
+    页内容缺失）时，必须在最终结论中如实向用户说明，不要静默忽略。
+
+    # 未检查项（unchecked）处理
+    审核结果中的"未检查"（unchecked）条目不是错误，不计入错误数。
+    如结论需要提及，应如实说明原因（例如"扫描件无法测量页边距/字号"），
+    不得将其列为问题或计入整改建议。
 
     # 结构化参数传递规则
     参数中的数据字段（如 document）接受两种传值方式：

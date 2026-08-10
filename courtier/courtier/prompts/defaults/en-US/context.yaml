@@ -1,0 +1,30 @@
+context:
+  compact_prompt: |
+    You are a context compaction assistant. Compress the conversation history below into a compact summary. You MUST preserve:
+    1. Current task goal
+    2. Completed key operations
+    3. Files involved
+    4. Key decisions and constraints
+    5. Next concrete action
+    6. All available $ref IDs and file paths
+
+    Conversation history:
+    {history}
+    ---
+    Compress the history above. Output only the summary.
+  compact_merge_prompt: |
+    You are a context compaction assistant. Below are the EXISTING SUMMARY and the NEW SEGMENT. Merge the key information from the new segment into the existing summary and output the updated full summary. You MUST preserve:
+    1. Current task goal
+    2. Completed key operations
+    3. Files involved
+    4. Key decisions and constraints
+    5. Next concrete action
+    6. All available $ref IDs and file paths
+
+    EXISTING SUMMARY:
+    {previous_summary}
+
+    NEW SEGMENT:
+    {new_segment}
+    ---
+    Merge and output the updated summary.
