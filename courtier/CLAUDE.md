@@ -9,17 +9,18 @@ courtier/                          # 项目根目录
 │   ├── config.py                 # Settings + CourtierConfig
 │   ├── db/                       # 数据库层（CRUD, 表定义）
 │   ├── domain/                   # DomainPackage loader
-│   ├── plugin/                   # JSON-RPC 插件系统（SDK, registry, types）
-│   └── prompts/                  # Jinja2 PromptEngine + PromptBundle
+│   ├── plugin/                   # JSON-RPC 插件系统（manager, registry, manifest; SDK 在 libs/shared/plugin_sdk）
+│   └── prompts/                  # Jinja2 PromptEngine + PromptBundle + defaults/{locale}/（Core 默认模板）
 ├── domains/
 │   └── docaudit/                 # 公文审计领域包
-│       ├── config/               # domain.yaml + prompts/{locale}/
-│       ├── docmodels/            # 领域数据模型
-│       └── skills/               # Skill 文档（Markdown + YAML frontmatter）
+│       ├── config/               # domain.yaml + prompts/{locale}/（仅领域专属模板与覆盖项）
+│       └── skills/               # Skill 文档（Markdown + YAML frontmatter + schemas/ 类型化输入模型）
 ├── libs/
-│   ├── shared/                   # 跨领域共享库
+│   ├── shared/                   # 跨领域共享库（均为带 pyproject.toml 的可安装包）
 │   │   ├── docparse/             # 文档解析
-│   │   └── docannot/             # 文档标注
+│   │   ├── docannot/             # 文档标注
+│   │   ├── docmodels/            # 共享数据模型（Document/FormatSpec）
+│   │   └── plugin_sdk/           # 插件 SDK（courtier_plugin_sdk）
 │   └── docaudit/                 # docaudit 领域专属库
 │       ├── validator/            # 格式校验
 │       ├── content_compliance/   # 内容合规
@@ -114,8 +115,8 @@ docker-compose up -d
 2. **服务层** (`courtier/agent/api/services/`): AgentService, StreamService, FileService, SessionService
 3. **核心引擎层** (`courtier/agent/`): Agent loop, PluginSystem, ToolRegistry, Artifact 系统, Context 管理, Prompt pipeline, Hooks, Permissions, Telemetry
 4. **领域/业务层**:
-   - `libs/shared/`: docparse, docannot 等跨领域共享库，被共享插件调用
-   - `libs/docaudit/`: validator, content_compliance, doccorrector 等领域专属库，被 docaudit 插件调用
+   - `libs/shared/`: docparse, docannot, docmodels, plugin_sdk 等跨领域共享库（可安装包），被共享插件调用
+   - `libs/docaudit/`: validator, content_compliance, doccorrector 等领域专属库（可安装包），被 docaudit 插件调用
    - `plugins/shared/`: parse, search, annotate, template 等跨领域共享插件（JSON-RPC 子进程）
    - `plugins/docaudit/audit/`: format_audit, content_audit, text_correction, plagiarism 等领域专属插件（JSON-RPC 子进程）
 
@@ -141,14 +142,14 @@ docker-compose up -d
 
 - `from_env()` 读取 `COURTIER_DOMAIN_PACKAGES`（默认 `"docaudit"`）和 `COURTIER_LOCALE`（默认 `"zh-CN"`）
 - `discover()` 验证所有领域包，加载 `domain.yaml`、PromptBundle，构建 `DomainPackage`
-- `build_prompt_engine()` 创建合并所有领域模板的 PromptEngine
+- `build_prompt_engine()` 创建 PromptEngine：以 Core 默认模板（`prompts/defaults/{locale}/`，覆盖全部领域无关 key）为基底，再逐领域合并其专属模板与覆盖项
 
 ### DomainPackage
 
 运行时领域表示，组合：
 - `DomainConfig`（从 `config/domain.yaml` 验证的元数据）
 - `plugins_path` / `skills_path` — 文件系统路径（`plugins_path` 指向仓库根目录的 `plugins/`）
-- `PromptBundle` — 由 `PromptEngine` 从 `config/prompts/{locale}/` 加载的 YAML 模板
+- `PromptBundle` — 由 `PromptEngine` 加载的 YAML 模板集合：Core 默认（`courtier/prompts/defaults/{locale}/`，领域无关 key 的全量本地化文本）+ 领域包 `config/prompts/{locale}/`（领域专属与覆盖项）
 
 ## Git 提交规则
 
@@ -170,7 +171,7 @@ docker-compose up -d
 
 ## 已知技术债务
 
-- `src/` 下遗留模块已基本清理；`docmodels` 已迁移至 `domains/docaudit/docmodels/`
+- `src/` 下遗留模块已基本清理；`docmodels` 已从领域包上移至 `libs/shared/docmodels/`（可安装包，导入名不变）
 - `courtier/agent/api/app.py` 中直接导入 `content_compliance.init_checkers()` 的泄漏已移除；初始化由 `content_audit` 插件延迟完成
 - 可观测性配置（docker-compose、Prometheus、Grafana）已从 `docaudit` 品牌统一重命名为 `courtier`
 - Dockerfile 引用路径已更新为 monorepo 结构（包含 `libs/` 和 `plugins/`），但尚未在 CI 中验证完整构建与前端静态文件服务

@@ -49,8 +49,8 @@ Key capabilities:
 │   ├── .env.example          # Environment variable template
 │   ├── courtier/             # Domain-agnostic agent engine
 │   ├── domains/docaudit/     # docaudit domain package
-│   ├── libs/shared/          # Cross-domain libraries (docparse, docannot)
-│   ├── libs/docaudit/        # docaudit-specific libraries
+│   ├── libs/shared/          # Cross-domain libraries (docparse, docannot, docmodels, plugin_sdk)
+│   ├── libs/docaudit/        # docaudit-specific libraries (validator, content_compliance, doccorrector)
 │   ├── plugins/shared/       # Cross-domain JSON-RPC plugins
 │   ├── plugins/docaudit/     # docaudit JSON-RPC plugins
 │   ├── webui/                # Vue 3 + Vite frontend
@@ -129,11 +129,10 @@ uv run main.py
 uv run main.py --host 127.0.0.1 --port 8080 --reload
 
 # Validate the docaudit domain package
-PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
-  uv run courtier validate-domain domains/docaudit/
+uv run courtier validate-domain domains/docaudit/
 ```
 
-> **Note on PYTHONPATH:** `main.py` injects the required source paths automatically. You only need to set `PYTHONPATH` manually when invoking scripts directly (e.g., `validate-domain`).
+> **Note on PYTHONPATH:** libs/, docmodels and the plugin SDK are installed into the venv as editable packages (see `[tool.uv.sources]` in `courtier/pyproject.toml`), so no manual `PYTHONPATH` is needed for `uv run` commands. Only direct `python` invocations outside `uv run` may still need it.
 
 ### 4.2 Courtier frontend (`courtier/webui/`)
 
@@ -237,13 +236,13 @@ npm run check
    - `tools/` — Tool registry, protocol, built-in and domain tools.
    - `skills/` — Skill registry and loader.
    - `artifacts/` — Artifact system.
-   - `prompts/` — Jinja2 PromptEngine and PromptBundle.
+   - `prompts/` — Jinja2 PromptEngine, PromptBundle, and core default templates (`defaults/{locale}/`).
    - `permissions/`, `hooks/`, `memory/`, `telemetry/` — Cross-cutting concerns.
 
 4. **Domain/business layer**
-   - `domains/docaudit/` — Domain config, prompts, skills, rules, docmodels.
-   - `libs/shared/` — Cross-domain libraries (`docparse`, `docannot`).
-   - `libs/docaudit/` — Domain-specific libraries (`validator`, `content_compliance`, `doccorrector`).
+   - `domains/docaudit/` — Domain config, prompts, skills (Markdown + typed input schemas).
+   - `libs/shared/` — Cross-domain installable libraries (`docparse`, `docannot`, `docmodels`, `plugin_sdk`).
+   - `libs/docaudit/` — Domain-specific installable libraries (`validator`, `content_compliance`, `doccorrector`).
    - `plugins/shared/` — Cross-domain JSON-RPC plugins (`parse`, `search`, `annotate`, `template`).
    - `plugins/docaudit/audit/` — Domain JSON-RPC plugins (`format_audit`, `content_audit`, `text_correction`, `plagiarism`).
 
@@ -287,7 +286,7 @@ courtier/courtier/
 │   ├── hooks/           # Hook system
 │   ├── memory/          # Memory abstractions
 │   ├── permissions/     # Permission checks
-│   ├── prompts/         # PromptEngine, PromptBundle
+│   ├── prompts/         # PromptEngine, PromptBundle, defaults/{locale}/ (core default templates)
 │   ├── runtime/         # Agent runtime bridge
 │   ├── skills/          # Skill registry/loader
 │   ├── telemetry/       # OpenTelemetry tracer
@@ -308,11 +307,13 @@ courtier/courtier/
 courtier/domains/docaudit/
 ├── config/
 │   ├── domain.yaml           # Domain metadata
-│   └── prompts/{locale}/     # Locale-specific Jinja2 templates
-├── docmodels/                # Domain data models
-├── rules/                    # Format/compliance rule JSON files
-└── skills/                   # Skill Markdown files
+│   └── prompts/{locale}/     # Domain-specific Jinja2 templates only (orchestrator.*, chat.system_prompt) + optional overrides
+└── skills/                   # Skill Markdown files + schemas/ (typed sub-agent input models)
 ```
+
+> Shared data models live in `libs/shared/docmodels/` (an installable package, not in the domain dir).
+> Format/compliance rule JSON files ship inside the libraries that consume them:
+> `libs/docaudit/validator/validator/rules/` and `libs/docaudit/content_compliance/content_compliance/rules/`.
 
 ### Courtier frontend
 
@@ -361,8 +362,10 @@ pi/
 - **Type checking:** mypy (dev dependency).
 - **Commits:** Conventional commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`).
 - **Domain isolation:** Core must never import domain code. Domains are discovered at startup via `CourtierConfig`.
-- **No hardcoded NL text in core:** All natural language lives in `domains/<domain>/config/prompts/{locale}/` and is rendered by the Jinja2 PromptEngine.
+- **No hardcoded NL text in core:** All natural language is rendered by the Jinja2 PromptEngine from YAML templates. Domain-agnostic text (errors, context compaction, behavioral rules, tool invocation, subagent, welcome message) ships with core as full localized defaults in `courtier/prompts/defaults/{locale}/`; domain packages carry only domain-specific templates (`orchestrator.*`, `chat.system_prompt`) in `domains/<domain>/config/prompts/{locale}/` and may override any core default per key. Minimal English `FALLBACK_TEMPLATES` in `engine.py` are the last resort when a key is missing everywhere.
 - **Plugins are subprocesses:** Each plugin has its own `pyproject.toml`, virtual environment, and `plugin.yaml` manifest.
+- **Libraries are installable packages:** Every lib under `libs/shared/` and `libs/<domain>/` has its own `pyproject.toml` and is installed editable via `[tool.uv.sources]`. Plugins depend only on `courtier-plugin-sdk` + the libs they use — never on the `courtier` application package. The plugin SDK lives at `libs/shared/plugin_sdk/` (import name `courtier_plugin_sdk`).
+- **Plugin data access via host services:** Plugins never hold DB/MinIO credentials. Data owned by the host (format templates, artifacts, object storage) is accessed through declared host services (`plugin.yaml` `dependencies.host_services` + `permissions`) over reverse JSON-RPC. Plugin-side endpoint config (LLM/CEC/ES) is injected via `plugin.yaml` `runtime.env` `${ENV:VAR}` passthroughs.
 
 ### 7.2 Pi
 
@@ -402,7 +405,7 @@ See `pi/AGENTS.md` for the full rule set. Key points:
 
 - **Production image:** `courtier/Dockerfile` builds the frontend and copies `dist/` to `/app/static`, then installs the Python backend with `uv sync --frozen --no-dev --no-editable`.
 - **Entry point:** `uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000`.
-- **Docker Compose:** `docker-compose.yml` provides MySQL, MinIO, Elasticsearch, Langfuse, Prometheus, Grafana, and an OTLP collector. The `app` service is commented out by default.
+- **Docker Compose:** `docker-compose.yml` provides MySQL, MinIO, Elasticsearch, Langfuse (web + worker), Prometheus, Grafana, and an OTLP collector. The `app` service is commented out by default. Tracing flows: app → OTLP collector (`:4317`) → Langfuse (`/api/public/otel`, authenticated via `LANGFUSE_AUTH_HEADER` in `.env`); Langfuse stores raw trace payloads in MinIO (`langfuse-events` bucket) and the ingestion queue in Redis (password-protected via `LANGFUSE_REDIS_PASSWORD`). Third-party images use the Huawei Cloud mirror (`swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/...`) where Docker Hub is slow.
 - **Migrations:** Alembic runs automatically when starting via `main.py`.
 - **Environment:** Key variables include `COURTIER_REPO_ROOT`, `COURTIER_DOMAIN_PACKAGES`, `COURTIER_LOCALE`, `COURTIER_UPLOAD_DIR`, `MYSQL_URL`, `ES_HOSTS`, `MINIO_ENDPOINT`, LLM endpoints, and OpenTelemetry settings.
 - **Health check:** `GET /health`.

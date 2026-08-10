@@ -28,11 +28,14 @@ cp .env.example .env
 # Edit .env with real MySQL/MinIO/Elasticsearch/LLM credentials.
 
 # Run the API server
-PYTHONPATH=courtier:domains/docaudit:libs/shared:libs/docaudit \
-  uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000
+uv run main.py
+
+# Or start uvicorn directly (libs/docmodels/SDK are editable venv packages;
+# no manual PYTHONPATH needed)
+uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-The FastAPI app is created by the factory `create_app()` in `courtier/agent/api/app.py`. Note: the repo root `README.md` and `Dockerfile` refer to a `main.py` entry point that does not currently exist; start the server via the `app:create_app` factory instead.
+The FastAPI app is created by the factory `create_app()` in `courtier/agent/api/app.py`; `main.py` additionally runs Alembic migrations before starting uvicorn.
 
 ```bash
 # Run all tests
@@ -141,5 +144,5 @@ The agent runtime follows a Think → Act → Observe loop. Sessions stream even
 - The `Dockerfile` builds the frontend from `webui/` and copies the dist output to `/app/static`. The old `ui-vue/` / `tui/` references are obsolete.
 - The plugin system scans plugins from the top-level `plugins/` directory. Shared plugins live under `plugins/shared/`; domain-specific plugins live under `plugins/<domain>/`. Each plugin has its own `plugin.yaml` manifest and may have its own `.venv`.
 - Skill documents live under domain packages at `domains/<domain>/skills/*.md`. Each Skill declares its required tools in YAML frontmatter; the body is the sub-agent's system prompt. The `SkillRegistry` scans and pre-compiles them at startup. OrchestratorAgent calls `load_skill(skill="name", task="...")` to run one.
-- Shared libraries (code dependencies bundled at build time) live under `libs/shared/` and `libs/<domain>/`. These are imported by plugins but are not deployable services themselves.
+- Shared libraries (installable packages with their own `pyproject.toml`, wired editable via `[tool.uv.sources]`) live under `libs/shared/` and `libs/<domain>/`. Plugins depend only on `courtier-plugin-sdk` plus the libs they use — never on the `courtier` application package.
 - `.env.example` ships with placeholder credentials and LLM endpoints; copy it to `.env` and replace all values for real use. Key Courtier-specific variables include `COURTIER_REPO_ROOT`, `COURTIER_DOMAIN_PACKAGES`, and `COURTIER_UPLOAD_DIR`.

@@ -153,7 +153,7 @@ If a plugin fails 3 consecutive health checks, the core restarts it.
 Courtier provides a Python SDK for plugin development:
 
 ```python
-from courtier.plugin.sdk import PluginRuntime
+from courtier_plugin_sdk import PluginRuntime
 
 runtime = PluginRuntime()
 
