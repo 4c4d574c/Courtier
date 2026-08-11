@@ -15,11 +15,10 @@ from docparse.parsers.scanned.ocr_engine import (
     build_block_outline_map_from_blocks as _build_block_outline_map_from_blocks,
 )
 from docparse.parsers.scanned.ocr_engine import (
-    get_outline_for_line as _get_outline_for_line,
+    estimate_font_size_from_word_boxes as _estimate_font_size_from_word_boxes,
 )
-from docparse.parsers.scanned.ocr_engine import (
-    ocr_result_to_lines as _ocr_result_to_lines,
-)
+from docparse.parsers.scanned.ocr_engine import get_outline_for_line as _get_outline_for_line
+from docparse.parsers.scanned.ocr_engine import ocr_result_to_lines as _ocr_result_to_lines
 from docparse.parsers.spacing import compute_font_size_from_ocr
 from PIL import Image as PILImage
 
@@ -230,6 +229,72 @@ class TestOcrResultToLines:
         bbox_only = compute_font_size_from_ocr(60.0, 1000)
         assert expected != bbox_only
         assert lines[0]["font_size"] == round(expected, 1)
+
+
+class TestEstimateFontSizeFromWordBoxes:
+    """词框字宽法：长 CJK 行（标题）用逐字行进宽度测字号。"""
+
+    @staticmethod
+    def _word_boxes(words: list[str], char_px: float) -> list[dict]:
+        boxes = []
+        x = 0.0
+        for word in words:
+            width = char_px * (0.5 if all(ord(c) < 128 for c in word) else len(word))
+            boxes.append({"text": word, "x0": x, "y0": 0.0, "x1": x + width, "y1": 40.0})
+            x += width
+        return boxes
+
+    def test_exact_advance_calibrates(self):
+        """每个 CJK 词框宽 = 2×字号像素时精确命中。"""
+        # 22pt at 1240px 页宽：22 / (595.28/1240) ≈ 45.8px/字
+        words = ["关于", "提供", "有关", "工作", "情况", "的函"]
+        chars = self._word_boxes(words, 45.82)
+        size = _estimate_font_size_from_word_boxes(chars, 1240.0)
+        assert size == 22.0
+
+    def test_short_line_ineligible(self):
+        """短行（<8 有效字）回退 None。"""
+        chars = self._word_boxes(["密级", "长期"], 33.0)
+        assert _estimate_font_size_from_word_boxes(chars, 1240.0) is None
+
+    def test_digit_heavy_line_ineligible(self):
+        """数字为主的行（日期/发文字号）CJK 占比不足，回退 None。"""
+        chars = self._word_boxes(["2026", "年", "4", "月", "19", "日"], 20.0)
+        assert _estimate_font_size_from_word_boxes(chars, 1240.0) is None
+
+    def test_empty_inputs(self):
+        assert _estimate_font_size_from_word_boxes([], 1240.0) is None
+        chars = self._word_boxes(["关于开展专项整治行动的请示"], 45.0)
+        assert _estimate_font_size_from_word_boxes(chars, 0.0) is None
+
+    def test_ocr_result_to_lines_prefers_word_boxes(self):
+        """端到端：带词框的标题行字号取词框法，而非框高法。"""
+        words = ["关于", "提供", "有关", "工作", "情况", "的函"]
+        x = 100.0
+        chars = []
+        for word in words:
+            width = 45.82 * len(word)
+            chars.append({"text": word, "x0": x, "y0": 0.0, "x1": x + width, "y1": 40.0})
+            x += width
+        result = OCRPageResult(
+            width=1240,
+            height=1754,
+            lines=[
+                OCRLineResult(
+                    text="关于提供有关工作情况的函",
+                    line_no=0,
+                    x0=100.0,
+                    y0=100.0,
+                    x1=x,
+                    y1=130.0,
+                    confidence=0.99,
+                    chars=chars,
+                ),
+            ],
+        )
+        lines = _ocr_result_to_lines(result)
+        assert len(lines) == 1
+        assert lines[0]["font_size"] == 22.0
 
 
 class TestBuildBlockOutlineMapFromBlocks:

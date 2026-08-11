@@ -11,8 +11,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from .._retry import _call_with_retry
+from ..calibration import calibrate_font_size
 from ..ocr import OCRPageResult
 from ..spacing import (
+    A4_WIDTH_PT,
     compute_alignment_from_position,
     compute_font_size_from_ocr,
 )
@@ -26,6 +28,70 @@ BLOCK_LABEL_TO_OUTLINE = {
     "section_header": "heading2",
     "title": "heading1",
 }
+
+# Word-box font-size estimation eligibility: only long, mostly-CJK lines
+# give a reliable per-character advance width.  Short lines (密级▲长期),
+# digit/bracket-heavy lines (发文字号、日期) and Latin-heavy lines fall
+# back to the box-height estimate.
+_WB_MIN_EFFECTIVE_CHARS: float = 8.0
+_WB_MIN_CJK_RATIO: float = 0.7
+
+
+def _effective_char_count(text: str) -> float:
+    """Count full-width characters as 1.0 and narrow (ASCII) ones as 0.5."""
+    return sum(0.5 if ord(ch) < 128 else 1.0 for ch in text)
+
+
+def estimate_font_size_from_word_boxes(
+    chars: list[dict[str, Any]],
+    page_width_px: float,
+) -> float | None:
+    """Estimate font size from the per-word advance width (char width ≈ font size).
+
+    For Chinese official documents every CJK glyph advances exactly one em,
+    so ``sum(word_box_widths) / effective_char_count`` measures the font
+    size directly.  This is far more reliable than the box-height estimate
+    for display faces (小标宋 titles): their ink fills more of the em square
+    than the 0.75 height factor assumes, and deskew tightens the box further
+    — together good for a 4-6pt underestimate.  Word-box widths are immune
+    to both effects.
+
+    Eligibility is restricted to long, mostly-CJK lines: short lines carry
+    too much OCR box jitter per character, and digit/bracket-heavy lines
+    (发文字号、日期) break the half-width assumption.  Ineligible lines
+    return None and keep the height-based estimate.
+
+    Args:
+        chars: Word-level dicts with "text", "x0", "x1" (from OCR text_word).
+        page_width_px: Page image width in pixels (for px→pt conversion).
+
+    Returns:
+        Calibrated font size in points, or None when not eligible.
+    """
+    if not chars or page_width_px <= 0:
+        return None
+
+    total_width_px = 0.0
+    total_eff = 0.0
+    cjk_count = 0
+    char_count = 0
+    for word in chars:
+        text = word.get("text", "")
+        width = word.get("x1", 0.0) - word.get("x0", 0.0)
+        if not text or width <= 0:
+            continue
+        total_width_px += width
+        total_eff += _effective_char_count(text)
+        cjk_count += sum(1 for ch in text if ord(ch) >= 128)
+        char_count += len(text)
+
+    if total_eff < _WB_MIN_EFFECTIVE_CHARS or char_count == 0 or total_width_px <= 0:
+        return None
+    if cjk_count / char_count < _WB_MIN_CJK_RATIO:
+        return None
+
+    estimated_pt = total_width_px * (A4_WIDTH_PT / page_width_px) / total_eff
+    return calibrate_font_size(estimated_pt)
 
 
 def parallel_ocr(
@@ -170,6 +236,11 @@ def ocr_result_to_lines(
             page_height,
             polys=line.polys or None,
         )
+        # Word-box advance width is the better signal for eligible lines
+        # (long, mostly-CJK — e.g. titles); height keeps the rest.
+        word_box_size = estimate_font_size_from_word_boxes(line.chars, page_width)
+        if word_box_size is not None:
+            font_size = word_box_size
 
         lines.append(
             {
