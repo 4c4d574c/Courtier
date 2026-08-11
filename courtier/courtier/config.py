@@ -235,7 +235,18 @@ class Settings(BaseSettings):
         default=2048, alias="docparse_ocr_max_image_long_side"
     )
     docparse_ocr_deskew: bool = Field(default=False, alias="docparse_ocr_deskew")
-    docparse_classify_mode: str = Field(default="rule_only", alias="docparse_classify_mode")
+    docparse_max_llm_concurrent: int = Field(default=4, alias="docparse_max_llm_concurrent")
+    docparse_max_ocr_concurrent: int = Field(default=10, alias="docparse_max_ocr_concurrent")
+    docparse_llm_image_max_long_side: int = Field(
+        default=1280, alias="docparse_llm_image_max_long_side"
+    )
+    docparse_classify_mode: str = Field(default="llm", alias="docparse_classify_mode")
+
+    # 字体识别模型（自训练 ResNet）：配置后扫描件字体识别优先走模型，
+    # 未识别/低置信行回退 LLM。
+    font_model_url: str = Field(default="", alias="font_model_url")
+    font_model_conf_threshold: float = Field(default=0.6, alias="font_model_conf_threshold")
+    font_model_margin_threshold: float = Field(default=0.15, alias="font_model_margin_threshold")
 
     cec_api_base: str = ""
     cec_api_key: str = ""

@@ -17,6 +17,13 @@ _DOCPARSE_VARS = (
     "DOCPARSE_OCR_ENGINE",
     "DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE",
     "DOCPARSE_OCR_DESKEW",
+    "DOCPARSE_MAX_LLM_CONCURRENT",
+    "DOCPARSE_MAX_OCR_CONCURRENT",
+    "DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE",
+    "DOCPARSE_CLASSIFY_MODE",
+    "FONT_MODEL_URL",
+    "FONT_MODEL_CONF_THRESHOLD",
+    "FONT_MODEL_MARGIN_THRESHOLD",
 )
 
 
@@ -75,6 +82,13 @@ class TestSettingsEnvFallback:
             docparse_ocr_engine="ppstructure",
             docparse_ocr_max_image_long_side=1024,
             docparse_ocr_deskew=True,
+            docparse_max_llm_concurrent=8,
+            docparse_max_ocr_concurrent=16,
+            docparse_llm_image_max_long_side=1280,
+            docparse_classify_mode="rule_first",
+            font_model_url="http://font:5000",
+            font_model_conf_threshold=0.6,
+            font_model_margin_threshold=0.15,
         )
         monkeypatch.setattr("courtier.config.get_settings", lambda: settings)
         assert manager_mod._settings_env_fallback("LLM_IP") == "http://x/v1"
@@ -87,6 +101,14 @@ class TestSettingsEnvFallback:
         assert manager_mod._settings_env_fallback("DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE") == "1024"
         # bool coerced to "True"/"False" — _env_flag parses "true" as enabled
         assert manager_mod._settings_env_fallback("DOCPARSE_OCR_DESKEW") == "True"
+        assert manager_mod._settings_env_fallback("DOCPARSE_MAX_LLM_CONCURRENT") == "8"
+        assert manager_mod._settings_env_fallback("DOCPARSE_MAX_OCR_CONCURRENT") == "16"
+        assert manager_mod._settings_env_fallback("DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE") == "1280"
+        assert manager_mod._settings_env_fallback("DOCPARSE_CLASSIFY_MODE") == "rule_first"
+        assert manager_mod._settings_env_fallback("FONT_MODEL_URL") == "http://font:5000"
+        # float coerced to str for subprocess env
+        assert manager_mod._settings_env_fallback("FONT_MODEL_CONF_THRESHOLD") == "0.6"
+        assert manager_mod._settings_env_fallback("FONT_MODEL_MARGIN_THRESHOLD") == "0.15"
 
     def test_unmapped_var_returns_empty(self):
         assert manager_mod._settings_env_fallback("HOME") == ""
