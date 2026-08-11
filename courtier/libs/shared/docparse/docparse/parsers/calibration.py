@@ -151,9 +151,17 @@ def calibrate_line_spacing(detected_pt: float) -> float:
 
 
 def calibrate_first_indent(detected_pt: float) -> float:
-    """Snap *detected_pt* to 32.0pt if within +/-4pt."""
+    """Snap *detected_pt*: sub-tolerance noise (<4pt) to 0, near-standard to 32pt.
+
+    OCR bounding boxes have 1-2px jitter, which shows up as tiny non-zero
+    indents (0.4-3.3pt) on lines that are actually flush with the margin.
+    Anything below the snap tolerance is measurement noise, not a real
+    indent, and is reported as 0.0.
+    """
     if detected_pt <= 0:
         return detected_pt
+    if detected_pt < _FIRST_INDENT_TOLERANCE_PT:
+        return 0.0
     if abs(detected_pt - STANDARD_FIRST_INDENT) <= _FIRST_INDENT_TOLERANCE_PT:
         return STANDARD_FIRST_INDENT
     return detected_pt

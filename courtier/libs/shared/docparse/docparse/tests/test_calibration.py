@@ -1,6 +1,5 @@
 """Tests for GB/T 9704-2012 standard calibration module."""
 
-
 from docparse.parsers.calibration import (
     ELEMENT_FORMAT_MAP,
     STANDARD_FONT_SIZES,
@@ -176,6 +175,17 @@ class TestCalibrateFirstIndent:
     def test_boundary_exactly_4pt(self) -> None:
         assert calibrate_first_indent(28.0) == 32.0
         assert calibrate_first_indent(36.0) == 32.0
+
+    def test_sub_tolerance_noise_zeroed(self) -> None:
+        """<4pt 的微小缩进是 OCR 框抖动噪声，归零。"""
+        assert calibrate_first_indent(0.41) == 0.0
+        assert calibrate_first_indent(2.05) == 0.0
+        assert calibrate_first_indent(3.29) == 0.0
+        assert calibrate_first_indent(3.99) == 0.0
+
+    def test_at_tolerance_kept_original(self) -> None:
+        """恰好 4pt 不属于噪声，原样保留。"""
+        assert calibrate_first_indent(4.0) == 4.0
 
 
 class TestComputeFontSize:
