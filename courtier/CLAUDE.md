@@ -17,21 +17,22 @@ courtier/                          # 项目根目录
 │       └── skills/               # Skill 文档（Markdown + YAML frontmatter + schemas/ 类型化输入模型）
 ├── libs/
 │   ├── shared/                   # 跨领域共享库（均为带 pyproject.toml 的可安装包）
-│   │   ├── docparse/             # 文档解析
 │   │   ├── docannot/             # 文档标注
 │   │   ├── docmodels/            # 共享数据模型（Document/FormatSpec）
 │   │   └── plugin_sdk/           # 插件 SDK（courtier_plugin_sdk）
 │   └── docaudit/                 # docaudit 领域专属库
+│       ├── docparse/             # 文档解析（PDF/DOCX/扫描件 → GB/T 9704 Document 模型）
 │       ├── validator/            # 格式校验
 │       ├── content_compliance/   # 内容合规
 │       └── doccorrector/         # 文本纠错
 ├── plugins/
 │   ├── shared/                   # 跨领域共享插件
-│   │   ├── parse/                # 文档解析工具
+│   │   ├── anydoc/               # 通用文档转换工具（convert_document → Markdown）
 │   │   ├── search/               # 搜索工具
 │   │   ├── annotate/             # 标注工具
 │   │   └── template/             # 模板工具
 │   └── docaudit/                 # docaudit 领域插件
+│       ├── parse/                # 公文文档解析工具（parse_document → GB/T 9704 Document）
 │       └── audit/                # 审计包装插件
 │           ├── format_audit/
 │           ├── content_audit/
@@ -115,17 +116,17 @@ docker-compose up -d
 2. **服务层** (`courtier/agent/api/services/`): AgentService, StreamService, FileService, SessionService
 3. **核心引擎层** (`courtier/agent/`): Agent loop, PluginSystem, ToolRegistry, Artifact 系统, Context 管理, Prompt pipeline, Hooks, Permissions, Telemetry
 4. **领域/业务层**:
-   - `libs/shared/`: docparse, docannot, docmodels, plugin_sdk 等跨领域共享库（可安装包），被共享插件调用
-   - `libs/docaudit/`: validator, content_compliance, doccorrector 等领域专属库（可安装包），被 docaudit 插件调用
-   - `plugins/shared/`: parse, search, annotate, template 等跨领域共享插件（JSON-RPC 子进程）
-   - `plugins/docaudit/audit/`: format_audit, content_audit, text_correction, plagiarism 等领域专属插件（JSON-RPC 子进程）
+   - `libs/shared/`: docannot, docmodels, plugin_sdk 等跨领域共享库（可安装包），被共享插件调用
+   - `libs/docaudit/`: docparse, validator, content_compliance, doccorrector 等领域专属库（可安装包），被 docaudit 插件调用
+   - `plugins/shared/`: anydoc, search, annotate, template 等跨领域共享插件（JSON-RPC 子进程）
+   - `plugins/docaudit/`: parse（`plugins/docaudit/parse/`）与 format_audit, content_audit, text_correction, plagiarism（`plugins/docaudit/audit/`）等领域专属插件（JSON-RPC 子进程）
 
 ### 插件系统（JSON-RPC 2.0）
 
 插件是独立的子进程，通过 stdio 上的 JSON-RPC 2.0 通信：
 
-- 共享插件位于 `plugins/shared/`（parse, search, annotate, template）
-- 领域插件位于 `plugins/<domain>/`（如 `plugins/docaudit/audit/`）
+- 共享插件位于 `plugins/shared/`（anydoc, search, annotate, template）
+- 领域插件位于 `plugins/<domain>/`（如 `plugins/docaudit/parse/`、`plugins/docaudit/audit/`）
 - 每个插件有独立 `.venv`、`pyproject.toml`、`plugin.yaml`
 - 插件声明 `entry.py:main` 作为入口点
 - `PluginRuntime` SDK 提供 `register_capabilities()`, `register_tool()`, `run()`

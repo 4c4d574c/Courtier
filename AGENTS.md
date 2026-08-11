@@ -49,8 +49,8 @@ Key capabilities:
 │   ├── .env.example          # Environment variable template
 │   ├── courtier/             # Domain-agnostic agent engine
 │   ├── domains/docaudit/     # docaudit domain package
-│   ├── libs/shared/          # Cross-domain libraries (docparse, docannot, docmodels, plugin_sdk)
-│   ├── libs/docaudit/        # docaudit-specific libraries (validator, content_compliance, doccorrector)
+│   ├── libs/shared/          # Cross-domain libraries (docannot, docmodels, plugin_sdk)
+│   ├── libs/docaudit/        # docaudit-specific libraries (docparse, validator, content_compliance, doccorrector)
 │   ├── plugins/shared/       # Cross-domain JSON-RPC plugins
 │   ├── plugins/docaudit/     # docaudit JSON-RPC plugins
 │   ├── webui/                # Vue 3 + Vite frontend
@@ -241,10 +241,10 @@ npm run check
 
 4. **Domain/business layer**
    - `domains/docaudit/` — Domain config, prompts, skills (Markdown + typed input schemas).
-   - `libs/shared/` — Cross-domain installable libraries (`docparse`, `docannot`, `docmodels`, `plugin_sdk`).
-   - `libs/docaudit/` — Domain-specific installable libraries (`validator`, `content_compliance`, `doccorrector`).
-   - `plugins/shared/` — Cross-domain JSON-RPC plugins (`parse`, `search`, `annotate`, `template`).
-   - `plugins/docaudit/audit/` — Domain JSON-RPC plugins (`format_audit`, `content_audit`, `text_correction`, `plagiarism`).
+   - `libs/shared/` — Cross-domain installable libraries (`docannot`, `docmodels`, `plugin_sdk`).
+   - `libs/docaudit/` — Domain-specific installable libraries (`docparse`, `validator`, `content_compliance`, `doccorrector`).
+   - `plugins/shared/` — Cross-domain JSON-RPC plugins (`anydoc`, `search`, `annotate`, `template`).
+   - `plugins/docaudit/` — Domain JSON-RPC plugins (`parse`; `format_audit`, `content_audit`, `text_correction`, `plagiarism` under `audit/`).
 
 ### 5.2 Plugin vs Skill vs Library
 

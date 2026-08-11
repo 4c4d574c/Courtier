@@ -1,0 +1,13 @@
+[project]
+name = "courtier-plugin-anydoc"
+version = "1.0.0"
+requires-python = ">=3.12"
+# anydoc does the whole conversion in one Rust call; the plugin only needs
+# the SDK and the anydoc wheel.
+dependencies = [
+    "courtier-plugin-sdk",
+    "firecrawl-anydoc",
+]
+
+[tool.uv.sources]
+courtier-plugin-sdk = { path = "../../../libs/shared/plugin_sdk", editable = true }

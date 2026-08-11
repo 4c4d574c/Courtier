@@ -97,11 +97,11 @@ The backend is a FastAPI application organized into four layers:
 1. **API layer** (`courtier/agent/api/`): thin HTTP handlers (`routes/`), SSE streaming (`sse_adapter.py`), file/session stores, and observability middleware.
 2. **Service layer** (`courtier/agent/api/services/`): `AgentService`, `StreamService`, `FileService`, `SessionService`.
 3. **Core engine layer** (`courtier/agent/`): Agent loop, PluginSystem, ToolRegistry, Artifact system, Context manager, Prompt pipeline, Hooks, Permissions, and Telemetry.
-4. **Domain/business layer** (`libs/shared/` for reusable modules like `docparse`, `docannot`; `libs/docaudit/` for domain-specific modules like `validator`, `content_compliance`, `doccorrector`).
+4. **Domain/business layer** (`libs/shared/` for reusable modules like `docannot`, `docmodels`; `libs/docaudit/` for domain-specific modules like `docparse`, `validator`, `content_compliance`, `doccorrector`).
 
 Two extension mechanisms share the same `ToolRegistry`:
 
-- **Plugins** (`plugins/`): isolated subprocesses communicating over JSON-RPC 2.0 on stdio. The host scans `plugins/shared/` (shared tools: `parse`, `search`, `annotate`, `template`) and `plugins/docaudit/audit/` (domain tools: `format_audit`, `content_audit`, `text_correction`, `plagiarism`). Plugins declare `type: tool` capabilities in `plugin.yaml`.
+- **Plugins** (`plugins/`): isolated subprocesses communicating over JSON-RPC 2.0 on stdio. The host scans `plugins/shared/` (shared tools: `anydoc`, `search`, `annotate`, `template`) and `plugins/docaudit/` (domain tools: `parse_document` in `parse/`; `format_audit`, `content_audit`, `text_correction`, `plagiarism` in `audit/`). Plugins declare `type: tool` capabilities in `plugin.yaml`.
 
 - **Skills** (`skills/`): Markdown documents defining SubAgent configurations. Each `skills/{name}.md` has YAML frontmatter (`tools`, `input_model`, etc.) and a natural-language body used as the sub-agent's system prompt. OrchestratorAgent calls `load_skill(skill=..., task=...)` to create a generic `Agent` that executes the Skill's workflow.
 
