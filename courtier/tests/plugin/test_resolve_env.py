@@ -1,6 +1,9 @@
 """Tests for ${ENV:VAR} resolution in plugin manifests (_resolve_env)."""
 
+from pathlib import Path
 from types import SimpleNamespace
+
+import yaml
 
 from courtier.plugin import manager as manager_mod
 from courtier.plugin.manager import _resolve_env
@@ -13,6 +16,7 @@ _DOCPARSE_VARS = (
     "DOCPARSE_OCR_LANG",
     "DOCPARSE_OCR_ENGINE",
     "DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE",
+    "DOCPARSE_OCR_DESKEW",
 )
 
 
@@ -70,6 +74,7 @@ class TestSettingsEnvFallback:
             docparse_ocr_lang="ch",
             docparse_ocr_engine="ppstructure",
             docparse_ocr_max_image_long_side=1024,
+            docparse_ocr_deskew=True,
         )
         monkeypatch.setattr("courtier.config.get_settings", lambda: settings)
         assert manager_mod._settings_env_fallback("LLM_IP") == "http://x/v1"
@@ -80,6 +85,32 @@ class TestSettingsEnvFallback:
         assert manager_mod._settings_env_fallback("DOCPARSE_OCR_ENGINE") == "ppstructure"
         # int coerced to str for subprocess env
         assert manager_mod._settings_env_fallback("DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE") == "1024"
+        # bool coerced to "True"/"False" — _env_flag parses "true" as enabled
+        assert manager_mod._settings_env_fallback("DOCPARSE_OCR_DESKEW") == "True"
 
     def test_unmapped_var_returns_empty(self):
         assert manager_mod._settings_env_fallback("HOME") == ""
+
+
+class TestShippedManifestEnvRefs:
+    """防回归：已发布 plugin.yaml 里的 ${ENV:VAR} 引用必须全部落在白名单内。
+
+    新增插件环境变量时只改 plugin.yaml 不够——忘记同步
+    _ALLOWED_MANIFEST_ENV_VARS 会导致引用被静默拦截（插件收到未解析的
+    字面量），本测试强制两者保持一致。
+    """
+
+    def test_shipped_manifests_reference_only_whitelisted_vars(self):
+        plugins_root = Path(__file__).resolve().parents[2] / "plugins"
+        manifests = sorted(plugins_root.rglob("plugin.yaml"))
+        assert manifests, f"no plugin.yaml found under {plugins_root}"
+
+        offenders: list[str] = []
+        for manifest in manifests:
+            data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+            env = (data.get("runtime") or {}).get("env") or {}
+            for key, value in env.items():
+                for var_name in manager_mod._ENV_REF_RE.findall(str(value)):
+                    if var_name not in manager_mod._ALLOWED_MANIFEST_ENV_VARS:
+                        offenders.append(f"{manifest}: {key} -> {var_name}")
+        assert not offenders, "non-whitelisted manifest env refs: " + "; ".join(offenders)

@@ -234,6 +234,7 @@ class Settings(BaseSettings):
     docparse_ocr_max_image_long_side: int = Field(
         default=2048, alias="docparse_ocr_max_image_long_side"
     )
+    docparse_ocr_deskew: bool = Field(default=False, alias="docparse_ocr_deskew")
     docparse_classify_mode: str = Field(default="rule_only", alias="docparse_classify_mode")
 
     cec_api_base: str = ""
