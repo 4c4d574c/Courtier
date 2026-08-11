@@ -493,6 +493,27 @@ class LLMClient:
                 logger.warning("Invalid font_info entry: key=%s", key)
                 continue
 
+        # The LLM sometimes renumbers the crops from 0 instead of echoing
+        # the requested line numbers (common when the fallback subset has
+        # only a handful of lines).  When the returned keys are exactly
+        # 0..n-1, remap them positionally onto the ascending requested
+        # line numbers — the composite contract guarantees that order.
+        if font_info:
+            requested_nos = sorted(line.get("line_no", 0) for line in sorted_lines)
+            returned_nos = sorted(font_info)
+            if (
+                returned_nos == list(range(len(returned_nos)))
+                and returned_nos != requested_nos[: len(returned_nos)]
+            ):
+                logger.info(
+                    "Font recognition response renumbered from 0; remapping "
+                    "positionally to requested line numbers %s",
+                    requested_nos,
+                )
+                font_info = {
+                    requested_nos[i]: font_info[returned_nos[i]] for i in range(len(returned_nos))
+                }
+
         logger.info(
             "Crop-based font recognition completed: %d lines identified",
             len(font_info),

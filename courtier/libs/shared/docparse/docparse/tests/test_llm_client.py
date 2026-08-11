@@ -286,3 +286,44 @@ class TestRecognizeFontsFromCrops:
 
         assert set(font_info) == {2}
         assert font_info[2]["font_family"] == "仿宋"
+
+    def test_renumbered_response_remapped_positionally(self, tmp_path):
+        """LLM 从 0 重新编号（而非回显行号）时按顺序重映射回请求行号。"""
+        page = self._make_page(tmp_path / "page.png")
+        payload = (
+            '{"font_info": {'
+            '"0": {"font_family": "黑体", "font_weight": false, "font_style": false},'
+            '"1": {"font_family": "仿宋", "font_weight": true, "font_style": false}'
+            "}}"
+        )
+        client, _stub = self._make_client(payload)
+
+        lines = [
+            {"line_no": 3, "text": "甲", "x0": 10, "y0": 10, "x1": 690, "y1": 180},
+            {"line_no": 21, "text": "乙", "x0": 10, "y0": 220, "x1": 690, "y1": 390},
+        ]
+        font_info = client.recognize_fonts_from_crops(page, lines)
+
+        assert set(font_info) == {3, 21}
+        assert font_info[3]["font_family"] == "黑体"
+        assert font_info[21]["font_family"] == "仿宋"
+
+    def test_noncontiguous_response_keys_not_remapped(self, tmp_path):
+        """返回键非 0..n-1 连续整数时保持原样（不做位置重映射）。"""
+        page = self._make_page(tmp_path / "page.png")
+        payload = (
+            '{"font_info": {'
+            '"3": {"font_family": "黑体", "font_weight": false, "font_style": false},'
+            '"21": {"font_family": "仿宋", "font_weight": true, "font_style": false}'
+            "}}"
+        )
+        client, _stub = self._make_client(payload)
+
+        lines = [
+            {"line_no": 3, "text": "甲", "x0": 10, "y0": 10, "x1": 690, "y1": 180},
+            {"line_no": 21, "text": "乙", "x0": 10, "y0": 220, "x1": 690, "y1": 390},
+        ]
+        font_info = client.recognize_fonts_from_crops(page, lines)
+
+        assert set(font_info) == {3, 21}
+        assert font_info[3]["font_family"] == "黑体"
