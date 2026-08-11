@@ -14,6 +14,42 @@ from ..calibration import calibrate_font_size
 
 _A4_WIDTH_MM: float = 210.0
 
+# GB/T 9704-2012 standard margins: left 28mm, right 26mm — the fallback
+# when measured margins are implausible (tightly cropped scans where text
+# extends to the image edge report ~0mm).
+_STD_LEFT_MM: float = 28.0
+_STD_RIGHT_MM: float = 26.0
+
+# Plausible per-side margin range (mm) for A4 official documents.  Only
+# measured margins inside it are trusted for the 版心 estimate.
+_PLAUSIBLE_MARGIN_MM: tuple[float, float] = (15.0, 40.0)
+
+
+def _estimate_available_width_mm(page_metrics: list[dict[str, Any]]) -> float:
+    """Available text width (版心) in mm from measured margins when plausible.
+
+    Each side independently uses the document-level median of the measured
+    margins that fall inside _PLAUSIBLE_MARGIN_MM; a side without plausible
+    measurements falls back to the GB/T standard (28/26mm).  The fixed
+    standard width is wrong for documents typeset with narrower real
+    margins (e.g. 22/17mm): their wider 版心 packs more chars per line,
+    and the chars-per-line estimate comes out one font size too small.
+    """
+    lo, hi = _PLAUSIBLE_MARGIN_MM
+    lefts: list[float] = []
+    rights: list[float] = []
+    for pm in page_metrics:
+        margin = pm.get("margin")
+        if margin is None:
+            continue
+        if lo <= margin.left_margin <= hi:
+            lefts.append(margin.left_margin)
+        if lo <= margin.right_margin <= hi:
+            rights.append(margin.right_margin)
+    left = statistics.median(lefts) if lefts else _STD_LEFT_MM
+    right = statistics.median(rights) if rights else _STD_RIGHT_MM
+    return _A4_WIDTH_MM - left - right
+
 
 def merge_font_info(
     lines: list[dict[str, Any]],
@@ -47,9 +83,11 @@ def refine_font_size_by_chars_per_line(
     """Determine body text font size from chars-per-line (primary method).
 
     The number of characters per line directly reflects the font size for
-    Chinese official documents with fixed page width. First-line indented
-    lines are excluded from the estimate because the indent reduces the
-    character count by ~2 chars, skewing the result.
+    Chinese official documents.  The available text width (版心) is taken
+    from the document's measured margins when plausible, falling back to
+    the GB/T standard margins — see _estimate_available_width_mm.
+    First-line indented lines are excluded from the estimate because the
+    indent reduces the character count by ~2 chars, skewing the result.
 
     After computing the document-level estimate, body_text lines always
     get this value (it's the primary source). Non-body-text lines only
@@ -59,13 +97,10 @@ def refine_font_size_by_chars_per_line(
         page_metrics: List of per-page metrics dicts. Each must contain
             "lines", "margin", and "indent_map". Modified in place.
     """
-    # GB/T 9704-2012 standard margins: left 28mm, right 26mm.
-    # Use fixed standard available width — detected margins are
-    # unreliable on tightly cropped scans where text extends to
-    # the image edge.
-    _STD_LEFT_MM: float = 28.0
-    _STD_RIGHT_MM: float = 26.0
-    _STD_AVAILABLE_MM: float = _A4_WIDTH_MM - _STD_LEFT_MM - _STD_RIGHT_MM
+    # Available width comes from measured margins when they are plausible,
+    # falling back per side to the GB/T standard (28/26mm) — see
+    # _estimate_available_width_mm.
+    available_mm = _estimate_available_width_mm(page_metrics)
 
     # Minimum indent (pt) to consider a line as having first-line indent.
     # Standard 2-char indent is ~32pt; threshold of 10pt safely separates.
@@ -100,7 +135,7 @@ def refine_font_size_by_chars_per_line(
     if median_chars <= 0:
         return
 
-    estimated_font_size_mm = _STD_AVAILABLE_MM / median_chars
+    estimated_font_size_mm = available_mm / median_chars
     estimated_font_size_pt = estimated_font_size_mm * _MM_TO_PT
     doc_estimate = calibrate_font_size(estimated_font_size_pt)
 

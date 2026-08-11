@@ -14,6 +14,11 @@ from ..calibration import calibrate_line_spacing
 from ..spacing import compute_body_line_spacing
 from .structure import collect_all_paragraphs
 
+# space_after 的语义上限：段后间距是段落排版属性，真实公文里不会超过
+# 2-3 行；超过该值的"间距"是页面布局空白（如日期到页脚之间的空档），
+# 记入段后会被下游规则误判为违规，置 None（不适用）。
+_MAX_PLAUSIBLE_SPACE_AFTER_PT: float = 100.0
+
 
 def merge_spacing_into_page_content(
     page_content: PageContent,
@@ -30,6 +35,14 @@ def merge_spacing_into_page_content(
     line; space_after by its LAST line (the line with the largest y0) —
     for a multi-line paragraph the measured space_after is booked on the
     last line, not the first.
+
+    Two cleanups apply after merging:
+    - center/right-aligned paragraphs get no indent values at all: for
+      them first/left/right indent has no typesetting meaning — the
+      measured offsets are just the centering/right-flush position
+      (e.g. a centered page number "indented" by 190pt is noise).
+    - space_after above _MAX_PLAUSIBLE_SPACE_AFTER_PT is reset to None:
+      such gaps are page-layout whitespace, not paragraph spacing.
 
     Args:
         page_content: The PageContent to update in place.
@@ -52,13 +65,20 @@ def merge_spacing_into_page_content(
         # to line_indices that are not in reading order).
         last_line_no = max(para.elements, key=lambda e: e.position.y0).font.line_no
         if last_line_no in spacing_map:
-            para.space_after = spacing_map[last_line_no]["space_after"]
+            space_after = spacing_map[last_line_no]["space_after"]
+            if space_after is not None and space_after > _MAX_PLAUSIBLE_SPACE_AFTER_PT:
+                space_after = None
+            para.space_after = space_after
         if first_line_no in indent_map:
             para.first_indent = indent_map[first_line_no]
         if left_right_indent_map and first_line_no in left_right_indent_map:
             lr = left_right_indent_map[first_line_no]
             para.left_indent = lr["left_indent"]
             para.right_indent = lr["right_indent"]
+        if para.alignment in ("center", "right"):
+            para.first_indent = None
+            para.left_indent = None
+            para.right_indent = None
 
 
 def normalize_body_line_spacing(
