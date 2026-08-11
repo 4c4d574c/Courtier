@@ -228,6 +228,59 @@ async def set_skill_enabled_handler(
     return {"name": name, "enabled": body.enabled, "domain": body.domain}
 
 
+@router.get("/skills/{name}")
+@limiter.limit("30/minute")
+async def get_skill_handler(
+    name: str,
+    request: Request,
+    domain: str,
+    _: dict = Depends(require_admin),
+):
+    """返回单个技能的完整详情（含 Markdown 工作流指令），供查看/编辑。"""
+    from ..services.skill_admin_service import get_skill
+
+    return get_skill(_resolve_skills_dir(request, domain), name)
+
+
+class SkillUpdateRequest(BaseModel):
+    domain: str = Field(..., description="目标 domain package 名称")
+    display_name: str = Field(default="", max_length=64)
+    description: str = Field(default="", max_length=512)
+    mode: str = ""
+    default_mode: str = ""
+    tools: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    system_prompt: str = ""
+
+
+@router.put("/skills/{name}")
+@limiter.limit("10/minute")
+async def update_skill_handler(
+    name: str,
+    body: SkillUpdateRequest,
+    request: Request,
+    _: dict = Depends(require_admin),
+):
+    """更新技能的可编辑字段并重写技能文件（name/enabled 不在此修改）。"""
+    from ..services.skill_admin_service import update_skill
+
+    known_tools = {t.name for t in request.app.state.tool_registry.list_tools()}
+    return update_skill(
+        _resolve_skills_dir(request, body.domain),
+        name,
+        display_name=body.display_name.strip(),
+        description=body.description.strip(),
+        mode=body.mode,
+        default_mode=body.default_mode,
+        tools=body.tools,
+        skills=body.skills,
+        tags=body.tags,
+        system_prompt=body.system_prompt,
+        known_tools=known_tools,
+    )
+
+
 class SkillCreateRequest(BaseModel):
     name: str = Field(..., max_length=64)
     domain: str = Field(..., description="目标 domain package 名称")

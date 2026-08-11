@@ -5,13 +5,16 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from fastapi import HTTPException
 
 from courtier.agent.api.services.skill_admin_service import (
     _rewrite_enabled,
     create_skill,
+    get_skill,
     list_skills,
     set_skill_enabled,
+    update_skill,
 )
 
 SKILL_MD = """---
@@ -120,6 +123,99 @@ class TestCreateSkill:
             known_tools={"search_documents"},
         )
         assert result["warnings"]
+
+
+class TestGetSkill:
+    def test_returns_full_detail_with_prompt(self, tmp_path):
+        _write_skill(tmp_path)
+        detail = get_skill(str(tmp_path), "demo")
+        assert detail["name"] == "demo"
+        assert detail["displayName"] == "演示"
+        assert detail["systemPrompt"].startswith("# 目标")
+        assert detail["source"] == "demo.md"
+
+    def test_unknown_raises_404(self, tmp_path):
+        _write_skill(tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            get_skill(str(tmp_path), "ghost")
+        assert exc.value.status_code == 404
+
+
+class TestUpdateSkill:
+    def test_update_rewrites_fields_and_body(self, tmp_path):
+        _write_skill(tmp_path)
+        result = update_skill(
+            str(tmp_path),
+            "demo",
+            display_name="新演示",
+            description="改后的描述",
+            mode="parallel",
+            tools=["search_documents"],
+            tags=["审核"],
+            system_prompt="# 新目标\n做另一件事。",
+            known_tools={"search_documents"},
+        )
+        assert result["name"] == "demo"
+        detail = get_skill(str(tmp_path), "demo")
+        assert detail["displayName"] == "新演示"
+        assert detail["description"] == "改后的描述"
+        assert detail["mode"] == "parallel"
+        assert detail["tools"] == ["search_documents"]
+        assert detail["tags"] == ["审核"]
+        assert detail["systemPrompt"].startswith("# 新目标")
+
+    def test_update_preserves_untouched_frontmatter_keys(self, tmp_path):
+        path = _write_skill(tmp_path)
+        text = path.read_text(encoding="utf-8").replace(
+            'version: "1.0"',
+            'version: "2.1"\ntimeout_seconds: 900\noutput_artifact_type: audit_result',
+        )
+        path.write_text(text, encoding="utf-8")
+        update_skill(str(tmp_path), "demo", system_prompt="# 目标\n新内容。")
+        raw = path.read_text(encoding="utf-8")
+        fm = yaml.safe_load(raw[3 : raw.index("\n---", 3)])
+        assert fm["version"] == "2.1"
+        assert fm["timeout_seconds"] == 900
+        assert fm["output_artifact_type"] == "audit_result"
+
+    def test_update_clears_optional_keys_when_emptied(self, tmp_path):
+        _write_skill(tmp_path)
+        update_skill(str(tmp_path), "demo", system_prompt="# 目标\n清空可选字段。")
+        detail = get_skill(str(tmp_path), "demo")
+        # displayName 回落为 name；description/tags 等键被移除
+        assert detail["displayName"] == "demo"
+        assert detail["description"] != "演示技能"
+        assert detail["tags"] == []
+
+    def test_update_keeps_enabled_flag(self, tmp_path):
+        _write_skill(tmp_path, enabled_line="enabled: false")
+        update_skill(str(tmp_path), "demo", system_prompt="# 目标\n内容。")
+        assert get_skill(str(tmp_path), "demo")["enabled"] is False
+
+    def test_update_unknown_raises_404(self, tmp_path):
+        _write_skill(tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            update_skill(str(tmp_path), "ghost", system_prompt="x")
+        assert exc.value.status_code == 404
+
+    def test_update_rejects_empty_prompt(self, tmp_path):
+        _write_skill(tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            update_skill(str(tmp_path), "demo", system_prompt="  ")
+        assert exc.value.status_code == 400
+
+    def test_update_rejects_unknown_subskill(self, tmp_path):
+        _write_skill(tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            update_skill(str(tmp_path), "demo", skills=["ghost"], system_prompt="x")
+        assert exc.value.status_code == 400
+
+    def test_update_may_reference_itself_as_subskill_excluded(self, tmp_path):
+        # 自身不允许作为子技能（known_skills 已排除自身）
+        _write_skill(tmp_path)
+        with pytest.raises(HTTPException) as exc:
+            update_skill(str(tmp_path), "demo", skills=["demo"], system_prompt="x")
+        assert exc.value.status_code == 400
 
 
 # ---- Plugin manager start/stop/restart ---------------------------------------
