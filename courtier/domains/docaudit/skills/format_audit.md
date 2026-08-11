@@ -32,5 +32,3 @@ retry_policy: on_error
 - `summary`: 总体结论与问题总数
 - `issues`: 格式违规列表，每项包含 `location`、`description`、`severity`、`suggestion`
 - 如未发现问题，明确给出 "未发现明显格式问题" 的结论。
-
-注意：最终报告中禁止出现工具名、skill 名、`$ref` 引用、artifact_id 等内部标识，统一使用自然语言描述。

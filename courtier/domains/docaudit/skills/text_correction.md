@@ -41,5 +41,3 @@ retry_policy: on_error
 - `results`: 逐句纠错结果列表，每项包含 `source`、`target`、`errors`
 - 每条 `error` 包含 `original`、`corrected`、`position`、`operation`、`context`
 - 如未发现错误，明确给出 "未发现文本错误" 的结论。
-
-注意：最终报告中禁止出现工具名、skill 名、`$ref` 引用、artifact_id 等内部标识，统一使用自然语言描述。

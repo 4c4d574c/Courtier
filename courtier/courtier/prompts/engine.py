@@ -109,6 +109,8 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "# Behavioral Rules\n"
         "- Keep final responses concise.\n"
         "- Do not fabricate information.\n"
+        "- Never expose internal identifiers (tool/skill names, $ref, artifact IDs) "
+        "in final output.\n"
     ),
     "behavioral.pre_turn_reminder": (
         "# Pre-Turn Reminder\n" "- Stay on task.\n" "- Use tools when appropriate.\n"

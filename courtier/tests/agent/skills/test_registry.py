@@ -1,6 +1,9 @@
 from pathlib import Path
 
+from courtier.agent.agents.base import Agent
 from courtier.agent.skills.registry import SkillRegistry
+from courtier.agent.testing import MockModelClient
+from courtier.prompts.engine import PromptEngine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -55,8 +58,8 @@ def test_registry_builds_catalog():
     assert "有效 Skill" in catalog
 
 
-def test_real_skills_include_output_sanitization():
-    """Deployed skill prompts must instruct sub-agents not to leak internal names."""
+def test_real_skills_enabled_set():
+    """The deployed skill set scans cleanly; disabled skills stay loadable."""
     skills_dir = Path(__file__).parents[3] / "domains" / "docaudit" / "skills"
     registry = SkillRegistry(skills_dir)
     registry.scan()
@@ -73,7 +76,37 @@ def test_real_skills_include_output_sanitization():
     assert "full_government_audit" not in enabled_names
     assert registry.get("full_government_audit") is not None
     assert not registry.errors, f"skill registry has errors: {registry.errors}"
-    for skill in enabled:
-        assert "最终报告中禁止出现" in skill.system_prompt, (
-            f"Skill {skill.name} missing output sanitization rule"
+
+
+def test_skill_subagents_include_output_sanitization():
+    """Deployed skill sub-agent prompts must forbid leaking internal names.
+
+    The rule is injected platform-wide via ``behavioral.rules`` when the
+    Agent is constructed (AgentRuntime builds skill sub-agents the same
+    way), so skill files no longer carry it themselves.
+    """
+    skills_dir = Path(__file__).parents[3] / "domains" / "docaudit" / "skills"
+    registry = SkillRegistry(skills_dir)
+    registry.scan()
+    assert not registry.errors, f"skill registry has errors: {registry.errors}"
+
+    for skill in registry.list_enabled():
+        agent = Agent(
+            name=skill.name,
+            role=skill.system_prompt,
+            tools=[],
+            model=MockModelClient(),
         )
+        prompt = agent.build_system_prompt()
+        assert (
+            "禁止在最终输出中暴露任何内部实现细节" in prompt
+        ), f"Skill {skill.name} sub-agent prompt missing output sanitization rule"
+
+
+def test_core_default_templates_include_output_sanitization():
+    """Core default ``behavioral.rules`` (both locales) is the single source
+    of the output-sanitization rule injected into every agent."""
+    zh = PromptEngine.from_domain_directories([], locale="zh-CN").render("behavioral.rules")
+    assert "禁止在最终输出中暴露任何内部实现细节" in zh
+    en = PromptEngine.from_domain_directories([], locale="en-US").render("behavioral.rules")
+    assert "Never expose internal implementation details" in en
