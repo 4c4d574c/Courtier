@@ -4,12 +4,14 @@ from unittest.mock import MagicMock
 
 from docmodels import Body, Footer, Header, Margin, PageContent, Position
 from docparse.parsers.structure_recognizer import (
+    _build_line_paragraph,
     _build_optional_paragraph,
     _build_paragraph,
     _merge_body_text_into_paragraphs,
     _parse_body,
     _parse_footer,
     _parse_header,
+    _validate_header_slots,
     recognize_page_structure,
 )
 
@@ -487,6 +489,86 @@ class TestRecognizePageStructure:
         mock_client.recognize_structure.assert_called_once_with(SAMPLE_LINES, "/fake/image.png")
         assert result.body.title.outline_level == "heading1"
         assert len(result.body.main_text) == 1
+
+
+class TestBuildLineParagraph:
+    """Test _build_line_paragraph helper (ruling_line / closing_line)."""
+
+    def test_synthetic_font_marks_no_source_line(self):
+        """合成线要素的 Font 标记 line_no=-1，不参与间距/缩进查表。"""
+        para = _build_line_paragraph(1, SAMPLE_LINES, "after")
+        assert len(para.elements) == 1
+        assert para.elements[0].font.line_no == -1
+        assert para.elements[0].font.text == ""
+
+    def test_position_derived_from_reference_line(self):
+        ref = SAMPLE_LINES[1]
+        para = _build_line_paragraph(1, SAMPLE_LINES, "after")
+        assert para.elements[0].position.y0 > ref["y1"]
+        para_before = _build_line_paragraph(1, SAMPLE_LINES, "before")
+        assert para_before.elements[0].position.y1 < ref["y0"]
+
+    def test_out_of_range_reference_returns_empty(self):
+        para = _build_line_paragraph(99, SAMPLE_LINES, "after")
+        assert not para.elements
+
+
+class TestValidateHeaderSlots:
+    """Test _validate_header_slots: 密级槽与发文字号槽装反时纠偏。"""
+
+    def test_swapped_slots_are_swapped_back(self):
+        header = Header(
+            classification_duration=_build_paragraph("X政办发〔2024〕1号", [2], SAMPLE_LINES),
+            issuing_number=_build_paragraph("机密★1年", [0], SAMPLE_LINES),
+        )
+
+        _validate_header_slots(header)
+
+        assert header.classification_duration.elements[0].font.text == "机密★1年"
+        assert header.issuing_number.elements[0].font.text == "X政办发〔2024〕1号"
+
+    def test_correct_slots_untouched(self):
+        header = Header(
+            classification_duration=_build_paragraph("机密★1年", [0], SAMPLE_LINES),
+            issuing_number=_build_paragraph("X政办发〔2024〕1号", [2], SAMPLE_LINES),
+        )
+
+        _validate_header_slots(header)
+
+        assert header.classification_duration.elements[0].font.text == "机密★1年"
+        assert header.issuing_number.elements[0].font.text == "X政办发〔2024〕1号"
+
+    def test_ambiguous_slots_untouched(self):
+        """两侧都无明确文本特征时不做交换。"""
+        header = Header(
+            classification_duration=_build_paragraph("长期", [], SAMPLE_LINES),
+            issuing_number=_build_paragraph("5号", [], SAMPLE_LINES),
+        )
+
+        _validate_header_slots(header)
+
+        assert header.classification_duration.elements[0].font.text == "长期"
+        assert header.issuing_number.elements[0].font.text == "5号"
+
+    def test_recognize_page_structure_applies_validation(self):
+        """端到端：LLM 装反槽位时 recognize_page_structure 纠偏。"""
+        mock_client = MagicMock()
+        mock_client.recognize_structure.return_value = {
+            "header": {
+                "classification_duration": {
+                    "text": "X政办发〔2024〕1号",
+                    "line_indices": [2],
+                },
+                "issuing_number": {"text": "机密★1年", "line_indices": [0]},
+            },
+            "body": {},
+            "footer": {},
+        }
+
+        result = recognize_page_structure(SAMPLE_LINES, Margin(), mock_client, "/fake.png")
+
+        assert result.header.classification_duration.elements[0].font.text == "机密★1年"
+        assert result.header.issuing_number.elements[0].font.text == "X政办发〔2024〕1号"
 
 
 class TestMergeBodyTextIntoParagraphs:

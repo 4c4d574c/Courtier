@@ -7,6 +7,7 @@ multimodal LLM to classify lines into header/body/footer structure.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from docmodels import (
@@ -56,6 +57,11 @@ _HEADING_EXPECTED_FAMILY: dict[str, set[str]] = {
     "heading2": {"楷体"},
     "heading3": {"仿宋"},
 }
+
+# 版头槽位后校验（见 _validate_header_slots）：密级槽的文本特征（密级/绝密/
+# 机密/秘密/▲/★）与发文字号槽的文本特征（括号年份，如 〔2025〕/[2026】）。
+_SECRECY_TEXT_RE = re.compile(r"密级|绝密|机密|秘密|▲|★")
+_ISSUING_NUMBER_TEXT_RE = re.compile(r"[〔\[【(（][^〕\]】)）]{0,6}(?:19|20)\d{2}")
 
 
 def _safe_get(data: dict[str, Any] | None, key: str, default: Any = None) -> Any:
@@ -173,7 +179,10 @@ def _build_line_paragraph(
     y1 = y0 + line_height
 
     pos = Position(x0=ref_x0, y0=y0, x1=ref_x1, y1=y1)
-    return Paragraph(elements=[LineElement(position=pos, font=Font())])
+    # line_no=-1 marks the synthetic element as "no source line": it must not
+    # join the spacing/indent lookup in merge_spacing_into_page_content (the
+    # default 0 would silently inherit line 0's — typically 密级行's — spacing).
+    return Paragraph(elements=[LineElement(position=pos, font=Font(line_no=-1))])
 
 
 def _build_ruling_line(
@@ -240,6 +249,40 @@ def _parse_header(
             extracted_lines,
         ),
     )
+
+
+def _validate_header_slots(header: Header) -> None:
+    """Swap classification_duration / issuing_number when they are misplaced.
+
+    The LLM occasionally slots the header lines backwards (e.g. the secrecy
+    line "密级▲长期" lands in issuing_number and the document number
+    "X办〔2026〕号" in classification_duration).  Text features are
+    unambiguous for these two slots, so a regex cross-check can safely swap
+    them back.  Ambiguous cases (no clear feature on either side) are left
+    untouched.
+    """
+    classification = header.classification_duration
+    issuing = header.issuing_number
+    if classification is None and issuing is None:
+        return
+
+    def _text(para: Paragraph | None) -> str:
+        return "" if para is None else "".join(e.font.text for e in para.elements)
+
+    def _looks_secrecy(text: str) -> bool:
+        return bool(_SECRECY_TEXT_RE.search(text))
+
+    def _looks_issuing_number(text: str) -> bool:
+        return bool(_ISSUING_NUMBER_TEXT_RE.search(text))
+
+    c_text = _text(classification)
+    n_text = _text(issuing)
+    misplaced = (c_text and _looks_issuing_number(c_text) and not _looks_secrecy(c_text)) or (
+        n_text and _looks_secrecy(n_text) and not _looks_issuing_number(n_text)
+    )
+    if misplaced:
+        logger.info("Header slot validation swapped classification_duration <-> issuing_number")
+        header.classification_duration, header.issuing_number = issuing, classification
 
 
 def _parse_body(
@@ -615,6 +658,7 @@ def _classified_lines_to_page_content(
             header_map.get("ruling_line_pos", []), extracted_lines
         ),
     )
+    _validate_header_slots(header)
 
     # Merge consecutive body_text/heading lines into paragraphs
     body_main_text = _merge_body_text_into_paragraphs(
@@ -899,6 +943,7 @@ def recognize_page_structure(
     structure = llm_client.recognize_structure(extracted_lines, image_path)
 
     header = _parse_header(structure.get("header"), extracted_lines)
+    _validate_header_slots(header)
     body = _parse_body(structure.get("body"), extracted_lines, img_width)
     footer = _parse_footer(structure.get("footer"), extracted_lines)
 
