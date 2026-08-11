@@ -35,63 +35,49 @@ STRUCTURE_RECOGNITION_SYSTEM_PROMPT = """你是一个中国党政机关公文（
 
 {
   "header": {
-    "copy_number": {"text": "份号内容", "line_indices": [0]},
-    "classification_duration": {
-      "text": "密级内容", "line_indices": [1]
-    },
-    "urgency_level": {"text": "紧急程度内容", "line_indices": [2]},
-    "issuing_logo": {
-      "text": "发文机关标志内容", "line_indices": [3]
-    },
-    "issuing_number": {
-      "text": "发文字号内容", "line_indices": [4]
-    },
-    "signatory": {"text": "签发人内容", "line_indices": [5]},
+    "copy_number": {"line_indices": [0]},
+    "classification_duration": {"line_indices": [1]},
+    "urgency_level": {"line_indices": [2]},
+    "issuing_logo": {"line_indices": [3]},
+    "issuing_number": {"line_indices": [4]},
+    "signatory": {"line_indices": [5]},
     "ruling_line_pos": {
-      "text": "", "line_indices": [],
+      "line_indices": [],
       "reference_line_index": 5
     }
   },
   "body": {
-    "title": {"text": "标题内容", "line_indices": [6]},
-    "addressee": {"text": "主送机关内容", "line_indices": [7]},
+    "title": {"line_indices": [6]},
+    "addressee": {"line_indices": [7]},
     "main_text": [
-      {"text": "正文第一段", "line_indices": [8, 9, 10], "outline_level": "body_text"},
-      {"text": "一、工作目标", "line_indices": [11], "outline_level": "heading1"},
-      {"text": "（一）二级标题", "line_indices": [12], "outline_level": "heading2"}
+      {"line_indices": [8, 9, 10], "outline_level": "body_text"},
+      {"line_indices": [11], "outline_level": "heading1"},
+      {"line_indices": [12], "outline_level": "heading2"}
     ],
-    "attachment_note": {
-      "text": "附件说明内容", "line_indices": [13]
-    },
-    "issuing_signature": {
-      "text": "发文机关署名内容", "line_indices": [14]
-    },
-    "issue_date": {"text": "成文日期内容", "line_indices": [15]},
+    "attachment_note": {"line_indices": [13]},
+    "issuing_signature": {"line_indices": [14]},
+    "issue_date": {"line_indices": [15]},
     "stamp": null,
     "note": null,
     "attachments": null
   },
   "footer": {
     "closing_line": {
-      "text": "", "line_indices": [],
+      "line_indices": [],
       "reference_line_index": 16
     },
-    "carbon_copy": {
-      "text": "抄送机关内容", "line_indices": [16]
-    },
-    "issuing_office": {
-      "text": "印发机关内容", "line_indices": [17]
-    },
-    "distribution_date": {
-      "text": "印发日期内容", "line_indices": [18]
-    },
-    "page_number": {"text": "页码", "line_indices": [19]}
+    "carbon_copy": {"line_indices": [16]},
+    "issuing_office": {"line_indices": [17]},
+    "distribution_date": {"line_indices": [18]},
+    "page_number": {"line_indices": [19]}
   }
 }
 
 重要规则：
 - 如果某个字段在文档中不存在，设为 null
 - line_indices 对应输入文本的行号索引（从0开始）
+- 不要回拷文本内容：输出只需给出 line_indices（和 outline_level），
+  段落文本由调用方按行号自行取用
 - reference_line_index 用于红色分割线和黑色反线：指定它们紧邻的文本行号
   * ruling_line_pos.reference_line_index：红色分割线紧接在此行**之后**（通常是发文字号或签发人行）
   * closing_line.reference_line_index：黑色反线紧接在此行**之前**（通常是抄送机关或印发机关行）
@@ -178,6 +164,29 @@ def _encode_image(image_path: str) -> tuple[str, str]:
     }
     mime_type = mime_map.get(ext, "image/png")
     return image_data, mime_type
+
+
+def _encode_page_image(image_path: str, max_long_side: int) -> tuple[str, str]:
+    """Downscale and JPEG-encode a page image for the structure LLM.
+
+    Structure recognition only needs layout-level detail, so the page is
+    capped at ``max_long_side`` pixels and sent as JPEG (quality 80) to
+    cut the base64 payload — full-resolution PNGs dominate request size
+    and LLM prefill time.
+    """
+    img = Image.open(image_path)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    long_side = max(img.size)
+    if max_long_side > 0 and long_side > max_long_side:
+        scale = max_long_side / long_side
+        img = img.resize(
+            (round(img.width * scale), round(img.height * scale)),
+            Image.Resampling.LANCZOS,
+        )
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=80)
+    return base64.b64encode(buf.getvalue()).decode("utf-8"), "image/jpeg"
 
 
 def _format_lines(lines: list[dict[str, Any]]) -> str:
@@ -282,7 +291,7 @@ class LLMClient:
         if not img.exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
 
-        image_data, mime_type = _encode_image(image_path)
+        image_data, mime_type = _encode_page_image(image_path, self._config.llm_image_max_long_side)
 
         numbered_text = _format_lines(lines)
         text_prompt = (
@@ -416,6 +425,17 @@ class LLMClient:
         for crop in crops:
             composite.paste(crop, (0, y_offset))
             y_offset += crop.height + 2  # 2px separator
+
+        # 过小画布（如只剩个别短行时）会让 vLLM 侧 500，垫白到最小尺寸兜底
+        min_width, min_height = 640, 128
+        if composite.width < min_width or composite.height < min_height:
+            padded = Image.new(
+                "L",
+                (max(composite.width, min_width), max(composite.height, min_height)),
+                255,
+            )
+            padded.paste(composite, (0, 0))
+            composite = padded
 
         # Encode composite as base64
         buf = io.BytesIO()

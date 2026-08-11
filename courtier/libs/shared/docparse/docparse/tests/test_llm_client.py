@@ -203,11 +203,15 @@ class TestRecognizeFontsFromCrops:
 
     @staticmethod
     def _make_page(path) -> str:
-        """200x100 grayscale page: dark band on top, light band below."""
-        img = PILImage.new("L", (200, 100), 255)
+        """700x400 grayscale page: dark band on top, light band below.
+
+        Sized so the line-crop composite exceeds the minimum canvas
+        (640x128) that recognize_fonts_from_crops pads tiny images to.
+        """
+        img = PILImage.new("L", (700, 400), 255)
         draw = ImageDraw.Draw(img)
-        draw.rectangle([0, 0, 200, 49], fill=30)  # dark band: rows 0-49
-        draw.rectangle([0, 50, 200, 99], fill=220)  # light band: rows 50-99
+        draw.rectangle([0, 0, 700, 199], fill=30)  # dark band: rows 0-199
+        draw.rectangle([0, 200, 700, 399], fill=220)  # light band: rows 200-399
         img.save(path)
         return str(path)
 
@@ -255,8 +259,8 @@ class TestRecognizeFontsFromCrops:
 
         # 输入乱序：行号 5（深色带区域）在前，行号 2（浅色带区域）在后
         lines = [
-            {"line_no": 5, "text": "甲", "x0": 10, "y0": 10, "x1": 190, "y1": 40},
-            {"line_no": 2, "text": "乙", "x0": 10, "y0": 60, "x1": 190, "y1": 90},
+            {"line_no": 5, "text": "甲", "x0": 10, "y0": 10, "x1": 690, "y1": 180},
+            {"line_no": 2, "text": "乙", "x0": 10, "y0": 220, "x1": 690, "y1": 390},
         ]
         font_info = client.recognize_fonts_from_crops(page, lines)
 
