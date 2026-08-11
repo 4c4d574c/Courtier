@@ -426,17 +426,6 @@ class LLMClient:
             composite.paste(crop, (0, y_offset))
             y_offset += crop.height + 2  # 2px separator
 
-        # 过小画布（如只剩个别短行时）会让 vLLM 侧 500，垫白到最小尺寸兜底
-        min_width, min_height = 640, 128
-        if composite.width < min_width or composite.height < min_height:
-            padded = Image.new(
-                "L",
-                (max(composite.width, min_width), max(composite.height, min_height)),
-                255,
-            )
-            padded.paste(composite, (0, 0))
-            composite = padded
-
         # Encode composite as base64
         buf = io.BytesIO()
         composite.save(buf, format="PNG")

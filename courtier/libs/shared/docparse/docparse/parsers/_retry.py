@@ -17,8 +17,8 @@ from openai import APIStatusError
 
 logger = logging.getLogger(__name__)
 
-_MAX_RETRIES = 3
-_BASE_DELAY = 1.0  # seconds, doubled each retry
+_MAX_RETRIES = 4
+_BASE_DELAY = 2.0  # seconds, doubled each retry
 
 
 def _is_retryable(exc: Exception) -> bool:
@@ -55,7 +55,7 @@ def _call_with_retry(
     Args:
         call_fn: Callable that performs the single API request.
         description: Human-readable label for log messages.
-        max_retries: Maximum number of retries (default 3, for 4 total attempts).
+        max_retries: Maximum number of retries (default 4, for 5 total attempts).
         base_delay: Initial backoff delay in seconds, doubled each retry.
 
     Returns:

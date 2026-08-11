@@ -91,9 +91,9 @@ class TestCallWithRetry:
             calls += 1
             raise _status_error(429)
 
-        with pytest.raises(RuntimeError, match="failed after 4 attempts"):
+        with pytest.raises(RuntimeError, match="failed after 5 attempts"):
             _call_with_retry(call, "test call", base_delay=0)
-        assert calls == 4
+        assert calls == 5
 
     def test_5xx_is_retried(self):
         calls = 0
@@ -103,9 +103,9 @@ class TestCallWithRetry:
             calls += 1
             raise _status_error(500)
 
-        with pytest.raises(RuntimeError, match="failed after 4 attempts"):
+        with pytest.raises(RuntimeError, match="failed after 5 attempts"):
             _call_with_retry(call, "test call", base_delay=0)
-        assert calls == 4
+        assert calls == 5
 
     def test_network_error_is_retried(self):
         calls = 0
@@ -115,9 +115,9 @@ class TestCallWithRetry:
             calls += 1
             raise _connection_error()
 
-        with pytest.raises(RuntimeError, match="failed after 4 attempts"):
+        with pytest.raises(RuntimeError, match="failed after 5 attempts"):
             _call_with_retry(call, "test call", base_delay=0)
-        assert calls == 4
+        assert calls == 5
 
     def test_retries_exhausted_raises_runtime_error(self):
         calls = 0
@@ -203,11 +203,7 @@ class TestRecognizeFontsFromCrops:
 
     @staticmethod
     def _make_page(path) -> str:
-        """700x400 grayscale page: dark band on top, light band below.
-
-        Sized so the line-crop composite exceeds the minimum canvas
-        (640x128) that recognize_fonts_from_crops pads tiny images to.
-        """
+        """700x400 grayscale page: dark band on top, light band below."""
         img = PILImage.new("L", (700, 400), 255)
         draw = ImageDraw.Draw(img)
         draw.rectangle([0, 0, 700, 199], fill=30)  # dark band: rows 0-199
