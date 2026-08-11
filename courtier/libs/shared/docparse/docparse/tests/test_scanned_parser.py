@@ -840,3 +840,204 @@ class TestScannedParserPipeline:
         for path in pages:
             assert len(received[path]) == 1
             assert received[path][0]["text"] == "正文内容行"
+
+
+def _two_line_result() -> OCRPageResult:
+    return OCRPageResult(
+        width=400,
+        height=600,
+        lines=[
+            OCRLineResult(
+                text="一、标题行",
+                line_no=0,
+                x0=50.0,
+                y0=100.0,
+                x1=350.0,
+                y1=120.0,
+                confidence=0.99,
+            ),
+            OCRLineResult(
+                text="正文内容行",
+                line_no=1,
+                x0=50.0,
+                y0=150.0,
+                x1=350.0,
+                y1=170.0,
+                confidence=0.99,
+            ),
+        ],
+        blocks=[],
+    )
+
+
+class _StubFontModelClient:
+    """Font model stub: maps image path to (font_info, unrecognized) or an exception."""
+
+    outcomes: dict = {}
+
+    def __init__(self, base_url, conf_threshold=0.6, margin_threshold=0.15):
+        pass
+
+    def recognize_lines(self, page_image_path, lines):
+        outcome = self.outcomes[page_image_path]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+class TestFontModelIntegration:
+    """Font-model-first Phase 2.5 wiring with mocked model/LLM backends."""
+
+    def test_model_result_merged_and_llm_gets_only_unrecognized(self, monkeypatch, tmp_path):
+        p = tmp_path / "page.png"
+        _write_png(p)
+        page = str(p)
+
+        _StubFontModelClient.outcomes = {
+            page: ({0: {"font_family": "黑体", "font_weight": False, "font_style": False}}, [1])
+        }
+        monkeypatch.setattr(scanned_mod, "FontModelClient", _StubFontModelClient)
+
+        received: dict[str, list] = {}
+        structure_lines: list[list] = []
+
+        class _TrackingLLMClient(_FakeLLMClient):
+            def recognize_fonts_from_crops(self, page_image_path, lines):
+                received[page_image_path] = list(lines)
+                return {1: {"font_family": "仿宋", "font_weight": False, "font_style": False}}
+
+            def recognize_structure(self, lines, image_path):
+                structure_lines.append(list(lines))
+                return super().recognize_structure(lines, image_path)
+
+        engine = _StubOcrEngine({page: _two_line_result()})
+        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_TrackingLLMClient)
+
+        ScannedParser().parse(page, _make_config(font_model_url="http://font:5000"))
+
+        # LLM 兜底只收到模型未识别的行（line_no == 1）
+        assert [line["line_no"] for line in received[page]] == [1]
+        # 模型识别结果已合并进行数据（结构 LLM 看到的行带字体族）
+        fonts = {line["line_no"]: line["font_family"] for line in structure_lines[0]}
+        assert fonts == {0: "黑体", 1: "仿宋"}
+
+    def test_model_failure_falls_back_to_full_llm(self, monkeypatch, tmp_path):
+        p = tmp_path / "page.png"
+        _write_png(p)
+        page = str(p)
+
+        _StubFontModelClient.outcomes = {page: RuntimeError("model down")}
+        monkeypatch.setattr(scanned_mod, "FontModelClient", _StubFontModelClient)
+
+        received: dict[str, list] = {}
+
+        class _TrackingLLMClient(_FakeLLMClient):
+            def recognize_fonts_from_crops(self, page_image_path, lines):
+                received[page_image_path] = list(lines)
+                return {}
+
+        engine = _StubOcrEngine({page: _two_line_result()})
+        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_TrackingLLMClient)
+
+        doc = ScannedParser().parse(page, _make_config(font_model_url="http://font:5000"))
+
+        # 整页回退：LLM 收到全部行；警告记录模型失败
+        assert [line["line_no"] for line in received[page]] == [0, 1]
+        assert any("字体模型识别失败" in w for w in doc.warnings)
+
+
+class TestClassifyMode:
+    """classify_mode wiring for Phase 4 structure recognition."""
+
+    def test_rule_only_skips_llm(self, monkeypatch, tmp_path):
+        p = tmp_path / "page.png"
+        _write_png(p)
+        page = str(p)
+
+        calls = {"structure": 0}
+
+        class _CountingLLMClient(_FakeLLMClient):
+            def recognize_structure(self, lines, image_path):
+                calls["structure"] += 1
+                return super().recognize_structure(lines, image_path)
+
+        engine = _StubOcrEngine({page: _ok_result()})
+        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_CountingLLMClient)
+
+        doc = ScannedParser().parse(page, _make_config(classify_mode="rule_only"))
+
+        assert calls["structure"] == 0
+        assert len(doc.pages) == 1
+
+    def test_rule_first_low_confidence_uses_llm(self, monkeypatch, tmp_path):
+        p = tmp_path / "page.png"
+        _write_png(p)
+        page = str(p)
+
+        monkeypatch.setattr(scanned_mod, "_rules_acceptable", lambda *_a, **_k: False)
+
+        calls = {"structure": 0}
+
+        class _CountingLLMClient(_FakeLLMClient):
+            def recognize_structure(self, lines, image_path):
+                calls["structure"] += 1
+                return super().recognize_structure(lines, image_path)
+
+        engine = _StubOcrEngine({page: _ok_result()})
+        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_CountingLLMClient)
+
+        ScannedParser().parse(page, _make_config(classify_mode="rule_first"))
+
+        assert calls["structure"] == 1
+
+    def test_rule_first_confident_skips_llm(self, monkeypatch, tmp_path):
+        p = tmp_path / "page.png"
+        _write_png(p)
+        page = str(p)
+
+        # 启发式本身由 TestRulesAcceptable 覆盖，这里只验证接线：
+        # 规则结果被接受时不调用 LLM。
+        monkeypatch.setattr(scanned_mod, "_rules_acceptable", lambda *_a, **_k: True)
+
+        calls = {"structure": 0}
+
+        class _CountingLLMClient(_FakeLLMClient):
+            def recognize_structure(self, lines, image_path):
+                calls["structure"] += 1
+                return super().recognize_structure(lines, image_path)
+
+        engine = _StubOcrEngine({page: _ok_result()})
+        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_CountingLLMClient)
+
+        ScannedParser().parse(page, _make_config(classify_mode="rule_first"))
+
+        assert calls["structure"] == 0
+
+
+class TestRulesAcceptable:
+    """Unit tests for the rule_first acceptance heuristic."""
+
+    def _classified(self, confidences: list[float]):
+        from docparse.parsers.rules import ClassifiedLine, ClassifyResult
+
+        return ClassifyResult(
+            lines=[
+                ClassifiedLine(line_no=i, text="x", field="body_text", confidence=c)
+                for i, c in enumerate(confidences)
+            ]
+        )
+
+    def test_all_confident_accepted(self):
+        assert scanned_mod._rules_acceptable(self._classified([0.5, 0.9, 0.7])) is True
+
+    def test_empty_rejected(self):
+        assert scanned_mod._rules_acceptable(self._classified([])) is False
+
+    def test_low_confidence_above_ratio_rejected(self):
+        # 1/5 = 0.2 > 0.1 → reject
+        assert scanned_mod._rules_acceptable(self._classified([0.3, 0.5, 0.5, 0.5, 0.5])) is False
+
+    def test_boundary_ratio_accepted(self):
+        # 1/10 = 0.1 ≤ 0.1 → accept
+        confidences = [0.3] + [0.5] * 9
+        assert scanned_mod._rules_acceptable(self._classified(confidences)) is True

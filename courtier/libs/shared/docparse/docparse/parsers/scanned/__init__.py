@@ -21,7 +21,7 @@ from PIL import Image as PILImage
 from ..base import ParserConfig
 from ..llm_client import LLMClient
 from ..ocr import create_ocr_engine
-from ..rules import StructureRuleEngine
+from ..rules import ClassifyResult, StructureRuleEngine
 from ..spacing import (
     compute_first_indent,
     compute_left_right_indent,
@@ -33,6 +33,7 @@ from ..structure_recognizer import (
     recognize_page_structure,
 )
 from .font_detector import merge_font_info, refine_font_size_by_chars_per_line
+from .font_model import FontModelClient
 from .ocr_engine import (
     build_block_outline_map_from_blocks,
     get_outline_for_line,
@@ -52,6 +53,26 @@ from .spacing import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _rules_acceptable(
+    classified: ClassifyResult,
+    min_confidence: float = 0.5,
+    max_low_ratio: float = 0.1,
+) -> bool:
+    """Decide whether rule-engine classification is confident enough.
+
+    Used by ``classify_mode="rule_first"``: when the fraction of
+    low-confidence lines (below ``min_confidence``) stays under
+    ``max_low_ratio`` the rule result is accepted and the LLM call is
+    skipped.  Plain body_text lines score exactly 0.5 by default, so
+    only genuinely ambiguous lines (conflicting heading signals) fall
+    below the bar.
+    """
+    if not classified.lines:
+        return False
+    low = sum(1 for line in classified.lines if line.confidence < min_confidence)
+    return low / len(classified.lines) <= max_low_ratio
 
 
 class ScannedParser:
@@ -278,17 +299,77 @@ class ScannedParser:
 
             llm_client = LLMClient(effective_config)
 
-            # Phase 2.5: Crop-based LLM font recognition for every page
-            # with lines — fonts are measured from the rendered image, not
-            # stamped from the GB/T element mapping — run concurrently
-            # across pages (bounded by max_llm_concurrent).  A failed page
-            # keeps its lines without font info and is recorded in warnings.
-            font_tasks: list[tuple[int, int, list[dict[str, Any]]]] = []
-            for local_idx, pm in enumerate(page_metrics):
-                lines = pm["lines"]
-                if not lines:
-                    continue
-                font_tasks.append((local_idx, pm["page_no"], lines))
+            # Phase 2.5: Font recognition for every page with lines —
+            # fonts are measured from the rendered image, not stamped
+            # from the GB/T element mapping.  When font_model_url is
+            # configured, the self-trained ResNet model recognizes lines
+            # first (concurrency bounded by max_ocr_concurrent) and only
+            # unrecognized lines fall back to the crop-based LLM;
+            # otherwise every line goes through the LLM (bounded by
+            # max_llm_concurrent).  A failed page keeps its lines without
+            # font info and is recorded in warnings.
+            llm_font_tasks: list[tuple[int, int, list[dict[str, Any]]]] = []
+            if effective_config.font_model_url:
+                font_model = FontModelClient(
+                    effective_config.font_model_url,
+                    conf_threshold=effective_config.font_model_conf_threshold,
+                    margin_threshold=effective_config.font_model_margin_threshold,
+                )
+
+                def _recognize_fonts_by_model(
+                    task: tuple[int, int, list[dict[str, Any]]],
+                ) -> tuple[int, dict[int, dict[str, Any]] | None, list[dict[str, Any]], str | None]:
+                    local_idx, page_no, lines = task
+                    try:
+                        font_info, unrecognized_nos = font_model.recognize_lines(
+                            image_paths[local_idx],
+                            lines,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Scanned page %d: font model recognition failed"
+                            " (%s); falling back to LLM for all lines",
+                            page_no,
+                            exc,
+                        )
+                        return (
+                            local_idx,
+                            None,
+                            lines,
+                            f"第 {page_no + 1} 页字体模型识别失败，" f"已回退为 LLM 识别：{exc}",
+                        )
+                    unrecognized_set = set(unrecognized_nos)
+                    missing = [line for line in lines if line.get("line_no", 0) in unrecognized_set]
+                    logger.info(
+                        "Scanned page %d: font model recognized %d/%d lines",
+                        page_no,
+                        len(font_info),
+                        len(lines),
+                    )
+                    return local_idx, font_info, missing, None
+
+                model_tasks: list[tuple[int, int, list[dict[str, Any]]]] = [
+                    (local_idx, pm["page_no"], pm["lines"])
+                    for local_idx, pm in enumerate(page_metrics)
+                    if pm["lines"]
+                ]
+                if model_tasks:
+                    with ThreadPoolExecutor(max_workers=min(max_ocr, len(model_tasks))) as executor:
+                        model_outcomes = list(executor.map(_recognize_fonts_by_model, model_tasks))
+                    for local_idx, font_info, missing, warning in model_outcomes:
+                        if warning is not None:
+                            warnings.append(warning)
+                        if font_info:
+                            merge_font_info(page_metrics[local_idx]["lines"], font_info)
+                        if missing:
+                            pm = page_metrics[local_idx]
+                            llm_font_tasks.append((local_idx, pm["page_no"], missing))
+            else:
+                llm_font_tasks = [
+                    (local_idx, pm["page_no"], pm["lines"])
+                    for local_idx, pm in enumerate(page_metrics)
+                    if pm["lines"]
+                ]
 
             def _recognize_fonts(
                 task: tuple[int, int, list[dict[str, Any]]],
@@ -317,9 +398,9 @@ class ScannedParser:
                 )
                 return local_idx, font_info, None
 
-            if font_tasks:
-                with ThreadPoolExecutor(max_workers=min(max_llm, len(font_tasks))) as executor:
-                    font_outcomes = list(executor.map(_recognize_fonts, font_tasks))
+            if llm_font_tasks:
+                with ThreadPoolExecutor(max_workers=min(max_llm, len(llm_font_tasks))) as executor:
+                    font_outcomes = list(executor.map(_recognize_fonts, llm_font_tasks))
                 for local_idx, font_info, warning in font_outcomes:
                     if warning is not None:
                         warnings.append(warning)
@@ -340,11 +421,17 @@ class ScannedParser:
 
                 llm_needed.append((local_idx, pm))
 
-            # Phase 4: Concurrent LLM structure recognition (bounded by
-            # max_llm_concurrent), results assembled in page order.  A
-            # page whose LLM call fails falls back to rule-engine
+            # Phase 4: Structure recognition.  classify_mode selects the
+            # strategy per page: "llm" (default) always calls the LLM;
+            # "rule_first" runs the rule engine first and only calls the
+            # LLM when rule confidence is too low; "rule_only" never
+            # calls the LLM.  LLM calls run concurrently (bounded by
+            # max_llm_concurrent) with results assembled in page order.
+            # A page whose LLM call fails falls back to rule-engine
             # classification (unclassified lines are kept as body text)
             # instead of breaking the whole document.
+            classify_mode = getattr(effective_config, "classify_mode", "llm")
+
             def _recognize_structure(
                 task: tuple[int, dict[str, Any]],
             ) -> tuple[int, PageContent, list[str]]:
@@ -353,6 +440,34 @@ class ScannedParser:
                 lines = pm["lines"]
                 margin = pm["margin"]
                 page_warnings: list[str] = []
+
+                if classify_mode in ("rule_first", "rule_only"):
+                    first_warnings: list[str] = []
+                    classified = StructureRuleEngine().classify_lines(
+                        lines,
+                        has_position=True,
+                        page_height=effective_config.a4_height_pt,
+                    )
+                    if classify_mode == "rule_only" or _rules_acceptable(classified):
+                        page_content = _classified_lines_to_page_content(
+                            classified.lines,
+                            lines,
+                            margin,
+                            warnings=first_warnings,
+                        )
+                        page_warnings.extend(f"第 {page_no + 1} 页：{w}" for w in first_warnings)
+                        merge_spacing_into_page_content(
+                            page_content,
+                            pm["spacing_map"],
+                            pm["indent_map"],
+                            pm.get("left_right_indent_map"),
+                        )
+                        return page_no, page_content, page_warnings
+                    logger.info(
+                        "Scanned page %d: rule engine confidence too low, using LLM",
+                        page_no,
+                    )
+
                 try:
                     page_content = recognize_page_structure(
                         lines,

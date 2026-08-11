@@ -42,6 +42,27 @@ class ParserConfig(BaseModel):
         "(requires the docparse[deskew] extra)",
     )
 
+    # Self-trained ResNet font recognition model (single-char classifier).
+    # When font_model_url is set, per-line fonts are recognized by the
+    # model first and only unrecognized lines fall back to the LLM.
+    font_model_url: str = Field(default="", description="Font recognition model API base URL")
+    font_model_conf_threshold: float = Field(
+        default=0.6, description="Min char-level font confidence to accept a prediction"
+    )
+    font_model_margin_threshold: float = Field(
+        default=0.15, description="Min char-level top1-top2 margin to accept a prediction"
+    )
+
+    # LLM request optimization
+    llm_image_max_long_side: int = Field(
+        default=1280, description="Max long side of page images sent to the structure LLM"
+    )
+    classify_mode: str = Field(
+        default="llm",
+        description="Structure classification mode: 'llm' (always LLM), 'rule_first' "
+        "(rule engine first, LLM when rules lack confidence), 'rule_only'",
+    )
+
     @classmethod
     def from_env(cls) -> ParserConfig:
         """Create config from environment variables."""
@@ -52,8 +73,15 @@ class ParserConfig(BaseModel):
             ocr_api_url=os.getenv("DOCPARSE_OCR_API_URL", ""),
             ocr_lang=os.getenv("DOCPARSE_OCR_LANG", "ch"),
             ocr_engine=os.getenv("DOCPARSE_OCR_ENGINE", "ppstructure"),
+            max_llm_concurrent=int(os.getenv("DOCPARSE_MAX_LLM_CONCURRENT", "4")),
+            max_ocr_concurrent=int(os.getenv("DOCPARSE_MAX_OCR_CONCURRENT", "10")),
             ocr_max_image_long_side=int(os.getenv("DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE", "2048")),
             ocr_deskew_enabled=_env_flag("DOCPARSE_OCR_DESKEW"),
+            font_model_url=os.getenv("FONT_MODEL_URL", ""),
+            font_model_conf_threshold=float(os.getenv("FONT_MODEL_CONF_THRESHOLD", "0.6")),
+            font_model_margin_threshold=float(os.getenv("FONT_MODEL_MARGIN_THRESHOLD", "0.15")),
+            llm_image_max_long_side=int(os.getenv("DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE", "1280")),
+            classify_mode=os.getenv("DOCPARSE_CLASSIFY_MODE", "llm"),
         )
 
 
