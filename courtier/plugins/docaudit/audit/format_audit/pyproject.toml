@@ -10,5 +10,5 @@ dependencies = [
 [tool.uv.sources]
 courtier-plugin-sdk = { path = "../../../../libs/shared/plugin_sdk", editable = true }
 validator = { path = "../../../../libs/docaudit/validator", editable = true }
-docparse = { path = "../../../../libs/shared/docparse", editable = true }
+docparse = { path = "../../../../libs/docaudit/docparse", editable = true }
 docmodels = { path = "../../../../libs/shared/docmodels", editable = true }

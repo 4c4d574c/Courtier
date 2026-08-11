@@ -11,7 +11,7 @@ _ensure_plugin_path("parse")
 
 # Import at module level so the pluginʼs own ``tools`` module is cached
 # in sys.modules before other plugin tests can shadow it.
-from plugins.shared.parse.entry import ParsePlugin  # noqa: E402
+from plugins.docaudit.parse.entry import ParsePlugin  # noqa: E402
 
 
 @pytest.mark.asyncio
@@ -70,7 +70,7 @@ class TestParseDocumentSandbox:
         # Force a fresh import so the tool picks up the env var
         import importlib
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
 
@@ -87,7 +87,7 @@ class TestParseDocumentSandbox:
 
         import importlib
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
 
@@ -108,7 +108,7 @@ class TestParseDocumentSandbox:
 
         import importlib
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
 
@@ -131,7 +131,7 @@ class TestParseDocumentSandbox:
 
         import importlib
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         importlib.reload(tools_mod)
 
@@ -181,7 +181,7 @@ class TestSanitize:
     """_sanitize must keep fields the format validator reads from the output."""
 
     def test_preserves_validator_fields(self):
-        from plugins.shared.parse.tools import _sanitize
+        from plugins.docaudit.parse.tools import _sanitize
 
         paragraph = {
             "space_before": 1.5,
@@ -229,7 +229,7 @@ class TestSanitize:
         assert out["schema_version"] == "1.0"
 
     def test_strips_internal_fields(self):
-        from plugins.shared.parse.tools import _sanitize
+        from plugins.docaudit.parse.tools import _sanitize
 
         out = _sanitize(
             {
@@ -242,13 +242,13 @@ class TestSanitize:
         assert out["pages"][0]["page_no"] == 1
 
     def test_preserves_warnings(self):
-        from plugins.shared.parse.tools import _sanitize
+        from plugins.docaudit.parse.tools import _sanitize
 
         out = _sanitize({"warnings": ["OCR degraded"], "pages": []})
         assert out["warnings"] == ["OCR degraded"]
 
     def test_binary_becomes_placeholder(self):
-        from plugins.shared.parse.tools import _sanitize
+        from plugins.docaudit.parse.tools import _sanitize
 
         out = _sanitize({"blob": b"\x01\x02"})
         assert out["blob"].startswith("<binary:")
@@ -263,7 +263,7 @@ class TestParseCache:
         calls: list[str] = []
         _patch_parse(monkeypatch, calls)
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "sub" / "doc.pdf"
         target.parent.mkdir()
@@ -286,7 +286,7 @@ class TestParseCache:
         calls: list[str] = []
         _patch_parse(monkeypatch, calls)
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "doc.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")
@@ -305,7 +305,7 @@ class TestParseCache:
         monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
         _patch_parse(monkeypatch)
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "doc.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")
@@ -331,7 +331,7 @@ class TestParseCache:
         calls: list[str] = []
         _patch_parse(monkeypatch, calls)
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         outside = tmp_path.parent / "secret.pdf"
         outside.write_bytes(b"secret")
@@ -356,7 +356,7 @@ class TestParseWarnings:
             parse_fn=lambda path: _make_fake_doc(warnings=parse_warnings),
         )
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "doc.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")
@@ -380,7 +380,7 @@ class TestParseWarnings:
         warns = [f"第 {i} 页 OCR 识别失败" for i in range(1, 8)]
         _patch_parse(monkeypatch, parse_fn=lambda path: _make_fake_doc(warnings=warns))
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "doc.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")
@@ -397,7 +397,7 @@ class TestParseWarnings:
         monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
         _patch_parse(monkeypatch)
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "doc.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")
@@ -471,7 +471,7 @@ class TestExcludeNoneDump:
 
         _patch_parse(monkeypatch, parse_fn=lambda path: make_doc())
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "doc.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")
@@ -512,7 +512,7 @@ class TestExcludeNoneDump:
 class TestMissingParam:
     @pytest.mark.asyncio
     async def test_missing_file_path_returns_friendly_error(self):
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         result = await tools_mod.ParseTool().execute()
         assert result.success is False
@@ -520,7 +520,7 @@ class TestMissingParam:
 
     @pytest.mark.asyncio
     async def test_non_string_file_path_returns_friendly_error(self):
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         result = await tools_mod.ParseTool().execute(file_path=123)
         assert result.success is False
@@ -529,7 +529,7 @@ class TestMissingParam:
 
 class TestOutputSchema:
     def test_type_names_are_valid_json_schema(self):
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         allowed = {"string", "integer", "number", "boolean", "array", "object", "null"}
 
@@ -547,7 +547,7 @@ class TestOutputSchema:
         walk(tools_mod.ParseTool.output_schema)
 
     def test_top_level_fields_match_document_model(self):
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         props = tools_mod.ParseTool.output_schema["properties"]
         for key in ("schema_version", "doc_id", "total_page_num", "pages", "warnings"):
@@ -556,7 +556,7 @@ class TestOutputSchema:
 
     def test_warnings_summary_declared(self):
         """warnings_summary 已注入 data 顶层，schema 必须同步声明（防漂移）。"""
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         props = tools_mod.ParseTool.output_schema["properties"]
         assert "warnings_summary" in props
@@ -576,7 +576,7 @@ class TestNonBlockingExecute:
 
         _patch_parse(monkeypatch, parse_fn=slow_parse)
 
-        import plugins.shared.parse.tools as tools_mod
+        import plugins.docaudit.parse.tools as tools_mod
 
         target = tmp_path / "big.pdf"
         target.write_bytes(b"%PDF-1.4 fake pdf content")

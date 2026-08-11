@@ -19,7 +19,7 @@ dependencies = [
 deskew = ["opencv-python-headless>=4.10"]
 
 [tool.uv.sources]
-docmodels = { path = "../docmodels", editable = true }
+docmodels = { path = "../../shared/docmodels", editable = true }
 
 [build-system]
 requires = ["hatchling"]

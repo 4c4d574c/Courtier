@@ -57,7 +57,7 @@ courtier-plugin-sdk = { path = "libs/shared/plugin_sdk", editable = true }
 docannot = { path = "libs/shared/docannot", editable = true }
 doccorrector = { path = "libs/docaudit/doccorrector", editable = true }
 docmodels = { path = "libs/shared/docmodels", editable = true }
-docparse = { path = "libs/shared/docparse", editable = true }
+docparse = { path = "libs/docaudit/docparse", editable = true }
 validator = { path = "libs/docaudit/validator", editable = true }
 
 [dependency-groups]

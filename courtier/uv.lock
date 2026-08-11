@@ -523,7 +523,7 @@ requires-dist = [
     { name = "docannot", editable = "libs/shared/docannot" },
     { name = "doccorrector", editable = "libs/docaudit/doccorrector" },
     { name = "docmodels", editable = "libs/shared/docmodels" },
-    { name = "docparse", editable = "libs/shared/docparse" },
+    { name = "docparse", editable = "libs/docaudit/docparse" },
     { name = "docxnote", specifier = ">=0.2.0" },
     { name = "elastic-transport", specifier = "==8.17.0" },
     { name = "elasticsearch", specifier = "==8.17.0" },
@@ -782,7 +782,7 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.13.0" }]
 [[package]]
 name = "docparse"
 version = "1.0.0"
-source = { editable = "libs/shared/docparse" }
+source = { editable = "libs/docaudit/docparse" }
 dependencies = [
     { name = "docmodels" },
     { name = "lxml" },
@@ -2289,7 +2289,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "docmodels", editable = "libs/shared/docmodels" },
-    { name = "docparse", editable = "libs/shared/docparse" },
+    { name = "docparse", editable = "libs/docaudit/docparse" },
 ]
 
 [[package]]

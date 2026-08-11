@@ -132,7 +132,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "courtier-plugin-sdk", editable = "../../../libs/shared/plugin_sdk" },
-    { name = "docparse", editable = "../../../libs/shared/docparse" },
+    { name = "docparse", editable = "../../../libs/docaudit/docparse" },
 ]
 
 [[package]]
@@ -169,7 +169,7 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.13.0" }]
 [[package]]
 name = "docparse"
 version = "1.0.0"
-source = { editable = "../../../libs/shared/docparse" }
+source = { editable = "../../../libs/docaudit/docparse" }
 dependencies = [
     { name = "docmodels" },
     { name = "lxml" },
@@ -188,12 +188,14 @@ requires-dist = [
     { name = "lxml", specifier = ">=6.0.4" },
     { name = "numpy", specifier = ">=2.4.4" },
     { name = "openai", specifier = ">=2.31.0" },
+    { name = "opencv-python-headless", marker = "extra == 'deskew'", specifier = ">=4.10" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pydantic", specifier = ">=2.13.0" },
     { name = "pymupdf", specifier = ">=1.27.2.2" },
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "requests", specifier = ">=2.33.1" },
 ]
+provides-extras = ["deskew"]
 
 [[package]]
 name = "h11"

@@ -24,12 +24,13 @@ def _plugin_dir(name: str) -> str:
 
     Supports the restructured layout:
     - plugins/shared/{name}/ (shared plugins)
+    - plugins/docaudit/{name}/ (domain plugins, e.g. parse)
     - plugins/docaudit/audit/{name}/ (docaudit audit plugins)
     """
     direct = _PLUGINS_ROOT / name
     if direct.is_dir():
         return str(direct)
-    for sub in ("shared", "docaudit/audit"):
+    for sub in ("shared", "docaudit", "docaudit/audit"):
         nested = _PLUGINS_ROOT / sub / name
         if nested.is_dir():
             return str(nested)

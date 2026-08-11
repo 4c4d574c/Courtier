@@ -10,7 +10,7 @@ dependencies = [
 
 [tool.uv.sources]
 docmodels = { path = "../../shared/docmodels", editable = true }
-docparse = { path = "../../shared/docparse", editable = true }
+docparse = { path = "../../docaudit/docparse", editable = true }
 
 [build-system]
 requires = ["hatchling"]
