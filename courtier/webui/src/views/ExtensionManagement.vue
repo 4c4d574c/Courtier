@@ -104,14 +104,17 @@
           <span class="ext-badge" :class="d.enabled ? 'ext-badge--ok' : 'ext-badge--dim'">
             {{ d.enabled ? "已启用" : "已禁用" }}
           </span>
-          <label class="ext-switch">
+          <label
+            class="ext-switch"
+            :title="d.enabled ? '点击禁用该 domain 包' : '点击启用该 domain 包'"
+          >
             <input
               type="checkbox"
               :checked="d.enabled"
               :disabled="togglingDomain === d.name"
               @change="toggleDomain(d)"
             />
-            {{ d.enabled ? "禁用" : "启用" }}
+            <span class="ext-switch-track"></span>
           </label>
         </div>
         <template v-if="d.enabled">
@@ -127,14 +130,14 @@
               <span class="ext-badge" :class="s.enabled ? 'ext-badge--ok' : 'ext-badge--dim'">
                 {{ s.enabled ? "已启用" : "已禁用" }}
               </span>
-              <label class="ext-switch">
+              <label class="ext-switch" :title="s.enabled ? '点击禁用' : '点击启用'">
                 <input
                   type="checkbox"
                   :checked="s.enabled"
                   :disabled="toggling === s.name"
                   @change="toggleSkill(s, d.name)"
                 />
-                {{ s.enabled ? "禁用" : "启用" }}
+                <span class="ext-switch-track"></span>
               </label>
             </div>
             <p class="ext-card-desc">{{ s.description || "（无描述）" }}</p>
@@ -837,6 +840,8 @@ onMounted(reload);
   border: 1px solid var(--chat-border);
   border-radius: 12px;
   padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
 }
 
 .ext-card--disabled {
@@ -934,7 +939,9 @@ onMounted(reload);
 .ext-card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--chat-border);
 }
 
 .ext-btn {
@@ -1003,12 +1010,59 @@ onMounted(reload);
 
 .ext-switch {
   margin-left: auto;
-  font-size: 14px;
-  color: var(--chat-text-secondary);
-  cursor: pointer;
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  cursor: pointer;
+  flex: none;
+}
+
+.ext-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ext-switch-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--chat-bg-hover);
+  border: 1px solid var(--chat-border);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.ext-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--chat-text-tertiary);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.ext-switch input:checked + .ext-switch-track {
+  background: rgba(90, 138, 74, 0.22);
+  border-color: var(--ok-dim);
+}
+
+.ext-switch input:checked + .ext-switch-track::after {
+  transform: translateX(16px);
+  background: var(--ok-dim);
+}
+
+.ext-switch input:disabled + .ext-switch-track {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ext-modal-mask {
