@@ -148,6 +148,16 @@ async function postJson<T = unknown>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function putJson<T = unknown>(path: string, body: unknown): Promise<T> {
+  const res = await authFetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await parseErrorDetail(res, `PUT ${path} failed`);
+  return res.json() as Promise<T>;
+}
+
 function qs(params: Record<string, string | undefined>): string {
   const filtered = Object.entries(params).filter(
     ([, v]) => v !== undefined && v !== null,
@@ -480,6 +490,31 @@ export const api = {
     return postJson(`/admin/extensions/skills`, payload);
   },
 
+  async getSkill(name: string, domain: string): Promise<SkillDetail> {
+    const res = await authFetch(
+      `${API_BASE}/admin/extensions/skills/${name}?domain=${encodeURIComponent(domain)}`,
+    );
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/extensions/skills/:name failed");
+    return res.json();
+  },
+
+  async updateSkill(
+    name: string,
+    payload: {
+      domain: string;
+      display_name?: string;
+      description?: string;
+      mode?: string;
+      default_mode?: string;
+      tools?: string[];
+      skills?: string[];
+      tags?: string[];
+      system_prompt: string;
+    },
+  ): Promise<{ name: string; source: string; warnings?: string[] }> {
+    return putJson(`/admin/extensions/skills/${name}`, payload);
+  },
+
   async createDomain(payload: {
     name: string;
     title?: string;
@@ -543,6 +578,10 @@ export interface SkillInfo {
   version: string;
   timeoutSeconds: number;
   source: string;
+}
+
+export interface SkillDetail extends SkillInfo {
+  systemPrompt: string;
 }
 
 export interface ResourceSummary {

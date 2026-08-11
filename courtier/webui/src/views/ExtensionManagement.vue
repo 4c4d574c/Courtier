@@ -150,6 +150,11 @@
             <div v-if="s.tags.length" class="ext-chips">
               <span v-for="t in s.tags" :key="t" class="ext-chip ext-chip--tag">#{{ t }}</span>
             </div>
+            <div class="ext-card-actions">
+              <button class="ext-btn" type="button" @click="openEdit(s, d.name)">
+                查看 / 编辑
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -301,6 +306,89 @@
         </div>
       </div>
     </div>
+    <!-- ── 查看/编辑技能对话框 ───────────────────────────────── -->
+    <div v-if="editView.open" class="ext-modal-mask" @click.self="closeEdit">
+      <div class="ext-modal">
+        <h2 class="ext-modal-title">查看 / 编辑技能：{{ editForm.name }}</h2>
+        <p v-if="editView.loading" class="ext-dim">加载中...</p>
+        <div v-else class="ext-form">
+          <label class="ext-field">
+            <span>名称（不可修改）</span>
+            <input :value="editForm.name" disabled />
+          </label>
+          <label class="ext-field">
+            <span>中文名</span>
+            <input v-model.trim="editForm.display_name" placeholder="如：周报生成" />
+          </label>
+          <label class="ext-field">
+            <span>描述</span>
+            <input v-model.trim="editForm.description" placeholder="这个技能做什么" />
+          </label>
+          <label class="ext-field">
+            <span>执行策略（mode）</span>
+            <select v-model="editForm.mode">
+              <option value="">未指定</option>
+              <option value="auto">auto（由模型选择）</option>
+              <option value="sequential">sequential（顺序执行）</option>
+              <option value="parallel">parallel（并行执行）</option>
+            </select>
+          </label>
+          <label class="ext-field">
+            <span>默认执行模式</span>
+            <select v-model="editForm.default_mode">
+              <option value="">由模型选择</option>
+              <option value="subagent">subagent（独立子代理）</option>
+              <option value="inline">inline（主代理内联执行）</option>
+            </select>
+          </label>
+          <div class="ext-field">
+            <span>可用工具（勾选）</span>
+            <div class="ext-checklist">
+              <label v-for="t in availableTools" :key="t" class="ext-check">
+                <input type="checkbox" :value="t" v-model="editForm.tools" /> {{ t }}
+              </label>
+              <p v-if="!availableTools.length" class="ext-dim">暂无可选工具</p>
+            </div>
+          </div>
+          <div class="ext-field">
+            <span>子技能（勾选）</span>
+            <div class="ext-checklist">
+              <template v-for="d in skillDomains" :key="d.name">
+                <label
+                  v-for="s in d.items.filter((x) => x.name !== editForm.name)"
+                  :key="s.name"
+                  class="ext-check"
+                >
+                  <input type="checkbox" :value="s.name" v-model="editForm.skills" />
+                  {{ s.displayName }}（{{ s.name }}）
+                </label>
+              </template>
+            </div>
+          </div>
+          <label class="ext-field">
+            <span>标签（逗号分隔）</span>
+            <input v-model.trim="editForm.tagsText" placeholder="如：报告,周报" />
+          </label>
+          <label class="ext-field">
+            <span>工作流指令（Markdown，将作为技能的 system prompt）*</span>
+            <textarea v-model="editForm.system_prompt" rows="14"></textarea>
+          </label>
+          <p class="ext-dim">保存后立即生效（新会话按最新技能文件执行）。</p>
+          <p v-if="editView.error" class="ext-error">{{ editView.error }}</p>
+          <div class="ext-modal-actions">
+            <button class="ext-btn" type="button" @click="closeEdit">取消</button>
+            <button
+              class="ext-btn ext-btn--primary"
+              type="button"
+              :disabled="editView.saving"
+              @click="submitEdit"
+            >
+              {{ editView.saving ? "保存中..." : "保存" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -343,6 +431,21 @@ const createForm = reactive({
   display_name: "",
   description: "",
   domain: "",
+  default_mode: "",
+  tools: [] as string[],
+  skills: [] as string[],
+  tagsText: "",
+  system_prompt: "",
+});
+
+// Skill view/edit dialog state
+const editView = reactive({ open: false, loading: false, saving: false, error: "" });
+const editForm = reactive({
+  name: "",
+  domain: "",
+  display_name: "",
+  description: "",
+  mode: "",
   default_mode: "",
   tools: [] as string[],
   skills: [] as string[],
@@ -599,6 +702,65 @@ async function submitCreate() {
     createError.value = e instanceof Error ? e.message : "创建失败";
   } finally {
     creating.value = false;
+  }
+}
+
+async function openEdit(s: SkillInfo, domain: string) {
+  editView.open = true;
+  editView.loading = true;
+  editView.error = "";
+  editForm.name = s.name;
+  editForm.domain = domain;
+  try {
+    const detail = await api.getSkill(s.name, domain);
+    editForm.display_name = detail.displayName === s.name ? "" : detail.displayName;
+    editForm.description = detail.description;
+    editForm.mode = detail.mode === "auto" ? "auto" : detail.mode || "";
+    editForm.default_mode = detail.defaultMode;
+    editForm.tools = [...detail.tools];
+    editForm.skills = [...detail.skills];
+    editForm.tagsText = detail.tags.join(",");
+    editForm.system_prompt = detail.systemPrompt;
+  } catch (e: unknown) {
+    editView.error = e instanceof Error ? e.message : "加载技能详情失败";
+  } finally {
+    editView.loading = false;
+  }
+}
+
+function closeEdit() {
+  editView.open = false;
+  editView.error = "";
+}
+
+async function submitEdit() {
+  editView.error = "";
+  if (!editForm.system_prompt.trim()) {
+    editView.error = "工作流指令不能为空";
+    return;
+  }
+  editView.saving = true;
+  try {
+    await api.updateSkill(editForm.name, {
+      domain: editForm.domain,
+      display_name: editForm.display_name || undefined,
+      description: editForm.description || undefined,
+      mode: editForm.mode || undefined,
+      default_mode: editForm.default_mode || undefined,
+      tools: editForm.tools,
+      skills: editForm.skills,
+      tags: editForm.tagsText
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter(Boolean),
+      system_prompt: editForm.system_prompt,
+    });
+    editView.open = false;
+    await reload();
+  } catch (e: unknown) {
+    editView.error = e instanceof Error ? e.message : "保存失败";
+  } finally {
+    editView.saving = false;
   }
 }
 
