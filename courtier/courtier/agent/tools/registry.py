@@ -442,6 +442,8 @@ class ToolRegistry:
                             artifact_type=output_artifact_type,
                             data=output_data,
                             artifact_store=artifact_store,
+                            persisted_ref_id=getattr(result, "result_id", None)
+                            or (result.metadata or {}).get("persisted_ref_id"),
                         )
                     else:
                         # Auto-register with derived type — no tool left invisible.
@@ -452,6 +454,8 @@ class ToolRegistry:
                             data=output_data,
                             artifact_store=artifact_store,
                             debug_only=derived_type == "core.cached_output",
+                            persisted_ref_id=getattr(result, "result_id", None)
+                            or (result.metadata or {}).get("persisted_ref_id"),
                         )
             except Exception:
                 logger.warning(
@@ -565,20 +569,25 @@ class ToolRegistry:
         data: Any,
         artifact_store: ArtifactStore,
         debug_only: bool = False,
+        persisted_ref_id: str | None = None,
     ) -> None:
         """Register a tool output as an artifact via ``register_cached_ref``.
 
         Single path for both tools that declare ``output_artifact_type`` and
         the auto-registration fallback with a derived type; the fallback
         passes ``debug_only=True`` for the generic ``core.cached_output`` type.
+
+        The typed artifact id is aligned with the persistence layer: when the
+        output was persisted — by the registry-level persist or by the
+        summarizer, whose ``ExecutionResult.result_id`` carries the numbered
+        ``$ref:<tool>:N`` — the artifact is registered under that SAME id so
+        get_artifact's persisted-ref read and typed projection resolve against
+        one id space.  Only unp persisted (small, inline) outputs fall back to
+        the single-slot ``$ref:<tool>:latest``.
         """
         if data is None:
             return
-        # Design note: $ref:<tool>:latest intentionally overwrites
-        # the previous run's artifact. The system only tracks the
-        # most recent output per tool — if a tool produces a new
-        # result, it replaces the old one rather than accumulating.
-        ref_id = f"$ref:{tool_name}:latest"
+        ref_id = persisted_ref_id or f"$ref:{tool_name}:latest"
         if isinstance(data, dict) and data.get("__persisted_output__"):
             ref_id = data.get("ref_id", ref_id)
             data = self._resolve_persisted_data(data)

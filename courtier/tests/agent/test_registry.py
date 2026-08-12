@@ -477,6 +477,62 @@ class TestLargeResultPersistedOnce:
         assert list(store.ref_map) == ["$ref:big_tool:1"]
         assert "persisted_ref_id" not in result.metadata
 
+    @pytest.mark.asyncio
+    async def test_mid_size_result_artifact_aligned_with_summarizer_ref(self, tmp_path):
+        """中间地带（summarizer 阈值 < size <= registry 阈值）的产物 id 与持久化层对齐。
+
+        Regression: convert_document 的 OCR markdown（约 1500-3000 字符）落在
+        summarizer 持久化阈值之上、registry 持久化阈值之下——summarizer 生成
+        ``$ref:<tool>:N``，但 typed artifact 此前注册为 ``:latest``，导致
+        get_artifact 按持久化 ref 读取后无法按类型投影（两层 id 不一致）。
+        现在 typed artifact 必须复用 ``ExecutionResult.result_id`` 的编号 id。
+        """
+        from courtier.agent.artifacts.store import ArtifactStore
+        from courtier.agent.runtime.summarizer import ResultSummarizer
+
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        registry = ToolRegistry()
+        registry.configure_result_handling(summarizer=ResultSummarizer(artifact_store=store))
+
+        # > raw_inline_max_chars (1500) so the summarizer persists, but
+        # <= large_output_threshold (3000) so the registry does not.
+        mid_text = "x" * 2500
+        payload = {"markdown": mid_text, "format": "pdf"}
+
+        class MidTool:
+            name: str = "mid_tool"
+            description: str = "Returns a mid-size payload"
+            parameters: dict = {"type": "object", "properties": {}}
+            output_artifact_type: str = "core.document_markdown"
+
+            async def execute(self, **kwargs):
+                return ToolResult(success=True, data=payload)
+
+        registry.register(MidTool())
+
+        result = await registry.execute("mid_tool", artifact_store=store)
+
+        assert result.success
+        assert result.result_id == "$ref:mid_tool:1"
+        # Typed artifact registered under the SAME id as the persisted ref —
+        # no :latest / :1 split between the two layers.
+        artifacts = {a.artifact_id: a for a in store.list_all()}
+        assert "$ref:mid_tool:1" in artifacts, artifacts.keys()
+        assert artifacts["$ref:mid_tool:1"].artifact_type == "core.document_markdown"
+        assert not any(aid.endswith(":latest") for aid in artifacts)
+
+        # get_artifact 按持久化 ref 投影即可命中同一 typed artifact。
+        from courtier.agent.tools.builtin.get_artifact import GetArtifactTool
+
+        got = await GetArtifactTool().execute(
+            on_progress=lambda p: None,
+            artifact_store=store,
+            id="$ref:mid_tool:1",
+            artifact_type="core.plain_text",
+        )
+        assert got.success, got.error
+        assert got.data["value"] == mid_text
+
 
 class _VersionedTool:
     name = "versioned_tool"
