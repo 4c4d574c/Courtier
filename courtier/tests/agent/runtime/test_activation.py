@@ -343,3 +343,67 @@ class TestActivateDomainToolCatalog:
         tool = ActivateDomainTool([{"name": "docaudit", "description": "公文审计"}])
         assert "领域技能：" not in tool.description
         assert "docaudit" in tool.description
+
+
+class TestActivatedSkillToolStreaming:
+    """激活注入的 SkillTool 必须绑定当前 run 的流式回调与根预算锚点。
+
+    域激活发生在 run() 的 callback sweep 之后，若不绑定，子代理事件
+    不会转发到前端（界面上看不到子代理内部过程）。
+    """
+
+    @pytest.mark.asyncio
+    async def test_activation_binds_streaming_callback_and_root_handle(self, tmp_path):
+        agent, activator, _ = _build_harness(tmp_path)
+
+        async def fake_callback(event):
+            pass
+
+        agent._subagent_event_callback = fake_callback
+        agent._subagent_root_handle = object()
+
+        await activator.activate("docaudit")
+
+        tool = agent.tool_registry.get("format_audit")
+        assert isinstance(tool, SkillTool)
+        assert tool._on_subagent_event is fake_callback
+        assert tool._parent_handle is agent._subagent_root_handle
+
+    @pytest.mark.asyncio
+    async def test_skill_tool_passes_callback_to_delegate(self, tmp_path, monkeypatch):
+        """execute() 把绑定的回调透传给 AgentRuntime.delegate——事件到前端的关键一跳。"""
+        import courtier.agent.runtime.runtime as runtime_mod
+
+        agent, activator, _ = _build_harness(tmp_path)
+
+        async def fake_callback(event):
+            pass
+
+        agent._subagent_event_callback = fake_callback
+        await activator.activate("docaudit")
+
+        captured: dict = {}
+
+        async def fake_delegate(self, handle, **kwargs):
+            captured["on_subagent_event"] = kwargs.get("on_subagent_event")
+            from courtier.agent.runtime.result import ExecutionResult
+
+            return ExecutionResult(
+                success=True,
+                actor_type="skill",
+                actor_name=handle.agent_name,
+                raw_data={"ok": True},
+            )
+
+        monkeypatch.setattr(runtime_mod.AgentRuntime, "delegate", fake_delegate)
+
+        tool = agent.tool_registry.get("format_audit")
+
+        result = await tool.execute(
+            task="审核格式",
+            file_path="/tmp/doc.pdf",
+            mode="subagent",
+            on_progress=lambda progress: None,
+        )
+        assert result.success is True
+        assert captured.get("on_subagent_event") is fake_callback

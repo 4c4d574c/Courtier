@@ -58,6 +58,11 @@ class OrchestratorAgent(Agent):
         self._audit_results: dict[str, Any] = {}
         self._agent_runtime = agent_runtime
         self._skill_callback_lock = asyncio.Lock()
+        # Current-run sub-agent streaming callback and root budget handle,
+        # exposed so SkillTools injected by a mid-run domain activation
+        # (which the run()-start callback sweep cannot see) can bind them.
+        self._subagent_event_callback: Callable[..., Awaitable[None]] | None = None
+        self._subagent_root_handle: Any | None = None
 
         if model is None:
             raise ValueError(
@@ -197,18 +202,24 @@ class OrchestratorAgent(Agent):
         dispatch_context = dict(context) if context else {}
 
         # Create a root runtime handle so that every SkillTool spawn shares
-        # the same budget, depth limit, and cycle detection tree.
+        # the same budget, depth limit, and cycle detection tree.  Created
+        # whenever a runtime exists — skills may arrive mid-run via domain
+        # activation, so an empty registry must not leave them without a
+        # root anchor.
         from ..runtime.handle import AgentHandle
 
         root_handle: AgentHandle | None = None
-        skill_names = self._runtime_skill_names()
-        if self._agent_runtime is not None and skill_names:
+        if self._agent_runtime is not None:
             root_handle = AgentHandle.create(
                 agent_name="orchestrator",
                 agent_type="orchestrator",
                 task=task,
                 budget=self._agent_runtime.default_budget,
             )
+        # Expose the current run's wiring so DomainActivator can bind
+        # SkillTools it injects after this sweep.
+        self._subagent_event_callback = on_subagent_event
+        self._subagent_root_handle = root_handle
 
         # Forward sub-agent event streaming and parent handle to SkillTool instances.
         async with self._skill_callback_lock:
@@ -239,6 +250,7 @@ class OrchestratorAgent(Agent):
         )
 
         # Collect audit results from direct skill tool calls.
+        skill_names = self._runtime_skill_names()
         for name, data in result.get_named_tool_results().items():
             if name in skill_names and data is not None:
                 self._audit_results[name] = data

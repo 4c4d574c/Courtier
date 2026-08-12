@@ -209,6 +209,15 @@ class DomainActivator:
                 runtime=self._agent_runtime,
                 output_artifact_type=skill.output_artifact_type,
             )
+            # Bind the current run's sub-agent streaming callback and root
+            # budget handle: activation happens mid-run, AFTER the run()-start
+            # callback sweep, so these tools would otherwise stream no
+            # sub-agent events to the frontend and spawn without a root
+            # budget anchor.
+            tool.set_callbacks(
+                on_subagent_event=getattr(self._agent, "_subagent_event_callback", None)
+            )
+            tool.set_parent_handle(getattr(self._agent, "_subagent_root_handle", None))
             self._agent.tool_registry.register(tool)
             new_skills.append(skill.name)
 
