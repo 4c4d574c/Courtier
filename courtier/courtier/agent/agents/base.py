@@ -180,6 +180,7 @@ class Agent:
         prompt_engine: PromptEngine | None = None,
         agent_name: str = "",
         first_required_tool: str | None = None,
+        tool_filter: Callable[[Any], bool] | None = None,
     ) -> None:
         self.name = name
         self.role = role
@@ -216,11 +217,16 @@ class Agent:
         # Use provided shared registry as base, or create new one.
         # Plugin tools registered after agent construction are discovered
         # via incremental sync on each run() call.
+        # ``tool_filter`` gates visibility at construction and during sync —
+        # domain gating keeps the orchestrator's tool surface to the shared
+        # set plus whatever domains are active (None = everything visible).
+        self._tool_filter = tool_filter
         if tool_registry is not None:
             self._shared_tool_registry: ToolRegistry | None = tool_registry
             self.tool_registry = ToolRegistry()
             for tool in tool_registry.list_tools():
-                self.tool_registry.register(tool)
+                if self._tool_visible(tool):
+                    self.tool_registry.register(tool)
             # Sync infrastructure-level state (summarizer / result_store) from
             # the shared registry so that large tool results are summarised
             # before entering the LLM context.  These are shared references —
@@ -234,7 +240,8 @@ class Agent:
             self._shared_tool_registry = None
             self.tool_registry = ToolRegistry()
         for tool in tools or []:
-            self.tool_registry.register(tool)
+            if self._tool_visible(tool):
+                self.tool_registry.register(tool)
 
         self._sync_lock = asyncio.Lock()
 
@@ -297,6 +304,24 @@ class Agent:
         # Inject project-level rules (COURTIER.md) if provided
         if courtier_md_content:
             self._prompt_pipeline.set_courtier_md(courtier_md_content)
+
+    def _tool_visible(self, tool: Any) -> bool:
+        """Apply the tool visibility filter; None admits everything.
+
+        A filter exception fails closed (tool stays hidden) so a broken
+        filter can never widen the visible surface unintentionally.
+        """
+        if self._tool_filter is None:
+            return True
+        try:
+            return bool(self._tool_filter(tool))
+        except Exception:
+            logger.warning(
+                "Tool filter raised for %r; keeping it hidden",
+                getattr(tool, "name", tool),
+                exc_info=True,
+            )
+            return False
 
     @property
     def is_remote(self) -> bool:
@@ -416,7 +441,12 @@ class Agent:
                 for tool in self._shared_tool_registry.list_tools():
                     current = existing.get(tool.name)
                     if current is None:
-                        self.tool_registry.register(tool)
+                        # Newly registered tool — only surface it when the
+                        # visibility filter admits it (e.g. after a domain
+                        # activation).  No removal path: activation is
+                        # additive within a session.
+                        if self._tool_visible(tool):
+                            self.tool_registry.register(tool)
                         continue
                     current_inner = current._inner if isinstance(current, ScopedTool) else current
                     if current_inner is tool:
