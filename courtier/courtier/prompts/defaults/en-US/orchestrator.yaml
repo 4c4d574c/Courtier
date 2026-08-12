@@ -33,16 +33,6 @@ orchestrator:
     - When convert_document fails, report the reason to the user honestly; if
       the failure comes from a missing OCR service, point out that scanned
       files need the domain parsing tool (e.g. parse_document).
-
-    ## Citation markers
-    - When citing content from search_documents results in your conclusion,
-      append a `[[n]]` marker right after the cited sentence or clause, where
-      n is the hit's 1-based index in that result's hits list (the first hit
-      is [[1]]).
-    - Only reference indices that actually exist in the results — never
-      invent or guess a hit that wasn't returned.
-    - Markers only annotate the cited source; they don't change the wording
-      of the conclusion.
     {% if available_skills %}
     ## Active domain skills
     {% for skill in available_skills %}

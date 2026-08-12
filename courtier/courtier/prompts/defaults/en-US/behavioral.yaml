@@ -22,6 +22,15 @@ behavioral:
       Failed tool calls produce no valid $ref — do not construct references for failures.
       Never use one tool's $ref as another tool's reference.
       When calling get_artifact, use only the id parameter with the $ref value.
+    - 【Critical】search_documents citation marker rules:
+      When citing content from search_documents results in your conclusion,
+      append a `[[n]]` marker right after the cited sentence or clause, where
+      n is the hit's 1-based index in that result's hits list (the first hit
+      is [[1]]).
+      Only reference indices that actually exist in the results — never
+      invent or guess a hit that wasn't returned.
+      Markers only annotate the cited source; they don't change the wording
+      of the conclusion.
     - Output format: Final conclusions in Markdown (headings, lists, tables).
       If a Skill's instructions require JSON or another format, the Skill may use it
       internally, but your final aggregated output must be Markdown.
