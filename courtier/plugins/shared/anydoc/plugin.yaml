@@ -1,13 +1,20 @@
 name: anydoc
 version: "1.0.0"
 api: "1.0"
-description: "Generic office document conversion to Markdown (Word/Excel/PowerPoint/OpenDocument/RTF/EPUB/CSV/PDF)"
+description: "Generic office document conversion to Markdown (Word/Excel/PowerPoint/OpenDocument/RTF/EPUB/CSV/PDF) with OCR fallback for scanned files"
 # Conversion is a single Rust call measured in milliseconds; the timeout is
-# generous headroom for very large files only.
-timeout_ms: 60000
+# generous headroom for very large files and multi-page OCR jobs.
+timeout_ms: 300000
 
 capabilities:
   tools:
     - name: convert_document
       display_name: 转换文档
-      description: "Convert an office document (doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/epub/csv/text-based PDF) into GitHub-Flavored Markdown. No OCR: scanned or image-only PDFs are rejected."
+      description: "Convert an office document (doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/epub/csv/text-based PDF) into GitHub-Flavored Markdown. Scanned PDFs and images are OCR'd into Markdown when the OCR endpoint is configured."
+
+# The OCR fallback reads the endpoint from the process environment via
+# ANYDOC_OCR_API_URL. ${ENV:VAR} resolves from the host os.environ first,
+# then falls back to the host Settings (.env).
+runtime:
+  env:
+    ANYDOC_OCR_API_URL: "${ENV:ANYDOC_OCR_API_URL}"

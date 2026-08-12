@@ -10,6 +10,14 @@ from typing import Any
 
 from courtier_plugin_sdk import ToolResult
 
+# The plugin runs entry.py as a script (sys.path[0] = plugin dir), where
+# ``tools`` is a top-level module and relative imports fail; tests import it
+# as ``plugins.shared.anydoc.tools``. Support both.
+try:
+    from . import ocr
+except ImportError:  # script mode
+    import ocr  # type: ignore[no-redef]
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +28,8 @@ class ConvertDocumentTool:
     tool is format-agnostic and content-only: it covers the office formats
     the audit pipeline does not read (doc, xls/xlsx, ppt/pptx, ODF, RTF,
     EPUB, CSV) as well as DOCX and text-based PDF, and returns Markdown
-    instead of a positional/format model.
+    instead of a positional/format model.  Scanned/image-only files fall
+    back to the OCR endpoint (ANYDOC_OCR_API_URL) when configured.
     """
 
     name: str = "convert_document"
@@ -28,8 +37,8 @@ class ConvertDocumentTool:
     description: str = (
         "Convert an office document (Word, Excel, PowerPoint, OpenDocument, RTF, "
         "EPUB, CSV, or text-based PDF) from disk into GitHub-Flavored Markdown. "
-        "Does not perform OCR: scanned or image-only PDFs are rejected — use "
-        "parse_document for those. Returns the Markdown text and detected format."
+        "Scanned PDFs and image files are OCR'd into Markdown when the OCR "
+        "endpoint is configured. Returns the Markdown text and detected format."
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -52,6 +61,14 @@ class ConvertDocumentTool:
             "format": {
                 "type": "string",
                 "description": "Detected source format (e.g. 'docx', 'pdf', 'csv').",
+            },
+            "ocr": {
+                "type": "boolean",
+                "description": "True when the output came from the OCR fallback path.",
+            },
+            "pages": {
+                "type": "integer",
+                "description": "Page count when the OCR fallback path was used.",
             },
         },
         "required": ["markdown", "format"],
@@ -96,6 +113,12 @@ class ConvertDocumentTool:
                     error=f"File not found or not a regular file: {file_path}",
                 )
 
+            # Plain images are not convertible by anydoc — OCR them directly.
+            if resolved.suffix.lower() in ocr.IMAGE_EXTENSIONS:
+                return await self._ocr_fallback(
+                    resolved, fmt=resolved.suffix.lower().lstrip("."), page_count=1
+                )
+
             import anydoc
 
             data = resolved.read_bytes()
@@ -115,12 +138,27 @@ class ConvertDocumentTool:
                 # checks and cancellation requests.
                 markdown = await asyncio.to_thread(anydoc.to_markdown_bytes, data, fmt)
             except anydoc.UnsupportedError as exc:
+                # Scanned/image-only PDF — OCR fallback when configured.
+                if not ocr.is_ocr_configured():
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            f"不支持的格式或纯扫描/图片型文件（{exc}）。"
+                            "扫描件请使用 parse_document。"
+                        ),
+                    )
+                try:
+                    markdown, page_count = await ocr.ocr_pdf(str(resolved))
+                except RuntimeError as oexc:
+                    return ToolResult(success=False, error=str(oexc))
                 return ToolResult(
-                    success=False,
-                    error=(
-                        f"不支持的格式或纯扫描/图片型文件（{exc}）。"
-                        "扫描件请使用 parse_document。"
-                    ),
+                    success=True,
+                    data={
+                        "markdown": markdown,
+                        "format": "pdf",
+                        "ocr": True,
+                        "pages": page_count,
+                    },
                 )
             except anydoc.EncryptedError:
                 return ToolResult(
@@ -134,3 +172,29 @@ class ConvertDocumentTool:
             return ToolResult(success=True, data={"markdown": markdown, "format": fmt})
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
+
+    async def _ocr_fallback(self, resolved: Path, fmt: str, page_count: int) -> ToolResult:
+        """OCR *resolved* via the configured endpoint and return the result.
+
+        Returns an error pointing at parse_document when the OCR endpoint is
+        not configured, or the OCR service fails.
+        """
+        if not ocr.is_ocr_configured():
+            return ToolResult(
+                success=False,
+                error=(
+                    f"{fmt} 文件需要 OCR 服务，但 ANYDOC_OCR_API_URL 未配置。"
+                    "请配置 OCR 服务，或使用 parse_document。"
+                ),
+            )
+        try:
+            if page_count == 1 and resolved.suffix.lower() in ocr.IMAGE_EXTENSIONS:
+                markdown = await asyncio.to_thread(ocr.ocr_image, str(resolved))
+            else:
+                markdown, page_count = await ocr.ocr_pdf(str(resolved))
+        except RuntimeError as exc:
+            return ToolResult(success=False, error=str(exc))
+        return ToolResult(
+            success=True,
+            data={"markdown": markdown, "format": fmt, "ocr": True, "pages": page_count},
+        )

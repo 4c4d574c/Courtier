@@ -3,10 +3,13 @@ name = "courtier-plugin-anydoc"
 version = "1.0.0"
 requires-python = ">=3.12"
 # anydoc does the whole conversion in one Rust call; the plugin only needs
-# the SDK and the anydoc wheel.
+# the SDK and the anydoc wheel. requests + pymupdf power the OCR fallback
+# (scanned PDFs/images → PPOCR /ocr/text endpoint).
 dependencies = [
     "courtier-plugin-sdk",
     "firecrawl-anydoc",
+    "pymupdf>=1.27.2.2",
+    "requests>=2.33.1",
 ]
 
 [tool.uv.sources]

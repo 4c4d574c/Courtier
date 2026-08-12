@@ -2,6 +2,7 @@
 
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -150,6 +151,9 @@ class TestConvertDocument:
     @pytest.mark.asyncio
     async def test_unsupported_points_to_parse_document(self, tmp_path, monkeypatch):
         monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        # Without an OCR endpoint configured the fallback is disabled, so the
+        # error keeps pointing at parse_document.
+        monkeypatch.delenv("ANYDOC_OCR_API_URL", raising=False)
         monkeypatch.setitem(sys.modules, "anydoc", _raising_anydoc("UnsupportedError"))
         import plugins.shared.anydoc.tools as tools_mod
 
@@ -185,3 +189,165 @@ class TestConvertDocument:
         result = await tool.execute(file_path=str(doc))
         assert result.success is False
         assert "无法转换" in result.error
+
+
+class _FakeResponse:
+    """Minimal requests.post response stub with a JSON payload."""
+
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self._payload
+
+
+def _fake_fitz(page_count: int) -> types.ModuleType:
+    """Build a fake ``fitz`` module rendering ``page_count`` in-memory pages."""
+
+    class _Pix:
+        def __init__(self, page_no: int) -> None:
+            self._page_no = page_no
+
+        def save(self, path: str) -> None:
+            Path(path).write_bytes(f"page-{self._page_no}".encode())
+
+    class _Page:
+        def __init__(self, page_no: int) -> None:
+            self._page_no = page_no
+
+        def get_pixmap(self, dpi: int = 150) -> _Pix:
+            return _Pix(self._page_no)
+
+    class _Doc:
+        def __init__(self, _path: str) -> None:
+            self._pages = [_Page(i) for i in range(page_count)]
+
+        def __len__(self) -> int:
+            return len(self._pages)
+
+        def __getitem__(self, idx: int) -> _Page:
+            return self._pages[idx]
+
+        def close(self) -> None:
+            pass
+
+    mod = types.ModuleType("fitz")
+    mod.open = staticmethod(lambda path: _Doc(str(path)))
+    return mod
+
+
+class TestConvertDocumentOCR:
+    """OCR fallback path: images and scanned PDFs → PPOCR /ocr/text."""
+
+    @pytest.mark.asyncio
+    async def test_image_goes_directly_to_ocr(self, tmp_path, monkeypatch):
+        """Image extensions skip anydoc entirely and hit the OCR endpoint."""
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.setenv("ANYDOC_OCR_API_URL", "http://ocr.example/ocr/text")
+        import plugins.shared.anydoc.ocr as ocr_mod
+
+        seen: dict = {}
+
+        def fake_post(url, files=None, timeout=None):
+            seen["url"] = url
+            seen["filename"] = files["file"][0]
+            seen["mime"] = files["file"][2]
+            return _FakeResponse({"markdown": "扫描图片内容"})
+
+        monkeypatch.setattr(ocr_mod.requests, "post", fake_post)
+        import plugins.shared.anydoc.tools as tools_mod
+
+        img = tmp_path / "scan.jpg"
+        img.write_bytes(b"fake jpeg")
+        tool = tools_mod.ConvertDocumentTool()
+        result = await tool.execute(file_path=str(img))
+        assert result.success is True
+        assert result.data["markdown"] == "扫描图片内容"
+        assert result.data["ocr"] is True
+        assert result.data["pages"] == 1
+        assert result.data["format"] == "jpg"
+        assert seen["url"] == "http://ocr.example/ocr/text"
+        assert seen["filename"] == "scan.jpg"
+        assert seen["mime"] == "image/jpeg"
+
+    @pytest.mark.asyncio
+    async def test_image_unconfigured_points_to_parse_document(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.delenv("ANYDOC_OCR_API_URL", raising=False)
+        import plugins.shared.anydoc.tools as tools_mod
+
+        img = tmp_path / "scan.png"
+        img.write_bytes(b"fake png")
+        tool = tools_mod.ConvertDocumentTool()
+        result = await tool.execute(file_path=str(img))
+        assert result.success is False
+        assert "parse_document" in result.error
+
+    @pytest.mark.asyncio
+    async def test_scanned_pdf_uses_ocr_path(self, tmp_path, monkeypatch):
+        """anydoc.UnsupportedError on a PDF falls back to per-page OCR."""
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.setenv("ANYDOC_OCR_API_URL", "http://ocr.example/ocr/text")
+        monkeypatch.setitem(sys.modules, "anydoc", _raising_anydoc("UnsupportedError"))
+        monkeypatch.setitem(sys.modules, "fitz", _fake_fitz(2))
+        import plugins.shared.anydoc.ocr as ocr_mod
+
+        calls: list[str] = []
+
+        def fake_post(url, files=None, timeout=None):
+            calls.append(files["file"][0])
+            return _FakeResponse({"markdown": f"内容{len(calls)}"})
+
+        monkeypatch.setattr(ocr_mod.requests, "post", fake_post)
+        import plugins.shared.anydoc.tools as tools_mod
+
+        pdf = tmp_path / "scanned.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        tool = tools_mod.ConvertDocumentTool()
+        result = await tool.execute(file_path=str(pdf))
+        assert result.success is True
+        assert result.data["ocr"] is True
+        assert result.data["pages"] == 2
+        assert result.data["format"] == "pdf"
+        md = result.data["markdown"]
+        assert md.index("【第 1 页】") < md.index("【第 2 页】")
+        assert "内容1" in md and "内容2" in md
+
+    @pytest.mark.asyncio
+    async def test_scanned_pdf_unconfigured_points_to_parse_document(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.delenv("ANYDOC_OCR_API_URL", raising=False)
+        monkeypatch.setitem(sys.modules, "anydoc", _raising_anydoc("UnsupportedError"))
+        import plugins.shared.anydoc.tools as tools_mod
+
+        pdf = tmp_path / "scanned.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        tool = tools_mod.ConvertDocumentTool()
+        result = await tool.execute(file_path=str(pdf))
+        assert result.success is False
+        assert "parse_document" in result.error
+
+    @pytest.mark.asyncio
+    async def test_ocr_failure_reports_page_number(self, tmp_path, monkeypatch):
+        """A failing page fails the whole job and names the failing page."""
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.setenv("ANYDOC_OCR_API_URL", "http://ocr.example/ocr/text")
+        monkeypatch.setitem(sys.modules, "anydoc", _raising_anydoc("UnsupportedError"))
+        monkeypatch.setitem(sys.modules, "fitz", _fake_fitz(3))
+        import requests
+
+        import plugins.shared.anydoc.ocr as ocr_mod
+
+        def fake_post(url, files=None, timeout=None):
+            raise requests.ConnectionError("service down")
+
+        monkeypatch.setattr(ocr_mod.requests, "post", fake_post)
+        import plugins.shared.anydoc.tools as tools_mod
+
+        pdf = tmp_path / "scanned.pdf"
+        pdf.write_bytes(b"%PDF-1.4 fake")
+        tool = tools_mod.ConvertDocumentTool()
+        result = await tool.execute(file_path=str(pdf))
+        assert result.success is False
+        assert "第 1 页" in result.error

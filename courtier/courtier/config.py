@@ -229,6 +229,7 @@ class Settings(BaseSettings):
     )
 
     docparse_ocr_api_url: str = Field(default="", alias="docparse_ocr_api_url")
+    anydoc_ocr_api_url: str = Field(default="", alias="anydoc_ocr_api_url")
     docparse_ocr_lang: str = Field(default="ch", alias="docparse_ocr_lang")
     docparse_ocr_engine: str = Field(default="ppstructure", alias="docparse_ocr_engine")
     docparse_ocr_max_image_long_side: int = Field(
