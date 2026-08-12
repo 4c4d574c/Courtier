@@ -52,6 +52,8 @@ class OrchestratorAgent(Agent):
         prompt_engine: PromptEngine | None = None,
         agent_name: str = "Courtier Orchestrator",
         first_required_tool: str | None = None,
+        extra_tools: list[ToolProtocol] | None = None,
+        tool_filter: Callable[[Any], bool] | None = None,
     ) -> None:
         self._audit_results: dict[str, Any] = {}
         self._agent_runtime = agent_runtime
@@ -68,6 +70,8 @@ class OrchestratorAgent(Agent):
             ListArtifactsTool(),
             GetArtifactTool(),
         ]
+        if extra_tools:
+            tools.extend(extra_tools)
 
         skill_catalog = ""
         if skill_registry is not None:
@@ -121,6 +125,7 @@ class OrchestratorAgent(Agent):
             prompt_engine=prompt_engine,
             agent_name=agent_name,
             first_required_tool=first_required_tool,
+            tool_filter=tool_filter,
         )
         self._prompt_pipeline.set_rules(workflow_rules)
 
@@ -184,14 +189,11 @@ class OrchestratorAgent(Agent):
         if task is None:
             raise ValueError("Either 'task' or 'input' must be provided")
 
-        file_path = (context or {}).get("file_path", "")
-        if not file_path:
-            raise ValueError("context must include 'file_path'")
-
         self._audit_results = {}
 
-        # Build dispatch context — file_path is available for the LLM to call
-        # parse_document as the first tool call.
+        # Build dispatch context — file_path (when present) is available for
+        # the LLM to call parse_document / convert_document.  Sessions without
+        # an upload are plain conversations and proceed without it.
         dispatch_context = dict(context) if context else {}
 
         # Create a root runtime handle so that every SkillTool spawn shares

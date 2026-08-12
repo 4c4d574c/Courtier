@@ -1,20 +1,5 @@
 orchestrator:
-  system_prompt: |
-    你是 {{ agent_name }}，一个智能任务编排 Agent。
-
-    你的任务是理解用户需求，直接调用合适的 Skill 工具完成任务。
-    每个 Skill 支持两种执行模式，你必须根据任务复杂度主动选择：
-    - **subagent**：启动独立子代理异步执行，适合审核要素多、需要多轮工具调用的复杂任务
-    - **inline**：返回 Skill 指令，由你直接在当前上下文中执行，适合任务明确、步骤少的简单任务
-
-    可用 Skill：
-    {% for skill in available_skills %}
-    - **{{ skill.name }}**：{{ skill.description }}
-    {% endfor %}
-
-    调用时必须明确指定 mode 参数（例如 format_audit(task=..., file_path=..., mode="subagent")）。
-    执行完毕后，你必须基于结果输出 Markdown 格式的最终结论。
-
+  # system_prompt 有意省略 —— 回退到 core 默认的域无关编排器身份与激活指引。
   task_decomposition: |
     将以下任务分解为可执行的子任务：
     {{ task }}
@@ -22,14 +7,22 @@ orchestrator:
     可用 Skill：{{ available_skills | map(attribute='name') | join(', ') }}
 
   workflow_rules: |
-    # 工作流规则
-    1. **【最高优先级】如果存在文件上传（file_path 可用），第一步必须调用 parse_document 解析文档。**
-       文档解析完成后才能进行后续审核操作。若解析失败，停止并报告，禁止继续调用依赖文档内容的 Skill。
-    2. 文档解析完成后，理解用户需求，立即且只调用一次最匹配的 Skill 工具，
+    # 工作流规则（docaudit 激活载荷）
+
+    ## 取数规则
+    1. **格式审核**（format_audit）→ 调用 parse_document 获取 Document 模型（含版面/字号信息）；
+       解析失败时停止并报告，禁止继续调用依赖文档内容的技能。
+    2. **内容类任务**（content_audit / text_correction / plagiarism / secret_analysis）与阅读问答：
+       - 优先复用会话中已有的文档文本（convert_document 产出的 Markdown，或 parse_document 的文本投影），
+         不要重复转换/解析；
+       - 没有现成文本时，调用 convert_document(file_path) 获取 Markdown 作为 text 入参
+         （扫描件会自动 OCR）。
+    3. 调用技能时透传 file_path，并把文档文本（text/markdown 参数）一并传入。
+
+    ## 审计工作流
+    1. 文档就绪后，理解用户需求，立即且只调用一次最匹配的 Skill 工具，
        禁止在文本中先写计划再调用。
-    3. 调用 Skill 时必须透传 file_path（例如 format_audit(task=..., file_path=...))。
-    4. 使用 Skill 名称对应的工具，并始终携带 file_path。
-    5. 严禁重复调用同一个 Skill；Skill 返回后应直接基于结果给出最终结论，
+    2. 严禁重复调用同一个 Skill；Skill 返回后应直接基于结果给出最终结论，
        禁止追加「是否还需要…」等追问。
 
     # 最终结论输出格式

@@ -76,9 +76,7 @@ class TestOrchestratorAgent:
             skill_registry=skill_registry,
             agent_runtime=runtime,
         )
-        skill_tools = [
-            t for t in orch.tool_registry.list_tools() if isinstance(t, SkillTool)
-        ]
+        skill_tools = [t for t in orch.tool_registry.list_tools() if isinstance(t, SkillTool)]
         assert len(skill_tools) > 0
         assert any(t.name == "dummy" for t in skill_tools)
 
@@ -123,10 +121,11 @@ class TestOrchestratorAgent:
         assert result.status == "completed"
 
     @pytest.mark.asyncio
-    async def test_run_without_file_path_raises(self):
+    async def test_run_without_file_path_succeeds(self):
+        """Unified mode: sessions without an upload run as plain conversations."""
         orch = self._make_orchestrator()
-        with pytest.raises(ValueError, match="file_path"):
-            await orch.run(task="Audit something")
+        result = await orch.run(task="Audit something")
+        assert result.status == "completed"
 
     def test_all_expected_tools_present(self, tmp_path):
         """Orchestrator should always expose built-in tools."""

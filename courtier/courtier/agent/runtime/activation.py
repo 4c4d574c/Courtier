@@ -1,0 +1,222 @@
+"""DomainActivator — per-orchestrator domain self-activation (visibility gating).
+
+Domain gating is a visibility filter: plugin subprocesses start up regardless
+(they live in the app-wide shared registry), but an orchestrator agent only
+sees the shared plugin set plus the tools of domains it has explicitly
+activated through the ``activate_domain`` meta-tool.  Activation is additive
+and idempotent: it registers the domain's skill tools on the agent's private
+registry and overlays the domain's ``orchestrator.workflow_rules`` onto the
+prompt pipeline.  The active set lives on the activator so it can be
+persisted per-session and replayed when the agent is rebuilt per request.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from courtier.agent.skills.registry import SkillRegistry
+from courtier.prompts.engine import PromptEngine
+
+if TYPE_CHECKING:
+    from courtier.agent.agents.base import Agent
+    from courtier.agent.runtime.runtime import AgentRuntime
+    from courtier.config import CourtierConfig, DomainPackage
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ActivationResult:
+    """Outcome of a domain activation."""
+
+    domain: str
+    success: bool = True
+    already_active: bool = False
+    new_tools: list[str] = field(default_factory=list)
+    new_skills: list[str] = field(default_factory=list)
+    message: str = ""
+
+
+class DomainActivator:
+    """Activates domain packages on an orchestrator agent at runtime.
+
+    Parameters
+    ----------
+    tool_registry : ToolRegistry
+        App-wide shared registry (all plugin proxies, before gating).
+    courtier_config : CourtierConfig
+        Loaded domain packages (names/descriptions/skills paths/prompt bundles).
+    agent_runtime : AgentRuntime
+        Runtime that spawns skill sub-agents (holds the full tool registry).
+    plugin_system : PluginSystem
+        Supplies the plugin → domain mapping via ``plugin_domain``.
+    prompt_engine : PromptEngine
+        Merged engine, used as the fallback renderer for workflow rules.
+    shared_plugin_names : set[str]
+        Plugin names under ``plugins/shared/`` — always visible.
+    agent : Agent | None
+        Orchestrator agent; attach() must be called before activate().
+    """
+
+    def __init__(
+        self,
+        *,
+        tool_registry: Any,
+        courtier_config: "CourtierConfig",
+        agent_runtime: "AgentRuntime",
+        plugin_system: Any,
+        prompt_engine: PromptEngine,
+        shared_plugin_names: set[str],
+        agent: "Agent | None" = None,
+    ) -> None:
+        self._tool_registry = tool_registry
+        self._courtier_config = courtier_config
+        self._agent_runtime = agent_runtime
+        self._plugin_system = plugin_system
+        self._prompt_engine = prompt_engine
+        self._shared_plugin_names = set(shared_plugin_names)
+        self._agent = agent
+        # Domains activated in this session (additive, never removed).
+        self.active_domains: set[str] = set()
+        # Per-domain SkillRegistries, scanned once and cached.
+        self._skill_registries: dict[str, SkillRegistry] = {}
+
+    # -- wiring --------------------------------------------------------------
+
+    def attach(self, agent: "Agent") -> None:
+        """Bind the orchestrator agent (needed to register skills and rules)."""
+        self._agent = agent
+
+    # -- visibility rule -----------------------------------------------------
+
+    def visible(self, tool: Any) -> bool:
+        """Visibility rule for the agent's ``tool_filter``.
+
+        Tools without a plugin client (builtins, SkillTools) always pass;
+        plugin tools pass when their plugin is in the shared set or its
+        domain is active.  Reads ``active_domains`` live, so an activation
+        inside one turn becomes visible on the next run() tool sync.
+        """
+        client = getattr(tool, "_client", None)
+        plugin_name = getattr(client, "plugin_name", None)
+        if plugin_name is None:
+            return True
+        if plugin_name in self._shared_plugin_names:
+            return True
+        return self.plugin_domain(plugin_name) in self.active_domains
+
+    def plugin_domain(self, plugin_name: str) -> str | None:
+        """Map a plugin name to its domain (None = shared plugin)."""
+        if self._plugin_system is None:
+            return None
+        try:
+            return self._plugin_system.plugin_domain(plugin_name)
+        except Exception:
+            logger.warning("plugin_domain(%s) failed", plugin_name, exc_info=True)
+            return None
+
+    # -- activation ----------------------------------------------------------
+
+    async def activate(self, domain: str) -> ActivationResult:
+        """Activate *domain* on the attached agent (idempotent, additive).
+
+        Validates the domain, scans its skills, registers them as runtime
+        configs + SkillTools on the agent, overlays the domain's
+        ``orchestrator.workflow_rules`` onto the prompt pipeline, and marks
+        the domain active.  Plugin tools of the domain become visible via
+        ``visible()`` on the next run() tool sync.
+        """
+        if self._agent is None:
+            raise RuntimeError("DomainActivator not attached to an agent")
+
+        pkg = self._domain_package(domain)
+        if pkg is None:
+            return ActivationResult(
+                domain=domain,
+                success=False,
+                message=f"未知领域: {domain}。可用领域见 activate_domain 工具描述。",
+            )
+
+        if domain in self.active_domains:
+            return ActivationResult(
+                domain=domain,
+                already_active=True,
+                message=f"领域 {domain} 已激活，无需重复操作。",
+            )
+
+        registry = self._skill_registry(domain, pkg)
+
+        # Register skill configs on the runtime (idempotent), then build
+        # SkillTools on the agent's private registry so the orchestrator can
+        # dispatch them as sub-agents.
+        self._agent_runtime.register_skills(registry)
+        new_skills: list[str] = []
+        for skill in registry.list_enabled():
+            from courtier.agent.tools.builtin.skill import SkillTool
+
+            tool = SkillTool(
+                skill=skill,
+                runtime=self._agent_runtime,
+                output_artifact_type=skill.output_artifact_type,
+            )
+            self._agent.tool_registry.register(tool)
+            new_skills.append(skill.name)
+
+        # Overlay the domain's activation payload (workflow rules) onto the
+        # rules section.  Rendered from the domain's own bundle so a missing
+        # key falls back to core defaults / FALLBACK_TEMPLATES.
+        rules_engine = PromptEngine(pkg.prompt_bundle)
+        overlay = rules_engine.render("orchestrator.workflow_rules")
+        if overlay:
+            self._agent._prompt_pipeline.set_rules(overlay)
+
+        self.active_domains.add(domain)
+        new_tools = self._domain_plugin_tools(domain)
+        logger.info(
+            "Domain '%s' activated: tools=%s skills=%s",
+            domain,
+            new_tools,
+            new_skills,
+        )
+        return ActivationResult(
+            domain=domain,
+            new_tools=new_tools,
+            new_skills=new_skills,
+            message=(
+                f"领域 {domain} 已激活。"
+                + (f"新增可用工具: {', '.join(new_tools)}。" if new_tools else "")
+                + (f"新增可用技能: {', '.join(new_skills)}。" if new_skills else "")
+            ),
+        )
+
+    # -- helpers -------------------------------------------------------------
+
+    def _domain_package(self, domain: str) -> "DomainPackage | None":
+        for pkg in self._courtier_config.domains:
+            if pkg.name == domain:
+                return pkg
+        return None
+
+    def _skill_registry(self, domain: str, pkg: "DomainPackage") -> SkillRegistry:
+        """Return the domain's SkillRegistry, scanning it once and caching."""
+        cached = self._skill_registries.get(domain)
+        if cached is not None:
+            return cached
+        registry = SkillRegistry(pkg.skills_path)
+        registry.scan()
+        if registry.has_errors:
+            logger.warning("Domain '%s' skill registry errors: %s", domain, registry.errors)
+        self._skill_registries[domain] = registry
+        return registry
+
+    def _domain_plugin_tools(self, domain: str) -> list[str]:
+        """Names of valid plugin tools belonging to *domain*."""
+        if self._plugin_system is None:
+            return []
+        return sorted(
+            name
+            for name, result in self._plugin_system.get_scan_results().items()
+            if result.manifest is not None and self.plugin_domain(name) == domain
+        )

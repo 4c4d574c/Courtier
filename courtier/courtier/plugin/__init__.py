@@ -151,6 +151,28 @@ class PluginSystem:
         """Return the last scan results (valid + blocked) keyed by name."""
         return self._manager.get_scan_results()
 
+    def plugin_domain(self, name: str) -> str | None:
+        """Return the domain a plugin belongs to, or None for shared plugins.
+
+        Derived from the plugin's directory layout: ``plugins/shared/<name>``
+        belongs to no domain; ``plugins/<domain>/<name>`` and
+        ``plugins/<domain>/<subdir>/<name>`` (e.g. ``plugins/docaudit/audit/``)
+        belong to ``<domain>``.
+        """
+        result = self._manager.get_scan_results().get(name)
+        if result is None:
+            return None
+        try:
+            rel = result.dir.relative_to(self._plugins_dir)
+        except ValueError:
+            # Scanning may have used a differently-anchored base path.
+            logger.debug("Plugin '%s' dir %s is outside plugins root", name, result.dir)
+            return None
+        if not rel.parts:
+            return None
+        first = rel.parts[0]
+        return None if first == "shared" else first
+
     def get_log_path(self, name: str) -> Path | None:
         """Return the plugin's stderr log file path, or None for unknown plugins.
 

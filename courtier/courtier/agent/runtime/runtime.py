@@ -98,16 +98,26 @@ class AgentRuntime:
                 result_store=None,
                 summarizer=self.summarizer,
             )
-        self._register_skills()
+        self.register_skills()
 
-    def _register_skills(self) -> None:
-        if self.skill_registry is None:
+    def register_skills(self, registry: SkillRegistry | None = None) -> None:
+        """Register every enabled skill from *registry* as a runtime config.
+
+        Idempotent and re-entrant: skills already registered keep their
+        existing config, so a late domain activation can add its skills
+        without disturbing earlier registrations.  With no explicit
+        *registry*, registers from ``self.skill_registry`` (the constructor
+        path).
+        """
+        if registry is None:
+            registry = self.skill_registry
+        if registry is None:
             return
         available_tools = {t.name for t in self.tool_registry.list_tools()}
-        available_skills: set[str] = set()
-        if self.skill_registry is not None:
-            available_skills = {s.name for s in self.skill_registry.list_enabled()}
-        for skill in self.skill_registry.list_enabled():
+        available_skills: set[str] = {s.name for s in registry.list_enabled()}
+        for skill in registry.list_enabled():
+            if skill.name in self._configs:
+                continue
             # Validate tools against ToolRegistry
             missing_tools = [name for name in skill.tools if name not in available_tools]
             if missing_tools:

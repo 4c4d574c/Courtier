@@ -238,11 +238,18 @@ class TestCoreDefaults:
         assert "SubAgent" in engine.render("subagent.system_prompt", task="t")
         assert "有什么可以帮助你的" in engine.render("chat.welcome_message", agent_name="X")
 
-    def test_domain_owned_keys_fall_back_to_english_minimal(self):
-        """领域专属 key 无领域包时落到最小英文 fallback。"""
+    def test_domain_owned_keys_come_from_core_defaults(self):
+        """领域专属 key（orchestrator.*）现由 Core 默认提供（本地化），
+        不再落到最小英文 fallback。"""
         engine = PromptEngine.from_domain_directories([], locale="zh-CN")
         result = engine.render("orchestrator.system_prompt", agent_name="X")
-        assert "You are X" in result
+        assert "你是 X" in result
+        assert "疑似即激活" in result
+
+        engine_en = PromptEngine.from_domain_directories([], locale="en-US")
+        result_en = engine_en.render("orchestrator.system_prompt", agent_name="X")
+        assert "You are X" in result_en
+        assert "Activate on suspicion" in result_en
 
     def test_domain_overrides_core_default_key(self):
         """领域包可按 key 覆盖 Core 默认。"""
