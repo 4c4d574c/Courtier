@@ -70,7 +70,7 @@ class ParserConfig(BaseModel):
             llm_base_url=os.getenv("LLM_IP", ""),
             llm_api_key=os.getenv("LLM_API_KEY", ""),
             llm_model=os.getenv("LLM_NAME", ""),
-            ocr_api_url=os.getenv("DOCPARSE_OCR_API_URL", ""),
+            ocr_api_url=os.getenv("DOCPARSE_OCR_API_URL", "http://192.168.100.67:8092/ocr"),
             ocr_lang=os.getenv("DOCPARSE_OCR_LANG", "ch"),
             ocr_engine=os.getenv("DOCPARSE_OCR_ENGINE", "ppstructure"),
             max_llm_concurrent=int(os.getenv("DOCPARSE_MAX_LLM_CONCURRENT", "4")),
