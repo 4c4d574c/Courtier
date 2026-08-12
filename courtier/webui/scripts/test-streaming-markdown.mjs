@@ -130,16 +130,20 @@ try {
   assert.ok(partsNonStreaming.completeHtml.includes('<p>hello world</p>'))
 
   // ── Citation markers `[[n]]` ─────────────────────────────
-  // Complete markers become clickable citation links.
+  // Complete markers become clickable superscript links.
   const cite = renderStreamingMarkdown('依据《保守国家秘密法》[[1]]的规定', {
     isStreaming: false,
   })
-  assert.ok(cite.includes('<a href="#cite-1" class="citation-link" data-citation="1">[[1]]</a>'))
-  assert.ok(cite.includes('class="citation-link"'), 'citation link rendered')
+  assert.ok(
+    cite.includes('<a href="#cite-1" class="citation-link" data-citation="1"><sup>1</sup></a>'),
+    'citation superscript link rendered'
+  )
+  assert.ok(!cite.includes('[[1]]'), 'raw marker text is not shown')
 
   // Multi-digit marker.
   const citeMulti = renderStreamingMarkdown('见 [[12]]', { isStreaming: false })
   assert.ok(citeMulti.includes('data-citation="12"'))
+  assert.ok(citeMulti.includes('<sup>12</sup>'))
 
   // Incomplete markers stay plain text (streaming-safe).
   const citePartial1 = renderStreamingMarkdown('依据 [[1', { isStreaming: true })
@@ -152,7 +156,7 @@ try {
   // Adjacent closing bracket: `[[1]]]` matches once, extra ] stays text.
   const citeExtra = renderStreamingMarkdown('[[1]]]', { isStreaming: false })
   assert.ok(citeExtra.includes('class="citation-link" data-citation="1"'))
-  assert.ok(citeExtra.includes(']]'))
+  assert.ok(citeExtra.includes('</a>]'), 'stray closing bracket stays as text')
 
   // Streaming growth: marker completes → full re-parse, no stale trailing.
   const rCite = createStreamingRenderer()

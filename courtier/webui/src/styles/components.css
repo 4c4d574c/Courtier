@@ -384,16 +384,21 @@
 }
 
 /* ── Citation markers ────────────────────────────────
-   `[[n]]` references to search_documents hits; clicking opens the
-   right-side preview drawer (citation card → full PDF). */
+   `[[n]]` references to search_documents hits, rendered as clickable
+   superscript numbers; clicking opens the right-side preview drawer
+   (citation card → full PDF). */
 .markdown-body .citation-link {
   color: var(--chat-accent);
   text-decoration: none;
-  font-weight: 600;
-  border-radius: 4px;
-  padding: 0 2px;
   cursor: pointer;
   white-space: nowrap;
+  padding: 0 1px;
+}
+.markdown-body .citation-link sup {
+  font-size: 0.72em;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: super;
 }
 .markdown-body .citation-link:hover {
   background: var(--chat-accent-soft);

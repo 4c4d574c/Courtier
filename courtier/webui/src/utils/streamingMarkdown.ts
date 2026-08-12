@@ -51,7 +51,7 @@ const citationExtension = {
     return undefined;
   },
   renderer(token: { text: string }) {
-    return `<a href="#cite-${token.text}" class="citation-link" data-citation="${token.text}">[[${token.text}]]</a>`;
+    return `<a href="#cite-${token.text}" class="citation-link" data-citation="${token.text}"><sup>${token.text}</sup></a>`;
   },
 };
 streamingMarked.use({ extensions: [citationExtension] });
