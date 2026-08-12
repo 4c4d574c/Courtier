@@ -138,7 +138,7 @@ async def build_agent(
     from ...agents.orch import OrchestratorAgent
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
-    from ...runtime.activation import DomainActivator
+    from ...runtime.activation import DomainActivator, build_domain_catalog
     from ...runtime.budget import AgentRuntimeBudget
     from ...tools.builtin.activate_domain import ActivateDomainTool
 
@@ -171,10 +171,9 @@ async def build_agent(
         cache_dir=settings.cache_dir,
     )
 
-    domain_catalog = [
-        {"name": pkg.name, "description": getattr(pkg.config, "description", "")}
-        for pkg in courtier_config.domains
-    ]
+    # Live catalog: domain descriptions + current skill list (mtime-cached),
+    # so skills created in the admin UI are visible to the model immediately.
+    domain_catalog = build_domain_catalog(courtier_config)
     activate_tool = ActivateDomainTool(domain_catalog)
 
     activator = DomainActivator(

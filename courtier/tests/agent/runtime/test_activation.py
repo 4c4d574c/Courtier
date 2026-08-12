@@ -255,3 +255,91 @@ class TestOrchestratorPromptDefaults:
         # carries the domain-agnostic activation guidance.
         assert "疑似即激活" in rendered
         assert "convert_document" in rendered
+
+
+class TestBuildDomainCatalog:
+    """activate_domain 目录动态化：技能清单随 skills/ 目录实时生成。"""
+
+    def _skills_dir(self, tmp_path: Path, *skills: str) -> Path:
+        d = tmp_path / "skills"
+        d.mkdir(exist_ok=True)
+        for i, name in enumerate(skills):
+            (d / f"{name}.md").write_text(
+                f"---\nname: {name}\n"
+                f"description: 技能{i}描述\n"
+                f"type: skill\nversion: '1.0'\nenabled: true\n---\n\n正文。",
+                encoding="utf-8",
+            )
+        return d
+
+    def _config_with(self, skills_path: Path) -> CourtierConfig:
+        class _FakeDomainConfig:
+            description = "领域描述"
+
+        class _FakeDomain:
+            name = "docaudit"
+            config = _FakeDomainConfig()
+
+        domain = _FakeDomain()
+        domain.skills_path = skills_path  # type: ignore[attr-defined]
+        cfg = CourtierConfig(repo_root=skills_path.parent, domain_names=["docaudit"])
+        cfg._domains = [domain]  # type: ignore[attr-defined]
+        return cfg
+
+    def test_catalog_lists_skills_with_descriptions(self, tmp_path):
+        from courtier.agent.runtime.activation import _CATALOG_CACHE, build_domain_catalog
+
+        _CATALOG_CACHE.clear()
+        skills_dir = self._skills_dir(tmp_path, "content_audit", "my_new_skill")
+        catalog = build_domain_catalog(self._config_with(skills_dir))
+
+        entry = catalog[0]
+        assert entry["name"] == "docaudit"
+        assert entry["description"] == "领域描述"
+        assert {s["name"] for s in entry["skills"]} == {"content_audit", "my_new_skill"}
+        by_name = {s["name"]: s["description"] for s in entry["skills"]}
+        assert by_name["my_new_skill"] == "技能1描述"
+
+    def test_catalog_cache_invalidates_on_dir_mtime_change(self, tmp_path):
+        import os
+        import time
+
+        from courtier.agent.runtime.activation import _CATALOG_CACHE, build_domain_catalog
+
+        _CATALOG_CACHE.clear()
+        skills_dir = self._skills_dir(tmp_path, "existing_skill")
+        cfg = self._config_with(skills_dir)
+        first = build_domain_catalog(cfg)
+        assert {s["name"] for s in first[0]["skills"]} == {"existing_skill"}
+
+        # New skill created via the admin UI; bump the dir mtime so the
+        # cache invalidates (write may land in the same mtime tick).
+        (skills_dir / "brand_new.md").write_text(
+            "---\nname: brand_new\ndescription: 新技能\n"
+            "type: skill\nversion: '1.0'\nenabled: true\n---\n\n正文。",
+            encoding="utf-8",
+        )
+        os.utime(skills_dir, (time.time() + 2, time.time() + 2))
+
+        second = build_domain_catalog(cfg)
+        assert {s["name"] for s in second[0]["skills"]} == {"existing_skill", "brand_new"}
+
+
+class TestActivateDomainToolCatalog:
+    def test_description_embeds_skill_sublist(self):
+        tool = ActivateDomainTool(
+            [
+                {
+                    "name": "docaudit",
+                    "description": "公文审计",
+                    "skills": [{"name": "content_audit", "description": "内容审核"}],
+                }
+            ]
+        )
+        assert "领域技能：" in tool.description
+        assert "content_audit：内容审核" in tool.description
+
+    def test_description_without_skills_stays_compatible(self):
+        tool = ActivateDomainTool([{"name": "docaudit", "description": "公文审计"}])
+        assert "领域技能：" not in tool.description
+        assert "docaudit" in tool.description

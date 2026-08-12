@@ -20,11 +20,59 @@ from courtier.agent.skills.registry import SkillRegistry
 from courtier.prompts.engine import PromptEngine
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from courtier.agent.agents.base import Agent
     from courtier.agent.runtime.runtime import AgentRuntime
     from courtier.config import CourtierConfig, DomainPackage
 
 logger = logging.getLogger(__name__)
+
+# Process-level cache of per-domain skill catalogs, keyed by skills dir path.
+# Invalidated by the directory mtime so skills created/edited through the
+# admin UI show up in the activate_domain catalog on the next request without
+# re-scanning on every agent build.
+_CATALOG_CACHE: dict[str, tuple[float, list[dict[str, str]]]] = {}
+
+
+def build_domain_catalog(courtier_config: "CourtierConfig") -> list[dict[str, Any]]:
+    """Build the activate_domain catalog: every domain + its live skill list.
+
+    Each entry: ``{"name", "description", "skills": [{"name", "description"}]}``.
+    The skill list reflects the current skills/ directory (mtime-cached), so
+    a skill created in the admin UI is visible to the model on the next
+    request — no restart, no domain.yaml edit required.
+    """
+    catalog: list[dict[str, Any]] = []
+    for pkg in courtier_config.domains:
+        catalog.append(
+            {
+                "name": pkg.name,
+                "description": getattr(pkg.config, "description", ""),
+                "skills": _cached_skill_list(pkg.skills_path),
+            }
+        )
+    return catalog
+
+
+def _cached_skill_list(skills_path: "Path") -> list[dict[str, str]]:
+    """Return [{name, description}] of enabled skills, cached by dir mtime."""
+    try:
+        mtime = skills_path.stat().st_mtime
+    except OSError:
+        return []
+    key = str(skills_path)
+    cached = _CATALOG_CACHE.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+
+    registry = SkillRegistry(skills_path)
+    registry.scan()
+    if registry.has_errors:
+        logger.warning("Skill catalog scan errors for %s: %s", skills_path, registry.errors)
+    skills = [{"name": s.name, "description": s.description} for s in registry.list_enabled()]
+    _CATALOG_CACHE[key] = (mtime, skills)
+    return skills
 
 
 @dataclass

@@ -14,6 +14,9 @@ orchestrator:
     - "Activate on suspicion": when intent is ambiguous but may involve a
       domain, activate it anyway; activation is idempotent, repeated calls
       are harmless.
+    - After activation, the domain's skills appear as tools in the available
+      tools list — when unsure whether a domain has a matching skill, activate
+      first and confirm via the tool list.
     - Sessions without an upload (e.g. the user pastes text and asks for a
       review) must also activate the domain first, then pass the user's text
       as part of the skill task; skills prefer text already provided.

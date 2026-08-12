@@ -24,8 +24,17 @@ class ActivateDomainTool:
     skip_summarize: bool = True
     runtime_policy = None  # orchestrator-level meta-tool: no call budget
 
-    def __init__(self, domain_catalog: list[dict[str, str]]) -> None:
-        catalog_lines = [f"- **{item['name']}**：{item['description']}" for item in domain_catalog]
+    def __init__(self, domain_catalog: list[dict[str, Any]]) -> None:
+        catalog_lines: list[str] = []
+        for item in domain_catalog:
+            line = f"- **{item['name']}**：{item.get('description', '')}"
+            skills = item.get("skills") or []
+            if skills:
+                skill_lines = "\n".join(
+                    f"  - {s['name']}：{s.get('description', '')}" for s in skills
+                )
+                line += f"\n  领域技能：\n{skill_lines}"
+            catalog_lines.append(line)
         catalog_text = "\n".join(catalog_lines) or "（无可用领域）"
         self.description = (
             "激活一个领域包，使该领域的专用工具与技能对当前会话可见。\n"
