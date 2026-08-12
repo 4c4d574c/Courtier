@@ -6,7 +6,9 @@ enabled: true
 display_name: 涉密信息判别
 description: 对文档进行涉密判别
 tools:
-  - convert_document
+- convert_document
+- search_documents
+mode: auto
 ---
 
 # 目标
@@ -23,6 +25,6 @@ tools:
    - 工作秘密与内部信息
    - 个人隐私信息（身份证号、电话、住址等）
    - 敏感数据（未公开的经济数据、技术参数等）
-2. 将识别到的敏感信息与《保守国家秘密法》及相关法规事项进行匹配。
+2. 调用search_documents工具获取数据库中的《保守国家秘密法》及相关法规事项，将识别到的敏感信息进行匹配。
 3. 基于匹配结果给出涉密判别结论（涉密 / 不涉密 / 需进一步确认），并说明依据。
-4. 返回结构化判别结果。
+4. 返回markdown涉密分析。
