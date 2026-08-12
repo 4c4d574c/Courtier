@@ -71,14 +71,22 @@ async def _build_citations_payload(
 
     The full payload may be persisted externally (``result_id``) with
     ``raw_data`` dropped — load it back from the artifact store in that case.
-    Returns ``None`` when the result carries nothing citable.
+    ``load()`` returns the full JSON; ``read()`` truncates by default, so it
+    is only a defensive fallback.  Returns ``None`` when the result carries
+    nothing citable.
     """
     if tool_name not in _CITATION_TOOLS or not result.success:
         return None
     data = result.raw_data
     if data is None and result.result_id and artifact_store is not None:
         try:
-            data = await artifact_store.read(result.result_id)
+            loader = getattr(artifact_store, "load", None)
+            if callable(loader):
+                data = loader(result.result_id)
+            else:
+                loaded = await artifact_store.read(result.result_id)
+                if isinstance(loaded, dict) and not loaded.get("error"):
+                    data = loaded.get("data")
         except Exception:
             logger.warning(
                 "failed to load search result %s for citations",

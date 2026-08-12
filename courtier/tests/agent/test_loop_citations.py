@@ -83,11 +83,10 @@ async def test_inline_result_produces_compact_citations():
 @pytest.mark.asyncio
 async def test_persisted_result_loads_full_payload_from_artifact_store():
     payload = _search_result()
-    store_path = {"$ref:search_documents:1": payload}
 
     class _FakeArtifactStore:
-        async def read(self, ref_id: str):
-            return store_path[ref_id]
+        def load(self, ref_id: str):
+            return payload
 
     result = ExecutionResult(
         success=True,
@@ -102,9 +101,30 @@ async def test_persisted_result_loads_full_payload_from_artifact_store():
 
 
 @pytest.mark.asyncio
+async def test_store_without_load_falls_back_to_read_unwrap():
+    """Stores exposing only ``read`` (wrapped ``{data, metadata}`` dicts) work too."""
+    payload = _search_result()
+
+    class _ReadOnlyStore:
+        async def read(self, ref_id: str, **kwargs):
+            return {"data": payload, "metadata": {}}
+
+    result = ExecutionResult(
+        success=True,
+        actor_type="tool",
+        actor_name="search_documents",
+        result_id="$ref:search_documents:1",
+        raw_data=None,
+    )
+    citations = await _build_citations_payload("search_documents", result, _ReadOnlyStore())
+    assert citations is not None
+    assert citations[0]["title"] == "来源1"
+
+
+@pytest.mark.asyncio
 async def test_artifact_store_failure_degrades_to_none():
     class _BrokenStore:
-        async def read(self, ref_id: str):
+        def load(self, ref_id: str):
             raise RuntimeError("store gone")
 
     result = ExecutionResult(
