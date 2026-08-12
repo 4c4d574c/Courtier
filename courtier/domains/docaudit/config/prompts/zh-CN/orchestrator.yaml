@@ -10,14 +10,16 @@ orchestrator:
     # 工作流规则（docaudit 激活载荷）
 
     ## 取数规则
-    1. **格式审核**（format_audit）→ 调用 parse_document 获取 Document 模型（含版面/字号信息）；
+    1. **无上传文件**（用户直接粘贴文本）→ 不需要任何转换/解析工具：把用户提供的文本作为
+       技能 task 的正文（或 text 入参）直接传入，技能会基于该文本执行。
+    2. **格式审核**（format_audit）→ 调用 parse_document 获取 Document 模型（含版面/字号信息）；
        解析失败时停止并报告，禁止继续调用依赖文档内容的技能。
-    2. **内容类任务**（content_audit / text_correction / plagiarism / secret_analysis）与阅读问答：
+    3. **内容类任务**（content_audit / text_correction / plagiarism / secret_analysis）与阅读问答：
        - 优先复用会话中已有的文档文本（convert_document 产出的 Markdown，或 parse_document 的文本投影），
          不要重复转换/解析；
        - 没有现成文本时，调用 convert_document(file_path) 获取 Markdown 作为 text 入参
          （扫描件会自动 OCR）。
-    3. 调用技能时透传 file_path，并把文档文本（text/markdown 参数）一并传入。
+    4. 调用技能时透传 file_path（如有），并把文档文本（text/markdown 参数）一并传入。
 
     ## 审计工作流
     1. 文档就绪后，理解用户需求，立即且只调用一次最匹配的 Skill 工具，

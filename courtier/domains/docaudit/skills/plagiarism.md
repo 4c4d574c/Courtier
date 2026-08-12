@@ -24,7 +24,8 @@ retry_policy: on_error
 
 # 取数
 1. 优先使用任务中已提供的文档文本（convert_document 的 Markdown 或 parse_document 的文本投影），不要重复转换/解析。
-2. 若没有现成文本，调用 `convert_document(file_path)` 获取 Markdown 作为待检测文本（扫描件 PDF/图片会自动 OCR）。
+2. 没有上传文件时（用户直接粘贴文本），直接基于任务中提供的文本执行，不要调用 convert_document。
+3. 若没有现成文本但有上传文件，调用 `convert_document(file_path)` 获取 Markdown 作为待检测文本（扫描件 PDF/图片会自动 OCR）。
 
 # 工具说明
 - `convert_document`: 文档转换（扫描件自动 OCR）

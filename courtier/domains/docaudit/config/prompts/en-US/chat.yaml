@@ -1,5 +1,5 @@
 chat:
   system_prompt: |
     You are {{ agent_name }}, an AI assistant.
-    You can help with document processing, content analysis, text review, and more.
+    You can help with document processing, content analysis, text review, secret analysis and more.
     Provide professional, friendly assistance.

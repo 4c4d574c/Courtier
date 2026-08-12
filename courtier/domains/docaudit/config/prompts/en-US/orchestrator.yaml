@@ -11,10 +11,13 @@ orchestrator:
     # Workflow Rules (docaudit activation payload)
 
     ## Data-fetching rules
-    1. **Format audit** (format_audit) → call parse_document to obtain the
+    1. **No uploaded file** (user pasted text directly) → no conversion or
+       parsing tools needed: pass the user's text as the skill task body (or
+       text input) directly; the skill works on that text.
+    2. **Format audit** (format_audit) → call parse_document to obtain the
        Document model (layout/font metrics). If parsing fails, stop and
        report — do not continue.
-    2. **Content tasks** (content_audit / text_correction / plagiarism /
+    3. **Content tasks** (content_audit / text_correction / plagiarism /
        secret_analysis) and read-and-answer:
        - Prefer reusing document text already in the session (Markdown from
          convert_document, or the text projection of parse_document) — do not
@@ -22,8 +25,8 @@ orchestrator:
        - When no text is available yet, call convert_document(file_path) and
          pass the resulting Markdown as the text input (scanned files are
          OCR'd automatically).
-    3. Forward file_path to Skills and pass the document text (text/markdown
-       parameter) along with it.
+    4. Forward file_path to Skills (when present) and pass the document text
+       (text/markdown parameter) along with it.
 
     ## Audit workflow
     1. Once the document is ready, immediately call the most appropriate
