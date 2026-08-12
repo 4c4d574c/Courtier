@@ -199,3 +199,60 @@ class TestGetArtifactViaRef:
         )
         assert result.success
         assert result.data is not None
+
+
+class TestRefVersionFallback:
+    """Typed-artifact id vs persisted-ref id mismatch resolves via prefix.
+
+    Regression: the persisted ref (``$ref:convert_document:1``, from
+    cache_store numbering) is read successfully, but the typed artifact in
+    the store lives under ``$ref:convert_document:latest``.  Without the
+    prefix fallback get_artifact registered an untyped cached_output and
+    projection to core.plain_text failed ("Could not resolve required field
+    value").
+    """
+
+    @pytest.mark.asyncio
+    async def test_persisted_ref_projects_latest_document_markdown(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        # Persisted layer: numbered ref on disk.
+        data = {"markdown": "# 标题\n\n正文", "format": "docx"}
+        await store.persist(data, "convert_document", force=True)
+        # Typed layer: ToolProxy artifacts live under the :latest id.
+        store.put(
+            _make_artifact(
+                "$ref:convert_document:latest",
+                atype="core.document_markdown",
+                data=data,
+            )
+        )
+
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+            artifact_type="core.plain_text",
+        )
+        assert result.success, result.error
+        assert result.data["value"] == "# 标题\n\n正文"
+
+    @pytest.mark.asyncio
+    async def test_persisted_ref_without_type_returns_raw_data(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        data = {"markdown": "正文", "format": "docx"}
+        await store.persist(data, "convert_document", force=True)
+        store.put(
+            _make_artifact(
+                "$ref:convert_document:latest",
+                atype="core.document_markdown",
+                data=data,
+            )
+        )
+
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+        )
+        assert result.success
+        assert result.data["markdown"] == "正文"

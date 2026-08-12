@@ -333,10 +333,29 @@ class GetArtifactTool:
 
     @staticmethod
     def _find_artifact_for_ref(artifact_store: Any, ref_id: str) -> Any | None:
-        """Find an Artifact in the store whose artifact_id matches *ref_id*."""
+        """Find an Artifact in the store whose artifact_id matches *ref_id*.
+
+        When the exact id misses — e.g. the model derives a historical
+        ``$ref:tool:N`` id while the store only keeps the newest
+        ``$ref:tool:latest`` — fall back to the newest artifact of the same
+        tool prefix so the reference still resolves with its real type
+        (instead of degrading to an untyped cached_output that cannot be
+        projected).
+        """
         for artifact in artifact_store.list_all():
             if artifact.artifact_id == ref_id:
                 return artifact
+        if ref_id.startswith("$ref:") and ":" in ref_id:
+            prefix = ref_id.rsplit(":", 1)[0] + ":"
+            matches = [
+                artifact
+                for artifact in artifact_store.list_all()
+                if artifact.artifact_id.startswith(prefix)
+            ]
+            if matches:
+                # list_all preserves insertion order — the last match is the
+                # most recent artifact produced by that tool.
+                return matches[-1]
         return None
 
     async def _project_artifact(
