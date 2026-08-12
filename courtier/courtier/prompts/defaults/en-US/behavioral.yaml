@@ -23,10 +23,13 @@ behavioral:
       Never use one tool's $ref as another tool's reference.
       When calling get_artifact, use only the id parameter with the $ref value.
     - 【Critical】search_documents citation marker rules:
-      When citing content from search_documents results in your conclusion,
-      append a `[[n]]` marker right after the cited sentence or clause, where
-      n is the hit's 1-based index in that result's hits list (the first hit
-      is [[1]]).
+      Place each `[[n]]` marker immediately after the exact content it cites
+      (a clause, sentence, or phrase) — at the actual cited position, never
+      bunched at the end of a paragraph or sentence. n is the hit's 1-based
+      index in that result's hits list (the first hit is [[1]]).
+      When one sentence cites multiple different sources, mark each cited
+      piece individually (e.g. "分类分级保护[[3]]、风险评估与应急处置[[4]]")
+      instead of stacking several markers at one spot.
       Only reference indices that actually exist in the results — never
       invent or guess a hit that wasn't returned.
       Markers only annotate the cited source; they don't change the wording
