@@ -24,12 +24,15 @@ behavioral:
       When calling get_artifact, use only the id parameter with the $ref value.
     - 【Critical】search_documents citation marker rules:
       Place each `[[n]]` marker immediately after the exact content it cites
-      (a clause, sentence, or phrase) — at the actual cited position, never
-      bunched at the end of a paragraph or sentence. n is the hit's 1-based
-      index in that result's hits list (the first hit is [[1]]).
-      When one sentence cites multiple different sources, mark each cited
-      piece individually (e.g. "分类分级保护[[3]]、风险评估与应急处置[[4]]")
-      instead of stacking several markers at one spot.
+      (a clause, sentence, or phrase) — at the actual cited position; never
+      bunch markers at the end of a paragraph or list item, and never stack
+      several markers in one spot. n is the hit's 1-based index in that
+      result's hits list (the first hit is [[1]]).
+      Examples:
+      - Bad: "The library has 数据安全法, covering 数据安全与发展、数据安全制度、数据安全保护义务 etc.[[1]]"
+      - Good: "The library has 数据安全法[[1]], covering 数据安全与发展、数据安全制度、数据安全保护义务 etc."
+      - Bad: "It also covers 数据分类分级保护、数据安全风险评估与应急处置 etc.[[2]][[3]]"
+      - Good: "It also covers 数据分类分级保护[[2]]、数据安全风险评估与应急处置[[3]] etc."
       Only reference indices that actually exist in the results — never
       invent or guess a hit that wasn't returned.
       Markers only annotate the cited source; they don't change the wording

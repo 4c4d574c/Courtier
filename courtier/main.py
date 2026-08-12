@@ -72,6 +72,10 @@ def main(argv: list[str] | None = None) -> None:
         host=args.host,
         port=args.port,
         reload=args.reload,
+        # Dev reload must also pick up prompt/plugin YAML bundles (behavioral
+        # rules, orchestrator prompts, plugin tool-usage notes) — they are
+        # loaded at startup and would otherwise stay stale until restart.
+        reload_includes=("*.py", "*.yaml") if args.reload else None,
     )
 
 

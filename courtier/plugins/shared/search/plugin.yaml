@@ -15,6 +15,14 @@ capabilities:
     ## 使用方式
     调用 `search_documents` 工具，传入 `query`（搜索关键词）。
 
+    ## 引用标注（必须遵守）
+    结论中引用本工具搜索结果的内容时，引用标记 [[n]]（n 为结果 hits 列表的序号，从 1 开始）必须紧跟在实际被引用的具体内容之后，标注在引用位置；禁止把标记统一堆到段落或列表项末尾，禁止在一处集中堆叠多个标记。
+    示例：
+    - 差：库中有《数据安全法》，涵盖数据安全与发展、数据安全制度、数据安全保护义务等章节[[1]]。
+    - 好：库中有《数据安全法》[[1]]，涵盖数据安全与发展、数据安全制度、数据安全保护义务等章节。
+    - 差：此外还涉及数据分类分级保护、数据安全风险评估与应急处置等配套条款[[2]][[3]]。
+    - 好：此外还涉及数据分类分级保护[[2]]、数据安全风险评估与应急处置[[3]]等配套条款。
+
 # The ES endpoint is read from the process environment by es_client.py.
 # ${ENV:VAR} resolves from the host os.environ first, then falls back to
 # the host Settings (.env).
