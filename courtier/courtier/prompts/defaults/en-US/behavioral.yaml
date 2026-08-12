@@ -26,8 +26,9 @@ behavioral:
       Place each `[[n]]` marker immediately after the exact content it cites
       (a clause, sentence, or phrase) — at the actual cited position; never
       bunch markers at the end of a paragraph or list item, and never stack
-      several markers in one spot. n is the hit's 1-based index in that
-      result's hits list (the first hit is [[1]]).
+      several markers in one spot. Quoting clauses, articles or verbatim
+      text from the results requires markers just the same. n is the hit's
+      1-based index in that result's hits list (the first hit is [[1]]).
       Examples:
       - Bad: "The library has 数据安全法, covering 数据安全与发展、数据安全制度、数据安全保护义务 etc.[[1]]"
       - Good: "The library has 数据安全法[[1]], covering 数据安全与发展、数据安全制度、数据安全保护义务 etc."
@@ -55,8 +56,11 @@ behavioral:
   pre_turn_reminder: |
     【System · Turn Constraint】Pick the most obvious tool call directly.
     Use defaults when available. If unsure, pick one and adjust if wrong.
+    If you cite search_documents results this turn (including quoting
+    clauses verbatim), mark them with [[n]] right after the cited content.
 
   periodic_reminder: |
     【System · Periodic Reminder】Review behavioral rules:
     Concise output, no internal names or $ref exposure,
     handle tool failures per critical/non-critical, conclude immediately when done.
+    Cite search_documents results with [[n]] at the actual cited position.
