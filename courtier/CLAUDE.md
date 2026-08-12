@@ -130,6 +130,7 @@ docker-compose up -d
 - **持久化与重放**：激活集随每次 run 结束写入 `SessionRecord.active_domains`（`stream_service.py`），按请求重建 agent 时静默重放（上下文压缩会丢证据，不能靠历史推导）。
 - **取数策略**：格式审核 → `parse_document`（Document 模型）；内容类技能与阅读问答 → 优先复用会话中已有文本（convert_document 的 Markdown 或 parse_document 的文本投影），否则 `convert_document`（扫描件自动 OCR 兜底，`ANYDOC_OCR_API_URL`）。`core.document_markdown → core.plain_text` 投影链（`artifacts/projectors.py`）支撑内容类插件的纯文本入参。
 - `orchestrator.system_prompt` 由 core 默认提供（`prompts/defaults/{locale}/orchestrator.yaml`）；领域包只提供 `orchestrator.workflow_rules` 作为激活载荷。
+- `activate_domain` 工具描述中的领域目录实时包含各域技能清单（`skills/` 目录按 mtime 缓存，`runtime/activation.py` 的 `build_domain_catalog`）——前端新建技能后无需重启即可被模型感知。
 
 ### 插件系统（JSON-RPC 2.0）
 
