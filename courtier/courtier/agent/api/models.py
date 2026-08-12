@@ -274,6 +274,7 @@ class SessionRecord:
     turn_step_starts: list[int] = field(default_factory=list)
     turn_conclusions: list[str] = field(default_factory=list)
     pinned: bool = False  # 置顶会话排在历史列表最前（按用户隔离的展示偏好）
+    active_domains: list[str] = field(default_factory=list)  # 已激活领域（域门控）
 
     def to_summary_dict(self) -> dict[str, Any]:
         tool_count = sum(len(s.tools) for s in self.steps)
@@ -390,4 +391,5 @@ class SessionRecord:
             "createdAt": self.created_at,
             "treeJson": tree_data,
             "currentNodeId": self.current_node_id,
+            "activeDomains": list(self.active_domains),
         }

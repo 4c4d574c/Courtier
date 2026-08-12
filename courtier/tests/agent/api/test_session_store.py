@@ -97,6 +97,26 @@ class TestSessionStore:
         assert s is not None
         assert s.pinned is True
 
+    async def test_persist_and_reload_active_domains(self, tmp_path):
+        """Domain activation set survives a store reload (rebuild replay)."""
+        store = SessionStore(str(tmp_path))
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        await store.update("sess_000000000001", active_domains=["docaudit"])
+
+        reloaded = SessionStore(str(tmp_path))
+        s = await reloaded.get("sess_000000000001")
+        assert s is not None
+        assert s.active_domains == ["docaudit"]
+
+        # Legacy records without the field default to empty (backward compat).
+        raw_path = tmp_path / "sess_000000000001.json"
+        raw = json.loads(raw_path.read_text(encoding="utf-8"))
+        del raw["active_domains"]
+        raw_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        legacy = await reloaded.get("sess_000000000001")
+        assert legacy is not None
+        assert legacy.active_domains == []
+
     async def test_delete(self, store):
         await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
         assert await store.delete("sess_000000000001") is True

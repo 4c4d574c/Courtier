@@ -173,6 +173,10 @@ class DomainActivator:
             self._agent._prompt_pipeline.set_rules(overlay)
 
         self.active_domains.add(domain)
+        # Surface the domain's plugin proxies on the agent immediately — the
+        # per-run sync only picks up newly visible tools at the START of the
+        # next run, so same-turn use after activation would otherwise fail.
+        self._inject_domain_tools(domain)
         new_tools = self._domain_plugin_tools(domain)
         logger.info(
             "Domain '%s' activated: tools=%s skills=%s",
@@ -220,3 +224,17 @@ class DomainActivator:
             for name, result in self._plugin_system.get_scan_results().items()
             if result.manifest is not None and self.plugin_domain(name) == domain
         )
+
+    def _inject_domain_tools(self, domain: str) -> None:
+        """Register the domain's plugin proxies on the agent's registry now.
+
+        Idempotent: tools already present are left untouched (hot-replacement
+        stays owned by the run() sync loop).
+        """
+        existing = {t.name for t in self._agent.tool_registry.list_tools()}
+        for tool in self._tool_registry.list_tools():
+            plugin_name = getattr(getattr(tool, "_client", None), "plugin_name", None)
+            if plugin_name is None or tool.name in existing:
+                continue
+            if self.plugin_domain(plugin_name) == domain:
+                self._agent.tool_registry.register(tool)

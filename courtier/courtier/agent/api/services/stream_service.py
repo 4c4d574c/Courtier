@@ -328,6 +328,11 @@ async def generate_sse_stream(
                     set_conversation_tree_branches(
                         session_id, len(result.final_state.tree.leaf_nodes())
                     )
+                # Persist the domain activation set so per-request rebuilds
+                # can replay it (context compaction drops the evidence).
+                activator = getattr(agent, "_domain_activator", None)
+                if activator is not None:
+                    update_kwargs["active_domains"] = sorted(activator.active_domains)
                 await session_store.update(session_id, **update_kwargs)
             if result.final_state is not None and result.final_state.status == "error":
                 # Model/internal failure: surface an explicit error event

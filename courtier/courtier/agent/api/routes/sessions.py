@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
-from ..services.agent_service import build_audit_agent, build_chat_agent
+from ..services.agent_service import build_agent
 from ..services.session_service import (
     delete_session,
     fork_session_tree,
@@ -58,17 +58,6 @@ async def _resolve_audit_file_owned_or_404(
     if file_path is None or not file_path.exists():
         raise HTTPException(404, f"文件不存在: {file_id}")
     return file_path
-
-
-def _resolve_skills_dir(courtier_config: Any) -> str:
-    """Return the skills directory of the first configured domain package.
-
-    Raises HTTPException(500) if no domain packages are configured.
-    """
-    domains = getattr(courtier_config, "domains", None) or []
-    if not domains:
-        raise HTTPException(500, "未配置 domain package")
-    return str(domains[0].skills_path)
 
 
 async def _build_agent_or_500(
@@ -168,6 +157,9 @@ async def handle_sessions(
         artifact_snapshot = existing.artifact_snapshot
         context_state = existing.context_state
         start_step = len(existing.steps)
+        # Activation state is persisted per session and replayed on rebuild —
+        # it must not be derived from history (compaction drops the evidence).
+        active_domains = tuple(existing.active_domains or [])
 
         # Record the new turn boundary so historical sessions render
         # each turn with the correct user message and step grouping.
@@ -186,47 +178,6 @@ async def handle_sessions(
                 file_name=(file_info.original_name if file_info else ""),
             )
 
-        if effective_file_id:
-            # Audit mode continuation (new upload or the session's file)
-            file_store = request.app.state.file_store
-            file_path = await _resolve_audit_file_owned_or_404(
-                file_store,
-                effective_file_id,
-                settings.upload_dir,
-                current_user,
-                is_admin,
-            )
-            agent, context_manager, model_name = await _build_agent_or_500(
-                lambda: build_audit_agent(
-                    settings,
-                    plugin_system=request.app.state.plugin_system,
-                    tool_registry=request.app.state.tool_registry,
-                    skills_dir=_resolve_skills_dir(request.app.state.courtier_config),
-                    prompt_engine=request.app.state.prompt_engine,
-                    owner_id=current_user_payload.get("uid"),
-                    session_id=session_id,
-                ),
-                session_id,
-                "audit",
-            )
-            agent_context = {"file_path": str(file_path)}
-        else:
-            # Chat mode continuation
-            agent, context_manager, model_name = await _build_agent_or_500(
-                lambda: build_chat_agent(
-                    settings,
-                    prompt_engine=request.app.state.prompt_engine,
-                    tool_registry=request.app.state.tool_registry,
-                    shared_plugin_names=request.app.state.shared_plugin_names,
-                    owner_id=current_user_payload.get("uid"),
-                    session_id=session_id,
-                    plugin_system=getattr(request.app.state, "plugin_system", None),
-                ),
-                session_id,
-                "chat",
-            )
-            agent_context = {}
-
         is_new = False
     else:
         # New session
@@ -235,53 +186,42 @@ async def handle_sessions(
         artifact_snapshot = ""
         context_state = ""
         start_step = 0
-
-        if fileId:
-            # Document audit mode
-            file_store = request.app.state.file_store
-            file_path = await _resolve_audit_file_owned_or_404(
-                file_store,
-                fileId,
-                settings.upload_dir,
-                current_user,
-                is_admin,
-            )
-            file_info = await file_store.resolve(fileId)
-            file_name = (file_info.original_name if file_info else "") or ""
-
-            agent, context_manager, model_name = await _build_agent_or_500(
-                lambda: build_audit_agent(
-                    settings,
-                    plugin_system=request.app.state.plugin_system,
-                    tool_registry=request.app.state.tool_registry,
-                    skills_dir=_resolve_skills_dir(request.app.state.courtier_config),
-                    prompt_engine=request.app.state.prompt_engine,
-                    owner_id=current_user_payload.get("uid"),
-                    session_id=session_id,
-                ),
-                session_id,
-                "audit",
-            )
-            agent_context = {"file_path": str(file_path)}
-        else:
-            # Chat mode
-            file_name = ""
-            agent, context_manager, model_name = await _build_agent_or_500(
-                lambda: build_chat_agent(
-                    settings,
-                    prompt_engine=request.app.state.prompt_engine,
-                    tool_registry=request.app.state.tool_registry,
-                    shared_plugin_names=request.app.state.shared_plugin_names,
-                    owner_id=current_user_payload.get("uid"),
-                    session_id=session_id,
-                    plugin_system=getattr(request.app.state, "plugin_system", None),
-                ),
-                session_id,
-                "chat",
-            )
-            agent_context = {}
-
+        effective_file_id = fileId
+        active_domains = ()
         is_new = True
+
+    # One unified builder for every session shape: chat-only, uploaded
+    # document, and multi-turn continuation.
+    file_name = ""
+    agent_context: dict[str, str] = {}
+    if effective_file_id:
+        file_store = request.app.state.file_store
+        file_path = await _resolve_audit_file_owned_or_404(
+            file_store,
+            effective_file_id,
+            settings.upload_dir,
+            current_user,
+            is_admin,
+        )
+        file_info = await file_store.resolve(effective_file_id)
+        file_name = (file_info.original_name if file_info else "") or ""
+        agent_context = {"file_path": str(file_path)}
+
+    agent, context_manager, model_name = await _build_agent_or_500(
+        lambda: build_agent(
+            settings,
+            plugin_system=request.app.state.plugin_system,
+            tool_registry=request.app.state.tool_registry,
+            courtier_config=request.app.state.courtier_config,
+            prompt_engine=request.app.state.prompt_engine,
+            owner_id=current_user_payload.get("uid"),
+            session_id=session_id,
+            shared_plugin_names=request.app.state.shared_plugin_names,
+            active_domains=active_domains,
+        ),
+        session_id,
+        "orchestrator",
+    )
 
     # Create or update session record. New sessions start as "initial" and are
     # promoted to "running" only when the SSE stream actually begins emitting

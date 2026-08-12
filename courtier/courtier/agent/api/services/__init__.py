@@ -1,6 +1,6 @@
 """Service layer — business logic extracted from route handlers."""
 
-from .agent_service import build_audit_agent, build_chat_agent, build_model_client  # noqa: F401
+from .agent_service import build_agent, build_model_client  # noqa: F401
 from .file_service import ALLOWED_EXTS, MAX_FILE_SIZE, upload_file  # noqa: F401
 from .session_service import (  # noqa: F401
     delete_session,

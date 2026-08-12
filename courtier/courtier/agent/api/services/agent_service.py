@@ -110,50 +110,48 @@ def build_model_client(settings: Any) -> Any:
     )
 
 
-async def build_audit_agent(
+async def build_agent(
     settings: Any,
     plugin_system: Any = None,
     tool_registry: Any = None,
-    artifact_store: Any = None,
-    skills_dir: str | None = None,
+    courtier_config: Any = None,
     prompt_engine: PromptEngine | None = None,
     owner_id: int | None = None,
     session_id: str = "",
+    shared_plugin_names: set[str] | None = None,
+    active_domains: tuple[str, ...] = (),
 ) -> tuple[Any, Any, str]:
-    """Create OrchestratorAgent and MemoryManager for document audit use."""
+    """Create the unified domain-gated orchestrator agent + MemoryManager.
+
+    One builder for every session shape: chat-only, uploaded document, and
+    multi-turn continuation.  The orchestrator starts with only the shared
+    plugin tools visible (domain gating); domains self-activate at runtime
+    via the ``activate_domain`` meta-tool, and the previously persisted
+    ``active_domains`` set is silently replayed on per-request rebuilds —
+    activation state must not be derived from history (compaction can drop
+    the evidence).
+
+    Returns (agent, context_manager, model_name).
+    """
+    from courtier.config import CourtierConfig
+
     from ...agents.orch import OrchestratorAgent
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
+    from ...runtime.activation import DomainActivator
     from ...runtime.budget import AgentRuntimeBudget
-    from ...skills import SkillRegistry
+    from ...tools.builtin.activate_domain import ActivateDomainTool
 
     model = build_model_client(settings)
 
     courtier_md_content = _load_courtier_md()
 
-    # Resolve skills_dir from CourtierConfig's first domain, falling back to
-    # the default path relative to repo root.
-    from courtier.config import CourtierConfig
-
-    if skills_dir:
-        resolved_skills_dir = skills_dir
-    else:
-        courtier_cfg = CourtierConfig.from_env()
-        courtier_cfg.discover()
-        if not courtier_cfg.domains:
-            raise ValueError(
-                "No domain packages configured. Set COURTIER_DOMAIN_PACKAGES "
-                "or pass an explicit skills_dir to build_audit_agent()."
-            )
-        resolved_skills_dir = str(courtier_cfg.domains[0].skills_path)
-
-    skill_registry = SkillRegistry(resolved_skills_dir)
-    skill_registry.scan()
-    if skill_registry.has_errors:
-        logger.warning("Skill registry errors: %s", skill_registry.errors)
+    if courtier_config is None:
+        courtier_config = CourtierConfig.from_env()
+        courtier_config.discover()
 
     # Build unified ArtifactStore (which now subsumes CacheStore).
-    store = _build_artifact_store(settings, artifact_store)
+    store = _build_artifact_store(settings, None)
 
     budget = AgentRuntimeBudget(
         max_runtime_seconds=settings.subagent_max_runtime_seconds,
@@ -162,27 +160,56 @@ async def build_audit_agent(
         max_depth=settings.subagent_max_depth,
         remaining_total_spawns=settings.subagent_max_total_spawns,
     )
+    # Full runtime over the app-wide registry; skills are registered
+    # per-domain by the activator (no upfront skill_registry).
     agent_runtime = AgentRuntime(
         tool_registry=tool_registry,
         model=model,
-        skill_registry=skill_registry,
+        skill_registry=None,
         artifact_store=store,
         default_budget=budget,
         cache_dir=settings.cache_dir,
+    )
+
+    domain_catalog = [
+        {"name": pkg.name, "description": getattr(pkg.config, "description", "")}
+        for pkg in courtier_config.domains
+    ]
+    activate_tool = ActivateDomainTool(domain_catalog)
+
+    activator = DomainActivator(
+        tool_registry=tool_registry,
+        courtier_config=courtier_config,
+        agent_runtime=agent_runtime,
+        plugin_system=plugin_system,
+        prompt_engine=prompt_engine,
+        shared_plugin_names=shared_plugin_names or set(),
     )
 
     agent = OrchestratorAgent(
         model=model,
         plugin_system=plugin_system,
         tool_registry=tool_registry,
-        skill_registry=skill_registry,
+        skill_registry=None,
         agent_runtime=agent_runtime,
         courtier_md_content=courtier_md_content,
         prompt_engine=prompt_engine,
         agent_name="Courtier",
-        # An uploaded document must be parsed before anything else runs.
-        first_required_tool="parse_document",
+        # No first_required_tool: parsing choice is left to the LLM guided
+        # by the activation payload (format audit → parse_document,
+        # content tasks → convert_document).
+        extra_tools=[activate_tool],
+        tool_filter=activator.visible,
     )
+    activator.attach(agent)
+    activate_tool.set_activator(activator)
+    # Expose the activator on the agent so the stream runner can persist
+    # the session's active-domain set after every run.
+    agent._domain_activator = activator
+    # Replay the persisted activation set (idempotent, silent).
+    for domain in active_domains or ():
+        await activator.activate(domain)
+
     context_manager = MemoryManager(
         model=model,
         cache_dir=settings.cache_dir,
@@ -271,76 +298,3 @@ def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
         preview_max_chars=int(getattr(settings, "context_preview_max_chars", 1000)),
         primary_backend=primary_backend,
     )
-
-
-async def build_chat_agent(
-    settings: Any,
-    artifact_store: Any = None,
-    prompt_engine: PromptEngine | None = None,
-    tool_registry: Any = None,
-    shared_plugin_names: set[str] | None = None,
-    owner_id: int | None = None,
-    session_id: str = "",
-    plugin_system: Any = None,
-) -> tuple[Any, Any, str]:
-    """Create a chat Agent for conversations without an uploaded audit file.
-
-    When *tool_registry* and *shared_plugin_names* are provided, tools from
-    ``plugins/shared/`` (parse, search, annotate, template) are registered so
-    the chat agent can search the resource library, etc.  Domain audit
-    plugins remain audit-mode only.
-    """
-    from ...agents.base import Agent
-    from ...core.memory_manager import MemoryManager
-
-    model = build_model_client(settings)
-
-    if prompt_engine is not None:
-        chat_prompt = prompt_engine.render("chat.system_prompt", agent_name="Courtier")
-        agent_name_val = "Courtier Assistant"
-    else:
-        chat_prompt = "You are Courtier, an AI assistant. " "Provide helpful, accurate responses."
-        agent_name_val = "Courtier Assistant"
-
-    tools: list[Any] = []
-    if tool_registry is not None and shared_plugin_names:
-        for tool in tool_registry.list_tools():
-            # Plugin tools are ProxyTool instances whose JSON-RPC client
-            # carries the originating plugin's name.
-            plugin_name = getattr(getattr(tool, "_client", None), "plugin_name", None)
-            if plugin_name in shared_plugin_names:
-                tools.append(tool)
-
-    agent = Agent(
-        name=agent_name_val,
-        role=chat_prompt,
-        tools=tools,
-        model=model,
-        prompt_engine=prompt_engine,
-        agent_name=agent_name_val,
-    )
-    context_manager = MemoryManager(
-        model=model,
-        cache_dir=settings.cache_dir,
-        session_id=session_id or "default",
-        artifact_store=artifact_store,
-        **_context_budget_kwargs(settings),
-        **_compact_prompt_kwargs(prompt_engine),
-    )
-    # Give the chat agent's private registry the same ResultSummarizer/persist
-    # pipeline audit mode gets via AgentRuntime (runtime.py __post_init__),
-    # so large tool results are persisted + summarised with a $ref instead of
-    # being dumped verbatim into the LLM context.  The summarizer persists
-    # into the same store the context manager uses, keeping $refs resolvable.
-    from ...runtime.summarizer import ResultSummarizer
-
-    agent.tool_registry.configure_result_handling(
-        result_store=None,
-        summarizer=ResultSummarizer(artifact_store=context_manager._cache),
-    )
-    if plugin_system is not None:
-        # Shared plugins' declared tool-usage guidance (plugin.yaml
-        # system_prompt) joins the system prompt via the lazy provider.
-        agent.set_plugin_prompts_provider(plugin_system.get_system_prompts)
-    apply_owner_scope(agent, owner_id)
-    return agent, context_manager, model.model_name

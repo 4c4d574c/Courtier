@@ -387,6 +387,7 @@ class SessionStore:
         data["turn_step_starts"] = session.turn_step_starts
         data["turn_conclusions"] = session.turn_conclusions
         data["pinned"] = session.pinned
+        data["active_domains"] = list(session.active_domains)
         try:
             text = json.dumps(data, ensure_ascii=False, indent=2)
             tmp_path = file_path.with_suffix(".json.tmp")
@@ -439,6 +440,7 @@ class SessionStore:
             turn_step_starts=raw.get("turn_step_starts", []),
             turn_conclusions=raw.get("turn_conclusions", []),
             pinned=raw.get("pinned", False),
+            active_domains=list(raw.get("active_domains", [])),
         )
 
         for s in raw.get("steps", []):

@@ -129,7 +129,7 @@ class TestSSEStream:
         agent, _model = mock_chat_agent
 
         with patch(
-            "courtier.agent.api.routes.sessions.build_chat_agent",
+            "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
             with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -152,7 +152,7 @@ class TestSSEStream:
         agent, _model = mock_chat_agent
 
         with patch(
-            "courtier.agent.api.routes.sessions.build_chat_agent",
+            "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
             with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -183,7 +183,7 @@ class TestPatchSession:
     def _create_session(self, client, mock_chat_agent) -> str:
         agent, _model = mock_chat_agent
         with patch(
-            "courtier.agent.api.routes.sessions.build_chat_agent",
+            "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
             with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -244,7 +244,7 @@ class TestSessionOwnership:
         agent, _model = mock_chat_agent
 
         with patch(
-            "courtier.agent.api.routes.sessions.build_chat_agent",
+            "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
             with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -310,7 +310,7 @@ class TestAuditLogSwitch:
                 settings.upload_dir = log_dir
 
                 with patch(
-                    "courtier.agent.api.routes.sessions.build_chat_agent",
+                    "courtier.agent.api.routes.sessions.build_agent",
                     new=AsyncMock(return_value=(agent, None, "test-model")),
                 ):
                     with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -350,7 +350,7 @@ class TestAuditLogSwitch:
                     test_client.headers["Authorization"] = f"Bearer {login_resp.json()['token']}"
 
                     with patch(
-                        "courtier.agent.api.routes.sessions.build_chat_agent",
+                        "courtier.agent.api.routes.sessions.build_agent",
                         new=AsyncMock(return_value=(agent, None, "test-model")),
                     ):
                         with patch(
@@ -407,7 +407,7 @@ class TestAccessCookie:
         agent, _model = mock_chat_agent
         client.headers.pop("Authorization", None)
         with patch(
-            "courtier.agent.api.routes.sessions.build_chat_agent",
+            "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
             with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -443,7 +443,7 @@ class TestContinueWithNewFile:
 
         # Turn 1: plain chat session (no file).
         with patch(
-            "courtier.agent.api.routes.sessions.build_chat_agent",
+            "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
             with client.stream("GET", "/api/sessions?task=hello") as resp:
@@ -468,17 +468,12 @@ class TestContinueWithNewFile:
         file_id = upload.json()["fileId"]
 
         # Turn 2: continue the SAME session but with the new file attached.
-        audit_builder = AsyncMock(return_value=(agent, None, "test-model"))
-        chat_builder = AsyncMock(return_value=(agent, None, "test-model"))
-        with (
-            patch(
-                "courtier.agent.api.routes.sessions.build_audit_agent",
-                new=audit_builder,
-            ),
-            patch(
-                "courtier.agent.api.routes.sessions.build_chat_agent",
-                new=chat_builder,
-            ),
+        # The unified builder is called once; the file is passed through the
+        # agent_context ({"file_path": ...}) rather than a separate builder.
+        builder = AsyncMock(return_value=(agent, None, "test-model"))
+        with patch(
+            "courtier.agent.api.routes.sessions.build_agent",
+            new=builder,
         ):
             with client.stream(
                 "GET",
@@ -488,9 +483,9 @@ class TestContinueWithNewFile:
                 for _ in resp.iter_bytes():
                     pass
 
-        # The new file must trigger audit mode, not silent chat continuation.
-        audit_builder.assert_called_once()
-        chat_builder.assert_not_called()
+        builder.assert_called_once()
+        # Replay of an empty activation set for a chat-only session.
+        assert builder.call_args.kwargs.get("active_domains") == ()
 
         # And the session's working document is updated for later turns.
         detail = client.get(f"/api/sessions/{session_id}")
