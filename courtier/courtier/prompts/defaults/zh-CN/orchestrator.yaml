@@ -22,6 +22,12 @@ orchestrator:
     ## convert_document 失败降级
     - convert_document 返回失败时，如实向用户说明原因；
       如失败源于未配置 OCR 服务，说明扫描件需改用领域解析工具（如 parse_document）。
+
+    ## 引用标记规则
+    - 结论中引用 search_documents 搜索结果的内容时，在被引用的句子或条款后紧跟引用标记 `[[n]]`，
+      n 为该次搜索结果 hits 列表的序号（从 1 开始，第 1 条命中为 [[1]]）。
+    - 只引用结果中实际存在的序号，禁止编造或推断不存在的命中。
+    - 引用标记仅用于标注依据来源，不改变结论的表述。
     {% if available_skills %}
     ## 已激活领域技能
     {% for skill in available_skills %}
