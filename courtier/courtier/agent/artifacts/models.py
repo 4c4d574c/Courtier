@@ -110,6 +110,22 @@ def _build_artifact_type_schemas() -> dict[str, ArtifactSchema]:
         ),
     )
 
+    schemas["core.document_markdown"] = ArtifactSchema(
+        schema_version="1.0",
+        schema_format="type_hint",
+        schema_body={
+            "type": "object",
+            "required": ["markdown"],
+            "properties": {
+                "markdown": {"type": "string"},
+                "format": {"type": "string"},
+                "ocr": {"type": "boolean"},
+                "pages": {"type": "integer"},
+            },
+        },
+        description=("GitHub-Flavored Markdown rendering of a document (optionally OCR'd)."),
+    )
+
     schemas["core.error_report"] = ArtifactSchema(
         schema_version="1.0",
         schema_format="type_hint",

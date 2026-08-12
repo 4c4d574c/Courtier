@@ -8,6 +8,9 @@ version: "1.0"
 mode: auto
 timeout_seconds: 600
 retry_policy: on_error
+tools:
+  - convert_document
+  - correct_text
 ---
 
 # 目标
@@ -18,6 +21,10 @@ retry_policy: on_error
 - 检测错别字、重复字、缺字等问题
 - 检查全角/半角字符混用
 - 检查标点符号语种混用（中英文标点混用）
+
+# 取数
+1. 优先使用任务中已提供的文档文本（convert_document 的 Markdown 或 parse_document 的文本投影），不要重复转换/解析。
+2. 若没有现成文本，调用 `convert_document(file_path)` 获取 Markdown 作为纠错文本（扫描件 PDF/图片会自动 OCR）。
 
 # 纠错流程
 1. 调用 `correct_text` 工具对文本进行纠错

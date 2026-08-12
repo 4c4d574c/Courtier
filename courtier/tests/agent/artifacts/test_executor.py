@@ -72,9 +72,7 @@ def test_executor_runs_two_step_plan_and_materializes_text():
                 constraints={"source_scope": "body"},
             ),
         ),
-        materializer=MaterializerSpec(
-            artifact_type="core.plain_text", materialize_as="string"
-        ),
+        materializer=MaterializerSpec(artifact_type="core.plain_text", materialize_as="string"),
     )
 
     result = ProjectionExecutor(
@@ -90,14 +88,57 @@ def test_executor_runs_two_step_plan_and_materializes_text():
     assert result.trace.field == "new_doc"
     assert result.trace.source_artifact == source.artifact_id
     assert len(result.trace.steps) == 2
-    assert result.trace.steps[0].projector.startswith(
-        "docaudit.parsed_document.to_paragraph_list@"
-    )
+    assert result.trace.steps[0].projector.startswith("docaudit.parsed_document.to_paragraph_list@")
     assert result.trace.steps[0].cache == "miss"
-    assert result.trace.steps[1].projector.startswith(
-        "docaudit.paragraph_list.to_plain_text@"
-    )
+    assert result.trace.steps[1].projector.startswith("docaudit.paragraph_list.to_plain_text@")
     assert result.trace.materializer["output_type"] == "string"
+
+
+def test_document_markdown_materializes_as_plain_text_string():
+    """End-to-end: convert_document Markdown artifact → plagiarism new_doc string.
+
+    Mirrors detect_plagiarism's declared input field
+    (InputField(name="new_doc", artifact_type="core.plain_text",
+    materialize_as="string")): the binder resolves the $ref through the
+    single-step document_markdown → plain_text projection.
+    """
+    store = ArtifactStore()
+    source = Artifact(
+        artifact_id="$ref:convert_document:1",
+        artifact_type="core.document_markdown",
+        data={"markdown": "## 关于拨付经费的请示\n\n正文内容。", "format": "docx"},
+        metadata=ArtifactMetadata(
+            created_by="convert_document",
+            semantic_role="primary_document",
+            subject="current_upload",
+        ),
+    )
+    store.put(source)
+    plan = ProjectionPlan(
+        field_name="new_doc",
+        required_type="core.plain_text",
+        source_artifact_id=source.artifact_id,
+        steps=(
+            ProjectionStep(
+                projector_name="core.document_markdown.to_plain_text",
+                source_type="core.document_markdown",
+                target_type="core.plain_text",
+                constraints={},
+            ),
+        ),
+        materializer=MaterializerSpec(artifact_type="core.plain_text", materialize_as="string"),
+    )
+
+    result = ProjectionExecutor(
+        projector_registry=create_default_projector_registry(),
+        materializer_registry=MaterializerRegistry.default(),
+        artifact_store=store,
+    ).execute(plan)
+
+    assert result.value == "## 关于拨付经费的请示\n\n正文内容。"
+    assert store.get(result.artifact_id).artifact_type == "core.plain_text"
+    assert len(result.trace.steps) == 1
+    assert result.trace.steps[0].projector.startswith("core.document_markdown.to_plain_text@")
 
 
 def test_materializer_uses_path_to_extract_field():
@@ -112,9 +153,7 @@ def test_materializer_uses_path_to_extract_field():
 
     value = registry.materialize(
         artifact,
-        MaterializerSpec(
-            artifact_type="core.plain_text", materialize_as="string", path="$.text"
-        ),
+        MaterializerSpec(artifact_type="core.plain_text", materialize_as="string", path="$.text"),
     )
 
     assert value == "extracted via path"
@@ -168,9 +207,7 @@ def test_materializes_paragraph_list_as_list_string():
 
     value = registry.materialize(
         _paragraph_list_artifact(),
-        MaterializerSpec(
-            artifact_type="docaudit.paragraph_list", materialize_as="list_string"
-        ),
+        MaterializerSpec(artifact_type="docaudit.paragraph_list", materialize_as="list_string"),
     )
 
     assert value == ["第一段", "第二段"]
@@ -183,9 +220,7 @@ def test_materializes_paragraph_list_as_dict():
 
     value = registry.materialize(
         artifact,
-        MaterializerSpec(
-            artifact_type="docaudit.paragraph_list", materialize_as="dict"
-        ),
+        MaterializerSpec(artifact_type="docaudit.paragraph_list", materialize_as="dict"),
     )
 
     assert value == artifact.data

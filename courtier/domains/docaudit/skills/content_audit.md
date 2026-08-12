@@ -9,7 +9,8 @@ mode: auto
 timeout_seconds: 600
 retry_policy: on_error
 enabled: true
-
+tools:
+  - convert_document
 ---
 
 # 目标
@@ -18,6 +19,10 @@ enabled: true
 # 适用场景
 - 需要对文档内容进行多领域合规审核
 - 识别违规表述并给出修改建议
+
+# 取数
+1. 优先使用任务中已提供的文档文本（convert_document 的 Markdown 或 parse_document 的文本投影），不要重复转换/解析。
+2. 若没有现成文本，调用 `convert_document(file_path)` 获取 Markdown 作为审核文本（扫描件 PDF/图片会自动 OCR）。
 
 # 审核流程
 1. 按以下维度逐段审查文档内容：

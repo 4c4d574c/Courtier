@@ -11,7 +11,10 @@ class PlagiarismAuditorInput(SubAgentInput):
     """抄袭检测审计器的结构化输入。"""
 
     document: str | dict = Field(
-        description="待检测的文档数据。可传入 $ref:parse_document:1 引用"
+        description=(
+            "待检测的文档数据。可传入 convert_document 的 $ref:convert_document:1 引用"
+            "（Markdown，自动投影为纯文本），或 parse_document 的 $ref:parse_document:1 引用"
+        )
     )
     library_docs: list[str] | None = Field(
         default=None,

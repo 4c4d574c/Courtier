@@ -1,4 +1,5 @@
 """Projector registry and initial docaudit projectors."""
+
 from __future__ import annotations
 
 import logging
@@ -164,10 +165,7 @@ class ProjectorRegistry:
         self._by_name[name] = new_projector
 
         def _replace_in_index(index: dict, key: Any) -> None:
-            index[key] = [
-                new_projector if p.spec.name == name else p
-                for p in index.get(key, [])
-            ]
+            index[key] = [new_projector if p.spec.name == name else p for p in index.get(key, [])]
 
         _replace_in_index(self._by_source, spec.source_type)
         _replace_in_index(self._by_target, spec.target_type)
@@ -240,6 +238,22 @@ def _build_default_projector_registry() -> ProjectorRegistry:
                 description="Extract document paragraphs in reading order.",
             ),
             _parsed_document_to_paragraph_list,
+        )
+    )
+    registry.register(
+        Projector(
+            ProjectorSpec(
+                name="core.document_markdown.to_plain_text",
+                source_type="core.document_markdown",
+                target_type="core.plain_text",
+                owner="document",
+                quality_score=0.98,
+                lossiness="lossy",
+                cost="cheap",
+                supported_constraints=(),
+                description="Use the Markdown rendering verbatim as plain text.",
+            ),
+            _document_markdown_to_plain_text,
         )
     )
     registry.register(
@@ -336,7 +350,7 @@ def _parsed_document_to_paragraph_list(
 ) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
     paragraphs: list[dict[str, Any]] = []
     for page_index, page in enumerate(artifact.data.get("pages", []) or []):
-        body = ((page.get("page_content") or {}).get("body") or {})
+        body = (page.get("page_content") or {}).get("body") or {}
         _append_paragraph(
             paragraphs,
             body.get("title"),
@@ -362,7 +376,8 @@ def _parsed_document_to_paragraph_list(
             "No paragraphs extracted from parsed document. "
             "Expected structure: pages[].page_content.body.{title,main_text}. "
             "Got %d pages; first page keys: %s",
-            len(pages), first_page_keys,
+            len(pages),
+            first_page_keys,
         )
         diagnostics = (
             ProjectionDiagnostic(
@@ -379,6 +394,29 @@ def _parsed_document_to_paragraph_list(
             stats={"paragraphs": len(paragraphs)},
         ),
         diagnostics,
+    )
+
+
+def _document_markdown_to_plain_text(
+    artifact: Artifact,
+    constraints: dict[str, Any],
+) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
+    """Project a convert_document Markdown artifact into core.plain_text.
+
+    Content skills (content audit, text correction, plagiarism, secret
+    analysis) consume plain text; the Markdown is used verbatim — no
+    markdown-source stripping, so heading markers etc. stay visible to the
+    consumer.
+    """
+    markdown = artifact.data.get("markdown", "") or ""
+    return (
+        {"text": markdown, "language": "zh", "source_scope": "full_document"},
+        ProjectionQuality(
+            confidence=1.0 if markdown else 0.0,
+            lossiness="lossy",
+            stats={"chars": len(markdown)},
+        ),
+        (),
     )
 
 
@@ -487,9 +525,7 @@ def audit_projector_graph(registry: ProjectorRegistry) -> dict[str, Any]:
             debug_touching.append(spec.name)
 
     duplicate_edges = {
-        f"{src} -> {tgt}": names
-        for (src, tgt), names in edge_counts.items()
-        if len(names) > 1
+        f"{src} -> {tgt}": names for (src, tgt), names in edge_counts.items() if len(names) > 1
     }
 
     all_types = produced | consumed

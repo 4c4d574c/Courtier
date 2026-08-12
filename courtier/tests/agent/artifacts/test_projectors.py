@@ -21,9 +21,7 @@ def _parsed_document_artifact() -> Artifact:
                     "page_content": {
                         "body": {
                             "title": {
-                                "elements": [
-                                    {"font": {"text": "关于开展安全生产检查的通知"}}
-                                ]
+                                "elements": [{"font": {"text": "关于开展安全生产检查的通知"}}]
                             },
                             "main_text": [
                                 {
@@ -121,6 +119,35 @@ def test_paragraph_list_projects_to_plain_text_body_only():
     assert text_result.artifact.data["source_scope"] == "body"
 
 
+def test_document_markdown_projects_to_plain_text():
+    """convert_document output (core.document_markdown) → core.plain_text."""
+    registry = create_default_projector_registry()
+    projector = registry.get("core.document_markdown.to_plain_text")
+
+    artifact = Artifact(
+        artifact_id="a1",
+        artifact_type="core.document_markdown",
+        data={"markdown": "# 标题\n\n正文内容。", "format": "docx"},
+        metadata=ArtifactMetadata(created_by="convert_document", semantic_role="document"),
+    )
+    result = projector.project(artifact, constraints={})
+
+    assert result.artifact.artifact_type == "core.plain_text"
+    assert result.artifact.data["text"] == "# 标题\n\n正文内容。"
+    assert result.artifact.data["source_scope"] == "full_document"
+    assert result.artifact.data["language"] == "zh"
+
+    # Empty markdown → zero confidence, still a valid projection.
+    empty = Artifact(
+        artifact_id="a2",
+        artifact_type="core.document_markdown",
+        data={"markdown": ""},
+        metadata=ArtifactMetadata(created_by="convert_document", semantic_role="document"),
+    )
+    empty_result = projector.project(empty, constraints={})
+    assert empty_result.quality.confidence == 0.0
+
+
 def test_search_results_projects_to_reference_text_list():
     registry = create_default_projector_registry()
     projector = registry.get("docaudit.search_results.to_reference_text_list")
@@ -158,6 +185,7 @@ def test_reference_text_list_projects_to_core_text_collection():
 
 # -- Gap 10: calibrated projector quality scores -------------------------------
 
+
 def test_default_projectors_have_distinct_quality_scores():
     registry = create_default_projector_registry()
     p1 = registry.get("docaudit.parsed_document.to_paragraph_list")
@@ -177,6 +205,7 @@ def test_default_projectors_have_distinct_quality_scores():
 
 
 # -- Gap 11: layer promotion ---------------------------------------------------
+
 
 def test_promote_projector_to_higher_layer():
     registry = create_default_projector_registry()
@@ -219,11 +248,12 @@ def test_promote_rejects_experimental_projector():
 
 # -- Gap 9: graph audit --------------------------------------------------------
 
+
 def test_audit_projector_graph_report_structure():
     registry = create_default_projector_registry()
     report = audit_projector_graph(registry)
 
-    assert report["total_projectors"] == 4
+    assert report["total_projectors"] == 5
     assert isinstance(report["unproduced_types"], list)
     assert isinstance(report["unconsumed_types"], list)
     assert isinstance(report["duplicate_edges"], dict)
@@ -262,6 +292,7 @@ def test_audit_catches_deprecated_projector():
 
 # -- Gap 1: schema validation in projector output ------------------------------
 
+
 def test_projector_validates_output_schema():
     """Ensure projector output that doesn't match target schema gets diagnostics."""
     registry = create_default_projector_registry()
@@ -278,13 +309,17 @@ def test_projector_validates_output_schema():
 
 # -- Gap 1: registry indexes (by_target, by_edge, by_layer) --------------------
 
+
 def test_registry_by_target_index():
     registry = create_default_projector_registry()
 
     # Projectors producing core.plain_text
     producers = registry.by_target("core.plain_text")
-    assert len(producers) == 1
-    assert producers[0].spec.name == "docaudit.paragraph_list.to_plain_text"
+    assert len(producers) == 2
+    assert {p.spec.name for p in producers} == {
+        "docaudit.paragraph_list.to_plain_text",
+        "core.document_markdown.to_plain_text",
+    }
 
 
 def test_registry_by_target_unknown_type_returns_empty():
@@ -309,7 +344,7 @@ def test_registry_by_layer_index():
     registry = create_default_projector_registry()
 
     domain = registry.by_layer("domain")
-    assert len(domain) == 4  # all default projectors are domain-layer
+    assert len(domain) == 5  # all default projectors are domain-layer
 
 
 def test_register_and_promote_update_all_indexes():

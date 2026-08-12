@@ -3,6 +3,7 @@ name: plagiarism
 display_name: 查重检测
 description: 文档查重检测
 tools:
+  - convert_document
   - search_documents
   - detect_plagiarism
 input_model: skills.schemas.plagiarism.PlagiarismAuditorInput
@@ -21,7 +22,12 @@ retry_policy: on_error
 - 需要检测文档与参考库之间的相似度
 - 识别可能的抄袭段落
 
+# 取数
+1. 优先使用任务中已提供的文档文本（convert_document 的 Markdown 或 parse_document 的文本投影），不要重复转换/解析。
+2. 若没有现成文本，调用 `convert_document(file_path)` 获取 Markdown 作为待检测文本（扫描件 PDF/图片会自动 OCR）。
+
 # 工具说明
+- `convert_document`: 文档转换（扫描件自动 OCR）
 - `search_documents`: 参考库搜索工具（搜索用于抄袭检测的对比文档）
 - `detect_plagiarism`: 对比参考库检测抄袭（内部会调用相似度计算和动态阈值计算）
 
