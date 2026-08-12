@@ -243,12 +243,18 @@ class SSEAdapter:
             # Reconstruct a minimal ExecutionResult for the existing handler.
             success = payload.get("success", event_type == "tool.result")
             issue_counts = payload.get("issue_counts")
+            citations = payload.get("citations")
+            metadata: dict[str, Any] = {}
+            if isinstance(issue_counts, dict):
+                metadata["issue_counts"] = issue_counts
+            if citations is not None:
+                metadata["citations"] = citations
             result = ExecutionResult(
                 success=success,
                 actor_type="tool",
                 actor_name=name or "unknown",
                 error=payload.get("error"),
-                metadata=({"issue_counts": issue_counts} if isinstance(issue_counts, dict) else {}),
+                metadata=metadata,
             )
             await self.on_tool_result(name or "unknown", result, summary)
         elif event_type == "guard.triggered":
@@ -388,6 +394,9 @@ class SSEAdapter:
         issue_counts = metadata.get("issue_counts") if metadata else None
         if not isinstance(issue_counts, dict):
             issue_counts = None
+        citations = metadata.get("citations") if metadata else None
+        if citations is not None and not isinstance(citations, list):
+            citations = None
 
         # Determine status from result.  Post-normalization results are
         # ExecutionResult; anything else defensively maps to "ok".
@@ -418,6 +427,7 @@ class SSEAdapter:
             handle_id=metadata.get("handle_id") if metadata else None,
             parent_handle_id=metadata.get("parent_handle_id") if metadata else None,
             issue_counts=issue_counts,
+            citations=citations,
         )
         await self._store.add_tool_info(self._session_id, tool_info)
 
@@ -450,6 +460,8 @@ class SSEAdapter:
             sse_payload["detail_data"] = detail
         if issue_counts is not None:
             sse_payload["issueCounts"] = issue_counts
+        if citations is not None:
+            sse_payload["citations"] = citations
 
         await self._emit_sse(sse_payload)
 

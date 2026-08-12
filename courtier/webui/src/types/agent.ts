@@ -20,6 +20,24 @@ export type ToolDetail =
   | { type: 'structured'; data: Record<string, unknown> }
   | { type: 'markdown'; content: string }
 
+/**
+ * One search_documents hit carried to the frontend as citation data.
+ * Assistant conclusions reference these with `[[n]]` markers (1-based index
+ * into the hits of the most recent search_documents result before the message).
+ */
+export interface CitationHit {
+  resourceId?: number | null
+  documentId?: number | null
+  title?: string
+  docType?: string
+  /** Full chunk text (server-truncated) shown in the citation card */
+  chunkText?: string
+  /** ES highlight snippets (`<em>…</em>`-wrapped), preferred for display */
+  highlight?: string[]
+  chunkNo?: number | null
+  paragraphIndex?: number | null
+}
+
 /** Individual tool result */
 export interface ToolResult {
   id: string
@@ -40,6 +58,8 @@ export interface ToolResult {
   /** 审核计数（err/warn/ok/unchecked），有值时优先于 status 派生渲染 */
   issueCounts?: IssueCounts
   detail?: ToolDetail
+  /** search_documents hits for `[[n]]` citation markers */
+  citations?: CitationHit[]
   startTime?: number
   progress?: string
 }
@@ -255,6 +275,8 @@ export interface AgentEvent {
   toolSummary?: string
   /** 工具结果计数（tool_result 与 subagent_tool_result 均可能携带） */
   issueCounts?: IssueCounts
+  /** search_documents 命中的引用载荷（tool_result 事件携带） */
+  citations?: CitationHit[]
   result?: unknown
   tokens_in?: number
   tokens_out?: number

@@ -52,6 +52,67 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: Tools whose successful results carry citation payloads for the frontend.
+#: The model is instructed to reference their hits with ``[[n]]`` markers
+#: (1-based hit index) in its conclusions.
+_CITATION_TOOLS = frozenset({"search_documents"})
+#: Max hits included in a citations payload.
+_CITATION_MAX_HITS = 50
+#: Max chars of chunk_text included per hit.
+_CITATION_CHUNK_MAX_CHARS = 800
+#: Max ES highlight snippets included per hit.
+_CITATION_HIGHLIGHT_MAX = 3
+
+
+async def _build_citations_payload(
+    tool_name: str, result: ExecutionResult, artifact_store: Any | None
+) -> list[dict[str, Any]] | None:
+    """Reduce a search tool result to the compact citation fields the frontend needs.
+
+    The full payload may be persisted externally (``result_id``) with
+    ``raw_data`` dropped — load it back from the artifact store in that case.
+    Returns ``None`` when the result carries nothing citable.
+    """
+    if tool_name not in _CITATION_TOOLS or not result.success:
+        return None
+    data = result.raw_data
+    if data is None and result.result_id and artifact_store is not None:
+        try:
+            data = await artifact_store.read(result.result_id)
+        except Exception:
+            logger.warning(
+                "failed to load search result %s for citations",
+                result.result_id,
+                exc_info=True,
+            )
+            return None
+    if not isinstance(data, dict):
+        return None
+    hits = data.get("hits")
+    if not isinstance(hits, list):
+        return None
+    citations: list[dict[str, Any]] = []
+    for hit in hits[:_CITATION_MAX_HITS]:
+        if not isinstance(hit, dict):
+            continue
+        chunk_text = hit.get("chunk_text") or ""
+        highlight = hit.get("highlight") or []
+        if not isinstance(highlight, list):
+            highlight = []
+        citations.append(
+            {
+                "resourceId": hit.get("resource_id"),
+                "documentId": hit.get("document_id"),
+                "title": hit.get("title", ""),
+                "docType": hit.get("doc_type", ""),
+                "chunkText": chunk_text[:_CITATION_CHUNK_MAX_CHARS],
+                "highlight": [str(s) for s in highlight[:_CITATION_HIGHLIGHT_MAX]],
+                "chunkNo": hit.get("chunk_no"),
+                "paragraphIndex": hit.get("paragraph_index"),
+            }
+        )
+    return citations or None
+
 
 def _maybe_write_audit_turn(
     audit_logger: AuditLogger | None,
@@ -856,6 +917,7 @@ async def agent_loop(
             await _safe_call(on_tool_progress, tool_name, progress)
 
     async def _on_tool_result(tool_name: str, result: ExecutionResult, summary: str) -> None:
+        citations = await _build_citations_payload(tool_name, result, artifact_store)
         await _publish(
             "tool.result" if result.success else "tool.error",
             {
@@ -864,6 +926,7 @@ async def agent_loop(
                 "success": result.success,
                 "error": result.error,
                 "issue_counts": result.metadata.get("issue_counts"),
+                "citations": citations,
             },
         )
         if on_tool_result is not None:

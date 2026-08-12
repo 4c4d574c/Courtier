@@ -1,4 +1,4 @@
-import type { Step, Thought } from "./agent";
+import type { CitationHit, Step, Thought } from "./agent";
 
 export interface ChatUserMessageItem {
   type: "user";
@@ -10,6 +10,8 @@ export interface ChatAssistantMessageItem {
   type: "assistant";
   id: string;
   content: string;
+  /** search_documents hits referenced by `[[n]]` markers in content */
+  citations?: CitationHit[];
 }
 
 export interface ChatFileItem {

@@ -155,6 +155,9 @@ class ToolInfo:
     parent_handle_id: str | None = None
     skill_description: str = ""
     issue_counts: dict[str, int] | None = None
+    #: Citation payload for search tools (search_documents hits).  Referenced
+    #: from assistant conclusions via ``[[n]]`` markers (1-based hit index).
+    citations: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -177,6 +180,8 @@ class ToolInfo:
             result["detail"] = self.detail
         if self.issue_counts is not None:
             result["issueCounts"] = self.issue_counts
+        if self.citations is not None:
+            result["citations"] = self.citations
         return result
 
 

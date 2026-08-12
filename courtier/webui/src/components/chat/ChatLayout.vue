@@ -26,6 +26,7 @@
         :messages="messages"
         :is-running="isRunning"
         @preview="$emit('preview-file', $event)"
+        @citation-click="$emit('citation-click', $event)"
       />
       <InputArea
         :model-name="session.modelName"
@@ -39,13 +40,14 @@
     <FilePreviewDrawer
       :is-open="drawerOpen"
       :file="currentFile"
+      :citation="currentCitation"
       @close="$emit('close-preview')"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import type { Session, SessionSummary } from "../../types/agent";
+import type { CitationHit, Session, SessionSummary } from "../../types/agent";
 import type { ChatFileItem, ChatMessageItem } from "../../types/chat";
 import ChatSidebar from "./ChatSidebar.vue";
 import ChatHeader from "./ChatHeader.vue";
@@ -64,6 +66,7 @@ interface Props {
   uploadError: string;
   drawerOpen: boolean;
   currentFile: ChatFileItem | null;
+  currentCitation: CitationHit | null;
   sidebarOpen: boolean;
   username?: string;
   userRole?: string;
@@ -80,6 +83,7 @@ defineEmits<{
   "toggle-sidebar": [];
   "toggle-theme": [];
   "preview-file": [file: ChatFileItem];
+  "citation-click": [hit: CitationHit | undefined];
   "close-preview": [];
   submit: [task: string, file?: File];
   stop: [];

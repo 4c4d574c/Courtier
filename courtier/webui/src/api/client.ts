@@ -334,6 +334,19 @@ export const api = {
     await request("DELETE", `/sessions/${id}`);
   },
 
+  /**
+   * Resolve a resource-library document to a viewable PDF URL.
+   * DOCX/TXT/MD are converted on demand server-side (cached in MinIO).
+   * `originalUrl` points at the uploaded original file (same as `url` for PDFs).
+   */
+  async getResourcePdfUrl(
+    resourceId: number,
+  ): Promise<{ url: string; converted: boolean; originalUrl?: string | null }> {
+    const res = await authFetch(`${API_BASE}/resources/${resourceId}/pdf`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /resources/:id/pdf failed");
+    return res.json();
+  },
+
   async updateSession(
     id: string,
     patch: { task?: string; pinned?: boolean },

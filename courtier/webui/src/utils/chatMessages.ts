@@ -1,4 +1,4 @@
-import type { Session, Thought, Turn } from "../types/agent";
+import type { CitationHit, Session, Thought, Turn } from "../types/agent";
 import type {
   ChatFileRecord,
   ChatMessageItem,
@@ -187,6 +187,23 @@ function buildProcessItems(
   return items;
 }
 
+/**
+ * Find the citations attached to the most recent search_documents result in
+ * a turn.  Assistant conclusions reference hits with `[[n]]` markers where n
+ * is the 1-based index into this list.
+ */
+function citationsForTurn(turn: Turn): CitationHit[] | undefined {
+  let found: CitationHit[] | undefined;
+  for (const step of turn.steps) {
+    for (const tool of step.tools) {
+      if (tool.name === "search_documents" && tool.citations?.length) {
+        found = tool.citations;
+      }
+    }
+  }
+  return found;
+}
+
 function buildAssistantItem(
   turn: Turn,
   baseId: string,
@@ -204,10 +221,12 @@ function buildAssistantItem(
       ? turn.conclusion
       : (turn.conclusion ?? sessionConclusion);
   if (!conclusion && !(isRunning && isLastTurn)) return null;
+  const citations = citationsForTurn(turn);
   return {
     type: "assistant",
     id: `${baseId}-assistant`,
     content: conclusion ?? "",
+    ...(citations ? { citations } : {}),
   };
 }
 

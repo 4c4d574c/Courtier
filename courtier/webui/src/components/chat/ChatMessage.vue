@@ -4,6 +4,8 @@
     v-else-if="item.type === 'assistant'"
     :content="item.content"
     :is-streaming="isStreaming"
+    :citations="item.citations"
+    @citation-click="$emit('citation-click', $event)"
   />
   <StepsMessage
     v-else-if="item.type === 'steps'"
@@ -53,6 +55,7 @@ interface Props {
 defineProps<Props>();
 defineEmits<{
   preview: [file: Extract<ChatMessageItem, { type: "file" }>];
+  "citation-click": [hit: import("../../types/agent").CitationHit | undefined];
 }>();
 </script>
 

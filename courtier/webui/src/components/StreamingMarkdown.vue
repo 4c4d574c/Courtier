@@ -4,7 +4,7 @@
     last block element, so the DOM tree has a stable shape across updates.
     No v-if, no split elements, no layout jump.
   -->
-  <div class="markdown-body" v-html="sanitizedHtml"></div>
+  <div class="markdown-body" v-html="sanitizedHtml" @click="onBodyClick"></div>
 </template>
 
 <script setup lang="ts">
@@ -19,8 +19,24 @@ interface Props {
 
 const props = defineProps<Props>();
 
+// Emitted when a `[[n]]` citation marker is clicked, with its 1-based index.
+const emit = defineEmits<{ citation: [index: number] }>();
+
 // Per-instance renderer with private parse cache.
 const renderer = createStreamingRenderer();
+
+// ---- citation link clicks (event delegation — v-html cannot bind handlers) ----
+function onBodyClick(event: MouseEvent) {
+  const target = (event.target as HTMLElement | null)?.closest?.(
+    ".citation-link",
+  );
+  if (!target) return;
+  const raw = target.getAttribute("data-citation");
+  const index = raw ? Number.parseInt(raw, 10) : NaN;
+  if (Number.isInteger(index) && index > 0) {
+    emit("citation", index);
+  }
+}
 
 // ---- rAF batching: at most one re-parse per frame ----
 const batchedContent = ref(props.content);

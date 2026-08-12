@@ -9,6 +9,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
+import shutil
+import subprocess
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -20,7 +23,13 @@ from sqlalchemy import and_, func, or_, select
 from courtier.db.db_manager import AsyncDatabase, CRUDRepository
 from courtier.db.tables.resource import ResourceCreate, ResourceTable, ResourceUpdate
 from courtier.es import bulk_index_chunks, delete_by_resource_id
-from courtier.storage import put_object, remove_object
+from courtier.storage import (
+    get_object,
+    get_presigned_url,
+    object_exists,
+    put_object,
+    remove_object,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -324,6 +333,191 @@ async def list_resources(
         "total": total,
         "items": [_to_summary(r) for r in rows],
     }
+
+
+# -- PDF preview conversion ---------------------------------------------------
+
+
+#: Preview PDF cache key inside the resource bucket (per original md5).
+def _preview_pdf_key(resource: ResourceTable) -> str:
+    return f"{resource.md5}/preview.pdf"
+
+
+_SOFFICE_CANDIDATES = (
+    "/usr/lib/libreoffice/program/soffice",
+    "/usr/bin/soffice",
+    "/opt/libreoffice/program/soffice",
+)
+
+
+def _find_soffice() -> str | None:
+    """Locate a LibreOffice binary for DOCX→PDF conversion."""
+    for candidate in _SOFFICE_CANDIDATES:
+        if os.path.exists(candidate):
+            return candidate
+    return shutil.which("soffice") or shutil.which("libreoffice")
+
+
+def _convert_docx_to_pdf_via_soffice(src: Path, outdir: Path) -> Path | None:
+    """Convert a DOCX to PDF with LibreOffice headless; None on any failure."""
+    soffice = _find_soffice()
+    if soffice is None:
+        return None
+    try:
+        subprocess.run(
+            [
+                soffice,
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(outdir),
+                str(src),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+    except Exception:
+        logger.warning("LibreOffice DOCX→PDF conversion failed for %s", src, exc_info=True)
+        return None
+    pdf_path = outdir / f"{src.stem}.pdf"
+    return pdf_path if pdf_path.exists() else None
+
+
+def _text_to_pdf_bytes(text: str) -> bytes:
+    """Render plain text into a PDF via PyMuPDF (works for any script, CJK-safe)."""
+    import fitz
+
+    margin = 50
+    fontsize = 10.5
+    line_height = fontsize * 1.4
+    max_width = fitz.paper_rect("a4").width - 2 * margin
+    max_height = fitz.paper_rect("a4").height - 2 * margin
+
+    doc = fitz.open()
+    page = doc.new_page()
+    y = margin
+    for raw_line in text.split("\n"):
+        line = raw_line.strip() or " "
+        while line:
+            width = fitz.get_text_length(line, fontname="china-s", fontsize=fontsize)
+            if width > max_width:
+                # Binary-search the longest prefix that fits, then wrap.
+                lo, hi = 0, len(line)
+                while lo < hi:
+                    mid = (lo + hi + 1) // 2
+                    if (
+                        fitz.get_text_length(line[:mid], fontname="china-s", fontsize=fontsize)
+                        <= max_width
+                    ):
+                        lo = mid
+                    else:
+                        hi = mid - 1
+                if lo == 0:
+                    lo = 1
+                line, rest = line[:lo], line[lo:]
+            else:
+                rest = ""
+            page.insert_text((margin, y), line, fontsize=fontsize, fontname="china-s")
+            line = rest
+            y += line_height
+            if y > max_height:
+                page = doc.new_page()
+                y = margin
+    try:
+        return doc.tobytes()
+    finally:
+        doc.close()
+
+
+def _resource_pdf_bytes(resource: ResourceTable, bucket: str) -> bytes:
+    """Return PDF bytes for a resource — original for PDFs, converted otherwise."""
+    if resource.file_type == "pdf":
+        return get_object(bucket, resource.minio_path)
+    if resource.file_type == "docx":
+        raw = get_object(bucket, resource.minio_path)
+        with tempfile.TemporaryDirectory() as td:
+            tmp_dir = Path(td)
+            src = tmp_dir / "source.docx"
+            src.write_bytes(raw)
+            pdf_path = _convert_docx_to_pdf_via_soffice(src, tmp_dir)
+            if pdf_path is not None:
+                return pdf_path.read_bytes()
+            # Fallback: text-layout PDF from the extracted paragraphs.
+            return _text_to_pdf_bytes(_extract_text(src))
+    # txt / md — text-layout PDF.
+    raw = get_object(bucket, resource.minio_path)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{resource.file_type}") as tmp:
+        tmp.write(raw)
+        tmp_path = Path(tmp.name)
+    try:
+        return _text_to_pdf_bytes(_extract_text(tmp_path))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+async def get_resource_pdf(
+    db: AsyncDatabase,
+    settings: Any,
+    resource_id: int,
+    *,
+    owner_id: int | None = None,
+    is_admin: bool = False,
+) -> tuple[str, bool, str | None]:
+    """Resolve a resource to a viewable PDF URL (converting + caching as needed).
+
+    Returns ``(url, converted, original_url)`` where ``original_url`` points
+    at the uploaded original file (same as ``url`` for PDFs).  Raises
+    404/403 like ``delete_resource``.  Requires MinIO: the original files
+    live there and the converted PDF is cached back (``{md5}/preview.pdf``)
+    so repeated views skip conversion.
+    """
+    if not settings.minio_endpoint:
+        raise HTTPException(503, "文件存储未配置，无法预览")
+    async with db.session() as session:
+        resource = await resource_repo.get(session, resource_id)
+        if resource is None:
+            raise HTTPException(404, "资源不存在")
+        if not is_admin:
+            if resource.visibility != "public" and (
+                resource.visibility != "personal" or resource.owner_id != owner_id
+            ):
+                raise HTTPException(403, "无权访问该资源")
+        if resource.status != "ready":
+            raise HTTPException(409, "资源尚未就绪，无法预览")
+
+    bucket = settings.minio_bucket_resources
+    if resource.file_type == "pdf":
+        pdf_key = resource.minio_path
+        converted = False
+    else:
+        pdf_key = _preview_pdf_key(resource)
+        converted = True
+
+    if not await asyncio.to_thread(object_exists, bucket, pdf_key):
+        try:
+            pdf_bytes = await asyncio.to_thread(_resource_pdf_bytes, resource, bucket)
+        except HTTPException:
+            raise
+        except Exception:
+            logger.error(
+                "PDF preview generation failed for resource %s", resource_id, exc_info=True
+            )
+            raise HTTPException(503, "PDF 预览生成失败")
+        try:
+            await asyncio.to_thread(put_object, bucket, pdf_key, pdf_bytes, "application/pdf")
+        except Exception:
+            logger.warning(
+                "PDF preview cache upload failed for resource %s", resource_id, exc_info=True
+            )
+    url = await asyncio.to_thread(get_presigned_url, bucket, pdf_key)
+    original_url = (
+        url
+        if resource.file_type == "pdf"
+        else await asyncio.to_thread(get_presigned_url, bucket, resource.minio_path)
+    )
+    return url, converted, original_url
 
 
 async def delete_resource(

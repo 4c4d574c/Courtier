@@ -10,6 +10,7 @@
     :upload-error="uploadError"
     :drawer-open="drawerOpen"
     :current-file="currentFile"
+    :current-citation="currentCitation"
     :sidebar-open="sidebarOpen"
     :username="user?.username"
     :user-role="user?.role"
@@ -22,6 +23,7 @@
     @toggle-sidebar="sidebarOpen = !sidebarOpen"
     @toggle-theme="toggleTheme"
     @preview-file="openPreview"
+    @citation-click="openCitation"
     @close-preview="closePreview"
     @submit="handleSubmit"
     @stop="stop"
@@ -61,8 +63,14 @@ const {
   updateSession,
 } = useHistory();
 const filePreview = useFilePreview();
-const { isOpen: drawerOpen, currentFile, open: openPreview, close: closePreview } =
-  filePreview;
+const {
+  isOpen: drawerOpen,
+  currentFile,
+  currentCitation,
+  open: openPreview,
+  openCitation,
+  close: closePreview,
+} = filePreview;
 const { initTheme, toggleTheme } = useTheme();
 
 // Desktop starts with the history sidebar open; mobile keeps it closed

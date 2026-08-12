@@ -25,6 +25,37 @@ const renderer = new streamingMarked.Renderer();
 renderer.html = (token) => escapeHtml(token.text);
 streamingMarked.use({ renderer });
 
+// ---------------------------------------------------------------------------
+// Citation inline extension — `[[n]]` becomes a clickable citation link.
+//
+// The model is instructed to reference search_documents hits with `[[n]]`
+// markers (1-based hit index).  The tokenizer deliberately rejects incomplete
+// forms (`[[`, `[[1`) so streaming keeps treating them as plain text until
+// the marker closes.
+// ---------------------------------------------------------------------------
+const citationExtension = {
+  name: "citation",
+  level: "inline" as const,
+  start(src: string): number {
+    return src.indexOf("[[");
+  },
+  tokenizer(src: string) {
+    const match = /^\[\[(\d{1,3})\]\]/.exec(src);
+    if (match) {
+      return {
+        type: "citation" as const,
+        raw: match[0],
+        text: match[1],
+      };
+    }
+    return undefined;
+  },
+  renderer(token: { text: string }) {
+    return `<a href="#cite-${token.text}" class="citation-link" data-citation="${token.text}">[[${token.text}]]</a>`;
+  },
+};
+streamingMarked.use({ extensions: [citationExtension] });
+
 // Block types whose *inline* tokens can be partially rendered.
 const INLINE_CONTAINER_TYPES = new Set(["paragraph", "heading", "tablecell"]);
 

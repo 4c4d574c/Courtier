@@ -113,6 +113,7 @@ export function handleRegularToolResult(
       parentHandleId: event.parentHandleId ?? tool.parentHandleId,
       duration: event.duration ?? tool.duration,
       issueCounts: event.issueCounts ?? tool.issueCounts,
+      citations: event.citations ?? tool.citations,
       progress: ["done", "error"].includes(status)
         ? undefined
         : tool.progress,

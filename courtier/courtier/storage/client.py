@@ -71,6 +71,18 @@ def get_object(bucket: str, key: str) -> bytes:
         response.release_conn()
 
 
+def object_exists(bucket: str, key: str) -> bool:
+    """判断对象是否存在（含 bucket 不存在的情况）。"""
+    try:
+        client = get_minio_client()
+        if not client.bucket_exists(bucket):
+            return False
+        client.stat_object(bucket, key)
+        return True
+    except Exception:
+        return False
+
+
 def get_presigned_url(bucket: str, key: str, expires: int = 3600) -> str:
     """生成临时访问 URL（expires 单位：秒）。"""
     return get_minio_client().presigned_get_object(bucket, key, expires=timedelta(seconds=expires))

@@ -18,6 +18,7 @@
         :item="item"
         :is-streaming="isRunning && index === messages.length - 1"
         @preview="$emit('preview', $event)"
+        @citation-click="$emit('citation-click', $event)"
       />
     </template>
   </div>
@@ -39,6 +40,7 @@ interface Props {
 const props = defineProps<Props>();
 defineEmits<{
   preview: [file: Extract<ChatMessageItem, { type: "file" }>];
+  "citation-click": [hit: import("../../types/agent").CitationHit | undefined];
 }>();
 
 const { containerRef, mount, unmount, scrollToBottom } = useAutoScroll();

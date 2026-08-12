@@ -11,6 +11,7 @@ from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
 from ..services.resource_service import (
     delete_resource,
+    get_resource_pdf,
     ingest_resource,
     list_resources,
 )
@@ -84,6 +85,29 @@ async def list_resources_handler(
         is_admin=_is_admin(current_user_payload),
         scope=scope,
     )
+
+
+@router.get("/{resource_id}/pdf")
+@limiter.limit("30/minute")
+async def get_resource_pdf_handler(
+    request: Request,
+    resource_id: int,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """获取资源的 PDF 预览 URL。
+
+    原始文件为 PDF 时直接返回；DOCX / TXT / MD 按需转换（LibreOffice 或
+    PyMuPDF 文本版），转换产物缓存到 MinIO 供后续复用。
+    """
+    db = _require_db(request)
+    url, converted, original_url = await get_resource_pdf(
+        db,
+        request.app.state.settings,
+        resource_id,
+        owner_id=current_user_payload.get("uid"),
+        is_admin=_is_admin(current_user_payload),
+    )
+    return {"url": url, "converted": converted, "originalUrl": original_url}
 
 
 @router.delete("/{resource_id}")

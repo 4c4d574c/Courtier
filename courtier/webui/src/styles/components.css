@@ -382,6 +382,24 @@
 .markdown-body a:hover {
   text-decoration: underline;
 }
+
+/* ── Citation markers ────────────────────────────────
+   `[[n]]` references to search_documents hits; clicking opens the
+   right-side preview drawer (citation card → full PDF). */
+.markdown-body .citation-link {
+  color: var(--chat-accent);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 0 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.markdown-body .citation-link:hover {
+  background: var(--chat-accent-soft);
+  text-decoration: none;
+}
+
 .markdown-body hr {
   border: none;
   border-top: 1px solid var(--chat-border);
