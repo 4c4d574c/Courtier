@@ -8,6 +8,7 @@ import pytest
 import yaml
 from fastapi import HTTPException
 
+from courtier.agent.api.routes.admin_extensions import _plugin_items
 from courtier.agent.api.services.skill_admin_service import (
     _rewrite_enabled,
     create_skill,
@@ -321,3 +322,36 @@ class TestPluginManagerControls:
         assert state == PluginState.ACTIVE
         assert mgr._stop_one_calls == []
         assert mgr._start_one_calls == ["p1"]
+
+
+class TestPluginItemsSourceGrouping:
+    """Plugins group by domain (plugin→domain mapping), not by wrapper dir."""
+
+    def _real_plugin_system(self):
+        """Real PluginSystem with scan results loaded, no processes started."""
+        from courtier.config import CourtierConfig
+        from courtier.plugin import PluginSystem
+
+        repo_root = CourtierConfig.from_env().repo_root
+        ps = PluginSystem(plugins_dir=str(repo_root / "plugins"))
+        ps._manager._scan_results = {r.name: r for r in ps._scanner.scan(repo_root / "plugins")}
+        return ps
+
+    def _request_with(self, plugin_system):
+        return SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(plugin_system=plugin_system))
+        )
+
+    def test_audit_wrapper_plugins_group_under_domain(self):
+        items = _plugin_items(self._request_with(self._real_plugin_system()))
+        by_name = {i["name"]: i["source"] for i in items}
+
+        assert by_name["anydoc"] == "shared"
+        assert by_name["parse"] == "docaudit"
+        # Plugins under plugins/docaudit/audit/ belong to docaudit — the
+        # nested wrapper dir must not surface as its own "audit" group.
+        assert by_name["format_audit"] == "docaudit"
+        assert by_name["content_audit"] == "docaudit"
+        assert by_name["text_correction"] == "docaudit"
+        assert by_name["plagiarism"] == "docaudit"
+        assert "audit" not in {i["source"] for i in items}

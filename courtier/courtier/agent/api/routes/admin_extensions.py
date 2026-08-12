@@ -65,7 +65,12 @@ def _plugin_items(request: Request) -> list[dict[str, Any]]:
         items.append(
             {
                 "name": name,
-                "source": result.dir.parent.name,
+                # Domain grouping follows the plugin→domain mapping derived
+                # from the directory layout (plugins/shared → "shared",
+                # plugins/<domain>/... → <domain>).  Using the immediate
+                # parent directory name instead would misgroup plugins under
+                # a nested wrapper dir such as plugins/docaudit/audit/.
+                "source": plugin_system.plugin_domain(name) or "shared",
                 "scanStatus": result.status.value,
                 "scanError": result.error,
                 "state": proc_status["state"] if proc_status else "NOT_STARTED",
