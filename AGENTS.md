@@ -228,15 +228,16 @@ npm run check
    - `middleware/observability.py` — OpenTelemetry/Prometheus middleware.
 
 2. **Service layer** (`courtier/agent/api/services/`)
-   - `AgentService`, `StreamService`, `FileService`, `SessionService`.
+   - `AgentService` — unified `build_agent` (single orchestrator builder for chat / uploaded-document / continuation sessions), `StreamService`, `FileService`, `SessionService`.
 
 3. **Core engine layer** (`courtier/agent/`)
    - `core/` — Agent loop (`loop.py`), state (`state.py`), model client (`model.py`), context manager, guard logic, streaming, and the new event bus (`event_bus.py`, `events.py`).
-   - `agents/` — Orchestrator and SubAgent runtime.
-   - `tools/` — Tool registry, protocol, built-in and domain tools.
+   - `agents/` — Orchestrator (`orch.py`) and SubAgent runtime.
+   - `runtime/` — `AgentRuntime` (sub-agent lifecycle) and `activation.py` (`DomainActivator`, per-session domain self-activation).
+   - `tools/` — Tool registry, protocol, built-in tools (`activate_domain` meta-tool, artifact tools, echo, skill) and domain tools.
    - `skills/` — Skill registry and loader.
    - `artifacts/` — Artifact system.
-   - `prompts/` — Jinja2 PromptEngine, PromptBundle, and core default templates (`defaults/{locale}/`).
+   - `prompts/` — Jinja2 PromptEngine, PromptBundle, and core default templates (`defaults/{locale}/`, incl. the domain-agnostic `orchestrator.system_prompt`).
    - `permissions/`, `hooks/`, `memory/`, `telemetry/` — Cross-cutting concerns.
 
 4. **Domain/business layer**
@@ -257,6 +258,8 @@ npm run check
 ### 5.3 Agent runtime
 
 The runtime follows a Think → Act → Observe loop. During execution it emits events such as `session`, `think`, `act`, `observe`, `tool_result`, `token`, `usage`, and `complete`/`error`. These events are currently produced by callbacks in `loop.py` and are being migrated to an in-process `EventBus` (`courtier/agent/core/event_bus.py`, `events.py`). The `SSEAdapter` remains the consumer that forwards events to the web frontend.
+
+**Unified session mode + domain gating:** all sessions (chat-only, uploaded document, continuation) run the same `OrchestratorAgent` built by `build_agent`. The orchestrator starts with only the shared plugin tools (`plugins/shared/`) visible; domain tools/skills are self-activated at runtime through the `activate_domain` meta-tool (`DomainActivator`), which registers the domain's SkillTools on the agent, injects its plugin proxies, and overlays the domain's `orchestrator.workflow_rules` onto the prompt pipeline. The active-domain set is persisted in the `SessionRecord` and replayed on per-request agent rebuilds. Document data-fetching: format audit → `parse_document`; content tasks / read-and-answer → `convert_document` Markdown (scanned PDFs and images fall back to OCR), reusing existing session text when present.
 
 ### 5.4 Pi architecture (nested reference project)
 
@@ -430,6 +433,7 @@ See `pi/AGENTS.md` for the full rule set. Key points:
 - **Secrets:** `.env` contains credentials and API keys. It is gitignored; use `.env.example` as a template.
 - **File uploads:** Stored under `COURTIER_UPLOAD_DIR` (default `./uploads`). Plugins access uploads through the configured upload path.
 - **Plugin isolation:** Plugins run as separate subprocesses, but they execute with the same OS permissions as the host process. Sandboxing is not enforced by the plugin system itself.
+- **Domain gating:** domain tools are visibility-filtered per session (see §5.3); activation state is persisted in `SessionRecord.active_domains`.
 - **LLM endpoints:** Configurable via environment variables; never hardcode API keys.
 
 ### Pi

@@ -113,13 +113,23 @@ docker-compose up -d
 ### 四层架构
 
 1. **API 层** (`courtier/agent/api/`): HTTP handlers (`routes/`), SSE 流 (`sse_adapter.py`), 文件/会话存储, 可观测性中间件
-2. **服务层** (`courtier/agent/api/services/`): AgentService, StreamService, FileService, SessionService
-3. **核心引擎层** (`courtier/agent/`): Agent loop, PluginSystem, ToolRegistry, Artifact 系统, Context 管理, Prompt pipeline, Hooks, Permissions, Telemetry
+2. **服务层** (`courtier/agent/api/services/`): AgentService（统一 `build_agent`，chat/文档/续聊三形态共用一个编排器构建器）, StreamService, FileService, SessionService
+3. **核心引擎层** (`courtier/agent/`): Agent loop, OrchestratorAgent, AgentRuntime + DomainActivator（域门控自激活）, PluginSystem, ToolRegistry, Artifact 系统, Context 管理, Prompt pipeline, Hooks, Permissions, Telemetry
 4. **领域/业务层**:
    - `libs/shared/`: docannot, docmodels, plugin_sdk 等跨领域共享库（可安装包），被共享插件调用
    - `libs/docaudit/`: docparse, validator, content_compliance, doccorrector 等领域专属库（可安装包），被 docaudit 插件调用
    - `plugins/shared/`: anydoc, search, annotate, template 等跨领域共享插件（JSON-RPC 子进程）
    - `plugins/docaudit/`: parse（`plugins/docaudit/parse/`）与 format_audit, content_audit, text_correction, plagiarism（`plugins/docaudit/audit/`）等领域专属插件（JSON-RPC 子进程）
+
+### 会话模式（统一编排器 + 域门控）
+
+已废除 chat/audit 双模式：所有会话（纯聊天 / 上传文档 / 多轮续聊）统一走 `build_agent` 构建的 `OrchestratorAgent`。
+
+- **可见性门控**：编排器初始只可见共享插件工具（`plugins/shared/`，见 `app.py` 的 `shared_plugin_names`）；领域插件进程照常启动，但其工具不可见。
+- **自激活**：模型按意图调用 `activate_domain` meta-tool（`courtier/agent/tools/builtin/activate_domain.py`）→ `DomainActivator.activate()`（`courtier/agent/runtime/activation.py`）：注册领域 SkillTool、注入领域插件代理、把领域 `orchestrator.workflow_rules` 覆盖进 PromptPipeline 的 rules 段（激活载荷）。"疑似即激活"，幂等。
+- **持久化与重放**：激活集随每次 run 结束写入 `SessionRecord.active_domains`（`stream_service.py`），按请求重建 agent 时静默重放（上下文压缩会丢证据，不能靠历史推导）。
+- **取数策略**：格式审核 → `parse_document`（Document 模型）；内容类技能与阅读问答 → 优先复用会话中已有文本（convert_document 的 Markdown 或 parse_document 的文本投影），否则 `convert_document`（扫描件自动 OCR 兜底，`ANYDOC_OCR_API_URL`）。`core.document_markdown → core.plain_text` 投影链（`artifacts/projectors.py`）支撑内容类插件的纯文本入参。
+- `orchestrator.system_prompt` 由 core 默认提供（`prompts/defaults/{locale}/orchestrator.yaml`）；领域包只提供 `orchestrator.workflow_rules` 作为激活载荷。
 
 ### 插件系统（JSON-RPC 2.0）
 
@@ -133,7 +143,7 @@ docker-compose up -d
 - 宿主进程通过 `PluginProcess` 管理子进程生命周期
 - 工具代理 (`ToolProxy`) 将 JSON-RPC 调用暴露为 `Tool` 对象
 
-**插件 vs Skill：** 插件提供原子工具（`type: tool`）。Skill 定义通过 `load_skill` 编排工具的任务工作流。
+**插件 vs Skill：** 插件提供原子工具（`type: tool`）。Skill 是 Markdown + frontmatter 定义的任务工作流，经 `SkillTool` + `AgentRuntime` 以子代理（subagent）/内联（inline）模式编排执行（见上文「会话模式」）。
 
 **插件 vs 库：** 插件是可独立部署的服务（JSON-RPC 子进程），库是代码依赖（构建时打包）。库位于 `libs/`，插件位于 `plugins/`。
 

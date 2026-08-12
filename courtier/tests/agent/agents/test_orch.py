@@ -118,13 +118,14 @@ class TestOrchestratorSkillIntegration:
             assert "task" in props
 
     @pytest.mark.asyncio
-    async def test_run_requires_file_path_context(self):
-        """OrchestratorAgent.run() still requires a file_path in context."""
+    async def test_run_without_file_path_runs_as_chat(self):
+        """Unified mode: OrchestratorAgent.run() tolerates missing file_path
+        (sessions without an upload are plain conversations)."""
         model = MockModelClient(tool_calls=[])
         agent = OrchestratorAgent(model=model)
 
-        with pytest.raises(ValueError, match="file_path"):
-            await agent.run(task="audit something")
+        result = await agent.run(task="audit something")
+        assert result.status == "completed"
 
     @pytest.mark.asyncio
     async def test_skill_tool_inline_mode_returns_tool_result(self, tmp_path):
