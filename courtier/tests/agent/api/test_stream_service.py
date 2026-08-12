@@ -7,7 +7,14 @@ from courtier.agent.api.services.stream_service import (
     serialize_messages,
 )
 from courtier.agent.core.state import Message
-from courtier.common.behavioral_rules import PERIODIC_REMINDER, PRE_TURN_REMINDER
+from courtier.prompts.engine import PromptEngine
+
+# Reminder texts rendered from the core default bundles — the single source
+# of truth (the old hardcoded constants in common/behavioral_rules.py were
+# removed in favour of these YAML templates).
+_ENGINE = PromptEngine.from_domain_directories([], locale="zh-CN")
+PRE_TURN_REMINDER = _ENGINE.render("behavioral.pre_turn_reminder")
+PERIODIC_REMINDER = _ENGINE.render("behavioral.periodic_reminder")
 
 
 class TestSerializeDeserializeMessages:

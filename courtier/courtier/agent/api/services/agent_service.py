@@ -169,6 +169,7 @@ async def build_agent(
         artifact_store=store,
         default_budget=budget,
         cache_dir=settings.cache_dir,
+        prompt_engine=prompt_engine,
     )
 
     # Live catalog: domain descriptions + current skill list (mtime-cached),

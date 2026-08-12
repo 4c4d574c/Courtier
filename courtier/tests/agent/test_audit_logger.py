@@ -23,16 +23,12 @@ class TestAuditLoggerUnit:
     """Unit tests for AuditLogger persistence."""
 
     def test_for_run_creates_directory(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         assert logger.run_dir.exists()
         assert logger.run_dir.name.startswith("TestAgent_")
 
     def test_write_turn_persists_files(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         request = LLMRequestRecord(
             messages=[{"role": "user", "content": "hello"}],
             tools=None,
@@ -77,9 +73,7 @@ class TestAuditLoggerUnit:
         assert tools_data == []
 
     def test_write_turn_with_tool_executions(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         request = LLMRequestRecord(
             messages=[{"role": "user", "content": "run tool"}],
             tools=None,
@@ -125,9 +119,7 @@ class TestAuditLoggerUnit:
         assert resp_data["tool_calls"][0]["name"] == "echo"
 
     def test_finalize_writes_manifest(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         logger.finalize("completed", termination_reason="done")
 
         manifest_path = logger.run_dir / "run.json"
@@ -141,17 +133,13 @@ class TestAuditLoggerUnit:
         assert manifest["total_usage"]["prompt_tokens"] == 0
 
     def test_finalize_is_idempotent(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         logger.finalize("completed")
         # Should not raise
         logger.finalize("completed")
 
     def test_finalize_after_write_turn_aggregates_usage(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         request = LLMRequestRecord(
             messages=[],
             tools=None,
@@ -183,14 +171,10 @@ class TestAuditLoggerUnit:
         assert manifest["total_usage"]["total_tokens"] == 15
 
     def test_write_turn_after_finalize_raises(self, tmp_path):
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         logger.finalize("completed")
 
-        request = LLMRequestRecord(
-            messages=[], tools=None, model="test", temperature=None
-        )
+        request = LLMRequestRecord(messages=[], tools=None, model="test", temperature=None)
         response = LLMResponseRecord(
             content="ok",
             reasoning=None,
@@ -216,11 +200,16 @@ class TestAuditLoggerIntegration:
     @pytest.mark.asyncio
     async def test_agent_loop_records_turn(self, tmp_path, registry_with_echo):
         """agent_loop with audit_logger writes turn files."""
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         tc = ToolCall(id="call_1", name="echo", arguments={"text": "hello"})
         model = MockModelClient(tool_calls=[tc])
+
+        # Pre-turn reminder is rendered by the PromptEngine upstream; the
+        # loop itself no longer ships hardcoded default texts.
+        from courtier.prompts.engine import PromptEngine
+
+        engine = PromptEngine.from_domain_directories([], locale="zh-CN")
+        pre_turn_reminder = engine.render("behavioral.pre_turn_reminder")
 
         state = AgentState.initial(task="echo hello")
         final = await agent_loop(
@@ -228,6 +217,7 @@ class TestAuditLoggerIntegration:
             model=model,
             tool_registry=registry_with_echo,
             audit_logger=logger,
+            pre_turn_reminder=pre_turn_reminder,
         )
 
         assert final.status == "completed"
@@ -260,9 +250,7 @@ class TestAuditLoggerIntegration:
     @pytest.mark.asyncio
     async def test_agent_loop_records_tool_execution(self, tmp_path, registry_with_echo):
         """Tool execution details are recorded in the turn."""
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         tc = ToolCall(id="call_1", name="echo", arguments={"text": "audit test"})
         model = MockModelClient(tool_calls=[tc])
 
@@ -274,9 +262,7 @@ class TestAuditLoggerIntegration:
             audit_logger=logger,
         )
 
-        tools_data = json.loads(
-            (logger.run_dir / "turn_000" / "tool_executions.json").read_text()
-        )
+        tools_data = json.loads((logger.run_dir / "turn_000" / "tool_executions.json").read_text())
         assert len(tools_data) == 1
         assert tools_data[0]["tool_name"] == "echo"
         assert tools_data[0]["arguments"] == {"text": "audit test"}
@@ -305,9 +291,7 @@ class TestAuditLoggerIntegration:
     @pytest.mark.asyncio
     async def test_agent_loop_finalizes_on_error(self, tmp_path):
         """When model fails, run manifest is written with error status."""
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
 
         class _FailingModel:
             model_name = "failing-model"
@@ -338,9 +322,7 @@ class TestAuditLoggerIntegration:
     @pytest.mark.asyncio
     async def test_multi_turn_logging(self, tmp_path, registry_with_echo):
         """Multiple turns create multiple turn directories."""
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         # First model call: tool call, second: text response
         tc = ToolCall(id="1", name="echo", arguments={"text": "ping"})
         model = MockModelClient(tool_calls=[tc])
@@ -358,21 +340,15 @@ class TestAuditLoggerIntegration:
         assert (logger.run_dir / "turn_001").exists()
 
         # Turn 0 should have tool executions
-        tools_0 = json.loads(
-            (logger.run_dir / "turn_000" / "tool_executions.json").read_text()
-        )
+        tools_0 = json.loads((logger.run_dir / "turn_000" / "tool_executions.json").read_text())
         assert len(tools_0) == 1
 
         # Turn 1 should have no tool executions (text response)
-        tools_1 = json.loads(
-            (logger.run_dir / "turn_001" / "tool_executions.json").read_text()
-        )
+        tools_1 = json.loads((logger.run_dir / "turn_001" / "tool_executions.json").read_text())
         assert tools_1 == []
 
         # Turn 1 response should have content but no tool calls
-        resp_1 = json.loads(
-            (logger.run_dir / "turn_001" / "llm_response.json").read_text()
-        )
+        resp_1 = json.loads((logger.run_dir / "turn_001" / "llm_response.json").read_text())
         assert resp_1["content"] == "Done."
         assert resp_1["tool_calls"] == []
 
@@ -381,9 +357,7 @@ class TestAuditLoggerIntegration:
         """When permission gate blocks a tool, the turn is still recorded."""
         from courtier.agent.permissions.gate import PermissionGate
 
-        logger = AuditLogger.for_run(
-            agent_name="TestAgent", base_dir=str(tmp_path / "logs")
-        )
+        logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         tc = ToolCall(id="call_1", name="echo", arguments={"text": "secret"})
         model = MockModelClient(tool_calls=[tc])
 

@@ -98,16 +98,14 @@ class TestAgent:
             for m in result.final_state.messages
         )
 
-    def test_reminders_fallback_without_engine(self, echo_tool):
-        """无 PromptEngine 时保持硬编码常量（测试兼容路径）。"""
-        from courtier.common.behavioral_rules import (
-            PERIODIC_REMINDER,
-            PRE_TURN_REMINDER,
-        )
+    def test_reminders_without_engine_render_from_defaults(self, echo_tool):
+        """无 PromptEngine 时回退到核心默认 YAML 渲染的提醒（单一事实来源）。"""
+        from courtier.prompts.engine import PromptEngine
 
+        engine = PromptEngine.from_domain_directories([], locale="zh-CN")
         agent = Agent(name="A", role="r", tools=[echo_tool], model=MockModelClient())
-        assert agent._pre_turn_reminder == PRE_TURN_REMINDER
-        assert agent._periodic_reminder == PERIODIC_REMINDER
+        assert agent._pre_turn_reminder == engine.render("behavioral.pre_turn_reminder")
+        assert agent._periodic_reminder == engine.render("behavioral.periodic_reminder")
 
     @pytest.mark.asyncio
     async def test_run_with_initial_state_does_not_duplicate_task(self, echo_tool):

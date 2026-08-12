@@ -13,7 +13,6 @@ from opentelemetry import trace as otel_trace
 from opentelemetry.trace import Status, StatusCode
 
 from courtier.agent.core.execution_result import ExecutionResult
-from courtier.common.behavioral_rules import PERIODIC_REMINDER, PRE_TURN_REMINDER
 
 from ..artifacts.resolver import emit_event
 from ..telemetry.metrics import (
@@ -811,8 +810,8 @@ async def agent_loop(
     event_bus: EventBus | None = None,
     guardrail_system: GuardrailSystem | None = None,
     forced_first_tool_call: ToolCall | None = None,
-    pre_turn_reminder: str = PRE_TURN_REMINDER,
-    periodic_reminder: str = PERIODIC_REMINDER,
+    pre_turn_reminder: str = "",
+    periodic_reminder: str = "",
 ) -> AgentState:
     """Agent 主循环 — think → gate → act → observe.
 
@@ -829,8 +828,7 @@ async def agent_loop(
     pre_turn_reminder / periodic_reminder: reminder texts injected into the
         message stream.  Production agents pass PromptEngine-rendered text
         (``behavioral.pre_turn_reminder`` / ``behavioral.periodic_reminder``);
-        the defaults preserve the historical hardcoded strings for direct
-        loop usage.  Empty string disables the respective injection.
+        empty string disables the respective injection.
     """
     tracer = AgentTracer()
     if not agent_name:

@@ -31,6 +31,20 @@ from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+#: Lazy default prompt engine for agents constructed without an explicit
+#: engine (direct Agent(...) use in tests and the echo agent).  Renders the
+#: core default bundles (behavioral rules, reminders, tool invocation rules)
+#: from ``courtier/prompts/defaults/{locale}/*.yaml`` — the single source of
+#: truth for all behavioral instructions.
+_DEFAULT_PROMPT_ENGINE: PromptEngine | None = None
+
+
+def _default_prompt_engine() -> PromptEngine:
+    global _DEFAULT_PROMPT_ENGINE
+    if _DEFAULT_PROMPT_ENGINE is None:
+        _DEFAULT_PROMPT_ENGINE = PromptEngine.from_domain_directories([], locale="zh-CN")
+    return _DEFAULT_PROMPT_ENGINE
+
 
 def _has_successful_call_for(messages: tuple[Message, ...], tool_name: str, file_path: str) -> bool:
     """True when *messages* show a successful *tool_name* call for *file_path*.
@@ -251,29 +265,19 @@ class Agent:
         # plugin (re)registrations are reflected without rebuilding the agent.
         self._plugin_prompts_provider: Callable[[], dict[str, str]] | None = None
 
-        # Build system prompt (six-section s10 pattern)
+        # Build system prompt (six-section s10 pattern).  All behavioral
+        # text (thinking directive, rules, reminders, tool invocation rules)
+        # is rendered from the prompt engine — the YAML bundles in
+        # ``courtier/prompts/defaults/`` are the single source of truth.
+        # Agents without an explicit engine fall back to the default one.
         self._prompt_pipeline = PromptPipeline()
 
-        if prompt_engine is not None:
-            thinking_directive = prompt_engine.render("behavioral.thinking_directive")
-            behavioral_rules = prompt_engine.render("behavioral.rules")
-            tool_invocation_rules = prompt_engine.render("tools.invocation_rules")
-            pre_turn_reminder = prompt_engine.render("behavioral.pre_turn_reminder")
-            periodic_reminder = prompt_engine.render("behavioral.periodic_reminder")
-        else:
-            # Fallback for backward compatibility in tests
-            from courtier.common.behavioral_rules import (
-                BEHAVIORAL_RULES,
-                PERIODIC_REMINDER,
-                PRE_TURN_REMINDER,
-                TOOL_INVOCATION_RULES,
-            )
-
-            thinking_directive = ""
-            behavioral_rules = BEHAVIORAL_RULES
-            tool_invocation_rules = TOOL_INVOCATION_RULES
-            pre_turn_reminder = PRE_TURN_REMINDER
-            periodic_reminder = PERIODIC_REMINDER
+        prompt_engine = prompt_engine or _default_prompt_engine()
+        thinking_directive = prompt_engine.render("behavioral.thinking_directive")
+        behavioral_rules = prompt_engine.render("behavioral.rules")
+        tool_invocation_rules = prompt_engine.render("tools.invocation_rules")
+        pre_turn_reminder = prompt_engine.render("behavioral.pre_turn_reminder")
+        periodic_reminder = prompt_engine.render("behavioral.periodic_reminder")
 
         self._pre_turn_reminder = pre_turn_reminder
         self._periodic_reminder = periodic_reminder

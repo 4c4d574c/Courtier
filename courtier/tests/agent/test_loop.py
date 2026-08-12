@@ -16,7 +16,14 @@ from courtier.agent.core.model import ModelResponse, ToolCall
 from courtier.agent.core.state import AgentState, Message
 from courtier.agent.testing import MockModelClient
 from courtier.agent.tools.registry import ToolRegistry
-from courtier.common.behavioral_rules import PERIODIC_REMINDER, PRE_TURN_REMINDER
+from courtier.prompts.engine import PromptEngine
+
+# Reminder texts rendered from the core default bundles — the single source
+# of truth (the old hardcoded constants in common/behavioral_rules.py were
+# removed in favour of these YAML templates).
+_ENGINE = PromptEngine.from_domain_directories([], locale="zh-CN")
+PRE_TURN_REMINDER = _ENGINE.render("behavioral.pre_turn_reminder")
+PERIODIC_REMINDER = _ENGINE.render("behavioral.periodic_reminder")
 
 
 class TestInjectReminder:
@@ -125,17 +132,16 @@ class TestLoopReminderParams:
         assert not any(m.source == "reminder" for m in final.messages)
 
     @pytest.mark.asyncio
-    async def test_default_pre_turn_reminder_preserved(self):
-        """不传参时保持历史默认（硬编码常量），直接调 loop 的测试不受影响。"""
+    async def test_no_reminder_injected_by_default(self):
+        """不传提醒参数时默认禁用注入 —— 提醒文本由上层（Agent/PromptEngine）
+        渲染后显式传入，loop 本身不再内置硬编码默认文本。"""
         state = AgentState.initial(task="测试任务", system_prompt="sys")
         final = await agent_loop(
             state=state,
             model=MockModelClient(tool_calls=[]),
             tool_registry=None,
         )
-        assert any(
-            m.content == PRE_TURN_REMINDER and m.source == "reminder" for m in final.messages
-        )
+        assert not any(m.source == "reminder" for m in final.messages)
 
 
 class TestAgentLoop:

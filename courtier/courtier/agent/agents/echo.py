@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from courtier.common.behavioral_rules import PERIODIC_REMINDER, PRE_TURN_REMINDER
-
 from ..core.model import ModelClient, ModelResponse, ToolCall
 from ..tools.builtin.echo import EchoTool
-from .base import Agent
+from .base import Agent, _default_prompt_engine
 
 
 def create_echo_agent(model: ModelClient | None = None) -> Agent:
@@ -47,6 +45,15 @@ class _DefaultEchoModel(ModelClient):
     def __init__(self) -> None:
         super().__init__()
         self._call_count = 0
+        # Reminder messages are injected into the stream as user messages
+        # (their ``source`` marker is not part of the wire format), so the
+        # mock must skip them by content.  Render from the same default
+        # engine the Agent uses to stay in sync with the YAML bundles.
+        engine = _default_prompt_engine()
+        self._reminder_texts = (
+            engine.render("behavioral.pre_turn_reminder"),
+            engine.render("behavioral.periodic_reminder"),
+        )
 
     @property
     def model_name(self) -> str:
@@ -71,7 +78,7 @@ class _DefaultEchoModel(ModelClient):
             for msg in reversed(messages):
                 if msg.get("role") == "user":
                     content = msg.get("content", "")
-                    if content not in (PRE_TURN_REMINDER, PERIODIC_REMINDER):
+                    if content not in self._reminder_texts:
                         last_user_content = content
                         break
 
@@ -85,9 +92,7 @@ class _DefaultEchoModel(ModelClient):
                         tool_names.add(func.get("name", ""))
             if "echo" not in tool_names:
                 # Echo tool not present — fall back to plain text response
-                return ModelResponse(
-                    content=f"Echoed: {last_user_content}", tool_calls=[]
-                )
+                return ModelResponse(content=f"Echoed: {last_user_content}", tool_calls=[])
 
             return ModelResponse(
                 content=None,

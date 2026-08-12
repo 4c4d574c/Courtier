@@ -76,6 +76,10 @@ class AgentRuntime:
     capability_registry: CapabilityRegistry | None = None
     event_bus: EventBus | None = None
     cache_dir: str = ".agent_cache"  # used when a fallback MemoryManager is needed
+    #: Prompt engine shared with spawned sub-agents so they render the same
+    #: behavioral rules / reminders from the YAML bundles as the orchestrator
+    #: (instead of hardcoded fallbacks).  ``None`` lets Agent pick its default.
+    prompt_engine: Any | None = None
 
     def __post_init__(self) -> None:
         self._configs: dict[str, AgentConfig] = {}
@@ -495,6 +499,7 @@ class AgentRuntime:
             model=self.model,
             tools=tools,
             agent_name=self._skill_display_name(config.name) or "",
+            prompt_engine=self.prompt_engine,
         )
         # Sync summarizer / result_store from the runtime's shared registry
         # so large tool results are summarised before entering the sub-agent's
