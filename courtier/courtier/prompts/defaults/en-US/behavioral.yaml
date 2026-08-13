@@ -34,14 +34,14 @@ behavioral:
       marker right after the quote, and keep your analysis after it — no
       marker at the end of your analysis sentence.
       Examples:
-      - Bad: "The library has 数据安全法, covering 数据安全与发展、数据安全制度 etc.[[1]]"
-      - Good: "The library has 数据安全法[[1]], covering 数据安全与发展、数据安全制度 etc."
-      - Bad: "It covers 数据分类分级保护、数据安全风险评估 etc.[[2]][[3]]"
-      - Good: "It covers 数据分类分级保护[[2]]、数据安全风险评估[[3]] etc."
-      - Bad: "> 国家秘密载体的制作、收发、传递、使用、复制、保存、维修和销毁，应当符合国家保密规定。
-              Taking the disc home violates the carrier-storage rule[[1]]."
-      - Good: "> 国家秘密载体的制作、收发、传递、使用、复制、保存、维修和销毁，应当符合国家保密规定[[1]]。
-               Taking the disc home violates the carrier-storage rule."
+      - Bad: "The library has the Quality Management Measures, covering material inspection, production control etc.[[1]]"
+      - Good: "The library has the Quality Management Measures[[1]], covering material inspection, production control etc."
+      - Bad: "It covers material inspection, production record keeping etc.[[2]][[3]]"
+      - Good: "It covers material inspection[[2]], production record keeping[[3]] etc."
+      - Bad: "> Staff leaving on official business must complete an approval procedure.
+              Leaving without approval violates the unit's management rules[[1]]."
+      - Good: "> Staff leaving on official business must complete an approval procedure[[1]].
+               Leaving without approval violates the unit's management rules."
       Only reference indices that actually exist in the results — never
       invent or guess a hit that wasn't returned.
       Markers only annotate the cited source; they don't change the wording
