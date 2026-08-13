@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -122,10 +121,6 @@ async def _build_citations_payload(
     return citations or None
 
 
-#: Matches the summarizer's excerpt paths for search hits ("hits[2].chunk_text").
-_SEARCH_EXCERPT_HIT_RE = re.compile(r"^hits\[(\d+)\]")
-
-
 async def _annotate_search_citations(
     results: list[ExecutionResult],
     artifact_store: Any | None,
@@ -186,16 +181,28 @@ async def _annotate_search_citations(
                 numbered_hits.append(numbered)
             result = _dc_replace(result, raw_data={**data, "hits": numbered_hits})
         else:
-            # Persisted — the model sees only key_excerpts; prefix each hit
-            # excerpt with its citation index.
-            excerpts = []
-            for excerpt in result.key_excerpts:
-                match = _SEARCH_EXCERPT_HIT_RE.match(excerpt)
-                if match and int(match.group(1)) < n:
-                    excerpts.append(f"【引用编号 {offset + int(match.group(1)) + 1}】{excerpt}")
+            # Persisted — the model sees only key_excerpts, and the generic
+            # summarizer samples just the first 3 hits.  Replace them with a
+            # compact citation table covering every citable hit so the model
+            # can copy accurate indices instead of fabricating numbers for
+            # hits it never saw.
+            compact = []
+            for i, hit in enumerate(hits[:n]):
+                if isinstance(hit, dict):
+                    title = str(hit.get("title", ""))
+                    chunk = str(hit.get("chunk_text", "")).replace("\n", " ")
                 else:
-                    excerpts.append(excerpt)
-            result = _dc_replace(result, key_excerpts=tuple(excerpts))
+                    title, chunk = "", str(hit)
+                compact.append(f"【引用编号 {offset + i + 1}】{title}｜{chunk[:80]}")
+            total = data.get("total", len(hits))
+            result = _dc_replace(
+                result,
+                key_excerpts=tuple(compact),
+                summary=(
+                    f"搜索完成，共 {total} 条命中（前 {n} 条可引用，"
+                    f"编号 {offset + 1}~{offset + n}）"
+                ),
+            )
         annotated.append(result)
         offset += n
     if offset_holder is not None:

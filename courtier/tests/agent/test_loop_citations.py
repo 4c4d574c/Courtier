@@ -300,7 +300,10 @@ async def test_annotation_numbers_inline_hits_cumulatively():
 
 
 @pytest.mark.asyncio
-async def test_annotation_prefixes_persisted_excerpts():
+async def test_annotation_builds_compact_table_for_persisted_results():
+    """Persisted results get a compact citation table covering every hit —
+    the generic summarizer only sampled the first 3 hits, which pushed the
+    model into fabricating indices for hits it never saw."""
     class _Store:
         def load(self, ref_id: str):
             return _search_result(3)
@@ -312,7 +315,8 @@ async def test_annotation_prefixes_persisted_excerpts():
             actor_name="search_documents",
             result_id="$ref:search_documents:1",
             raw_data=None,
-            key_excerpts=("hits[0].chunk_text: 内容0", "hits[2].chunk_text: 内容2"),
+            key_excerpts=("hits[0].chunk_text: 旧片段",),
+            summary="旧摘要",
         ),
         ExecutionResult(
             success=True,
@@ -320,14 +324,17 @@ async def test_annotation_prefixes_persisted_excerpts():
             actor_name="search_documents",
             result_id="$ref:search_documents:2",
             raw_data=None,
-            key_excerpts=("hits[1].chunk_text: 内容1",),
+            key_excerpts=(),
         ),
     ]
     annotated = await _annotate_search_citations(persisted, _Store())
-    assert annotated[0].key_excerpts[0].startswith("【引用编号 1】hits[0].chunk_text")
-    assert annotated[0].key_excerpts[1].startswith("【引用编号 3】hits[2].chunk_text")
+    assert annotated[0].key_excerpts[0].startswith("【引用编号 1】来源1｜")
+    assert annotated[0].key_excerpts[2].startswith("【引用编号 3】来源3｜")
+    assert "共 3 条命中" in annotated[0].summary
+    assert "编号 1~3" in annotated[0].summary
     # Second call continues cumulatively after the first call's 3 hits.
-    assert annotated[1].key_excerpts[0].startswith("【引用编号 5】hits[1].chunk_text")
+    assert annotated[1].key_excerpts[0].startswith("【引用编号 4】来源1｜")
+    assert annotated[1].key_excerpts[2].startswith("【引用编号 6】来源3｜")
 
 
 @pytest.mark.asyncio
