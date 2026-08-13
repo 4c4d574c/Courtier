@@ -29,6 +29,8 @@ behavioral:
       several markers in one spot. Quoting clauses, articles or verbatim
       text from the results requires markers just the same. n is the hit's
       1-based index in that result's hits list (the first hit is [[1]]).
+      【Never use [[0]]】Numbering starts at 1 and has nothing to do with
+      array subscripts — [[0]] is an invalid marker.
       【Principle】The marker annotates the quoted source text itself, not
       your own analysis or concluding sentence. Write the quote, put the
       marker right after the quote, and keep your analysis after it — no
@@ -66,7 +68,8 @@ behavioral:
     Use defaults when available. If unsure, pick one and adjust if wrong.
     If you cite search_documents results this turn (including quoting
     clauses verbatim), place each [[n]] right after the quoted source text
-    itself — not at the end of your own analysis sentence.
+    itself — not at the end of your own analysis sentence. Numbering starts
+    at 1; [[0]] is invalid.
 
   periodic_reminder: |
     【System · Periodic Reminder】Review behavioral rules:
