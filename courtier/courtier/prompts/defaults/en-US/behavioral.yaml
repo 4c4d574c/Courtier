@@ -29,11 +29,19 @@ behavioral:
       several markers in one spot. Quoting clauses, articles or verbatim
       text from the results requires markers just the same. n is the hit's
       1-based index in that result's hits list (the first hit is [[1]]).
+      【Principle】The marker annotates the quoted source text itself, not
+      your own analysis or concluding sentence. Write the quote, put the
+      marker right after the quote, and keep your analysis after it — no
+      marker at the end of your analysis sentence.
       Examples:
-      - Bad: "The library has 数据安全法, covering 数据安全与发展、数据安全制度、数据安全保护义务 etc.[[1]]"
-      - Good: "The library has 数据安全法[[1]], covering 数据安全与发展、数据安全制度、数据安全保护义务 etc."
-      - Bad: "It also covers 数据分类分级保护、数据安全风险评估与应急处置 etc.[[2]][[3]]"
-      - Good: "It also covers 数据分类分级保护[[2]]、数据安全风险评估与应急处置[[3]] etc."
+      - Bad: "The library has 数据安全法, covering 数据安全与发展、数据安全制度 etc.[[1]]"
+      - Good: "The library has 数据安全法[[1]], covering 数据安全与发展、数据安全制度 etc."
+      - Bad: "It covers 数据分类分级保护、数据安全风险评估 etc.[[2]][[3]]"
+      - Good: "It covers 数据分类分级保护[[2]]、数据安全风险评估[[3]] etc."
+      - Bad: "> 国家秘密载体的制作、收发、传递、使用、复制、保存、维修和销毁，应当符合国家保密规定。
+              Taking the disc home violates the carrier-storage rule[[1]]."
+      - Good: "> 国家秘密载体的制作、收发、传递、使用、复制、保存、维修和销毁，应当符合国家保密规定[[1]]。
+               Taking the disc home violates the carrier-storage rule."
       Only reference indices that actually exist in the results — never
       invent or guess a hit that wasn't returned.
       Markers only annotate the cited source; they don't change the wording
@@ -57,7 +65,8 @@ behavioral:
     【System · Turn Constraint】Pick the most obvious tool call directly.
     Use defaults when available. If unsure, pick one and adjust if wrong.
     If you cite search_documents results this turn (including quoting
-    clauses verbatim), mark them with [[n]] right after the cited content.
+    clauses verbatim), place each [[n]] right after the quoted source text
+    itself — not at the end of your own analysis sentence.
 
   periodic_reminder: |
     【System · Periodic Reminder】Review behavioral rules:
