@@ -15,7 +15,8 @@ orchestrator:
     2. **格式审核**（format_audit）→ 调用 parse_document 获取 Document 模型（含版面/字号信息）；
        解析失败时停止并报告，禁止继续调用依赖文档内容的技能。
     3. **内容类任务**（content_audit / text_correction / plagiarism / secret_analysis）与阅读问答：
-       - 优先复用会话中已有的文档文本（convert_document 产出的 Markdown，或 parse_document 的文本投影），
+       - 【禁止调用 parse_document】parse_document 仅供格式审核使用，内容类任务一律不得调用；
+       - 优先复用会话中已有的文档文本（convert_document 产出的 Markdown，或此前解析结果的文本投影），
          不要重复转换/解析；
        - 没有现成文本时，调用 convert_document(file_path) 获取 Markdown 作为 text 入参
          （扫描件会自动 OCR）。

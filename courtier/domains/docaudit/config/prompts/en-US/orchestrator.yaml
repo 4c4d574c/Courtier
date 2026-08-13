@@ -19,8 +19,10 @@ orchestrator:
        report — do not continue.
     3. **Content tasks** (content_audit / text_correction / plagiarism /
        secret_analysis) and read-and-answer:
+       - 【Never call parse_document】parse_document is for format audit only;
+         content tasks must not call it;
        - Prefer reusing document text already in the session (Markdown from
-         convert_document, or the text projection of parse_document) — do not
+         convert_document, or the text projection of an earlier parse) — do not
          re-convert or re-parse;
        - When no text is available yet, call convert_document(file_path) and
          pass the resulting Markdown as the text input (scanned files are
