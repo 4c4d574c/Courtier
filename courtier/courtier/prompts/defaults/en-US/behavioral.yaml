@@ -31,6 +31,11 @@ behavioral:
       1-based index in that result's hits list (the first hit is [[1]]).
       【Never use [[0]]】Numbering starts at 1 and has nothing to do with
       array subscripts — [[0]] is an invalid marker.
+      【Index source】Copy the citation number straight from the hit itself:
+      the citation_index field on inline hits, or the 【引用编号 N】 prefix
+      on summarized excerpts. Never recompute your own numbering. Across
+      multiple search_documents calls in one turn, numbering continues
+      cumulatively. Only cite hits you actually saw.
       【Principle】The marker annotates the quoted source text itself, not
       your own analysis or concluding sentence. Write the quote, put the
       marker right after the quote, and keep your analysis after it — no

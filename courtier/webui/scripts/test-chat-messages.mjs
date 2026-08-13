@@ -599,6 +599,54 @@ try {
   assert.equal(pendingSplitMsgs[3].isRunning, true);
   assert.equal(pendingSplitMsgs[4].content, "");
 
+  // Citations merge across all search_documents calls of a turn, in call
+  // order — the backend numbers hits cumulatively across calls.
+  const citeHit = (title) => ({ title });
+  const multiSearchTurn = {
+    message: { role: "user", text: "查询", timestamp: 1 },
+    steps: [
+      {
+        index: 1,
+        numeral: "1",
+        label: "step",
+        skill: "s",
+        turnIndex: 0,
+        tools: [
+          {
+            id: "t1",
+            name: "search_documents",
+            skill: "",
+            status: "done",
+            callKind: "tool",
+            callScope: "parent",
+            subagentName: null,
+            citations: [citeHit("文档A"), citeHit("文档B")],
+          },
+          {
+            id: "t2",
+            name: "search_documents",
+            skill: "",
+            status: "done",
+            callKind: "tool",
+            callScope: "parent",
+            subagentName: null,
+            citations: [citeHit("文档C")],
+          },
+        ],
+      },
+    ],
+    conclusion: "见[[3]]",
+  };
+  const mergedMsgs = buildChatMessages(
+    { ...baseSession, turns: [multiSearchTurn] },
+    [],
+  );
+  const assistantMsg = mergedMsgs.find((m) => m.type === "assistant");
+  assert.equal(assistantMsg.citations.length, 3);
+  assert.equal(assistantMsg.citations[0].title, "文档A");
+  assert.equal(assistantMsg.citations[1].title, "文档B");
+  assert.equal(assistantMsg.citations[2].title, "文档C");
+
   console.log("chatMessages verification passed");
 } finally {
   rmSync(outDir, { recursive: true, force: true });

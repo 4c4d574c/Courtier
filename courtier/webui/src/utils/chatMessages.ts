@@ -188,20 +188,23 @@ function buildProcessItems(
 }
 
 /**
- * Find the citations attached to the most recent search_documents result in
- * a turn.  Assistant conclusions reference hits with `[[n]]` markers where n
- * is the 1-based index into this list.
+ * Find the citations attached to a turn's search_documents results.
+ *
+ * A turn may run several search_documents calls (e.g. one per topic).  The
+ * backend numbers hits cumulatively across the calls of the turn, so the
+ * frontend merges the per-call citation payloads in call order — `[[n]]`
+ * resolves against this merged list.
  */
 function citationsForTurn(turn: Turn): CitationHit[] | undefined {
-  let found: CitationHit[] | undefined;
+  const merged: CitationHit[] = [];
   for (const step of turn.steps) {
     for (const tool of step.tools) {
       if (tool.name === "search_documents" && tool.citations?.length) {
-        found = tool.citations;
+        merged.push(...tool.citations);
       }
     }
   }
-  return found;
+  return merged.length ? merged : undefined;
 }
 
 function buildAssistantItem(

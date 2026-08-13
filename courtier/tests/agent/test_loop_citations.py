@@ -1,7 +1,9 @@
-"""Tests for the search-result citation payload (`_build_citations_payload`).
+"""Tests for the search-result citation payload (`_build_citations_payload`)
+and the model-view citation numbering (`_annotate_search_citations`).
 
 The payload is what the frontend uses to resolve `[[n]]` markers in assistant
-conclusions to a source file and the cited passage.
+conclusions to a source file and the cited passage; the annotation gives the
+model explicit, cross-call indices it can copy into those markers.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import tempfile
 import pytest
 
 from courtier.agent.core.execution_result import ExecutionResult
-from courtier.agent.core.loop import _build_citations_payload
+from courtier.agent.core.loop import _annotate_search_citations, _build_citations_payload
 
 
 def _hit(
@@ -272,3 +274,105 @@ async def test_end_to_end_event_bus_flow_with_real_loop():
             assert any(t.name == "search_documents" and t.citations for t in step_tools)
         finally:
             adapter.stop_listening()
+
+
+# -- Model-view citation numbering ---------------------------------------------
+
+
+def _search_execution(n_hits: int = 2, **kwargs) -> ExecutionResult:
+    return ExecutionResult(
+        success=True,
+        actor_type="tool",
+        actor_name="search_documents",
+        raw_data=_search_result(n_hits),
+        **kwargs,
+    )
+
+
+@pytest.mark.asyncio
+async def test_annotation_numbers_inline_hits_cumulatively():
+    results = [_search_execution(2), _search_execution(3)]
+    annotated = await _annotate_search_citations(results, None)
+    first = [h["citation_index"] for h in annotated[0].raw_data["hits"]]
+    second = [h["citation_index"] for h in annotated[1].raw_data["hits"]]
+    assert first == [1, 2]
+    assert second == [3, 4, 5]
+
+
+@pytest.mark.asyncio
+async def test_annotation_prefixes_persisted_excerpts():
+    class _Store:
+        def load(self, ref_id: str):
+            return _search_result(3)
+
+    persisted = [
+        ExecutionResult(
+            success=True,
+            actor_type="tool",
+            actor_name="search_documents",
+            result_id="$ref:search_documents:1",
+            raw_data=None,
+            key_excerpts=("hits[0].chunk_text: 内容0", "hits[2].chunk_text: 内容2"),
+        ),
+        ExecutionResult(
+            success=True,
+            actor_type="tool",
+            actor_name="search_documents",
+            result_id="$ref:search_documents:2",
+            raw_data=None,
+            key_excerpts=("hits[1].chunk_text: 内容1",),
+        ),
+    ]
+    annotated = await _annotate_search_citations(persisted, _Store())
+    assert annotated[0].key_excerpts[0].startswith("【引用编号 1】hits[0].chunk_text")
+    assert annotated[0].key_excerpts[1].startswith("【引用编号 3】hits[2].chunk_text")
+    # Second call continues cumulatively after the first call's 3 hits.
+    assert annotated[1].key_excerpts[0].startswith("【引用编号 5】hits[1].chunk_text")
+
+
+@pytest.mark.asyncio
+async def test_annotation_leaves_non_search_results_untouched():
+    other = ExecutionResult(
+        success=True, actor_type="tool", actor_name="convert_document", raw_data={"text": "x"}
+    )
+    annotated = await _annotate_search_citations([other, _search_execution(1)], None)
+    assert annotated[0] is other
+    assert annotated[1].raw_data["hits"][0]["citation_index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_annotation_caps_numbering_at_max_hits():
+    big = _search_result(60)
+    small = _search_result(1)
+    results = [
+        ExecutionResult(
+            success=True, actor_type="tool", actor_name="search_documents", raw_data=big
+        ),
+        ExecutionResult(
+            success=True, actor_type="tool", actor_name="search_documents", raw_data=small
+        ),
+    ]
+    annotated = await _annotate_search_citations(results, None)
+    # Hits beyond the cap carry no index; the next call resumes at 51.
+    assert annotated[0].raw_data["hits"][49]["citation_index"] == 50
+    assert "citation_index" not in annotated[0].raw_data["hits"][50]
+    assert annotated[1].raw_data["hits"][0]["citation_index"] == 51
+
+
+@pytest.mark.asyncio
+async def test_annotation_failed_or_missing_store_is_safe():
+    class _BrokenStore:
+        def load(self, ref_id: str):
+            raise RuntimeError("gone")
+
+    persisted = ExecutionResult(
+        success=True,
+        actor_type="tool",
+        actor_name="search_documents",
+        result_id="$ref:search_documents:1",
+        raw_data=None,
+        key_excerpts=("hits[0].chunk_text: x",),
+    )
+    annotated = await _annotate_search_citations([persisted], _BrokenStore())
+    # Load failure degrades gracefully — excerpts pass through unchanged.
+    assert annotated[0].key_excerpts == ("hits[0].chunk_text: x",)

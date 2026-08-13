@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -119,6 +120,83 @@ async def _build_citations_payload(
             }
         )
     return citations or None
+
+
+#: Matches the summarizer's excerpt paths for search hits ("hits[2].chunk_text").
+_SEARCH_EXCERPT_HIT_RE = re.compile(r"^hits\[(\d+)\]")
+
+
+async def _annotate_search_citations(
+    results: list[ExecutionResult], artifact_store: Any | None
+) -> list[ExecutionResult]:
+    """Inject explicit, cross-call citation indices into the model's view.
+
+    ``[[n]]`` markers must resolve deterministically, so the model needs an
+    index it can copy verbatim — positional counting breaks down when a turn
+    makes several ``search_documents`` calls (each call's hits start at 1
+    again) and when large results are persisted (the model only sees
+    summarizer excerpts with 0-based ``hits[K]`` paths, which also spawned
+    ``[[0]]`` mistakes).
+
+    Numbering is cumulative across the calls of one turn and capped at
+    ``_CITATION_MAX_HITS`` per call — mirroring the frontend citation
+    payload, which merges the per-call payloads in the same order.  Inline
+    results gain a ``citation_index`` field on each hit; persisted results
+    get the index prefixed to each excerpt (``【引用编号 N】``).
+    """
+    offset = 0
+    annotated: list[ExecutionResult] = []
+    for result in results:
+        if result.actor_name != "search_documents" or not result.success:
+            annotated.append(result)
+            continue
+        data = result.raw_data
+        if data is None and result.result_id and artifact_store is not None:
+            try:
+                loader = getattr(artifact_store, "load", None)
+                if callable(loader):
+                    data = loader(result.result_id)
+            except Exception:
+                logger.warning(
+                    "failed to load search result %s for citation numbering",
+                    result.result_id,
+                    exc_info=True,
+                )
+                data = None
+        if not isinstance(data, dict) or not isinstance(data.get("hits"), list):
+            annotated.append(result)
+            continue
+        hits = data["hits"]
+        n = min(len(hits), _CITATION_MAX_HITS)
+        if n == 0:
+            annotated.append(result)
+            continue
+        if result.raw_data is not None:
+            # Inline payload — the model reads the full data; give each hit an
+            # explicit citation_index it can copy into [[n]] verbatim.
+            numbered_hits = []
+            for i, hit in enumerate(hits):
+                numbered = dict(hit) if isinstance(hit, dict) else hit
+                if i < n and isinstance(numbered, dict):
+                    numbered["citation_index"] = offset + i + 1
+                numbered_hits.append(numbered)
+            result = _dc_replace(result, raw_data={**data, "hits": numbered_hits})
+        else:
+            # Persisted — the model sees only key_excerpts; prefix each hit
+            # excerpt with its citation index.
+            excerpts = []
+            for excerpt in result.key_excerpts:
+                match = _SEARCH_EXCERPT_HIT_RE.match(excerpt)
+                if match and int(match.group(1)) < n:
+                    excerpts.append(
+                        f"【引用编号 {offset + int(match.group(1)) + 1}】{excerpt}"
+                    )
+                else:
+                    excerpts.append(excerpt)
+            result = _dc_replace(result, key_excerpts=tuple(excerpts))
+        annotated.append(result)
+        offset += n
+    return annotated
 
 
 def _maybe_write_audit_turn(
@@ -640,6 +718,10 @@ async def _run_tool_phase(
         on_tool_progress=on_tool_progress,
         audit_logger=audit_logger,
     )
+
+    # Give search hits explicit, cross-call citation indices so [[n]]
+    # markers resolve deterministically (see _annotate_search_citations).
+    results = await _annotate_search_citations(list(results), artifact_store)
 
     # Capture the tool calls that were actually executed before
     # add_observation clears them, so downstream tracking and guard
