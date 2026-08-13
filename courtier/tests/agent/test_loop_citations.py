@@ -376,3 +376,16 @@ async def test_annotation_failed_or_missing_store_is_safe():
     annotated = await _annotate_search_citations([persisted], _BrokenStore())
     # Load failure degrades gracefully — excerpts pass through unchanged.
     assert annotated[0].key_excerpts == ("hits[0].chunk_text: x",)
+
+
+@pytest.mark.asyncio
+async def test_annotation_numbering_persists_across_tool_phases():
+    """The offset holder carries numbering across think-act iterations of one run."""
+    holder: list[int] = [0]
+    first = await _annotate_search_citations([_search_execution(2)], None, holder)
+    assert [h["citation_index"] for h in first[0].raw_data["hits"]] == [1, 2]
+    assert holder[0] == 2
+    # A later tool phase (new think-act iteration) continues the numbering.
+    second = await _annotate_search_citations([_search_execution(3)], None, holder)
+    assert [h["citation_index"] for h in second[0].raw_data["hits"]] == [3, 4, 5]
+    assert holder[0] == 5

@@ -127,7 +127,9 @@ _SEARCH_EXCERPT_HIT_RE = re.compile(r"^hits\[(\d+)\]")
 
 
 async def _annotate_search_citations(
-    results: list[ExecutionResult], artifact_store: Any | None
+    results: list[ExecutionResult],
+    artifact_store: Any | None,
+    offset_holder: list[int] | None = None,
 ) -> list[ExecutionResult]:
     """Inject explicit, cross-call citation indices into the model's view.
 
@@ -138,13 +140,15 @@ async def _annotate_search_citations(
     summarizer excerpts with 0-based ``hits[K]`` paths, which also spawned
     ``[[0]]`` mistakes).
 
-    Numbering is cumulative across the calls of one turn and capped at
+    Numbering is cumulative across ALL tool phases of one agent_loop run
+    (a run == one turn): *offset_holder* carries the running offset across
+    think-act iterations and is updated in place.  Numbering is capped at
     ``_CITATION_MAX_HITS`` per call — mirroring the frontend citation
     payload, which merges the per-call payloads in the same order.  Inline
     results gain a ``citation_index`` field on each hit; persisted results
     get the index prefixed to each excerpt (``【引用编号 N】``).
     """
-    offset = 0
+    offset = offset_holder[0] if offset_holder else 0
     annotated: list[ExecutionResult] = []
     for result in results:
         if result.actor_name != "search_documents" or not result.success:
@@ -188,14 +192,14 @@ async def _annotate_search_citations(
             for excerpt in result.key_excerpts:
                 match = _SEARCH_EXCERPT_HIT_RE.match(excerpt)
                 if match and int(match.group(1)) < n:
-                    excerpts.append(
-                        f"【引用编号 {offset + int(match.group(1)) + 1}】{excerpt}"
-                    )
+                    excerpts.append(f"【引用编号 {offset + int(match.group(1)) + 1}】{excerpt}")
                 else:
                     excerpts.append(excerpt)
             result = _dc_replace(result, key_excerpts=tuple(excerpts))
         annotated.append(result)
         offset += n
+    if offset_holder is not None:
+        offset_holder[0] = offset
     return annotated
 
 
@@ -608,10 +612,13 @@ async def _run_tool_phase(
     event_bus: EventBus | None,
     hooks: Any | None,
     periodic_reminder: str = "",
+    citation_offset: list[int] | None = None,
 ) -> _ToolPhaseOutcome:
     """Run a single tool phase: guards, permission gate, execute, observe, hooks.
 
     Returns the updated state and the latest consecutive exploratory count.
+    ``citation_offset`` carries the cross-phase citation numbering across
+    think-act iterations of one run (mutated in place by the annotation).
     """
     # Guardrail: output layer
     if guardrail_system is not None:
@@ -721,7 +728,7 @@ async def _run_tool_phase(
 
     # Give search hits explicit, cross-call citation indices so [[n]]
     # markers resolve deterministically (see _annotate_search_citations).
-    results = await _annotate_search_citations(list(results), artifact_store)
+    results = await _annotate_search_citations(list(results), artifact_store, citation_offset)
 
     # Capture the tool calls that were actually executed before
     # add_observation clears them, so downstream tracking and guard
@@ -1064,6 +1071,9 @@ async def agent_loop(
         # and terminal-tool detection. The ExploreLoopGuard itself tracks null
         # results and repeated calls; we mirror the exploratory count here.
         consecutive_exploratory: int = 0
+        # Cross-phase citation numbering: one running offset per agent_loop
+        # run (= one turn), mutated in place by _annotate_search_citations.
+        citation_offset: list[int] = [0]
         # Reset ToolRuntimePolicy per-run counters
         if tool_registry is not None:
             tool_registry.reset_run_state()
@@ -1130,6 +1140,7 @@ async def agent_loop(
                     event_bus=event_bus,
                     hooks=hooks,
                     periodic_reminder=periodic_reminder,
+                    citation_offset=citation_offset,
                 )
                 current_state = tool_outcome.state
                 consecutive_exploratory = tool_outcome.consecutive_exploratory
