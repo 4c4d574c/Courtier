@@ -95,3 +95,14 @@ def test_mapping_uses_bigram_analyzer_on_text_fields():
     assert mapping["mappings"]["properties"]["title"]["analyzer"] == "cjk"
     # Keyword fields keep their types.
     assert mapping["mappings"]["properties"]["doc_type"] == {"type": "keyword"}
+
+
+def test_mapping_dense_vector_dims_configurable():
+    mapping = es_client.build_index_mapping(embedding_dim=768)
+    assert mapping["mappings"]["properties"]["chunk_vector"] == {
+        "type": "dense_vector",
+        "dims": 768,
+        "index": True,
+        "similarity": "cosine",
+    }
+    assert es_client.INDEX_MAPPING["mappings"]["properties"]["chunk_vector"]["dims"] == 1024

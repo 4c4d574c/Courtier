@@ -39,6 +39,7 @@ from courtier.db.db_manager import AsyncDatabase
 from courtier.db.tables.resource import ResourceTable
 from courtier.db.tables.user import UserTable
 from courtier.es import get_es_client
+from courtier.es.embeddings import embed_chunks
 from courtier.storage import get_object, object_exists
 
 _BULK_BATCH = 2000
@@ -130,10 +131,13 @@ async def cmd_build(
         print(f"error: target index {target} already exists", file=sys.stderr)
         return 1
 
-    # Create the target with the host-side mapping (includes analysis settings).
-    from courtier.es.client import INDEX_MAPPING
+    # Create the target with the host-side mapping (bigram analyzer +
+    # dense_vector sized to the configured embedding dim).
+    from courtier.es.client import build_index_mapping
 
-    client.indices.create(index=target, body=INDEX_MAPPING)
+    client.indices.create(
+        index=target, body=build_index_mapping(settings.llm_embedding_dim or 1024)
+    )
 
     rows, users = await _load_rows(db)
     rebuilt, gaps, mismatch = 0, 0, 0
@@ -161,6 +165,7 @@ async def cmd_build(
             gaps += 1
             print(f"  gap: id={resource.id} title={resource.title!r} (empty extracted text)")
             continue
+        vectors = await embed_chunks(settings, chunks)
         rebuilt_chars = sum(len(c) for c in chunks)
         if len(chunks) != resource.chunk_count or rebuilt_chars != resource.char_count:
             mismatch += 1
@@ -182,6 +187,7 @@ async def cmd_build(
                 tags=[t.strip() for t in (resource.tags or "").split(",") if t.strip()],
                 publish_date=resource.publish_date,
                 index_name=target,
+                vectors=vectors,
             )
         )
         if len(batch) >= _BULK_BATCH:

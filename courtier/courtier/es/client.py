@@ -17,39 +17,57 @@ _WRITE_INDEX_TTL_SECONDS = 60.0
 _write_index_cache: str | None = None
 _write_index_cache_ts: float = 0.0
 
-INDEX_MAPPING = {
-    "mappings": {
-        "properties": {
-            "resource_id": {"type": "integer"},
-            "document_id": {"type": "integer"},
-            "doc_type": {"type": "keyword"},
-            "paragraph_index": {"type": "integer"},
-            "chunk_no": {"type": "integer"},
-            # The built-in cjk analyzer emits overlapping bigrams (vs the
-            # default standard analyzer's per-character tokens), giving
-            # word-approximate Chinese matching without an ES plugin.
-            "chunk_text": {"type": "text", "analyzer": "cjk"},
-            "title": {"type": "text", "analyzer": "cjk"},
-            "author": {"type": "keyword"},
-            "user_id": {"type": "keyword"},
-            "source_id": {"type": "integer"},
-            "tags": {"type": "keyword"},
-            "publish_date": {"type": "date"},
-            "char_count": {"type": "integer"},
-            "annotations": {
-                "type": "nested",
-                "properties": {
-                    "type": {"type": "keyword"},
-                    "severity": {"type": "keyword"},
-                    "message": {"type": "text"},
-                    "suggestion": {"type": "text"},
+
+def build_index_mapping(embedding_dim: int = 1024) -> dict:
+    """Chunks index mapping.  *embedding_dim* fixes the dense_vector
+    dimensionality for hybrid retrieval (a dim change requires reindex)."""
+    mapping: dict = {
+        "mappings": {
+            "properties": {
+                "resource_id": {"type": "integer"},
+                "document_id": {"type": "integer"},
+                "doc_type": {"type": "keyword"},
+                "paragraph_index": {"type": "integer"},
+                "chunk_no": {"type": "integer"},
+                # The built-in cjk analyzer emits overlapping bigrams (vs the
+                # default standard analyzer's per-character tokens), giving
+                # word-approximate Chinese matching without an ES plugin.
+                "chunk_text": {"type": "text", "analyzer": "cjk"},
+                "title": {"type": "text", "analyzer": "cjk"},
+                "author": {"type": "keyword"},
+                "user_id": {"type": "keyword"},
+                "source_id": {"type": "integer"},
+                "tags": {"type": "keyword"},
+                "publish_date": {"type": "date"},
+                "char_count": {"type": "integer"},
+                "annotations": {
+                    "type": "nested",
+                    "properties": {
+                        "type": {"type": "keyword"},
+                        "severity": {"type": "keyword"},
+                        "message": {"type": "text"},
+                        "suggestion": {"type": "text"},
+                    },
                 },
-            },
-            "audit_status": {"type": "keyword"},
-            "created_at": {"type": "date"},
-        }
-    },
-}
+                "audit_status": {"type": "keyword"},
+                "created_at": {"type": "date"},
+                # Chunks without a vector (embedding disabled or failed)
+                # are simply skipped by kNN; RRF then merges lexical only.
+                "chunk_vector": {
+                    "type": "dense_vector",
+                    "dims": embedding_dim,
+                    "index": True,
+                    "similarity": "cosine",
+                },
+            }
+        },
+    }
+    return mapping
+
+
+#: Default mapping (1024-dim vectors); index creation resolves the configured
+#: embedding dim at runtime via build_index_mapping.
+INDEX_MAPPING = build_index_mapping()
 
 
 def _get_settings():
@@ -131,8 +149,9 @@ def init_index() -> None:
         return
     if client.indices.exists(index=base):
         return
+    mapping = build_index_mapping(_get_settings().llm_embedding_dim or 1024)
     try:
-        client.indices.create(index=_real_index_name(1), body=INDEX_MAPPING)
+        client.indices.create(index=_real_index_name(1), body=mapping)
     except es_exc.RequestError as e:
         if e.error != "resource_already_exists_exception":
             raise

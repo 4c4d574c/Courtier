@@ -23,6 +23,7 @@ from sqlalchemy import and_, func, or_, select
 from courtier.db.db_manager import AsyncDatabase, CRUDRepository
 from courtier.db.tables.resource import ResourceCreate, ResourceTable, ResourceUpdate
 from courtier.es import bulk_index_chunks, delete_by_resource_id
+from courtier.es.embeddings import embed_chunks
 from courtier.storage import (
     get_object,
     get_presigned_url,
@@ -152,11 +153,13 @@ def build_chunk_actions(
     tags: list[str],
     publish_date: date | None,
     index_name: str,
+    vectors: list[list[float] | None] | None = None,
 ) -> list[dict]:
     """Build ES bulk actions (meta/body pairs) for one resource's chunks.
 
     Shared by the ingest pipeline and the reindex script so chunk bodies
-    never diverge between the two write paths.
+    never diverge between the two write paths.  *vectors* (aligned with
+    *chunks*) attach embeddings when available; None entries stay lexical.
     """
     now = datetime.now(timezone.utc).isoformat()
     actions: list[dict] = []
@@ -183,6 +186,8 @@ def build_chunk_actions(
             body["tags"] = tags
         if publish_date is not None:
             body["publish_date"] = publish_date.isoformat()
+        if vectors is not None and vectors[i] is not None:
+            body["chunk_vector"] = vectors[i]
         actions.append({"index": {"_index": index_name, "_id": f"{resource_id}_{i}"}})
         actions.append(body)
     return actions
@@ -262,6 +267,9 @@ async def ingest_resource(
 
     chunks = _split_chunks(text, overlap=_CHUNK_OVERLAP)
     total_chars = sum(len(c) for c in chunks)
+    # Best-effort embeddings: unconfigured/failed batches leave chunks
+    # lexical-only (None entries), never blocking ingestion.
+    vectors = await embed_chunks(settings, chunks)
 
     async with db.session() as session:
         resource = await resource_repo.create(
@@ -299,6 +307,7 @@ async def ingest_resource(
         tags=tag_list,
         publish_date=publish_date,
         index_name=settings.es_index_chunks,
+        vectors=vectors,
     )
 
     try:

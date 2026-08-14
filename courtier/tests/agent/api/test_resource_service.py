@@ -82,6 +82,25 @@ class TestBuildChunkActions:
         assert bodies[1]["paragraph_index"] == 1
         assert bodies[0]["chunk_no"] == 0
 
+    def test_vectors_attached_when_available(self):
+        actions = build_chunk_actions(
+            1,
+            ["块一", "块二"],
+            doc_type="txt",
+            title="标题",
+            author="",
+            user_id="u",
+            visibility="public",
+            owner_id=None,
+            tags=[],
+            publish_date=None,
+            index_name="idx",
+            vectors=[[0.1, 0.2], None],
+        )
+        bodies = [a for a in actions if "chunk_text" in a]
+        assert bodies[0]["chunk_vector"] == [0.1, 0.2]
+        assert "chunk_vector" not in bodies[1]  # None entry stays lexical
+
 
 class TestExtractText:
     def test_txt_file(self, tmp_path):
