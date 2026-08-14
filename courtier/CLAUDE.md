@@ -79,6 +79,15 @@ uv run pytest -m "not integration"
 # 数据库迁移
 uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "describe change"
+
+# ES chunks 索引运维（版本化索引 + alias，详见 docs/superpowers/plans/2026-08-13-search-rag-retrieval-implementation.md）
+uv run python scripts/reindex_chunks.py --check-only        # MinIO 原件覆盖检查
+uv run python scripts/reindex_chunks.py --target-version v4 # 重建到新版本索引
+uv run python scripts/reindex_chunks.py --swap-to v4        # 原子切换 alias
+uv run python scripts/reindex_chunks.py --rollback          # 回滚 alias
+
+# 检索评测（recall@k / MRR / NDCG@k）
+uv run python scripts/retrieval_eval.py
 ```
 
 ### 前端

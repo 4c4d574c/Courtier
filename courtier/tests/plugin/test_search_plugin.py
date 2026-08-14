@@ -276,6 +276,22 @@ class TestNeighborExpansion:
         assert entry["title"] == "标题"
         assert len(entry["chunk_text_preview"]) == tools._NEIGHBOR_PREVIEW_CHARS
 
+    def test_attach_neighbors_respects_window(self):
+        # Two hits far apart in one resource: entries from both windows are
+        # fetched in one query, but each hit only keeps its own +/-2 window.
+        hits = [{"resource_id": 1, "chunk_no": 0}, {"resource_id": 1, "chunk_no": 10}]
+        entries = [
+            (1, 0, {"chunk_no": 0}),
+            (1, 1, {"chunk_no": 1}),
+            (1, 2, {"chunk_no": 2}),
+            (1, 9, {"chunk_no": 9}),
+            (1, 10, {"chunk_no": 10}),
+            (1, 11, {"chunk_no": 11}),
+        ]
+        tools._attach_neighbors(hits, entries)
+        assert [n["chunk_no"] for n in hits[0]["neighbors"]] == [1, 2]
+        assert [n["chunk_no"] for n in hits[1]["neighbors"]] == [9, 11]
+
 
 class TestEmbeddingClient:
     """The plugin embedding client reads env config and talks to the

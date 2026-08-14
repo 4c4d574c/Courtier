@@ -515,6 +515,34 @@ def _clean_hits(hits_list: list[dict], include_annotations: bool = False) -> lis
     return [_clean_hit(hit, include_annotations) for hit in hits_list]
 
 
+def _attach_neighbors(hits: list[dict], entries: list[tuple[int, int, dict]]) -> None:
+    """Attach each hit's within-window neighbor chunks (in place).
+
+    *entries* come from a single neighbor query covering every hit's window,
+    so attachment must re-apply the +/-_NEIGHBOR_WINDOW bound — otherwise a
+    hit inherits neighbors fetched for other hits of the same resource.
+    """
+    for hit in hits:
+        resource_id = hit.get("resource_id")
+        chunk_no = hit.get("chunk_no")
+        if resource_id is None or chunk_no is None:
+            continue
+        seen: set[int] = set()
+        neighbors: list[dict] = []
+        for e_rid, e_cno, entry in entries:
+            if (
+                e_rid == resource_id
+                and e_cno != chunk_no
+                and abs(e_cno - chunk_no) <= _NEIGHBOR_WINDOW
+                and e_cno not in seen
+            ):
+                seen.add(e_cno)
+                neighbors.append(entry)
+        if neighbors:
+            neighbors.sort(key=lambda e: e["chunk_no"])
+            hit["neighbors"] = neighbors
+
+
 def _clean_response(raw: dict, include_annotations: bool = False) -> dict[str, Any]:
     """Clean raw ES response into LLM-friendly format."""
     hits_raw = raw.get("hits", {})
@@ -755,20 +783,7 @@ class SearchDocumentsTool:
                             limit=len(hits) * (_NEIGHBOR_WINDOW * 2 + 1) + 2,
                         )
                         entries = _clean_neighbor_hits(neighbor_raw)
-                        for hit in hits:
-                            resource_id = hit.get("resource_id")
-                            chunk_no = hit.get("chunk_no")
-                            if resource_id is None or chunk_no is None:
-                                continue
-                            seen: set[int] = set()
-                            neighbors: list[dict] = []
-                            for e_rid, e_cno, entry in entries:
-                                if e_rid == resource_id and e_cno != chunk_no and e_cno not in seen:
-                                    seen.add(e_cno)
-                                    neighbors.append(entry)
-                            if neighbors:
-                                neighbors.sort(key=lambda e: e["chunk_no"])
-                                hit["neighbors"] = neighbors
+                        _attach_neighbors(hits, entries)
                 except Exception:
                     logger.warning("neighbor expansion failed", exc_info=True)
 
