@@ -452,3 +452,62 @@ class TestRerank:
         assert result.success
         assert result.data["reranked"] is True
         assert [h["chunk_no"] for h in result.data["hits"]] == [3, 2]
+
+
+class TestResultCache:
+    def test_cache_roundtrip_and_expiry(self, monkeypatch):
+        tools._cache_clear()
+        key = tools._cache_key(
+            False,
+            query="x",
+            _owner_scope=1,
+            document_id=None,
+            doc_type=None,
+            tags=None,
+            search_fields=None,
+            skip=0,
+            limit=10,
+            include_annotations=False,
+        )
+        tools._cache_put(key, {"hits": [1]})
+        assert tools._cache_get(key) == {"hits": [1]}
+        monkeypatch.setattr(tools, "_CACHE_TTL_SECONDS", -1)
+        tools._cache_put(key, {"hits": [2]})
+        assert tools._cache_get(key) is None
+
+    def test_cache_key_distinguishes_scope_and_rerank(self):
+        k1 = tools._cache_key(False, query="x", _owner_scope=1)
+        k2 = tools._cache_key(False, query="x", _owner_scope=2)
+        k3 = tools._cache_key(True, query="x", _owner_scope=1)
+        assert len({k1, k2, k3}) == 3
+
+    @pytest.mark.asyncio
+    async def test_execute_second_call_served_from_cache(self, monkeypatch):
+        import es_client
+
+        tools._cache_clear()
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+        calls: list[int] = []
+
+        def fake_search_chunks(query_body, skip, limit):
+            calls.append(1)
+            hits = [
+                {
+                    "_id": f"{i}",
+                    "_score": 9.0 - i,
+                    "_source": {"title": f"t{i}", "chunk_text": f"c{i}"},
+                }
+                for i in range(3)
+            ]
+            return {"hits": {"total": {"value": 3}, "hits": hits}, "took": 1}
+
+        monkeypatch.setattr(es_client, "search_chunks", fake_search_chunks)
+        tool = tools.SearchDocumentsTool()
+
+        first = await tool.execute(query="查询", limit=3)
+        assert first.success and first.data.get("cached") is None
+        second = await tool.execute(query="查询", limit=3)
+        assert second.success and second.data.get("cached") is True
+        # No neighbor expansion (hits carry no resource_id/chunk_no), so the
+        # only ES round-trip is the first call's lexical search.
+        assert len(calls) == 1

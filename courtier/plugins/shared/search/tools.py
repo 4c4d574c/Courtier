@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import logging
 import re
+import threading
+import time
+from collections import OrderedDict
 from typing import Any
 
 from courtier_plugin_sdk import ToolResult
@@ -72,6 +77,58 @@ _RRF_RANK_CONSTANT = 60
 #: How many rough-ranked hits rerank mode fetches before LLM listwise
 #: reordering (then slices to the requested limit).
 _RERANK_FETCH = 50
+
+#: Process-local TTL cache for coarse search results (pre-rerank).  Rerank
+#: results are recomputed per call (LLM nondeterminism); neighbor expansion
+#: is cached only on the non-rerank path where the final hit set is stable.
+_CACHE_TTL_SECONDS = 120.0
+_CACHE_MAX_ENTRIES = 256
+_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _cache_key(rerank: bool, **kwargs: Any) -> str:
+    """Deterministic cache key over the query parameters plus owner scope."""
+    parts = [
+        str(kwargs.get("_owner_scope")),
+        str(kwargs.get("query", "")),
+        str(kwargs.get("document_id")),
+        str(kwargs.get("doc_type") or ""),
+        ",".join(str(t) for t in (kwargs.get("tags") or [])),
+        ",".join(str(f) for f in (kwargs.get("search_fields") or [])),
+        str(kwargs.get("skip", 0)),
+        str(kwargs.get("limit", 10)),
+        str(bool(kwargs.get("include_annotations", False))),
+        str(bool(rerank)),
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def _cache_get(key: str) -> dict | None:
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is None:
+            return None
+        expires, data = entry
+        if time.monotonic() > expires:
+            _cache.pop(key, None)
+            return None
+        _cache.move_to_end(key)
+        return data
+
+
+def _cache_put(key: str, data: dict) -> None:
+    with _cache_lock:
+        _cache[key] = (time.monotonic() + _CACHE_TTL_SECONDS, data)
+        _cache.move_to_end(key)
+        while len(_cache) > _CACHE_MAX_ENTRIES:
+            _cache.popitem(last=False)
+
+
+def _cache_clear() -> None:
+    with _cache_lock:
+        _cache.clear()
+
 
 _INCLUDE_FIELDS = frozenset(
     {
@@ -509,101 +566,119 @@ class SearchDocumentsTool:
         if not _has_search_signal(query):
             return ToolResult(success=False, error="查询内容过短或缺少有效字符")
 
-        # Hybrid mode: embed the query when the embedding endpoint is
-        # configured; any failure degrades to lexical-only search.
+        skip = kwargs.get("skip", 0)
+        limit = kwargs.get("limit", 10)
+        if not isinstance(skip, int) or skip < 0 or skip > _MAX_SKIP:
+            return ToolResult(
+                success=False,
+                error=f"skip 必须是 0 到 {_MAX_SKIP} 之间的整数",
+            )
+        if not isinstance(limit, int) or limit < 1 or limit > _MAX_LIMIT:
+            return ToolResult(
+                success=False,
+                error=f"limit 必须是 1 到 {_MAX_LIMIT} 之间的整数",
+            )
+        rerank = bool(kwargs.pop("rerank", False))
+
+        # TTL cache: coarse results are reusable within a short window.
+        # Rerank always recomputes (LLM nondeterminism); on a non-rerank
+        # cache hit the stored entry already includes neighbors.
+        cache_key = _cache_key(rerank=rerank, **kwargs)
+        cached = _cache_get(cache_key)
+        cleaned: dict[str, Any] | None = None
+        if cached is not None:
+            cleaned = copy.deepcopy(cached)
+            cleaned["cached"] = True
+
         query_vector: list[float] | None = None
-        try:
-            from embeddings import embed_query, embedding_config
-
-            if embedding_config() is not None:
-                query_vector = await embed_query(query)
-        except Exception:
-            logger.warning("query embedding failed; falling back to lexical", exc_info=True)
-
-        try:
-            es_body = _build_es_query(
-                query=query,
-                document_id=kwargs.get("document_id"),
-                doc_type=kwargs.get("doc_type"),
-                tags=kwargs.get("tags"),
-                search_fields=kwargs.get("search_fields"),
-                owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
-            )
-        except Exception as exc:
-            return ToolResult(success=False, error=f"查询构建失败: {exc}")
-
-        try:
-            from es_client import search_chunks
-
-            skip = kwargs.get("skip", 0)
-            limit = kwargs.get("limit", 10)
-            if not isinstance(skip, int) or skip < 0 or skip > _MAX_SKIP:
-                return ToolResult(
-                    success=False,
-                    error=f"skip 必须是 0 到 {_MAX_SKIP} 之间的整数",
-                )
-            if not isinstance(limit, int) or limit < 1 or limit > _MAX_LIMIT:
-                return ToolResult(
-                    success=False,
-                    error=f"limit 必须是 1 到 {_MAX_LIMIT} 之间的整数",
-                )
-            rerank = bool(kwargs.get("rerank", False))
-            # Rerank mode fetches a rough top-_RERANK_FETCH window and slices
-            # after reordering; otherwise fetch exactly the requested page.
-            lex_skip = 0 if rerank else skip
-            lex_limit = _RERANK_FETCH if rerank else limit
-            raw = await asyncio.to_thread(
-                search_chunks,
-                query_body=es_body,
-                skip=lex_skip,
-                limit=lex_limit,
-            )
-        except Exception as exc:
-            return ToolResult(success=False, error=str(exc))
-
-        cleaned: dict[str, Any]
-        if query_vector is not None:
-            # Hybrid: fuse the lexical result with a parallel kNN result
-            # (client-side RRF — ES rank.rrf needs a commercial license).
-            # A failing kNN arm degrades to the lexical result.
+        if cleaned is None:
+            # Hybrid mode: embed the query when the embedding endpoint is
+            # configured; any failure degrades to lexical-only search.
             try:
-                filters = _build_filters(
+                from embeddings import embed_query, embedding_config
+
+                if embedding_config() is not None:
+                    query_vector = await embed_query(query)
+            except Exception:
+                logger.warning("query embedding failed; falling back to lexical", exc_info=True)
+
+            try:
+                es_body = _build_es_query(
+                    query=query,
                     document_id=kwargs.get("document_id"),
                     doc_type=kwargs.get("doc_type"),
                     tags=kwargs.get("tags"),
+                    search_fields=kwargs.get("search_fields"),
                     owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
                 )
-                knn_body = _build_knn_query(query_vector, filters)
-                from es_client import search_chunks as _search_chunks
+            except Exception as exc:
+                return ToolResult(success=False, error=f"查询构建失败: {exc}")
 
-                raw_knn = await asyncio.to_thread(
-                    _search_chunks, query_body=knn_body, skip=0, limit=_KNN_K
+        if cleaned is None:
+            try:
+                from es_client import search_chunks
+
+                # Rerank mode fetches a rough top-_RERANK_FETCH window and
+                # slices after reordering; otherwise fetch the requested page.
+                lex_skip = 0 if rerank else skip
+                lex_limit = _RERANK_FETCH if rerank else limit
+                raw = await asyncio.to_thread(
+                    search_chunks,
+                    query_body=es_body,
+                    skip=lex_skip,
+                    limit=lex_limit,
                 )
-                fused = _rrf_fuse(
-                    raw.get("hits", {}).get("hits", []),
-                    raw_knn.get("hits", {}).get("hits", []),
-                )
-                cleaned = {
-                    "total": _extract_total(raw),
-                    "took_ms": raw.get("took", 0) + raw_knn.get("took", 0),
-                    "hits": _clean_hits(
-                        fused, include_annotations=bool(kwargs.get("include_annotations", False))
-                    ),
-                    "mode": "hybrid",
-                }
-            except Exception:
-                logger.warning("kNN arm failed; falling back to lexical", exc_info=True)
+            except Exception as exc:
+                return ToolResult(success=False, error=str(exc))
+
+            if query_vector is not None:
+                # Hybrid: fuse the lexical result with a parallel kNN result
+                # (client-side RRF — ES rank.rrf needs a commercial license).
+                # A failing kNN arm degrades to the lexical result.
+                try:
+                    filters = _build_filters(
+                        document_id=kwargs.get("document_id"),
+                        doc_type=kwargs.get("doc_type"),
+                        tags=kwargs.get("tags"),
+                        owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
+                    )
+                    knn_body = _build_knn_query(query_vector, filters)
+                    from es_client import search_chunks as _search_chunks
+
+                    raw_knn = await asyncio.to_thread(
+                        _search_chunks, query_body=knn_body, skip=0, limit=_KNN_K
+                    )
+                    fused = _rrf_fuse(
+                        raw.get("hits", {}).get("hits", []),
+                        raw_knn.get("hits", {}).get("hits", []),
+                    )
+                    cleaned = {
+                        "total": _extract_total(raw),
+                        "took_ms": raw.get("took", 0) + raw_knn.get("took", 0),
+                        "hits": _clean_hits(
+                            fused,
+                            include_annotations=bool(kwargs.get("include_annotations", False)),
+                        ),
+                        "mode": "hybrid",
+                    }
+                except Exception:
+                    logger.warning("kNN arm failed; falling back to lexical", exc_info=True)
+                    cleaned = _clean_response(
+                        raw,
+                        include_annotations=bool(kwargs.get("include_annotations", False)),
+                    )
+                    cleaned["mode"] = "lexical"
+            else:
                 cleaned = _clean_response(
                     raw,
                     include_annotations=bool(kwargs.get("include_annotations", False)),
                 )
                 cleaned["mode"] = "lexical"
-        else:
-            cleaned = _clean_response(
-                raw,
-                include_annotations=bool(kwargs.get("include_annotations", False)),
-            )
-            cleaned["mode"] = "lexical"
+
+            # Coarse result (pre-rerank, pre-neighbors) is what the cache
+            # stores for rerank calls.
+            if rerank:
+                _cache_put(cache_key, copy.deepcopy(cleaned))
 
         # Optional LLM listwise rerank: reorder the rough top-N, then slice.
         # Failures keep the original order — reranking is best-effort.
@@ -622,38 +697,45 @@ class SearchDocumentsTool:
 
         # Neighbor context expansion: attach chunks adjacent to each hit so
         # provisions spanning chunk boundaries come back as a unit.  Best
-        # effort — failures degrade to hits without neighbors.
-        hits = cleaned.get("hits") or []
-        if hits:
-            try:
-                from es_client import search_chunks
+        # effort — failures degrade to hits without neighbors.  Skipped on
+        # non-rerank cache hits (the stored entry already has them).
+        from_cache = cached is not None
+        if rerank or not from_cache:
+            hits = cleaned.get("hits") or []
+            if hits:
+                try:
+                    from es_client import search_chunks
 
-                owner_scope = kwargs.get("_owner_scope", _QUERY_UNSET)
-                neighbor_query = _build_neighbor_query(hits, owner_scope)
-                if neighbor_query:
-                    neighbor_raw = await asyncio.to_thread(
-                        search_chunks,
-                        query_body=neighbor_query,
-                        skip=0,
-                        limit=len(hits) * (_NEIGHBOR_WINDOW * 2 + 1) + 2,
-                    )
-                    entries = _clean_neighbor_hits(neighbor_raw)
-                    for hit in hits:
-                        resource_id = hit.get("resource_id")
-                        chunk_no = hit.get("chunk_no")
-                        if resource_id is None or chunk_no is None:
-                            continue
-                        seen: set[int] = set()
-                        neighbors: list[dict] = []
-                        for e_rid, e_cno, entry in entries:
-                            if e_rid == resource_id and e_cno != chunk_no and e_cno not in seen:
-                                seen.add(e_cno)
-                                neighbors.append(entry)
-                        if neighbors:
-                            neighbors.sort(key=lambda e: e["chunk_no"])
-                            hit["neighbors"] = neighbors
-            except Exception:
-                logger.warning("neighbor expansion failed", exc_info=True)
+                    owner_scope = kwargs.get("_owner_scope", _QUERY_UNSET)
+                    neighbor_query = _build_neighbor_query(hits, owner_scope)
+                    if neighbor_query:
+                        neighbor_raw = await asyncio.to_thread(
+                            search_chunks,
+                            query_body=neighbor_query,
+                            skip=0,
+                            limit=len(hits) * (_NEIGHBOR_WINDOW * 2 + 1) + 2,
+                        )
+                        entries = _clean_neighbor_hits(neighbor_raw)
+                        for hit in hits:
+                            resource_id = hit.get("resource_id")
+                            chunk_no = hit.get("chunk_no")
+                            if resource_id is None or chunk_no is None:
+                                continue
+                            seen: set[int] = set()
+                            neighbors: list[dict] = []
+                            for e_rid, e_cno, entry in entries:
+                                if e_rid == resource_id and e_cno != chunk_no and e_cno not in seen:
+                                    seen.add(e_cno)
+                                    neighbors.append(entry)
+                            if neighbors:
+                                neighbors.sort(key=lambda e: e["chunk_no"])
+                                hit["neighbors"] = neighbors
+                except Exception:
+                    logger.warning("neighbor expansion failed", exc_info=True)
+
+        # Cache the final result (with neighbors) on the non-rerank path.
+        if not rerank and not from_cache:
+            _cache_put(cache_key, copy.deepcopy(cleaned))
 
         return ToolResult(success=True, data=cleaned)
 
