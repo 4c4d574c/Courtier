@@ -137,6 +137,57 @@ class TestBuildEsQuerySemantics:
         body = tools._build_es_query("通知")
         assert _multi_match(body)["fuzziness"] == "AUTO"
 
+
+class TestHybridQuery:
+    _VECTOR = [0.1, 0.2, 0.3]
+
+    def test_build_knn_query_carries_filters(self):
+        filters = [{"term": {"doc_type": "通知"}}, {"bool": {"should": [], "minimum_should_match": 1}}]
+        body = tools._build_knn_query(self._VECTOR, filters)
+        assert body == {
+            "knn": {
+                "field": "chunk_vector",
+                "query_vector": self._VECTOR,
+                "k": 50,
+                "num_candidates": 200,
+                "filter": filters,
+            }
+        }
+
+    def test_build_knn_query_without_filters(self):
+        body = tools._build_knn_query(self._VECTOR, [])
+        assert "filter" not in body["knn"]
+
+    def test_lexical_query_has_no_knn_or_rank(self):
+        body = tools._build_es_query("通知")
+        assert "knn" not in body
+        assert "rank" not in body
+
+    def test_rrf_fuse_ranks_shared_hit_first(self):
+        lex = [
+            {"_id": "a", "_score": 10.0, "_source": {"resource_id": 1, "chunk_no": 0}},
+            {"_id": "b", "_score": 9.0, "_source": {"resource_id": 1, "chunk_no": 1}},
+        ]
+        knn = [
+            {"_id": "b", "_score": 0.9, "_source": {"resource_id": 1, "chunk_no": 1}},
+            {"_id": "c", "_score": 0.8, "_source": {"resource_id": 2, "chunk_no": 0}},
+        ]
+        fused = tools._rrf_fuse(lex, knn)
+        # b appears in both lists (ranks 2 and 1), so it fuses to the top.
+        assert [h["_id"] for h in fused] == ["b", "a", "c"]
+
+    def test_rrf_fuse_lexical_hit_wins_collision(self):
+        lex_hit = {
+            "_id": "a",
+            "_score": 9.9,
+            "highlight": {"chunk_text": ["<em>x</em>"]},
+            "_source": {"chunk_text": "x"},
+        }
+        knn_hit = {"_id": "a", "_score": 0.8, "_source": {"chunk_text": "x"}}
+        fused = tools._rrf_fuse([lex_hit], [knn_hit])
+        assert fused[0] is lex_hit  # lexical dict wins (keeps highlight)
+        assert fused[0]["_rrf"] == 2 / (60 + 1)
+
     def test_synonym_expansion_adds_phrase_boosters(self):
         body = tools._build_es_query("安监局的通知")
         should = body["query"]["bool"]["should"]

@@ -158,25 +158,9 @@
 **Files:** `plugins/shared/search/tools.py`
 
 - [ ] **Step 1:** `_build_es_query` 增加可选 `query_vector` 参数；`execute` 在构建前调用 `embeddings.embed([query])`，失败/未配置则 `query_vector=None`（纯词法路径）。
-- [ ] **Step 2:** query_vector 存在时组装 hybrid body：
+- [ ] **Step 2:** query_vector 存在时组装 hybrid：**客户端 RRF 融合**（实施时修正：本地 ES 为 basic license，`rank.rrf` 报 `non-compliant for [Reciprocal Rank Fusion (RRF)]`，故改为词法查询 + 独立 kNN 查询（同 filter）在插件内做 reciprocal rank fusion）；kNN 臂失败自动降级纯词法。
 
-```json
-{
-  "query": {"bool": {"must": [...词法...], "filter": [...可见性/元数据...]}},
-  "knn": {
-    "field": "chunk_vector",
-    "query_vector": [0.01, ...],
-    "k": 50,
-    "num_candidates": 200,
-    "filter": [...与 query.filter 相同的可见性 filter...]
-  },
-  "rank": {"rrf": {"window_size": 50, "rank_constant": 60}},
-  "sort": [...tie-break...],
-  "highlight": {...}
-}
-```
-
-- [ ] **Step 3:** `_clean_response` 透出融合后 `_score`（RRF 分数）与 `matched_by`（`bm25`/`vector`/`both`，由 `_explanation` 或命中字段推导，简化起见按 `_score` 与双路返回集合近似标注）；kNN filter 必须与词法 filter 同 scope（权限正确性关键点，测试覆盖）。
+- [ ] **Step 3:** 响应透出融合后 `_score`（RRF 分数）与结果级 `mode` 字段（`hybrid`/`lexical`，实施时修正：逐命中 `matched_by` 近似标注信息量低，改为结果级模式标注）；kNN filter 必须与词法 filter 同 scope（权限正确性关键点，测试覆盖）。
 
 ### Task 2.5: LLM listwise 重排
 

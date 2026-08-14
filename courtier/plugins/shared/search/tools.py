@@ -61,6 +61,13 @@ _SYNONYM_BOOST = 1.5
 _NEIGHBOR_WINDOW = 2
 _NEIGHBOR_PREVIEW_CHARS = 300
 
+#: Hybrid retrieval knobs.  ES `rank.rrf` needs a commercial license, so
+#: fusion is done client-side: run the lexical query and a kNN query, then
+#: merge with reciprocal rank fusion in-process.
+_KNN_K = 50
+_KNN_NUM_CANDIDATES = 200
+_RRF_RANK_CONSTANT = 60
+
 _INCLUDE_FIELDS = frozenset(
     {
         "document_id",
@@ -126,6 +133,24 @@ def _owner_scope_filter(owner_scope: Any) -> list[dict]:
     return [{"bool": {"should": should_scope, "minimum_should_match": 1}}]
 
 
+def _build_filters(
+    document_id: int | None,
+    doc_type: str | None,
+    tags: list[str] | None,
+    owner_scope: Any,
+) -> list[dict]:
+    """Exact filter clauses shared by the lexical and kNN arms."""
+    clauses: list[dict] = []
+    if document_id is not None:
+        clauses.append({"term": {"document_id": document_id}})
+    if doc_type is not None:
+        clauses.append({"term": {"doc_type": doc_type}})
+    if tags:
+        clauses.append({"terms": {"tags": tags}})
+    clauses.extend(_owner_scope_filter(owner_scope))
+    return clauses
+
+
 def _build_es_query(
     query: str,
     document_id: int | None = None,
@@ -134,7 +159,7 @@ def _build_es_query(
     search_fields: list[str] | None = None,
     owner_scope: Any = _QUERY_UNSET,
 ) -> dict[str, Any]:
-    """Build ES query body from simplified parameters.
+    """Build the lexical ES query body from simplified parameters.
 
     *owner_scope* is host-injected (never model-supplied): an int restricts
     results to public chunks + the caller's own personal chunks; ``None``
@@ -212,14 +237,7 @@ def _build_es_query(
     if should:
         query_dict["bool"]["should"] = should
 
-    filter_clauses: list[dict] = []
-    if document_id is not None:
-        filter_clauses.append({"term": {"document_id": document_id}})
-    if doc_type is not None:
-        filter_clauses.append({"term": {"doc_type": doc_type}})
-    if tags:
-        filter_clauses.append({"terms": {"tags": tags}})
-    filter_clauses.extend(_owner_scope_filter(owner_scope))
+    filter_clauses = _build_filters(document_id, doc_type, tags, owner_scope)
     if filter_clauses:
         query_dict["bool"]["filter"] = filter_clauses
 
@@ -242,6 +260,56 @@ def _build_es_query(
         body["highlight"] = {"fields": hl_fields}
 
     return body
+
+
+def _build_knn_query(query_vector: list[float], filter_clauses: list[dict]) -> dict:
+    """kNN arm of hybrid retrieval.  Must carry the same filters as the
+    lexical arm, otherwise fusion could surface documents the lexical
+    filters excluded (visibility leak)."""
+    knn: dict[str, Any] = {
+        "field": "chunk_vector",
+        "query_vector": query_vector,
+        "k": _KNN_K,
+        "num_candidates": _KNN_NUM_CANDIDATES,
+    }
+    if filter_clauses:
+        knn["filter"] = filter_clauses
+    return {"knn": knn}
+
+
+def _fusion_sort_key(hit: dict) -> tuple:
+    """Ordering key for fused hits under reverse=True: RRF score desc,
+    publish_date desc, then resource_id/chunk_no asc (tie-breaks)."""
+    source = hit.get("_source", {}) or {}
+    publish_date = source.get("publish_date") or ""
+    return (
+        hit.get("_rrf", 0.0),
+        publish_date,
+        -(source.get("resource_id", 0) or 0),
+        -(source.get("chunk_no", 0) or 0),
+    )
+
+
+def _rrf_fuse(lexical_hits: list[dict], knn_hits: list[dict]) -> list[dict]:
+    """Client-side reciprocal rank fusion of two hit lists.
+
+    ES `rank.rrf` requires a commercial license, so fusion happens here:
+    each hit scores sum(1 / (rank_constant + rank)) over the lists it
+    appears in.  The lexical hit dict wins on collision (it carries the
+    highlight snippets); the fused score lands in ``_rrf``.
+    """
+    merged: dict[str, dict] = {}
+    scores: dict[str, float] = {}
+    for hits in (lexical_hits, knn_hits):
+        for rank, hit in enumerate(hits, start=1):
+            hit_id = hit.get("_id")
+            if hit_id is None:
+                continue
+            merged.setdefault(hit_id, hit)
+            scores[hit_id] = scores.get(hit_id, 0.0) + 1.0 / (_RRF_RANK_CONSTANT + rank)
+    for hit_id, hit in merged.items():
+        hit["_rrf"] = scores[hit_id]
+    return sorted(merged.values(), key=_fusion_sort_key, reverse=True)
 
 
 def _build_neighbor_query(hits: list[dict], owner_scope: Any) -> dict:
@@ -307,47 +375,57 @@ def _clean_neighbor_hits(raw: dict) -> list[tuple[int, int, dict]]:
     return entries
 
 
+def _extract_total(raw: dict) -> int:
+    total = raw.get("hits", {}).get("total", {})
+    if isinstance(total, dict):
+        return int(total.get("value", 0) or 0)
+    return int(total or 0)
+
+
+def _clean_hit(hit: dict, include_annotations: bool = False) -> dict:
+    """Convert one raw ES hit into the LLM-friendly hit shape."""
+    source = hit.get("_source", {})
+    entry: dict[str, Any] = {}
+
+    for field in _INCLUDE_FIELDS:
+        if field in source:
+            entry[field] = source[field]
+
+    # Fused hits carry _rrf (client-side RRF); raw hits carry _score.
+    score = hit.get("_rrf")
+    if score is None:
+        score = hit.get("_score")
+    if score is not None:
+        entry["_score"] = round(score, 4) if isinstance(score, float) else score
+
+    if include_annotations and "annotations" in source:
+        entry["annotations"] = source["annotations"]
+
+    highlight = hit.get("highlight", {})
+    snippets: list[str] = []
+    for field_snippets in highlight.values():
+        if isinstance(field_snippets, list):
+            snippets.extend(field_snippets)
+    if snippets:
+        entry["highlight"] = snippets
+    else:
+        ct = source.get("chunk_text", "")
+        if ct:
+            entry["chunk_text_preview"] = ct[:_FALLBACK_PREVIEW_CHARS]
+    return entry
+
+
+def _clean_hits(hits_list: list[dict], include_annotations: bool = False) -> list[dict]:
+    return [_clean_hit(hit, include_annotations) for hit in hits_list]
+
+
 def _clean_response(raw: dict, include_annotations: bool = False) -> dict[str, Any]:
     """Clean raw ES response into LLM-friendly format."""
     hits_raw = raw.get("hits", {})
-    hits_list = hits_raw.get("hits", [])
-    total = hits_raw.get("total", {})
-    total_value = total.get("value", 0) if isinstance(total, dict) else total
-
-    cleaned_hits: list[dict] = []
-    for hit in hits_list:
-        source = hit.get("_source", {})
-        entry: dict[str, Any] = {}
-
-        for field in _INCLUDE_FIELDS:
-            if field in source:
-                entry[field] = source[field]
-
-        score = hit.get("_score")
-        if score is not None:
-            entry["_score"] = round(score, 4) if isinstance(score, float) else score
-
-        if include_annotations and "annotations" in source:
-            entry["annotations"] = source["annotations"]
-
-        highlight = hit.get("highlight", {})
-        snippets: list[str] = []
-        for field_snippets in highlight.values():
-            if isinstance(field_snippets, list):
-                snippets.extend(field_snippets)
-        if snippets:
-            entry["highlight"] = snippets
-        else:
-            ct = source.get("chunk_text", "")
-            if ct:
-                entry["chunk_text_preview"] = ct[:_FALLBACK_PREVIEW_CHARS]
-
-        cleaned_hits.append(entry)
-
     return {
-        "total": total_value,
+        "total": _extract_total(raw),
         "took_ms": raw.get("took", 0),
-        "hits": cleaned_hits,
+        "hits": _clean_hits(hits_raw.get("hits", []), include_annotations),
     }
 
 
@@ -419,6 +497,17 @@ class SearchDocumentsTool:
         if not _has_search_signal(query):
             return ToolResult(success=False, error="查询内容过短或缺少有效字符")
 
+        # Hybrid mode: embed the query when the embedding endpoint is
+        # configured; any failure degrades to lexical-only search.
+        query_vector: list[float] | None = None
+        try:
+            from embeddings import embed_query, embedding_config
+
+            if embedding_config() is not None:
+                query_vector = await embed_query(query)
+        except Exception:
+            logger.warning("query embedding failed; falling back to lexical", exc_info=True)
+
         try:
             es_body = _build_es_query(
                 query=query,
@@ -455,13 +544,49 @@ class SearchDocumentsTool:
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
 
-        try:
+        cleaned: dict[str, Any]
+        if query_vector is not None:
+            # Hybrid: fuse the lexical result with a parallel kNN result
+            # (client-side RRF — ES rank.rrf needs a commercial license).
+            # A failing kNN arm degrades to the lexical result.
+            try:
+                filters = _build_filters(
+                    document_id=kwargs.get("document_id"),
+                    doc_type=kwargs.get("doc_type"),
+                    tags=kwargs.get("tags"),
+                    owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
+                )
+                knn_body = _build_knn_query(query_vector, filters)
+                from es_client import search_chunks as _search_chunks
+
+                raw_knn = await asyncio.to_thread(
+                    _search_chunks, query_body=knn_body, skip=0, limit=_KNN_K
+                )
+                fused = _rrf_fuse(
+                    raw.get("hits", {}).get("hits", []),
+                    raw_knn.get("hits", {}).get("hits", []),
+                )[skip : skip + limit]
+                cleaned = {
+                    "total": _extract_total(raw),
+                    "took_ms": raw.get("took", 0) + raw_knn.get("took", 0),
+                    "hits": _clean_hits(
+                        fused, include_annotations=bool(kwargs.get("include_annotations", False))
+                    ),
+                    "mode": "hybrid",
+                }
+            except Exception:
+                logger.warning("kNN arm failed; falling back to lexical", exc_info=True)
+                cleaned = _clean_response(
+                    raw,
+                    include_annotations=bool(kwargs.get("include_annotations", False)),
+                )
+                cleaned["mode"] = "lexical"
+        else:
             cleaned = _clean_response(
                 raw,
                 include_annotations=bool(kwargs.get("include_annotations", False)),
             )
-        except Exception as exc:
-            return ToolResult(success=False, error=f"结果处理失败: {exc}")
+            cleaned["mode"] = "lexical"
 
         # Neighbor context expansion: attach chunks adjacent to each hit so
         # provisions spanning chunk boundaries come back as a unit.  Best
