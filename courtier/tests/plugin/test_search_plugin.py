@@ -78,7 +78,7 @@ def _multi_match(body: dict) -> dict:
 
 class TestBuildEsQuerySemantics:
     def test_free_text_requires_and_operator(self):
-        body = tools._build_es_query("安全生产主体责任")
+        body = tools._build_es_query("安全生产")
         mm = _multi_match(body)
         assert mm["operator"] == "and"
         assert "minimum_should_match" not in mm
@@ -90,7 +90,7 @@ class TestBuildEsQuerySemantics:
         assert "operator" not in mm
 
     def test_long_unspaced_query_uses_minimum_should_match(self):
-        body = tools._build_es_query("各单位应当落实安全生产主体责任并定期组织应急演练")
+        body = tools._build_es_query("露天煤矿边坡稳定性")
         mm = _multi_match(body)
         assert mm["minimum_should_match"] == "70%"
         assert "operator" not in mm

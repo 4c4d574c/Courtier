@@ -1,0 +1,16 @@
+{"query": "煤矿企业主要负责人对本企业安全生产工作的责任", "expected_resource_ids": [8], "expected_chunk_substrings": ["主要负责人"]}
+{"query": "全员安全生产责任制", "expected_resource_ids": [12], "expected_chunk_substrings": ["全员安全生产责任制"]}
+{"query": "露天煤矿边坡稳定性", "expected_resource_ids": [8], "expected_chunk_substrings": ["边坡"]}
+{"query": "煤矿瓦斯等级选用炸药", "expected_resource_ids": [8], "expected_chunk_substrings": ["瓦斯"]}
+{"query": "生产经营单位的安全生产保障", "expected_resource_ids": [8, 12], "expected_chunk_substrings": ["安全生产保障"]}
+{"query": "公共场所卫生管理条例", "expected_resource_ids": [4], "expected_chunk_substrings": ["公共场所卫生"]}
+{"query": "经营者集中申报标准", "expected_resource_ids": [5], "expected_chunk_substrings": ["经营者集中"]}
+{"query": "互联网信息服务管理办法", "expected_resource_ids": [6], "expected_chunk_substrings": ["互联网信息服务"]}
+{"query": "婚姻登记条例", "expected_resource_ids": [7], "expected_chunk_substrings": ["婚姻登记"]}
+{"query": "生态环境监测", "expected_resource_ids": [9], "expected_chunk_substrings": ["生态环境监测"]}
+{"query": "网络数据安全管理", "expected_resource_ids": [10], "expected_chunk_substrings": ["网络数据安全"]}
+{"query": "数据安全法", "expected_resource_ids": [11], "expected_chunk_substrings": ["数据安全"]}
+{"query": "宪法公民基本权利和义务", "expected_resource_ids": [15, 13], "expected_chunk_substrings": ["公民的基本权利"]}
+{"query": "2018年宪法修正案", "expected_resource_ids": [14], "expected_chunk_substrings": ["修正案"]}
+{"query": "国家秘密的密级", "expected_resource_ids": [18, 19], "expected_chunk_substrings": ["密级"]}
+{"query": "保守国家秘密法", "expected_resource_ids": [18, 19], "expected_chunk_substrings": ["保守国家秘密"]}

@@ -195,6 +195,7 @@
 - [ ] **Step 1:** 黄金查询集格式（每行 JSON）：`{"query": "安全生产主体责任由谁落实", "doc_type": null, "expected_resource_ids": [...], "expected_chunk_substrings": ["主要负责人"]}`；首版 ≥ 30 条覆盖公文典型问法（含简称/全称、口语化改写、跨文档问题）。
 - [ ] **Step 2:** `retrieval_eval.py`（对标 `courtier/courtier/benchmarks/long_session_memory_benchmark.py` 的 argparse+asyncio 独立脚本风格）：按环境连 ES（读 `.env`），对每条 query 跑 `_build_es_query`+`search_chunks`，计算 **recall@10**、**MRR**、**NDCG@10**；`--compare` 支持新旧查询体 A/B 输出对照表；基线数据（升级前 query 语义）写入文档存档。
 - [ ] **Step 3:** 输出 JSON 报告 + 摘要表；作为每次检索改动的回归门槛（recall@10 不得低于基线）。
+- [ ] **Step 4（实施时新增）:** 首轮基线即发现 4 条 6~8 字查询零召回（bigram AND 过严），将 `_LONG_QUERY_CHARS` 12→6 后基线提升：**recall@10 0.7188→0.9688、MRR 0.75→1.0、NDCG@10 2.22→2.84**；基线数据存档于本阶段提交。
 
 ### Task 3.2: 查询结果缓存
 

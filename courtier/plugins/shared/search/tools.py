@@ -33,9 +33,10 @@ _FREE_PHRASE_SLOP = 2
 #: Queries with >= this many space-separated words use minimum_should_match
 #: instead of operator AND to avoid over-constraining long queries.
 _MULTI_WORD_THRESHOLD = 4
-#: Same fallback for long unspaced Chinese queries: a 20-char string yields
-#: ~19 bigrams, and requiring ALL of them kills recall on any paraphrase.
-_LONG_QUERY_CHARS = 12
+#: Same fallback for long unspaced Chinese queries: an 8-char string yields
+#: ~7 bigrams, and requiring ALL of them kills recall on any paraphrase
+#: (measured: 4 golden queries at 6-8 chars returned zero hits at AND).
+_LONG_QUERY_CHARS = 6
 _MIN_SHOULD_MATCH_MULTI_WORD = "70%"
 
 #: Query-side synonym expansion for official-document terminology.  ES
