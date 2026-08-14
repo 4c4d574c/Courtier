@@ -25,8 +25,11 @@ INDEX_MAPPING = {
             "doc_type": {"type": "keyword"},
             "paragraph_index": {"type": "integer"},
             "chunk_no": {"type": "integer"},
-            "chunk_text": {"type": "text"},
-            "title": {"type": "text"},
+            # The built-in cjk analyzer emits overlapping bigrams (vs the
+            # default standard analyzer's per-character tokens), giving
+            # word-approximate Chinese matching without an ES plugin.
+            "chunk_text": {"type": "text", "analyzer": "cjk"},
+            "title": {"type": "text", "analyzer": "cjk"},
             "author": {"type": "keyword"},
             "user_id": {"type": "keyword"},
             "source_id": {"type": "integer"},
@@ -40,7 +43,7 @@ INDEX_MAPPING = {
                     "severity": {"type": "keyword"},
                     "message": {"type": "text"},
                     "suggestion": {"type": "text"},
-                }
+                },
             },
             "audit_status": {"type": "keyword"},
             "created_at": {"type": "date"},

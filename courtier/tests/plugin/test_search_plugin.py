@@ -89,6 +89,12 @@ class TestBuildEsQuerySemantics:
         assert mm["minimum_should_match"] == "70%"
         assert "operator" not in mm
 
+    def test_long_unspaced_query_uses_minimum_should_match(self):
+        body = tools._build_es_query("各单位应当落实安全生产主体责任并定期组织应急演练")
+        mm = _multi_match(body)
+        assert mm["minimum_should_match"] == "70%"
+        assert "operator" not in mm
+
     def test_free_text_adds_phrase_booster(self):
         body = tools._build_es_query("安全生产主体责任")
         (booster,) = body["query"]["bool"]["should"]
@@ -130,3 +136,18 @@ class TestBuildEsQuerySemantics:
     def test_short_query_keeps_fuzziness(self):
         body = tools._build_es_query("通知")
         assert _multi_match(body)["fuzziness"] == "AUTO"
+
+    def test_synonym_expansion_adds_phrase_boosters(self):
+        body = tools._build_es_query("安监局的通知")
+        should = body["query"]["bool"]["should"]
+        expanded = [c["match_phrase"]["chunk_text"]["query"] for c in should]
+        assert "安全生产监督管理局" in expanded
+        # The original free text keeps its own (stronger) phrase booster.
+        assert {"query": "安监局的通知", "slop": 2, "boost": 2.0} in [
+            c["match_phrase"]["chunk_text"] for c in should
+        ]
+
+    def test_synonym_expansion_does_not_alter_must(self):
+        body = tools._build_es_query("安监局的通知")
+        mm = _multi_match(body)
+        assert mm["query"] == "安监局的通知"

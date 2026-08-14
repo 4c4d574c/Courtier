@@ -33,7 +33,27 @@ _FREE_PHRASE_SLOP = 2
 #: Queries with >= this many space-separated words use minimum_should_match
 #: instead of operator AND to avoid over-constraining long queries.
 _MULTI_WORD_THRESHOLD = 4
+#: Same fallback for long unspaced Chinese queries: a 20-char string yields
+#: ~19 bigrams, and requiring ALL of them kills recall on any paraphrase.
+_LONG_QUERY_CHARS = 12
 _MIN_SHOULD_MATCH_MULTI_WORD = "70%"
+
+#: Query-side synonym expansion for official-document terminology.  ES
+#: token-level synonym filters cannot match multi-char Chinese synonyms under
+#: bigram tokenization, so equivalents are expanded client-side into optional
+#: (should) phrase boosters — they widen recall without over-constraining.
+SYNONYM_MAP: dict[str, tuple[str, ...]] = {
+    "安监局": ("安监局", "安全生产监督管理局"),
+    "安全生产监督管理局": ("安全生产监督管理局", "安监局"),
+    "通知": ("通知", "印发", "转发"),
+    "印发": ("印发", "通知", "转发"),
+    "转发": ("转发", "通知", "印发"),
+    "办法": ("办法", "规定"),
+    "规定": ("规定", "办法"),
+    "批复": ("批复", "复函"),
+    "复函": ("复函", "批复"),
+}
+_SYNONYM_BOOST = 1.5
 
 _INCLUDE_FIELDS = frozenset(
     {
@@ -130,7 +150,7 @@ def _build_es_query(
         # Require (nearly) all keywords instead of OR semantics: with
         # per-character/bigram tokenization, OR makes multi-word queries
         # match the whole corpus.
-        if len(stripped.split()) >= _MULTI_WORD_THRESHOLD:
+        if len(stripped.split()) >= _MULTI_WORD_THRESHOLD or len(stripped) > _LONG_QUERY_CHARS:
             mm["minimum_should_match"] = _MIN_SHOULD_MATCH_MULTI_WORD
         else:
             mm["operator"] = "and"
@@ -148,6 +168,24 @@ def _build_es_query(
                 }
             }
         )
+        # Synonym equivalents as additional optional phrase boosters.
+        seen: set[str] = set()
+        for term, equivalents in SYNONYM_MAP.items():
+            if term in stripped:
+                for equivalent in equivalents:
+                    if equivalent != stripped and equivalent not in seen:
+                        seen.add(equivalent)
+                        should.append(
+                            {
+                                "match_phrase": {
+                                    phrase_fields[0]: {
+                                        "query": equivalent,
+                                        "slop": _FREE_PHRASE_SLOP,
+                                        "boost": _SYNONYM_BOOST,
+                                    }
+                                }
+                            }
+                        )
 
     query_dict: dict[str, Any] = {"bool": {}}
     if must:

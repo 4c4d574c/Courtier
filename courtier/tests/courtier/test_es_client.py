@@ -87,3 +87,11 @@ def test_rewrite_bulk_indices_handles_all_meta_keys():
     # Body dicts are left untouched.
     assert actions[1] == {"chunk_text": "a"}
     assert actions[3] == {"chunk_text": "b"}
+
+
+def test_mapping_uses_bigram_analyzer_on_text_fields():
+    mapping = es_client.INDEX_MAPPING
+    assert mapping["mappings"]["properties"]["chunk_text"]["analyzer"] == "cjk"
+    assert mapping["mappings"]["properties"]["title"]["analyzer"] == "cjk"
+    # Keyword fields keep their types.
+    assert mapping["mappings"]["properties"]["doc_type"] == {"type": "keyword"}

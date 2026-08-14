@@ -100,11 +100,9 @@
 
 **Files:** `courtier/es/client.py`（mapping），经 Task 0.2 生效
 
-- [ ] **Step 1:** `INDEX_MAPPING["settings"]["analysis"]` 定义：
-  - `analyzer: courtier_zh` = `tokenizer: cjk` + `filter: [cjk_width, lowercase, length(2-16)]`；
-  - `analyzer: courtier_zh_syn` = 同上 + `filter` 末尾追加 `courtier_synonyms`（仅作 `search_analyzer`，同义词变更不触发 reindex）；
-  - `filter: courtier_synonyms` = `type: synonym` + 首版公文词表（每行一条，方向对 `=>` 或逗号等价组）：`安监局 => 安全生产监督管理局`、`安全生产监督管理局 => 安监局`、`通知, 印发, 转发`、`办法, 规定`、`批复, 复函`。词表随库内常量维护（`courtier/es/synonyms.py` 或 `client.py` 常量），首版保守，避免过度展开。
-- [ ] **Step 2:** `chunk_text`/`title` 声明 `analyzer: courtier_zh`、`search_analyzer: courtier_zh_syn`。
+- [ ] **Step 1:** `chunk_text`/`title` 改用内置 **`cjk` analyzer**（实施时修正：ES 8.19 无独立 `cjk` tokenizer、`cjk_bigram` filter 对 standard 单字 token 不生效，故不自定义 analyzer，直接 `{"type": "text", "analyzer": "cjk"}`；实测产出重叠 bigram）。
+  - **同义词改为查询端展开**（实施时修正：bigram 分词下 ES token 级 synonym filter 无法匹配多字中文同义词）：`plugins/shared/search/tools.py` 的 `SYNONYM_MAP` 把命中词的同义等价词（安监局↔安全生产监督管理局、通知/印发/转发、办法/规定、批复/复函 等）作为 `should` 短语加权子句加入查询——扩大召回但不强制命中；词表维护零 reindex/零索引 close。
+- [ ] **Step 2:** 索引与查询同构（同一 analyzer），无需 search_analyzer。
 - [ ] **Step 3:** 查询端无需改 analyzer 引用（match/multi_match 自动用字段 search_analyzer）；确认 `match_phrase` 在 bigram 上语义为"有序相邻 bigram 序列"（子串匹配），`slop` 单位变为 bigram 步数，Task 1.1 的 slop 取值在 reindex 后需回归验证（slop 2 的意图 = 允许 2 词位移）。
 - [ ] **Step 4:** 同步按 Task 0.2 runbook 重建索引；`standard`→bigram 后索引体积约增 50-100%（中文文本字段），132 块量级无感，生产量级在 runbook 中评估。
 
