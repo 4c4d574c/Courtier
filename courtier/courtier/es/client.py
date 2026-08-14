@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 
 from elasticsearch import Elasticsearch
 from elasticsearch import exceptions as es_exc
@@ -8,6 +9,13 @@ logger = logging.getLogger(__name__)
 
 _es_client: Elasticsearch | None = None
 _es_lock = threading.Lock()
+
+#: Seconds a resolved write-index name stays cached before re-resolving.
+#: Index swaps (reindex script) are visible to running processes after at
+#: most this delay.
+_WRITE_INDEX_TTL_SECONDS = 60.0
+_write_index_cache: str | None = None
+_write_index_cache_ts: float = 0.0
 
 INDEX_MAPPING = {
     "mappings": {
@@ -63,20 +71,86 @@ def get_es_client() -> Elasticsearch:
     return _es_client
 
 
-def init_index() -> None:
-    """初始化 ES 索引（如果不存在则创建）。"""
+def _real_index_name(version: int) -> str:
+    """Versioned physical index backing the alias, e.g. ``courtier_chunks_v2``."""
+    return f"{_es_index_name()}_v{version}"
+
+
+def _invalidate_write_index_cache() -> None:
+    global _write_index_cache, _write_index_cache_ts
+    _write_index_cache = None
+    _write_index_cache_ts = 0.0
+
+
+def resolve_write_index() -> str:
+    """Resolve the physical index that writes must target.
+
+    ``settings.es_index_chunks`` names the alias.  When the alias exists,
+    its single backing index wins; a plain index of the same name (legacy
+    pre-alias deployment) is used directly; otherwise the v1 physical
+    index is assumed (``init_index`` creates it).  Result is cached for
+    ``_WRITE_INDEX_TTL_SECONDS`` so alias swaps propagate without restart.
+    """
+    global _write_index_cache, _write_index_cache_ts
+    now = time.monotonic()
+    if _write_index_cache and now - _write_index_cache_ts < _WRITE_INDEX_TTL_SECONDS:
+        return _write_index_cache
     client = get_es_client()
+    base = _es_index_name()
+    if client.indices.exists_alias(name=base):
+        aliases = dict(client.indices.get_alias(name=base))
+        if aliases:
+            real = next(iter(aliases))
+        else:
+            real = _real_index_name(1)
+    elif client.indices.exists(index=base):
+        # Legacy deployment: the configured name is a plain index, not an alias.
+        real = base
+        logger.info("chunks index %s exists as a plain index; writing directly", base)
+    else:
+        real = _real_index_name(1)
+    _write_index_cache = real
+    _write_index_cache_ts = now
+    return real
+
+
+def init_index() -> None:
+    """初始化 ES 索引（如果不存在则创建）。
+
+    Creates the v1 physical index and atomically attaches the configured
+    name as an alias, so future analyzer/mapping upgrades can rebuild into
+    ``{alias}_vN`` and swap the alias without downtime.  Legacy deployments
+    (plain index with the configured name) are left untouched.
+    """
+    client = get_es_client()
+    base = _es_index_name()
+    if client.indices.exists_alias(name=base):
+        return
+    if client.indices.exists(index=base):
+        return
     try:
-        client.indices.create(index=_es_index_name(), body=INDEX_MAPPING)
+        client.indices.create(index=_real_index_name(1), body=INDEX_MAPPING)
     except es_exc.RequestError as e:
         if e.error != "resource_already_exists_exception":
             raise
+    client.indices.put_alias(index=_real_index_name(1), name=base)
+    _invalidate_write_index_cache()
+
+
+def _rewrite_bulk_indices(actions: list[dict], index_name: str) -> None:
+    """Point every action in a bulk payload at *index_name* in place."""
+    for action in actions:
+        for meta_key in ("index", "create", "update", "delete"):
+            meta = action.get(meta_key)
+            if isinstance(meta, dict) and "_index" in meta:
+                meta["_index"] = index_name
+                break
 
 
 def index_chunk(doc_id: str, body: dict) -> None:
     """单条索引切片。"""
     client = get_es_client()
-    client.index(index=_es_index_name(), id=doc_id, body=body)
+    client.index(index=resolve_write_index(), id=doc_id, body=body)
 
 
 def bulk_index_chunks(actions: list[dict]) -> None:
@@ -84,6 +158,7 @@ def bulk_index_chunks(actions: list[dict]) -> None:
     if not actions:
         return
     client = get_es_client()
+    _rewrite_bulk_indices(actions, resolve_write_index())
     client.bulk(body=actions)
 
 
@@ -102,7 +177,7 @@ def update_chunk(doc_id: str, body: dict) -> None:
     """更新单条切片（用于审核后添加标注）。"""
     client = get_es_client()
     client.update(
-        index=_es_index_name(),
+        index=resolve_write_index(),
         id=doc_id,
         body={"doc": body},
     )
@@ -112,7 +187,7 @@ def _delete_by_field(field: str, value: int) -> None:
     """按指定字段值删除所有相关切片。"""
     client = get_es_client()
     client.delete_by_query(
-        index=_es_index_name(),
+        index=resolve_write_index(),
         body={"query": {"term": {field: value}}},
     )
 
@@ -137,7 +212,7 @@ def append_annotation(doc_id: str, annotation: dict) -> None:
     """
     client = get_es_client()
     client.update(
-        index=_es_index_name(),
+        index=resolve_write_index(),
         id=doc_id,
         body={
             "script": {
