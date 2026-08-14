@@ -38,3 +38,10 @@ runtime:
     ES_INDEX_CHUNKS: "${ENV:ES_INDEX_CHUNKS}"
     ES_USERNAME: "${ENV:ES_USERNAME}"
     ES_PASSWORD: "${ENV:ES_PASSWORD}"
+    # LLM endpoint for query embeddings (hybrid search) and listwise rerank.
+    LLM_IP: "${ENV:LLM_IP}"
+    LLM_API_KEY: "${ENV:LLM_API_KEY}"
+    LLM_NAME: "${ENV:LLM_NAME}"
+    LLM_EMBEDDING_NAME: "${ENV:LLM_EMBEDDING_NAME}"
+    LLM_EMBEDDING_DIM: "${ENV:LLM_EMBEDDING_DIM}"
+    LLM_EMBEDDING_BATCH_SIZE: "${ENV:LLM_EMBEDDING_BATCH_SIZE}"

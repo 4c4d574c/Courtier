@@ -167,6 +167,26 @@ class Settings(BaseSettings):
         description="额外的请求体参数，JSON 字符串或 null（环境变量: LLM_EXTRA_BODY）",
     )
 
+    # -- Embedding model (hybrid search) --
+    llm_embedding_model: str = Field(
+        default="",
+        alias="llm_embedding_model",
+        description=(
+            "Embedding 模型名（环境变量: LLM_EMBEDDING_NAME）。"
+            "空 = 向量检索关闭，搜索与入库均退化为纯词法。"
+        ),
+    )
+    llm_embedding_dim: int = Field(
+        default=1024,
+        alias="llm_embedding_dim",
+        description="Embedding 向量维度（环境变量: LLM_EMBEDDING_DIM）",
+    )
+    llm_embedding_batch_size: int = Field(
+        default=25,
+        alias="llm_embedding_batch_size",
+        description="单次 embedding 请求的文本批量大小（环境变量: LLM_EMBEDDING_BATCH_SIZE）",
+    )
+
     @field_validator("llm_extra_body", mode="before")
     @classmethod
     def parse_llm_extra_body(cls, v: Any) -> dict[str, Any] | None:

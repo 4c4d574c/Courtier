@@ -202,3 +202,84 @@ class TestNeighborExpansion:
         assert (rid, cno) == (1, 4)
         assert entry["title"] == "标题"
         assert len(entry["chunk_text_preview"]) == tools._NEIGHBOR_PREVIEW_CHARS
+
+
+class TestEmbeddingClient:
+    """The plugin embedding client reads env config and talks to the
+    OpenAI-compatible /embeddings endpoint via httpx."""
+
+    import httpx
+
+    class _FakeResponse:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    class _FakeAsyncClient:
+        calls: list[tuple[str, dict]] = []
+
+        def __init__(self, timeout=None):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            type(self).calls.append((url, json))
+            texts = json["input"] if isinstance(json["input"], list) else [json["input"]]
+            return TestEmbeddingClient._FakeResponse(
+                {"data": [{"index": i, "embedding": [float(i)] * 3} for i in range(len(texts))]}
+            )
+
+    @pytest.mark.asyncio
+    async def test_embed_not_configured(self, monkeypatch):
+        import embeddings
+
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+        monkeypatch.delenv("LLM_IP", raising=False)
+        assert embeddings.embedding_config() is None
+        with pytest.raises(embeddings.EmbeddingUnavailable):
+            await embeddings.embed_texts(["查询"])
+
+    @pytest.mark.asyncio
+    async def test_embed_happy_path_and_batching(self, monkeypatch):
+        import embeddings
+
+        monkeypatch.setenv("LLM_EMBEDDING_NAME", "text-embedding-v3")
+        monkeypatch.setenv("LLM_IP", "https://example.com/v1")
+        monkeypatch.setenv("LLM_API_KEY", "k")
+        monkeypatch.setenv("LLM_EMBEDDING_BATCH_SIZE", "2")
+        self._FakeAsyncClient.calls.clear()
+        monkeypatch.setattr(self.httpx, "AsyncClient", self._FakeAsyncClient)
+
+        vectors = await embeddings.embed_texts(["甲", "乙", "丙"])
+        # Fake embeddings are indexed within each batch: [0.0], [1.0] in
+        # batch one, [0.0] in batch two.
+        assert vectors == [[0.0] * 3, [1.0] * 3, [0.0] * 3]
+        # batched 2+1
+        assert len(self._FakeAsyncClient.calls) == 2
+        for _url, payload in self._FakeAsyncClient.calls:
+            assert payload["model"] == "text-embedding-v3"
+
+    @pytest.mark.asyncio
+    async def test_embed_failure_raises_after_retry(self, monkeypatch):
+        import embeddings
+
+        monkeypatch.setenv("LLM_EMBEDDING_NAME", "text-embedding-v3")
+        monkeypatch.setenv("LLM_IP", "https://example.com/v1")
+
+        class FailingClient(self._FakeAsyncClient):
+            async def post(self, url, json=None, headers=None):
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr(self.httpx, "AsyncClient", FailingClient)
+        with pytest.raises(embeddings.EmbeddingUnavailable):
+            await embeddings.embed_texts(["甲"])
