@@ -29,6 +29,7 @@ from elasticsearch import exceptions as es_exc
 from sqlalchemy import select
 
 from courtier.agent.api.services.resource_service import (
+    _CHUNK_OVERLAP,
     _extract_text,
     _split_chunks,
     build_chunk_actions,
@@ -99,7 +100,7 @@ def _rebuild_one(resource: ResourceTable, content: bytes) -> list[str]:
         tmp_path.unlink(missing_ok=True)
     if not text.strip():
         return []
-    return _split_chunks(text)
+    return _split_chunks(text, overlap=_CHUNK_OVERLAP)
 
 
 async def cmd_check(settings: Settings, db: AsyncDatabase) -> int:

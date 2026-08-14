@@ -83,6 +83,34 @@ async def test_inline_result_produces_compact_citations():
 
 
 @pytest.mark.asyncio
+async def test_extra_hit_fields_do_not_leak_into_citations():
+    # Phase 1 extras (neighbors, _score) ride along on hits but must not
+    # change the frontend citation contract.
+    data = _search_result(n_hits=1)
+    data["hits"][0]["_score"] = 7.5
+    data["hits"][0]["neighbors"] = [{"chunk_no": 0, "title": "邻块"}]
+    result = ExecutionResult(
+        success=True,
+        actor_type="tool",
+        actor_name="search_documents",
+        raw_data=data,
+    )
+    citations = await _build_citations_payload("search_documents", result, None)
+    assert citations is not None
+    (first,) = citations
+    assert set(first) == {
+        "resourceId",
+        "documentId",
+        "title",
+        "docType",
+        "chunkText",
+        "highlight",
+        "chunkNo",
+        "paragraphIndex",
+    }
+
+
+@pytest.mark.asyncio
 async def test_persisted_result_loads_full_payload_from_artifact_store():
     payload = _search_result()
 
@@ -304,6 +332,7 @@ async def test_annotation_builds_compact_table_for_persisted_results():
     """Persisted results get a compact citation table covering every hit —
     the generic summarizer only sampled the first 3 hits, which pushed the
     model into fabricating indices for hits it never saw."""
+
     class _Store:
         def load(self, ref_id: str):
             return _search_result(3)

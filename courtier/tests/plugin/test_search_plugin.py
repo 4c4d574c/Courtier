@@ -151,3 +151,54 @@ class TestBuildEsQuerySemantics:
         body = tools._build_es_query("安监局的通知")
         mm = _multi_match(body)
         assert mm["query"] == "安监局的通知"
+
+
+def _neighbor_hit(resource_id: int, chunk_no: int) -> dict:
+    return {"resource_id": resource_id, "chunk_no": chunk_no, "chunk_text": "x", "title": "t"}
+
+
+class TestNeighborExpansion:
+    def test_build_neighbor_query_windows(self):
+        body = tools._build_neighbor_query(
+            [_neighbor_hit(1, 5), _neighbor_hit(2, 0)], tools._QUERY_UNSET
+        )
+        clause_one, clause_two = body["query"]["bool"]["should"]
+        assert clause_one["bool"]["must"] == [
+            {"term": {"resource_id": 1}},
+            {"range": {"chunk_no": {"gte": 3, "lte": 7}}},
+        ]
+        assert clause_two["bool"]["must"] == [
+            {"term": {"resource_id": 2}},
+            {"range": {"chunk_no": {"gte": -2, "lte": 2}}},
+        ]
+        assert "filter" not in body["query"]["bool"]
+
+    def test_build_neighbor_query_carries_owner_scope(self):
+        body = tools._build_neighbor_query([_neighbor_hit(1, 5)], owner_scope=7)
+        (filter_clause,) = body["query"]["bool"]["filter"]
+        assert {"term": {"owner_id": 7}} in filter_clause["bool"]["should"]
+
+    def test_build_neighbor_query_empty_without_coordinates(self):
+        assert tools._build_neighbor_query([{"chunk_text": "no coords"}], None) == {}
+
+    def test_clean_neighbor_hits_extracts_previews(self):
+        raw = {
+            "hits": {
+                "hits": [
+                    {
+                        "_source": {
+                            "resource_id": 1,
+                            "chunk_no": 4,
+                            "title": "标题",
+                            "chunk_text": "内容" * 200,
+                        }
+                    }
+                ]
+            }
+        }
+        entries = tools._clean_neighbor_hits(raw)
+        assert len(entries) == 1
+        rid, cno, entry = entries[0]
+        assert (rid, cno) == (1, 4)
+        assert entry["title"] == "标题"
+        assert len(entry["chunk_text_preview"]) == tools._NEIGHBOR_PREVIEW_CHARS

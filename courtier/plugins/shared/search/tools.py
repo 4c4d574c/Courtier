@@ -55,6 +55,12 @@ SYNONYM_MAP: dict[str, tuple[str, ...]] = {
 }
 _SYNONYM_BOOST = 1.5
 
+#: Neighbor context expansion: chunks within +/- this window of a hit are
+#: attached as `neighbors` so provisions spanning chunk boundaries are
+#: returned as a unit.
+_NEIGHBOR_WINDOW = 2
+_NEIGHBOR_PREVIEW_CHARS = 300
+
 _INCLUDE_FIELDS = frozenset(
     {
         "document_id",
@@ -105,6 +111,19 @@ def _has_search_signal(query: str) -> bool:
     if len(stripped) < 2:
         return False
     return _LOW_SIGNAL_QUERY_RE.match(stripped) is None
+
+
+def _owner_scope_filter(owner_scope: Any) -> list[dict]:
+    """Visibility filter clauses for *owner_scope* (host-injected, never
+    model-supplied).  Empty for internal/test callers (_QUERY_UNSET)."""
+    if owner_scope is _QUERY_UNSET:
+        return []
+    should_scope: list[dict] = [{"term": {"visibility": "public"}}]
+    if isinstance(owner_scope, int):
+        should_scope.append({"term": {"owner_id": owner_scope}})
+    # Chunks indexed before the visibility split are legacy public data.
+    should_scope.append({"bool": {"must_not": [{"exists": {"field": "visibility"}}]}})
+    return [{"bool": {"should": should_scope, "minimum_should_match": 1}}]
 
 
 def _build_es_query(
@@ -200,13 +219,7 @@ def _build_es_query(
         filter_clauses.append({"term": {"doc_type": doc_type}})
     if tags:
         filter_clauses.append({"terms": {"tags": tags}})
-    if owner_scope is not _QUERY_UNSET:
-        should_scope: list[dict] = [{"term": {"visibility": "public"}}]
-        if isinstance(owner_scope, int):
-            should_scope.append({"term": {"owner_id": owner_scope}})
-        # Chunks indexed before the visibility split are legacy public data.
-        should_scope.append({"bool": {"must_not": [{"exists": {"field": "visibility"}}]}})
-        filter_clauses.append({"bool": {"should": should_scope, "minimum_should_match": 1}})
+    filter_clauses.extend(_owner_scope_filter(owner_scope))
     if filter_clauses:
         query_dict["bool"]["filter"] = filter_clauses
 
@@ -229,6 +242,69 @@ def _build_es_query(
         body["highlight"] = {"fields": hl_fields}
 
     return body
+
+
+def _build_neighbor_query(hits: list[dict], owner_scope: Any) -> dict:
+    """Second-stage query fetching the +/-_NEIGHBOR_WINDOW chunks around each
+    hit, with the same visibility scope as the main query.  Returns an empty
+    dict when no hit carries usable (resource_id, chunk_no) coordinates."""
+    should_clauses: list[dict] = []
+    for hit in hits:
+        resource_id = hit.get("resource_id")
+        chunk_no = hit.get("chunk_no")
+        if resource_id is None or chunk_no is None:
+            continue
+        should_clauses.append(
+            {
+                "bool": {
+                    "must": [
+                        {"term": {"resource_id": resource_id}},
+                        {
+                            "range": {
+                                "chunk_no": {
+                                    "gte": chunk_no - _NEIGHBOR_WINDOW,
+                                    "lte": chunk_no + _NEIGHBOR_WINDOW,
+                                }
+                            }
+                        },
+                    ]
+                }
+            }
+        )
+    if not should_clauses:
+        return {}
+    body: dict[str, Any] = {
+        "query": {"bool": {"should": should_clauses, "minimum_should_match": 1}}
+    }
+    scope_filter = _owner_scope_filter(owner_scope)
+    if scope_filter:
+        body["query"]["bool"]["filter"] = scope_filter
+    return body
+
+
+def _clean_neighbor_hits(raw: dict) -> list[tuple[int, int, dict]]:
+    """Extract (resource_id, chunk_no, preview) triples from a neighbor query."""
+    entries: list[tuple[int, int, dict]] = []
+    for hit in raw.get("hits", {}).get("hits", []):
+        source = hit.get("_source", {})
+        resource_id = source.get("resource_id")
+        chunk_no = source.get("chunk_no")
+        if resource_id is None or chunk_no is None:
+            continue
+        entries.append(
+            (
+                resource_id,
+                chunk_no,
+                {
+                    "chunk_no": chunk_no,
+                    "title": source.get("title", ""),
+                    "chunk_text_preview": (source.get("chunk_text") or "")[
+                        :_NEIGHBOR_PREVIEW_CHARS
+                    ],
+                },
+            )
+        )
+    return entries
 
 
 def _clean_response(raw: dict, include_annotations: bool = False) -> dict[str, Any]:
@@ -386,6 +462,41 @@ class SearchDocumentsTool:
             )
         except Exception as exc:
             return ToolResult(success=False, error=f"结果处理失败: {exc}")
+
+        # Neighbor context expansion: attach chunks adjacent to each hit so
+        # provisions spanning chunk boundaries come back as a unit.  Best
+        # effort — failures degrade to hits without neighbors.
+        hits = cleaned.get("hits") or []
+        if hits:
+            try:
+                from es_client import search_chunks
+
+                owner_scope = kwargs.get("_owner_scope", _QUERY_UNSET)
+                neighbor_query = _build_neighbor_query(hits, owner_scope)
+                if neighbor_query:
+                    neighbor_raw = await asyncio.to_thread(
+                        search_chunks,
+                        query_body=neighbor_query,
+                        skip=0,
+                        limit=len(hits) * (_NEIGHBOR_WINDOW * 2 + 1) + 2,
+                    )
+                    entries = _clean_neighbor_hits(neighbor_raw)
+                    for hit in hits:
+                        resource_id = hit.get("resource_id")
+                        chunk_no = hit.get("chunk_no")
+                        if resource_id is None or chunk_no is None:
+                            continue
+                        seen: set[int] = set()
+                        neighbors: list[dict] = []
+                        for e_rid, e_cno, entry in entries:
+                            if e_rid == resource_id and e_cno != chunk_no and e_cno not in seen:
+                                seen.add(e_cno)
+                                neighbors.append(entry)
+                        if neighbors:
+                            neighbors.sort(key=lambda e: e["chunk_no"])
+                            hit["neighbors"] = neighbors
+            except Exception:
+                logger.warning("neighbor expansion failed", exc_info=True)
 
         return ToolResult(success=True, data=cleaned)
 

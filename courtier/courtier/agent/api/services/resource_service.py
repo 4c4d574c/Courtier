@@ -40,6 +40,7 @@ resource_repo: CRUDRepository[ResourceTable, ResourceCreate, ResourceUpdate] = C
 ALLOWED_EXTS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 50 * 1024 * 1024
 _CHUNK_SIZE = 1000
+_CHUNK_OVERLAP = 100
 _MIME_BY_EXT = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -74,33 +75,65 @@ def _extract_text(file_path: Path) -> str:
     return file_path.read_text(encoding="utf-8", errors="ignore")
 
 
-def _split_chunks(text: str, chunk_size: int = _CHUNK_SIZE) -> list[str]:
+def _split_chunks(text: str, chunk_size: int = _CHUNK_SIZE, overlap: int = 0) -> list[str]:
     """Split text into ~chunk_size chunks, preserving paragraph boundaries.
 
     Paragraphs are accumulated until adding the next one would exceed the
     size limit; a single paragraph longer than the limit is hard-split.
+    When *overlap* > 0, every chunk except the first is prefixed with the
+    tail of the previous chunk (paragraph-aligned, up to *overlap* chars) so
+    provisions spanning chunk boundaries stay retrievable as a unit.
     """
     paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-    chunks: list[str] = []
+    raw: list[str] = []
     current = ""
     for para in paragraphs:
         while len(para) > chunk_size:
             if current:
-                chunks.append(current)
+                raw.append(current)
                 current = ""
-            chunks.append(para[:chunk_size])
+            raw.append(para[:chunk_size])
             para = para[chunk_size:]
         if not para:
             continue
         candidate = f"{current}\n{para}" if current else para
         if len(candidate) > chunk_size and current:
-            chunks.append(current)
+            raw.append(current)
             current = para
         else:
             current = candidate
     if current:
-        chunks.append(current)
+        raw.append(current)
+    if overlap <= 0 or len(raw) <= 1:
+        return raw
+    chunks = [raw[0]]
+    for prev, nxt in zip(raw, raw[1:]):
+        tail = _tail_paragraphs(prev, overlap)
+        chunks.append(f"{tail}\n{nxt}" if tail else nxt)
     return chunks
+
+
+def _tail_paragraphs(chunk: str, max_chars: int) -> str:
+    """Return the trailing up-to-*max_chars* content chars of *chunk*, aligned
+    to paragraph boundaries where possible.  A single paragraph longer than
+    the budget is hard-cut from its end."""
+    paragraphs = [p for p in chunk.split("\n") if p]
+    if not paragraphs:
+        return ""
+    tail: list[str] = []
+    total = 0
+    for para in reversed(paragraphs):
+        if tail and total + len(para) > max_chars:
+            break
+        if total + len(para) > max_chars:
+            # Only candidate and it alone exceeds the budget: hard cut.
+            tail.append(para[-(max_chars - total) :])
+            break
+        tail.append(para)
+        total += len(para)
+        if total >= max_chars:
+            break
+    return "\n".join(reversed(tail))
 
 
 # -- Ingest / list / delete -----------------------------------------------------
@@ -140,6 +173,9 @@ def build_chunk_actions(
             "char_count": len(chunk),
             "audit_status": "library",
             "created_at": now,
+            # Placeholder structural index (chunk-level until docparse
+            # structure is wired into the resource pipeline).
+            "paragraph_index": i,
         }
         if owner_id is not None:
             body["owner_id"] = owner_id
@@ -224,7 +260,7 @@ async def ingest_resource(
     if not text.strip():
         raise HTTPException(400, "未能从文件中提取到文本内容")
 
-    chunks = _split_chunks(text)
+    chunks = _split_chunks(text, overlap=_CHUNK_OVERLAP)
     total_chars = sum(len(c) for c in chunks)
 
     async with db.session() as session:

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from courtier.agent.api.services.resource_service import _extract_text, _split_chunks
+from courtier.agent.api.services.resource_service import (
+    _extract_text,
+    _split_chunks,
+    _tail_paragraphs,
+    build_chunk_actions,
+)
 
 
 class TestSplitChunks:
@@ -32,6 +37,50 @@ class TestSplitChunks:
         assert chunks[1] == "长" * 500
         assert chunks[2] == "长" * 500
         assert chunks[3] == "长" * 200 + "\n结尾。" or chunks[-1].endswith("结尾。")
+
+    def test_overlap_prepends_previous_tail(self):
+        paras = [f"第{i}段" + "字" * 90 for i in range(8)]
+        chunks = _split_chunks("\n".join(paras), chunk_size=300, overlap=100)
+        # Overlap duplicates content, so paragraph markers exceed the count.
+        assert "".join(chunks).count("第") > 8
+        for prev, nxt in zip(chunks, chunks[1:]):
+            assert nxt.startswith(_tail_paragraphs(prev, 100))
+
+    def test_overlap_off_by_default(self):
+        paras = [f"第{i}段" + "字" * 90 for i in range(8)]
+        assert _split_chunks("\n".join(paras), chunk_size=300) == _split_chunks(
+            "\n".join(paras), chunk_size=300, overlap=0
+        )
+
+
+class TestTailParagraphs:
+    def test_paragraph_aligned_tail(self):
+        assert _tail_paragraphs("甲\n乙\n丙", 2) == "乙\n丙"
+        assert _tail_paragraphs("甲\n乙\n丙", 3) == "甲\n乙\n丙"
+
+    def test_single_oversized_paragraph_hard_cut(self):
+        assert _tail_paragraphs("长" * 100, 10) == "长" * 10
+
+
+class TestBuildChunkActions:
+    def test_paragraph_index_matches_chunk_no(self):
+        actions = build_chunk_actions(
+            1,
+            ["块一", "块二"],
+            doc_type="txt",
+            title="标题",
+            author="",
+            user_id="u",
+            visibility="public",
+            owner_id=None,
+            tags=[],
+            publish_date=None,
+            index_name="idx",
+        )
+        bodies = [a for a in actions if "chunk_text" in a]
+        assert bodies[0]["paragraph_index"] == 0
+        assert bodies[1]["paragraph_index"] == 1
+        assert bodies[0]["chunk_no"] == 0
 
 
 class TestExtractText:
