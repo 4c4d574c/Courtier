@@ -106,6 +106,52 @@ def _split_chunks(text: str, chunk_size: int = _CHUNK_SIZE) -> list[str]:
 # -- Ingest / list / delete -----------------------------------------------------
 
 
+def build_chunk_actions(
+    resource_id: int,
+    chunks: list[str],
+    *,
+    doc_type: str,
+    title: str,
+    author: str,
+    user_id: str,
+    visibility: str,
+    owner_id: int | None,
+    tags: list[str],
+    publish_date: date | None,
+    index_name: str,
+) -> list[dict]:
+    """Build ES bulk actions (meta/body pairs) for one resource's chunks.
+
+    Shared by the ingest pipeline and the reindex script so chunk bodies
+    never diverge between the two write paths.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    actions: list[dict] = []
+    for i, chunk in enumerate(chunks):
+        body: dict[str, Any] = {
+            "resource_id": resource_id,
+            "doc_type": doc_type,
+            "chunk_no": i,
+            "chunk_text": chunk,
+            "title": title,
+            "author": author,
+            "user_id": user_id,
+            "visibility": visibility,
+            "char_count": len(chunk),
+            "audit_status": "library",
+            "created_at": now,
+        }
+        if owner_id is not None:
+            body["owner_id"] = owner_id
+        if tags:
+            body["tags"] = tags
+        if publish_date is not None:
+            body["publish_date"] = publish_date.isoformat()
+        actions.append({"index": {"_index": index_name, "_id": f"{resource_id}_{i}"}})
+        actions.append(body)
+    return actions
+
+
 async def ingest_resource(
     file: UploadFile,
     *,
@@ -205,30 +251,19 @@ async def ingest_resource(
         await session.commit()
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    now = datetime.now(timezone.utc).isoformat()
-    actions: list[dict] = []
-    for i, chunk in enumerate(chunks):
-        body: dict[str, Any] = {
-            "resource_id": resource.id,
-            "doc_type": ext.lstrip("."),
-            "chunk_no": i,
-            "chunk_text": chunk,
-            "title": resource.title,
-            "author": author or "",
-            "user_id": owner_name,
-            "visibility": visibility,
-            "char_count": len(chunk),
-            "audit_status": "library",
-            "created_at": now,
-        }
-        if owner_id is not None:
-            body["owner_id"] = owner_id
-        if tag_list:
-            body["tags"] = tag_list
-        if publish_date is not None:
-            body["publish_date"] = publish_date.isoformat()
-        actions.append({"index": {"_index": settings.es_index_chunks, "_id": f"{resource.id}_{i}"}})
-        actions.append(body)
+    actions = build_chunk_actions(
+        resource.id,
+        chunks,
+        doc_type=ext.lstrip("."),
+        title=resource.title,
+        author=author or "",
+        user_id=owner_name,
+        visibility=visibility,
+        owner_id=owner_id,
+        tags=tag_list,
+        publish_date=publish_date,
+        index_name=settings.es_index_chunks,
+    )
 
     try:
         await asyncio.to_thread(bulk_index_chunks, actions)
