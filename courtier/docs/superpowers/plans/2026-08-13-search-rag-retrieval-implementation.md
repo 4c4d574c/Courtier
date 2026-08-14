@@ -216,7 +216,7 @@
 **Files:** `courtier/agent/core/loop.py`、`courtier/agent/telemetry/tracer.py`
 
 - [ ] **Step 1:** `tool_span`（`loop.py:752` 附近）为 `search_documents` 增属性：`gen_ai.tool.hits`（命中数）、`retrieval.mode`（`lexical`/`hybrid`）、`retrieval.rerank`（bool）、`retrieval.cached`（bool）——走既有 OTel → Langfuse 链路。
-- [ ] **Step 2:** `telemetry/metrics.py` 增加检索时延 histogram（可选，随 Prometheus 现有模式）。
+- [ ] **Step 2:** `telemetry/metrics.py` 检索时延 histogram（实施时暂缓：OTel span 属性已随 Langfuse 链路覆盖命中数/模式/重排/缓存，Prometheus 侧按需再加）。
 
 **Phase 3 DoD：** 评测脚本跑通并产出基线报告；缓存命中可观测（took_ms/cached 标注）；衰减开关有效；单测全绿。
 

@@ -63,6 +63,28 @@ _CITATION_CHUNK_MAX_CHARS = 800
 _CITATION_HIGHLIGHT_MAX = 3
 
 
+def _set_search_tool_attributes(tool_span: Any, record: Any) -> None:
+    """Attach retrieval-quality attributes for search_documents spans.
+
+    The search tool result carries mode/cached/reranked flags and a hits
+    list; recording them on the OTel span feeds Langfuse dashboards and
+    makes hybrid/rerank/cache behavior observable per call.
+    """
+    if getattr(record, "tool_name", "") != "search_documents":
+        return
+    data = getattr(record, "result_data", None)
+    if not isinstance(data, dict):
+        return
+    hits = data.get("hits")
+    if isinstance(hits, list):
+        tool_span.set_attribute("gen_ai.tool.hits", len(hits))
+    mode = data.get("mode")
+    if mode:
+        tool_span.set_attribute("retrieval.mode", str(mode))
+    tool_span.set_attribute("retrieval.reranked", bool(data.get("reranked")))
+    tool_span.set_attribute("retrieval.cached", bool(data.get("cached")))
+
+
 async def _build_citations_payload(
     tool_name: str, result: ExecutionResult, artifact_store: Any | None
 ) -> list[dict[str, Any]] | None:
@@ -759,6 +781,7 @@ async def _run_tool_phase(
                 "success" if record.result_success else "error",
             )
             tracer.set_tool_result(tool_span, record.result_data)
+            _set_search_tool_attributes(tool_span, record)
 
         record_tool_execution(
             tool_name=record.tool_name,

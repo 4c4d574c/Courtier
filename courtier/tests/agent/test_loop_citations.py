@@ -15,7 +15,11 @@ import tempfile
 import pytest
 
 from courtier.agent.core.execution_result import ExecutionResult
-from courtier.agent.core.loop import _annotate_search_citations, _build_citations_payload
+from courtier.agent.core.loop import (
+    _annotate_search_citations,
+    _build_citations_payload,
+    _set_search_tool_attributes,
+)
 
 
 def _hit(
@@ -108,6 +112,54 @@ async def test_extra_hit_fields_do_not_leak_into_citations():
         "chunkNo",
         "paragraphIndex",
     }
+
+
+class _FakeSpan:
+    def __init__(self):
+        self.attrs: dict = {}
+
+    def set_attribute(self, key, value):
+        self.attrs[key] = value
+
+
+class _FakeRecord:
+    def __init__(self, tool_name, result_data):
+        self.tool_name = tool_name
+        self.result_data = result_data
+
+
+def test_search_tool_attributes_recorded():
+    span = _FakeSpan()
+    record = _FakeRecord(
+        "search_documents",
+        {
+            "total": 3,
+            "took_ms": 5,
+            "hits": [{}, {}, {}],
+            "mode": "hybrid",
+            "reranked": True,
+            "cached": False,
+        },
+    )
+    _set_search_tool_attributes(span, record)
+    assert span.attrs == {
+        "gen_ai.tool.hits": 3,
+        "retrieval.mode": "hybrid",
+        "retrieval.reranked": True,
+        "retrieval.cached": False,
+    }
+
+
+def test_search_tool_attributes_ignore_other_tools():
+    span = _FakeSpan()
+    _set_search_tool_attributes(span, _FakeRecord("parse_document", {"hits": [1]}))
+    assert span.attrs == {}
+
+
+def test_search_tool_attributes_ignore_non_dict_data():
+    span = _FakeSpan()
+    _set_search_tool_attributes(span, _FakeRecord("search_documents", "oops"))
+    assert span.attrs == {}
 
 
 @pytest.mark.asyncio
