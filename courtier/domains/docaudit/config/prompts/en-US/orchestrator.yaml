@@ -17,8 +17,9 @@ orchestrator:
     2. **Format audit** (format_audit) → call parse_document to obtain the
        Document model (layout/font metrics). If parsing fails, stop and
        report — do not continue.
-    3. **Content tasks** (content_audit / text_correction / plagiarism /
-       secret_analysis) and read-and-answer:
+    3. **Content tasks** (content_audit / plagiarism / secret_analysis;
+       text-correction requests are handled by the content_audit skill) and
+       read-and-answer:
        - 【Never call parse_document】parse_document is for format audit only;
          content tasks must not call it;
        - Prefer reusing document text already in the session (Markdown from

@@ -66,12 +66,14 @@ def test_real_skills_enabled_set():
 
     enabled = registry.list_enabled()
     enabled_names = {s.name for s in enabled}
-    # full_government_audit 被有意停用（frontmatter enabled: false），当前启用集为以下四个。
-    expected = {"format_audit", "content_audit", "plagiarism", "text_correction"}
+    # full_government_audit 被有意停用（frontmatter enabled: false），当前启用集为以下三个。
+    expected = {"format_audit", "content_audit", "plagiarism"}
     assert expected.issubset(enabled_names), (
         f"expected skills {expected} to be enabled, got {enabled_names}; "
         f"errors: {registry.errors}"
     )
+    # text_correction 已并入 content_audit（内容审核与纠错），不应再作为独立技能存在。
+    assert "text_correction" not in enabled_names
     # 停用的技能仍应能正常扫描，只是不出现在启用集中。
     assert "full_government_audit" not in enabled_names
     assert registry.get("full_government_audit") is not None

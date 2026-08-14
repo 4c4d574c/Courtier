@@ -7,7 +7,7 @@ orchestrator:
 
     ## Domain activation (gating)
     - When the user's intent clearly hits a domain (e.g. official-document
-      format/content audit, text correction, secret-classification analysis —
+      format audit, content audit & correction, secret-classification analysis —
       see the domain list in the activate_domain tool description), call
       activate_domain FIRST, whether or not a file was uploaded, then use
       that domain's tools/skills.

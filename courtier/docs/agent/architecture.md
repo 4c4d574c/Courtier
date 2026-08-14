@@ -245,7 +245,7 @@ class AgentState(BaseModel, frozen=True):
 
 2. **运行阶段**（LLM 驱动）：
    ```
-   用户任务 → 解析文档 → 格式审核（政府文档）→ 内容审核 → 文本纠错
+   用户任务 → 解析文档 → 格式审核（政府文档）→ 内容审核（含文本纠错）
             → 行文风格审查 → 文档查重
    ```
    工作流顺序由系统提示词中编码的规则决定。
@@ -1557,8 +1557,7 @@ FastAPI 中间件，自动记录 HTTP 请求的追踪信息和指标。
 │        └── 流式事件: token, think, tool_result (scope: subagent)      │
 │                                                                       │
 │  Turn 3-5: 顺序调用其它审核 Skill 工具                                  │
-│    ├── content_audit(task=...)    → 内容审核                          │
-│    ├── text_correction(task=...)  → 文本纠错                          │
+│    ├── content_audit(task=...)    → 内容审核与纠错                      │
 │    └── style_audit(task=...)      → 行文风格审查                      │
 │                                                                       │
 │  Turn 6: LLM → 调用 annotate_document                                  │

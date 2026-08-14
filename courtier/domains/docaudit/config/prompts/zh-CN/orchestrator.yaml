@@ -14,7 +14,7 @@ orchestrator:
        技能 task 的正文（或 text 入参）直接传入，技能会基于该文本执行。
     2. **格式审核**（format_audit）→ 调用 parse_document 获取 Document 模型（含版面/字号信息）；
        解析失败时停止并报告，禁止继续调用依赖文档内容的技能。
-    3. **内容类任务**（content_audit / text_correction / plagiarism / secret_analysis）与阅读问答：
+    3. **内容类任务**（content_audit / plagiarism / secret_analysis，文本纠错需求由 content_audit 技能承担）与阅读问答：
        - 【禁止调用 parse_document】parse_document 仅供格式审核使用，内容类任务一律不得调用；
        - 优先复用会话中已有的文档文本（convert_document 产出的 Markdown，或此前解析结果的文本投影），
          不要重复转换/解析；

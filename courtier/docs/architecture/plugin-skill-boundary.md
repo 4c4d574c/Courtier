@@ -126,16 +126,14 @@ LLM → audit_format
 ```text
 skills/
 ├── format_audit.md          # name、description、tools、input_model 等在 YAML frontmatter
-├── content_audit.md
+├── content_audit.md         # 内容合规审核与文本纠错（text_correction 已并入）
 ├── style_audit.md
-├── text_correction.md
 ├── plagiarism.md
 ├── full_government_audit.md  # 编排型 Skill，可调用其它 Skill 工具完成完整审核
 └── schemas/                  # 各 Skill 的 Pydantic 输入模型
     ├── format_audit.py        (FormatAuditorInput)
     ├── content_audit.py       (ContentAuditorInput)
     ├── style_audit.py         (StyleAuditorInput)
-    ├── text_correction.py     (CorrectionAuditorInput)
     └── plagiarism.py          (PlagiarismAuditorInput)
 ```
 
@@ -219,8 +217,8 @@ enabled: true
 | `audit` | `text_correction` | `correct_text` |
 | `audit` | `plagiarism` | `detect_plagiarism` |
 
-**Skill**（`skills/*.md`）：`format_audit`、`content_audit`、`style_audit`、`text_correction`、`plagiarism`、
-`full_government_audit`（编排型，串联前述审核）。
+**Skill**（`skills/*.md`）：`format_audit`、`content_audit`（内容合规审核与文本纠错，原 `text_correction` 已并入）、
+`style_audit`、`plagiarism`、`full_government_audit`（编排型，串联前述审核）。
 
 ## 何时声明 Tool，何时定义 Skill
 
