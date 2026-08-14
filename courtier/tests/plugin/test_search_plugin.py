@@ -137,6 +137,25 @@ class TestBuildEsQuerySemantics:
         body = tools._build_es_query("通知")
         assert _multi_match(body)["fuzziness"] == "AUTO"
 
+    def test_time_decay_off_by_default(self):
+        body = tools._build_es_query("通知")
+        assert "function_score" not in body["query"]
+
+    def test_time_decay_wraps_lexical_query(self):
+        body = tools._build_es_query("通知", use_time_decay=True)
+        fs = body["query"]["function_score"]
+        assert "bool" in fs["query"]
+        assert fs["query"]["bool"]["must"]  # lexical clauses preserved
+        gauss_fn, neutral_fn = fs["functions"]
+        gauss = gauss_fn["gauss"]["publish_date"]
+        assert gauss == {"origin": "now", "scale": "730d", "decay": 0.5}
+        assert gauss_fn["filter"] == {"exists": {"field": "publish_date"}}
+        # gauss has no `missing` parameter — undated chunks get neutral 1.0.
+        assert neutral_fn == {
+            "filter": {"bool": {"must_not": [{"exists": {"field": "publish_date"}}]}},
+            "weight": 1.0,
+        }
+
 
 class TestHybridQuery:
     _VECTOR = [0.1, 0.2, 0.3]

@@ -78,6 +78,10 @@ _RRF_RANK_CONSTANT = 60
 #: reordering (then slices to the requested limit).
 _RERANK_FETCH = 50
 
+#: Optional publish_date recency weighting (gauss decay on the lexical arm).
+_TIME_DECAY_SCALE = "730d"
+_TIME_DECAY_DECAY = 0.5
+
 #: Process-local TTL cache for coarse search results (pre-rerank).  Rerank
 #: results are recomputed per call (LLM nondeterminism); neighbor expansion
 #: is cached only on the non-rerank path where the final hit set is stable.
@@ -99,6 +103,7 @@ def _cache_key(rerank: bool, **kwargs: Any) -> str:
         str(kwargs.get("skip", 0)),
         str(kwargs.get("limit", 10)),
         str(bool(kwargs.get("include_annotations", False))),
+        str(bool(kwargs.get("use_time_decay", False))),
         str(bool(rerank)),
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
@@ -220,6 +225,7 @@ def _build_es_query(
     tags: list[str] | None = None,
     search_fields: list[str] | None = None,
     owner_scope: Any = _QUERY_UNSET,
+    use_time_decay: bool = False,
 ) -> dict[str, Any]:
     """Build the lexical ES query body from simplified parameters.
 
@@ -303,7 +309,35 @@ def _build_es_query(
     if filter_clauses:
         query_dict["bool"]["filter"] = filter_clauses
 
-    body: dict[str, Any] = {"query": query_dict}
+    final_query: dict[str, Any] = query_dict
+    if use_time_decay:
+        # Recency weighting on the lexical arm: newer documents score
+        # higher.  gauss decay lacks a `missing` parameter, so undated
+        # chunks get an explicit neutral weight function instead.
+        final_query = {
+            "function_score": {
+                "query": query_dict,
+                "functions": [
+                    {
+                        "filter": {"exists": {"field": "publish_date"}},
+                        "gauss": {
+                            "publish_date": {
+                                "origin": "now",
+                                "scale": _TIME_DECAY_SCALE,
+                                "decay": _TIME_DECAY_DECAY,
+                            }
+                        },
+                    },
+                    {
+                        "filter": {"bool": {"must_not": [{"exists": {"field": "publish_date"}}]}},
+                        "weight": 1.0,
+                    },
+                ],
+                "boost_mode": "multiply",
+            }
+        }
+
+    body: dict[str, Any] = {"query": final_query}
 
     # Deterministic ranking: relevance, then recency, then (resource_id,
     # chunk_no) which uniquely identify a chunk — tied scores never shuffle
@@ -554,6 +588,10 @@ class SearchDocumentsTool:
                     "重排失败时保持原顺序"
                 ),
             },
+            "use_time_decay": {
+                "type": "boolean",
+                "description": "是否按发布日期做时间衰减加权（新文档优先），默认 false",
+            },
         },
         "required": ["query"],
     }
@@ -610,6 +648,7 @@ class SearchDocumentsTool:
                     tags=kwargs.get("tags"),
                     search_fields=kwargs.get("search_fields"),
                     owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
+                    use_time_decay=bool(kwargs.get("use_time_decay", False)),
                 )
             except Exception as exc:
                 return ToolResult(success=False, error=f"查询构建失败: {exc}")
