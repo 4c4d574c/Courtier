@@ -24,6 +24,17 @@ _MAX_LIMIT = 100
 _LOW_SIGNAL_QUERY_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 _FALLBACK_PREVIEW_CHARS = 300
 
+#: Default search fields with title weighted above body text.
+_DEFAULT_FIELDS_WEIGHTED = ["chunk_text^1", "title^3"]
+#: Free text also runs as a (boosted) phrase query so documents containing
+#: the exact phrase rank above scattered keyword matches.
+_FREE_PHRASE_BOOST = 2.0
+_FREE_PHRASE_SLOP = 2
+#: Queries with >= this many space-separated words use minimum_should_match
+#: instead of operator AND to avoid over-constraining long queries.
+_MULTI_WORD_THRESHOLD = 4
+_MIN_SHOULD_MATCH_MULTI_WORD = "70%"
+
 _INCLUDE_FIELDS = frozenset(
     {
         "document_id",
@@ -96,27 +107,53 @@ def _build_es_query(
         query = query[:_MAX_QUERY_CHARS]
         logger.warning("Query truncated to %d chars", _MAX_QUERY_CHARS)
 
-    fields = search_fields or ["chunk_text", "title"]
+    fields = search_fields or _DEFAULT_FIELDS_WEIGHTED
+    # match_phrase takes plain field names (weights are invalid there).
+    phrase_fields = [f.split("^")[0] for f in fields]
     phrases, free_text = _parse_query(query)
 
     must: list[dict] = []
+    should: list[dict] = []
 
     for phrase in phrases:
-        must.append({"match_phrase": {fields[0]: {"query": phrase, "slop": 0}}})
+        must.append({"match_phrase": {phrase_fields[0]: {"query": phrase, "slop": 0}}})
 
     if free_text.strip():
+        stripped = free_text.strip()
         mm: dict[str, Any] = {
-            "query": free_text.strip(),
+            "query": stripped,
             "fields": fields,
             "type": "best_fields",
         }
-        if len(free_text.strip()) <= _FUZZY_MAX_LEN:
+        if len(stripped) <= _FUZZY_MAX_LEN:
             mm["fuzziness"] = "AUTO"
+        # Require (nearly) all keywords instead of OR semantics: with
+        # per-character/bigram tokenization, OR makes multi-word queries
+        # match the whole corpus.
+        if len(stripped.split()) >= _MULTI_WORD_THRESHOLD:
+            mm["minimum_should_match"] = _MIN_SHOULD_MATCH_MULTI_WORD
+        else:
+            mm["operator"] = "and"
         must.append({"multi_match": mm})
+        # Phrase signal: documents containing the full phrase rank above
+        # scattered keyword hits.
+        should.append(
+            {
+                "match_phrase": {
+                    phrase_fields[0]: {
+                        "query": stripped,
+                        "slop": _FREE_PHRASE_SLOP,
+                        "boost": _FREE_PHRASE_BOOST,
+                    }
+                }
+            }
+        )
 
     query_dict: dict[str, Any] = {"bool": {}}
     if must:
         query_dict["bool"]["must"] = must
+    if should:
+        query_dict["bool"]["should"] = should
 
     filter_clauses: list[dict] = []
     if document_id is not None:
@@ -126,19 +163,29 @@ def _build_es_query(
     if tags:
         filter_clauses.append({"terms": {"tags": tags}})
     if owner_scope is not _QUERY_UNSET:
-        should: list[dict] = [{"term": {"visibility": "public"}}]
+        should_scope: list[dict] = [{"term": {"visibility": "public"}}]
         if isinstance(owner_scope, int):
-            should.append({"term": {"owner_id": owner_scope}})
+            should_scope.append({"term": {"owner_id": owner_scope}})
         # Chunks indexed before the visibility split are legacy public data.
-        should.append({"bool": {"must_not": [{"exists": {"field": "visibility"}}]}})
-        filter_clauses.append({"bool": {"should": should, "minimum_should_match": 1}})
+        should_scope.append({"bool": {"must_not": [{"exists": {"field": "visibility"}}]}})
+        filter_clauses.append({"bool": {"should": should_scope, "minimum_should_match": 1}})
     if filter_clauses:
         query_dict["bool"]["filter"] = filter_clauses
 
     body: dict[str, Any] = {"query": query_dict}
 
+    # Deterministic ranking: relevance, then recency, then (resource_id,
+    # chunk_no) which uniquely identify a chunk — tied scores never shuffle
+    # between calls.  (_id sorting needs fielddata, disallowed by default.)
+    body["sort"] = [
+        {"_score": {"order": "desc"}},
+        {"publish_date": {"order": "desc", "unmapped_type": "date"}},
+        {"resource_id": {"order": "asc", "unmapped_type": "long"}},
+        {"chunk_no": {"order": "asc", "unmapped_type": "long"}},
+    ]
+
     hl_fields: dict[str, dict] = {}
-    for f in fields:
+    for f in phrase_fields:
         hl_fields[f] = {}
     if hl_fields:
         body["highlight"] = {"fields": hl_fields}
@@ -161,6 +208,10 @@ def _clean_response(raw: dict, include_annotations: bool = False) -> dict[str, A
         for field in _INCLUDE_FIELDS:
             if field in source:
                 entry[field] = source[field]
+
+        score = hit.get("_score")
+        if score is not None:
+            entry["_score"] = round(score, 4) if isinstance(score, float) else score
 
         if include_annotations and "annotations" in source:
             entry["annotations"] = source["annotations"]
@@ -198,7 +249,8 @@ class SearchDocumentsTool:
     description: str = (
         "在已索引的文档块中搜索内容。只需传入搜索关键词，系统会自动构建查询并格式化结果。"
         '用引号包裹的词会作为精确短语匹配（如 "安全生产" 匹配完整短语），'
-        "其余部分作为关键词分词匹配。支持按文档ID、文档类型、标签过滤。"
+        "其余部分需大部分关键词命中（含完整短语的文档排名更靠前）。"
+        "支持按文档ID、文档类型、标签过滤。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -206,8 +258,9 @@ class SearchDocumentsTool:
             "query": {
                 "type": "string",
                 "description": (
-                    "搜索关键词或短语。中英文引号包裹的文本做精确短语匹配，"
-                    '其余文本做关键词分词匹配。示例：关于"安全生产"的通知'
+                    "搜索关键词或短语。中英文引号包裹的文本做精确短语匹配；"
+                    "其余文本要求大部分关键词命中，含完整短语的文档块排名更靠前。"
+                    '示例：关于"安全生产"的通知'
                 ),
             },
             "document_id": {
