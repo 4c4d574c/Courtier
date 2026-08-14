@@ -68,6 +68,10 @@ _KNN_K = 50
 _KNN_NUM_CANDIDATES = 200
 _RRF_RANK_CONSTANT = 60
 
+#: How many rough-ranked hits rerank mode fetches before LLM listwise
+#: reordering (then slices to the requested limit).
+_RERANK_FETCH = 50
+
 _INCLUDE_FIELDS = frozenset(
     {
         "document_id",
@@ -485,6 +489,13 @@ class SearchDocumentsTool:
                 "type": "integer",
                 "description": "返回的最大结果数，默认 10",
             },
+            "rerank": {
+                "type": "boolean",
+                "description": (
+                    "是否用 LLM 对粗排前 50 条做相关性重排后再截取返回，默认 false；"
+                    "重排失败时保持原顺序"
+                ),
+            },
         },
         "required": ["query"],
     }
@@ -535,11 +546,16 @@ class SearchDocumentsTool:
                     success=False,
                     error=f"limit 必须是 1 到 {_MAX_LIMIT} 之间的整数",
                 )
+            rerank = bool(kwargs.get("rerank", False))
+            # Rerank mode fetches a rough top-_RERANK_FETCH window and slices
+            # after reordering; otherwise fetch exactly the requested page.
+            lex_skip = 0 if rerank else skip
+            lex_limit = _RERANK_FETCH if rerank else limit
             raw = await asyncio.to_thread(
                 search_chunks,
                 query_body=es_body,
-                skip=skip,
-                limit=limit,
+                skip=lex_skip,
+                limit=lex_limit,
             )
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
@@ -565,7 +581,7 @@ class SearchDocumentsTool:
                 fused = _rrf_fuse(
                     raw.get("hits", {}).get("hits", []),
                     raw_knn.get("hits", {}).get("hits", []),
-                )[skip : skip + limit]
+                )
                 cleaned = {
                     "total": _extract_total(raw),
                     "took_ms": raw.get("took", 0) + raw_knn.get("took", 0),
@@ -587,6 +603,21 @@ class SearchDocumentsTool:
                 include_annotations=bool(kwargs.get("include_annotations", False)),
             )
             cleaned["mode"] = "lexical"
+
+        # Optional LLM listwise rerank: reorder the rough top-N, then slice.
+        # Failures keep the original order — reranking is best-effort.
+        if rerank:
+            try:
+                from rerank import rerank_hits
+
+                ordered = await rerank_hits(query, cleaned["hits"][:_RERANK_FETCH])
+                cleaned["hits"] = ordered[skip : skip + limit]
+                cleaned["reranked"] = True
+            except Exception:
+                logger.warning("rerank failed; keeping original order", exc_info=True)
+                cleaned["hits"] = cleaned["hits"][skip : skip + limit]
+        elif query_vector is not None:
+            cleaned["hits"] = cleaned["hits"][skip : skip + limit]
 
         # Neighbor context expansion: attach chunks adjacent to each hit so
         # provisions spanning chunk boundaries come back as a unit.  Best

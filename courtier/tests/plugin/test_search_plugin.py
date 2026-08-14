@@ -142,7 +142,10 @@ class TestHybridQuery:
     _VECTOR = [0.1, 0.2, 0.3]
 
     def test_build_knn_query_carries_filters(self):
-        filters = [{"term": {"doc_type": "通知"}}, {"bool": {"should": [], "minimum_should_match": 1}}]
+        filters = [
+            {"term": {"doc_type": "通知"}},
+            {"bool": {"should": [], "minimum_should_match": 1}},
+        ]
         body = tools._build_knn_query(self._VECTOR, filters)
         assert body == {
             "knn": {
@@ -334,3 +337,118 @@ class TestEmbeddingClient:
         monkeypatch.setattr(self.httpx, "AsyncClient", FailingClient)
         with pytest.raises(embeddings.EmbeddingUnavailable):
             await embeddings.embed_texts(["甲"])
+
+
+def _rerank_hit(i: int) -> dict:
+    return {"title": f"标题{i}", "chunk_text": f"内容{i}", "chunk_no": i}
+
+
+class TestRerank:
+    import httpx
+
+    class _FakeRerankResponse:
+        def __init__(self, content):
+            self._content = content
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    class _FakeAsyncClient:
+        response_content = "[3, 1, 2]"
+
+        def __init__(self, timeout=None):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return TestRerank._FakeRerankResponse(type(self).response_content)
+
+    def test_parse_order_plain(self):
+        import rerank
+
+        assert rerank._parse_order("[3, 1, 2]", 3) == [3, 1, 2]
+
+    def test_parse_order_tolerates_prose(self):
+        import rerank
+
+        assert rerank._parse_order("根据相关性排序如下：\n[2, 1]\n完毕", 2) == [2, 1]
+
+    def test_parse_order_filters_invalid(self):
+        import rerank
+
+        assert rerank._parse_order("[1, 9, 1, 2]", 3) == [1, 2]  # out-of-range/dup dropped
+        assert rerank._parse_order("无法排序", 3) is None
+
+    @pytest.mark.asyncio
+    async def test_rerank_hits_reorders(self, monkeypatch):
+        import rerank
+
+        monkeypatch.setenv("LLM_IP", "https://example.com/v1")
+        monkeypatch.setenv("LLM_NAME", "qwen")
+        self._FakeAsyncClient.response_content = "[3, 1, 2]"
+        monkeypatch.setattr(self.httpx, "AsyncClient", self._FakeAsyncClient)
+
+        hits = [_rerank_hit(i) for i in (1, 2, 3)]
+        ordered = await rerank.rerank_hits("查询", hits)
+        assert [h["chunk_no"] for h in ordered] == [3, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_rerank_failure_raises(self, monkeypatch):
+        import rerank
+
+        monkeypatch.setenv("LLM_IP", "https://example.com/v1")
+        monkeypatch.setenv("LLM_NAME", "qwen")
+
+        class FailingClient(self._FakeAsyncClient):
+            async def post(self, url, json=None, headers=None):
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr(self.httpx, "AsyncClient", FailingClient)
+        hits = [_rerank_hit(i) for i in (1, 2, 3)]
+        with pytest.raises(RuntimeError):
+            await rerank.rerank_hits("查询", hits)
+
+    @pytest.mark.asyncio
+    async def test_execute_rerank_reorders_and_slices(self, monkeypatch):
+        import es_client
+        import rerank
+
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+
+        def fake_search_chunks(query_body, skip, limit):
+            hits = [
+                {
+                    "_id": f"{i}",
+                    "_score": 9.0 - i,
+                    "_source": {
+                        "resource_id": 1,
+                        "chunk_no": i,
+                        "title": f"t{i}",
+                        "chunk_text": f"c{i}",
+                    },
+                }
+                for i in range(3)
+            ]
+            return {"hits": {"total": {"value": 3}, "hits": hits}, "took": 1}
+
+        monkeypatch.setattr(es_client, "search_chunks", fake_search_chunks)
+        reverse = [_rerank_hit(3), _rerank_hit(2), _rerank_hit(1)]
+
+        async def fake_rerank(query, hits):
+            return reverse
+
+        monkeypatch.setattr(rerank, "rerank_hits", fake_rerank)
+
+        tool = tools.SearchDocumentsTool()
+        result = await tool.execute(query="查询", rerank=True, limit=2)
+        assert result.success
+        assert result.data["reranked"] is True
+        assert [h["chunk_no"] for h in result.data["hits"]] == [3, 2]
