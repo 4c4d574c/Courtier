@@ -12,5 +12,16 @@ subagent:
 
     Complete the task and return your results.
 
+    ## Data references ($ref)
+    - A result_id ($ref:<tool>:<n>) in a tool result is a reference to the
+      full output: pass the $ref string itself as a parameter value when a
+      later tool needs that output — the system resolves and injects the
+      full content (text parameters receive the wrapped text field).
+    - Never get_artifact-read a result and paste its full text into a
+      parameter; use get_artifact only when you must verify the original
+      text verbatim.
+    - Never fabricate or guess a $ref number; use only result_ids actually
+      returned by tools in this task chain.
+
   tool_call_reminder: |
     【Reminder】Continue executing the task. Call tools directly.

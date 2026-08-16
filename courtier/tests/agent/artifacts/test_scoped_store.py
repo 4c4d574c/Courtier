@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from courtier.agent.artifacts.models import Artifact, ArtifactMetadata
@@ -289,3 +291,70 @@ def test_uncovered_attributes_delegate_to_inner_store(store, tmp_path):
     # set_type_policy is not overridden — delegation keeps it working.
     view.set_type_policy("core.plain_text", persist="always", llm_visible="full")
     assert store._persist_policies["core.plain_text"] == "always"
+
+
+@pytest.mark.asyncio
+async def test_ref_string_param_adapts_to_text_through_view(store, tmp_path):
+    """End-to-end the subagent path: a $ref passed for a string parameter
+    resolves through the scoped view to the wrapped text field — the model
+    must never need to get_artifact + paste the full text."""
+    from courtier.agent.artifacts.scoped_store import ScopedArtifactView
+    from courtier.agent.tools.registry import ToolRegistry
+
+    data = {"markdown": "正文内容", "format": "docx"}
+    persisted = await store.persist(data, "convert_document", force=True)
+
+    received: dict = {}
+
+    class TextTool:
+        name = "correct_text"
+        description = "test"
+        parameters = {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        }
+
+        async def execute(self, on_progress=None, **kwargs):
+            received.update(kwargs)
+            return SimpleNamespace(success=True, data={"ok": True}, error=None, metadata={})
+
+    registry = ToolRegistry()
+    registry.register(TextTool())
+    view = ScopedArtifactView(store, scope="h-child", allowed={"h-orch"})
+
+    result = await registry.execute(
+        "correct_text",
+        artifact_store=view,
+        text=persisted.ref_id,
+    )
+    assert result.success
+    assert received["text"] == "正文内容"
+
+
+@pytest.mark.asyncio
+async def test_ref_hidden_from_view_stays_unresolved(store):
+    """A ref owned by a sibling scope must NOT resolve through the view
+    (visibility boundary unchanged by the text adaptation)."""
+    from courtier.agent.artifacts.scoped_store import ScopedArtifactView
+    from courtier.agent.artifacts.models import Artifact, ArtifactMetadata
+
+    data = {"markdown": "机密正文", "format": "docx"}
+    persisted = await store.persist(data, "convert_document", force=True)
+    store.put(
+        Artifact(
+            artifact_id=persisted.ref_id,
+            artifact_type="core.document_markdown",
+            data=data,
+            metadata=ArtifactMetadata(
+                created_by="convert_document",
+                subject="h-sibling",
+                content_hash="sha256:x",
+            ),
+        )
+    )
+    view = ScopedArtifactView(store, scope="h-child", allowed={"h-orch"})
+    resolved = view.resolve_refs({"text": persisted.ref_id}, {"text": {"type": "string"}})
+    # Hidden ref is masked out of resolution; the model keeps an
+    # unresolvable placeholder rather than the sibling's text.
+    assert resolved["text"] != "机密正文"

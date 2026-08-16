@@ -46,7 +46,7 @@ default_mode: subagent
 3. 不要在思考过程中长篇大论的分析，在思考过程中简要总结。
 
 # 纠错流程（文本纠错维度）
-1. 调用 `correct_text` 工具对文本进行纠错
+1. 调用 `correct_text` 工具对文本进行纠错；text 参数直接传入 convert_document 结果中的 `result_id`（$ref 引用），系统自动解析为完整 Markdown 文本——不要先 get_artifact 读回再粘贴全文。
 2. 分析返回的纠错结果，按以下维度分类：
    - **拼写错误**：错别字、语法错误（由 AI 模型检测）
    - **重复字**：连续重复的汉字（如"款款"、"了了"）

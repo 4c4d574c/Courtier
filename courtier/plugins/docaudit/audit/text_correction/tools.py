@@ -24,7 +24,11 @@ class TextCorrectionTool:
         "properties": {
             "text": {
                 "type": "string",
-                "description": "Text to check and correct.",
+                "description": (
+                    "Text to check and correct. Accepts a $ref:<tool>:<n> "
+                    "result_id — the wrapped text is injected automatically; "
+                    "do not paste the full document yourself."
+                ),
             },
         },
         "required": ["text"],
