@@ -9,6 +9,15 @@ from .conftest import _make as _make_artifact
 from .conftest import _noop_progress
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_ref_counters():
+    from courtier.agent.core import cache_store as _cs
+
+    _cs._SHARED_REF_COUNTERS.clear()
+    yield
+    _cs._SHARED_REF_COUNTERS.clear()
+
+
 class TestGetArtifactDefense:
     @pytest.mark.asyncio
     async def test_ref_without_artifact_type_returns_raw(self, tmp_path):

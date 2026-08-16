@@ -73,6 +73,15 @@ class ArtifactStore:
         if cache_salt is not None:
             backend_kwargs["cache_salt"] = cache_salt
         self._backend = _PersistenceBackend(**backend_kwargs)
+        # Seed ref numbering from the primary backend (ES result index) so
+        # fresh stores never reissue a ref id that overwrites an existing
+        # index document from another session/process.
+        seeder = getattr(primary_backend, "max_ref_sequences", None)
+        if callable(seeder):
+            try:
+                self._backend.seed_ref_counters(seeder())
+            except Exception:
+                logger.warning("ref counter seeding skipped", exc_info=True)
 
     # -- Persistence delegation (absorbed from CacheStore) ----------------------
 

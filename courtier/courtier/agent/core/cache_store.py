@@ -36,6 +36,11 @@ _HASH_INDEX_FILE = ".hash_index.json"
 
 _REF_PATTERN = re.compile(r"^\$ref:([a-zA-Z_][a-zA-Z0-9_.]*):(\d+)(?::([a-zA-Z_][a-zA-Z0-9_]*))?$")
 
+#: Process-wide floor for per-tool ref numbering.  Updated on every
+#: persist; read by the ES backend's seed cache so a TTL-frozen snapshot
+#: never hands a new store a number a sibling store just issued.
+_SHARED_REF_COUNTERS: dict[str, int] = {}
+
 # Pattern for finding $ref references embedded anywhere in a string
 # (no ^/$ anchors).  Used as a fallback when a string value contains a
 # ref but doesn't start with one.
@@ -371,11 +376,30 @@ class _PersistenceBackend:
             )
         return sanitized
 
+    def seed_ref_counters(self, mapping: dict[str, int]) -> None:
+        """Raise per-tool numbering past externally known maxima.
+
+        Never lowers existing counters: in-memory numbering from earlier
+        persists (or a larger later max) always wins, so concurrent stores
+        seeded from the same snapshot still diverge upward.  Used with the
+        ES result index so separate processes/sessions never reissue the
+        same ``$ref:<tool>:N`` (its _id would overwrite a prior session's
+        document).
+        """
+        for tool, seq in mapping.items():
+            if seq > self.ref_counters.get(tool, 0):
+                self.ref_counters[tool] = seq
+
     def _next_ref_id(self, tool_name: str, label: str | None) -> str:
         """Return the next ref-id for *tool_name* (not async-safe — callers
         must hold ``self._lock`` or be single-threaded)."""
+        floor = _SHARED_REF_COUNTERS.get(tool_name, 0)
+        if floor > self.ref_counters.get(tool_name, 0):
+            self.ref_counters[tool_name] = floor
         seq = self.ref_counters.get(tool_name, 0) + 1
         self.ref_counters[tool_name] = seq
+        if seq > _SHARED_REF_COUNTERS.get(tool_name, 0):
+            _SHARED_REF_COUNTERS[tool_name] = seq
 
         ref_id = f"$ref:{tool_name}:{seq}"
         if label:
@@ -559,15 +583,24 @@ class _PersistenceBackend:
             return raw, "text/plain"
 
     def load(self, ref_id: str) -> Any:
-        """Load persisted data for *ref_id* from disk.
+        """Load persisted data for *ref_id*.
 
-        Returns parsed JSON for ``.json`` files, raw text for ``.txt`` files,
-        or ``None`` on failure.
+        Disk first (parsed JSON for ``.json`` files, raw text for ``.txt``);
+        on a miss the primary backend (e.g. the ES result index) is asked
+        synchronously, so refs persisted by another process/session remain
+        loadable.  ``None`` on failure.
         """
         data, _ = self._load_ref(ref_id)
-        if data is None:
-            return None
-        return data
+        if data is not None:
+            return data
+        backend = self._primary_backend
+        loader = getattr(backend, "load", None)
+        if callable(loader):
+            try:
+                return loader(ref_id)
+            except Exception:
+                logger.warning("primary backend load failed for %s", ref_id, exc_info=True)
+        return None
 
     def set_ref(self, ref_id: str, filepath: str) -> None:
         """Register a ref_id → filepath mapping for multi-turn resolution.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,15 @@ from courtier.config import Settings
 from courtier.es.client import get_es_client
 
 logger = logging.getLogger(__name__)
+
+_REF_ID_RE = re.compile(r"^\$ref:([a-zA-Z_][a-zA-Z0-9_.]*):(\d+)")
+
+#: Module-level cache of per-tool max ref sequence, so per-request stores
+#: don't re-aggregate ES on every agent build.  Values never decrease
+#: within a process (a higher seen sequence wins), keeping numbering
+#: monotonic even when the cache expires between two rapid builds.
+_seq_seed_cache: dict[str, tuple[float, dict[str, int]]] = {}
+_SEQ_SEED_TTL_SECONDS = 60.0
 
 
 @dataclass(frozen=True)
@@ -120,6 +130,7 @@ class ElasticsearchResultBackend(ResultBackend):
     ) -> StoredResult:
         meta = metadata or {}
         text = self._data_to_text(data)
+        ref_match = _REF_ID_RE.match(result_id)
         body = {
             "result_id": result_id,
             "actor_type": meta.get("actor_type", "unknown"),
@@ -133,9 +144,32 @@ class ElasticsearchResultBackend(ResultBackend):
             "content_type": meta.get("content_type", "application/json"),
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        # tool/seq fields let new store instances seed their numbering past
+        # anything already in the index — ref ids must not collide across
+        # sessions/processes.
+        if ref_match:
+            body["tool"] = ref_match.group(1)
+            body["seq"] = int(ref_match.group(2))
 
         await asyncio.to_thread(self._ensure_index)
-        await asyncio.to_thread(self._client.index, index=self._index_name, id=result_id, body=body)
+        # op_type=create: a collision (two sessions issuing the same ref)
+        # must fail loudly instead of overwriting another session's doc.
+        await asyncio.to_thread(
+            self._client.index,
+            index=self._index_name,
+            id=result_id,
+            body=body,
+            op_type="create",
+        )
+        # The TTL cache cannot see in-process writes; bump it so sibling
+        # stores in this process continue past this sequence even inside
+        # the TTL window.
+        if ref_match and self._index_name in _seq_seed_cache:
+            ts, seqs = _seq_seed_cache[self._index_name]
+            tool = ref_match.group(1)
+            if int(ref_match.group(2)) > seqs.get(tool, 0):
+                seqs[tool] = int(ref_match.group(2))
+                _seq_seed_cache[self._index_name] = (ts, seqs)
 
         return StoredResult(
             result_id=result_id,
@@ -223,3 +257,54 @@ class ElasticsearchResultBackend(ResultBackend):
         except Exception as exc:
             logger.warning("ES exists check failed for %s: %s", result_id, exc)
             return False
+
+    def load(self, result_id: str) -> Any | None:
+        """Synchronous direct read of the stored payload (``data`` field).
+
+        Returns None when the document is missing or unreadable.  Used by
+        ArtifactStore.load() as the fallback when disk has no record —
+        refs persisted by another process/session live only in ES.
+        """
+        try:
+            resp = self._client.get(index=self._index_name, id=result_id)
+        except Exception:
+            return None
+        if not resp.get("found", True):
+            return None
+        return resp.get("_source", {}).get("data")
+
+    def max_ref_sequences(self) -> dict[str, int]:
+        """Max stored ref sequence per tool name (TTL-cached, monotonic).
+
+        ArtifactStore seeds its numbering from this so two fresh stores
+        (concurrent sessions, post-restart) never reissue the same
+        ``$ref:<tool>:N`` and overwrite each other's index entries.
+        """
+        import time as _time
+
+        cached = _seq_seed_cache.get(self._index_name)
+        if cached and _time.monotonic() - cached[0] < _SEQ_SEED_TTL_SECONDS:
+            return dict(cached[1])
+        seqs: dict[str, int] = dict(cached[1]) if cached else {}
+        try:
+            resp = self._client.search(
+                index=self._index_name,
+                body={
+                    "size": 0,
+                    "aggs": {
+                        "by_tool": {
+                            "terms": {"field": "tool", "size": 100},
+                            "aggs": {"max_seq": {"max": {"field": "seq"}}},
+                        }
+                    },
+                },
+            )
+            for bucket in resp.get("aggregations", {}).get("by_tool", {}).get("buckets", []):
+                tool = bucket.get("key")
+                max_seq = bucket.get("max_seq", {}).get("value")
+                if tool and max_seq is not None and int(max_seq) > seqs.get(tool, 0):
+                    seqs[tool] = int(max_seq)
+        except Exception:
+            logger.warning("ref sequence seed query failed; numbering falls back", exc_info=True)
+        _seq_seed_cache[self._index_name] = (_time.monotonic(), dict(seqs))
+        return seqs

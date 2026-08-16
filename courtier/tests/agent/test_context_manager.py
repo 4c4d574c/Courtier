@@ -30,6 +30,16 @@ PRE_TURN_REMINDER = _ENGINE.render("behavioral.pre_turn_reminder")
 PERIODIC_REMINDER = _ENGINE.render("behavioral.periodic_reminder")
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_ref_counters():
+    """Global ref numbering must not leak across tests in one session."""
+    from courtier.agent.core import cache_store as _cs
+
+    _cs._SHARED_REF_COUNTERS.clear()
+    yield
+    _cs._SHARED_REF_COUNTERS.clear()
+
+
 @pytest.fixture
 def mock_model():
     model = MagicMock()

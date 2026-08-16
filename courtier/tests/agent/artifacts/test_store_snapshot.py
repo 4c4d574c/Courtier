@@ -36,6 +36,15 @@ def _make_disk_ref_artifact(
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_ref_counters():
+    from courtier.agent.core import cache_store as _cs
+
+    _cs._SHARED_REF_COUNTERS.clear()
+    yield
+    _cs._SHARED_REF_COUNTERS.clear()
+
+
 def test_snapshot_restore_roundtrip(tmp_path):
     store = ArtifactStore(cache_dir=str(tmp_path))
     store.set_type_policy("docaudit.parsed_document", persist="always", llm_visible="summary")

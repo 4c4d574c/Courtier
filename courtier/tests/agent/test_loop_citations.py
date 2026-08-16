@@ -496,8 +496,8 @@ async def test_tool_result_events_carry_cumulative_citation_offset():
     from courtier.agent.core.loop import agent_loop
     from courtier.agent.core.model import MockModelClient, ToolCall
     from courtier.agent.core.state import AgentState
-    from courtier.agent.tools.registry import ToolRegistry
     from courtier.agent.tools.protocol import ToolResult
+    from courtier.agent.tools.registry import ToolRegistry
 
     class FakeSearch:
         name = "search_documents"

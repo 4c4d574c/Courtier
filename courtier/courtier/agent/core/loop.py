@@ -108,7 +108,9 @@ async def _build_citations_payload(
             loader = getattr(artifact_store, "load", None)
             if callable(loader):
                 data = loader(result.result_id)
-            else:
+            if not isinstance(data, dict):
+                # load() missed (e.g. backend without a synchronous read)
+                # — the async read path is the fallback before giving up.
                 loaded = await artifact_store.read(result.result_id)
                 if isinstance(loaded, dict) and not loaded.get("error"):
                     data = loaded.get("data")
@@ -181,6 +183,10 @@ async def _annotate_search_citations(
                 loader = getattr(artifact_store, "load", None)
                 if callable(loader):
                     data = loader(result.result_id)
+                if not isinstance(data, dict):
+                    loaded = await artifact_store.read(result.result_id)
+                    if isinstance(loaded, dict) and not loaded.get("error"):
+                        data = loaded.get("data")
             except Exception:
                 logger.warning(
                     "failed to load search result %s for citation numbering",

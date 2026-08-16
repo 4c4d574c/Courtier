@@ -818,7 +818,8 @@ class TestReadChunks:
             chunks=[{"resource_id": 2, "chunk_no": 3}, {"resource_id": 1, "chunk_no": 5}]
         )
         assert result.success
-        assert [(c["resource_id"], c["chunk_no"]) for c in result.data["chunks"]] == [(2, 3), (1, 5)]
+        coords = [(c["resource_id"], c["chunk_no"]) for c in result.data["chunks"]]
+        assert coords == [(2, 3), (1, 5)]
         assert result.data["chunks"][0]["chunk_text"] == "乙" * 100
         assert "missing" not in result.data
 
@@ -1150,7 +1151,7 @@ class TestRankField:
         TestFetchWindow._enable_hybrid(monkeypatch)
 
         tool = tools.SearchDocumentsTool()
-        first = await tool.execute(query="缓存查询", limit=5)
+        await tool.execute(query="缓存查询", limit=5)  # warm the cache
         second = await tool.execute(query="缓存查询", limit=5)
         assert second.data.get("cached") is True
         assert [h["rank"] for h in second.data["hits"]] == list(range(1, 6))
@@ -1165,8 +1166,9 @@ class TestEnvKnobs:
         assert tools._env_int("SEARCH_TEST_UNSET", 7) == 7
 
     def test_manifest_declares_knob_defaults(self):
-        import yaml
         from pathlib import Path
+
+        import yaml
 
         manifest_path = (
             Path(__file__).resolve().parents[2] / "plugins" / "shared" / "search" / "plugin.yaml"

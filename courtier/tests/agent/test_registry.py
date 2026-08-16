@@ -8,6 +8,16 @@ from courtier.agent.tools.protocol import ToolResult
 from courtier.agent.tools.registry import ToolRegistry
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_ref_counters():
+    """Global ref numbering must not leak across tests in one session."""
+    from courtier.agent.core import cache_store as _cs
+
+    _cs._SHARED_REF_COUNTERS.clear()
+    yield
+    _cs._SHARED_REF_COUNTERS.clear()
+
+
 class TestToolRegistry:
     def test_register_and_get(self, registry_with_fake):
         tool = registry_with_fake.get("fake")
