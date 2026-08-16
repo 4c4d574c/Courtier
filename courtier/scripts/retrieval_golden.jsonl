@@ -14,3 +14,8 @@
 {"query": "2018年宪法修正案", "expected_resource_ids": [14], "expected_chunk_substrings": ["修正案"]}
 {"query": "国家秘密的密级", "expected_resource_ids": [18, 19], "expected_chunk_substrings": ["密级"]}
 {"query": "保守国家秘密法", "expected_resource_ids": [18, 19], "expected_chunk_substrings": ["保守国家秘密"]}
+{"query": "生产经营单位生产安全事故应急救援预案与政府预案相衔接", "expected_resource_ids": [12], "expected_chunk_substrings": ["应急救援预案相衔接"], "case": "long-chunk"}
+{"query": "网络数据跨境安全管理要求", "expected_resource_ids": [10], "expected_chunk_substrings": ["防范网络数据跨境安全风险"], "case": "long-chunk"}
+{"query": "专家论证难以有效防治重大灾害", "expected_resource_ids": [8], "expected_chunk_substrings": ["难以有效防治重大灾害"], "case": "long-chunk"}
+{"query": "应急救援基地和应急救援队伍建设 统一协调指挥", "expected_resource_ids": [12], "expected_chunk_substrings": ["由国家安全生产应急救援机构统一协调指挥"], "case": "cross-chunk"}
+{"query": "事故调查处理 科学严谨 依法依规", "expected_resource_ids": [12], "expected_chunk_substrings": ["科学严谨、依法依规"], "case": "standard"}
