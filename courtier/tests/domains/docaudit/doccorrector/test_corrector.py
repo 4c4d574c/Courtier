@@ -6,7 +6,14 @@
   _apply_errors 应用语义（mock 模型层，不发起网络）。
 """
 
-from doccorrector.corrector import ErrorCorrect, _apply_errors, _detect_punctuation_mixing
+from unittest.mock import MagicMock, patch
+
+from doccorrector.corrector import (
+    ErrorCorrect,
+    OpenAITextCorrectInfer,
+    _apply_errors,
+    _detect_punctuation_mixing,
+)
 
 
 def _make_corrector(model_outputs: list[str]) -> ErrorCorrect:
@@ -15,7 +22,9 @@ def _make_corrector(model_outputs: list[str]) -> ErrorCorrect:
         api_base="http://127.0.0.1:1", api_key="k", model_name="m"
     )
     # 实例属性遮蔽类方法，跳过 OpenAI 客户端推理
-    corrector.inferencer.infer = lambda input_list: list(model_outputs)  # type: ignore[method-assign]
+    corrector.inferencer.infer = lambda input_list: [  # type: ignore[method-assign]
+        {"text": t, "warnings": []} for t in model_outputs
+    ]
     return corrector
 
 
@@ -150,3 +159,71 @@ def test_only_model_edits_regression():
         }
     ]
     assert result["target"] == model_output
+
+
+# ── 输出完整性守卫（Phase 追加：2026-08-16 第二轮日志 sess_4ee0d4de0fd1）──
+
+
+def _fake_cec_response(content: str):
+    return MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+
+
+def test_truncated_output_falls_back_to_identity_with_warning():
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    src = "为深入贯彻落实党的二十大关于加快建设数字中国的战略部署。" * 5  # ~150 字
+    with patch.object(
+        inferencer.client.chat.completions,
+        "create",
+        return_value=_fake_cec_response("只返回了一小段"),
+    ):
+        results = inferencer.infer([src])
+    # 截断输出被守卫拦下：原文保留、warnings 记录
+    assert results[0]["text"] == src
+    assert len(results[0]["warnings"]) == 1
+    assert "截断" in results[0]["warnings"][0]
+
+
+def test_full_output_passes_guard_without_warning():
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    src = "为深入贯彻落实党的二十大关于加快建设数字中国的战略部署。" * 5
+    out = src.replace("惯", "贯") if "惯" in src else src.replace("彻", "彻")
+    with patch.object(
+        inferencer.client.chat.completions, "create", return_value=_fake_cec_response(out)
+    ):
+        results = inferencer.infer([src])
+    assert results[0]["text"] == out
+    assert results[0]["warnings"] == []
+
+
+def test_short_batch_skips_guard():
+    # 短批次（<50 字）不做比例守卫，短输出按原样接受
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    with patch.object(
+        inferencer.client.chat.completions,
+        "create",
+        return_value=_fake_cec_response("短输出"),
+    ):
+        results = inferencer.infer(["短短一句"])
+    assert results[0]["text"] == "短输出"
+    assert results[0]["warnings"] == []
+
+
+def test_warnings_attached_to_result_items():
+    corrector = _make_corrector(["原文"])
+    corrector.inferencer.infer = lambda input_list: [  # type: ignore[method-assign]
+        {"text": "原文", "warnings": ["某批回退"]}
+    ]
+    [result] = corrector.infer(["原文"])
+    assert result["warnings"] == ["某批回退"]
+
+
+def test_no_warnings_field_when_clean():
+    corrector = _make_corrector(["原文"])
+    [result] = corrector.infer(["原文"])
+    assert "warnings" not in result

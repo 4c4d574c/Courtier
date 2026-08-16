@@ -11,7 +11,8 @@
   阶段五：target 构造（errors 确定性应用到 source）
 
 结果契约：每条结果的 target 由 errors 应用生成（target == 在 source 上
-应用全部 errors），两者必然一致。
+应用全部 errors），两者必然一致；若纠错模型输出异常截断，对应批次按
+原文保留，该条结果带 warnings 字段说明未纠错的批次。
 """
 
 import difflib
@@ -31,6 +32,12 @@ PROMPT_PREFIX: str = (
 
 # 合法叠词（不受配置影响）
 _DEFAULT_ALLOWED_PATTERNS: set[str] = {"看一看", "想一想", "试一试", "人人", "一一"}
+
+# 输出完整性守卫：模型输出低于输入批次的该比例视为截断/异常，该批回退为原文。
+# 纠错器不应大幅缩短文本——若 diff 把未输出内容全部标为删除，会静默丢文本。
+_MIN_OUTPUT_RATIO: float = 0.5
+# 批次过短时不做守卫（几十字的输入输出比例无意义）。
+_MIN_BATCH_CHARS_FOR_GUARD: int = 50
 
 logger = logging.getLogger(__name__)
 
@@ -590,22 +597,46 @@ class OpenAITextCorrectInfer:
 
         return batches
 
-    def infer(self, input_list: list[str]) -> list[str]:
-        results: list[str] = []
+    def infer(self, input_list: list[str]) -> list[dict]:
+        """返回 [{text, warnings}]——text 为纠错后文本，warnings 为批次级异常提示。"""
+        results: list[dict] = []
         for query in input_list:
             batches = self._split_text_by_paragraphs(query)
             batch_results: list[str] = []
+            warnings: list[str] = []
             for batch in batches:
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": PROMPT_PREFIX + batch}],
                     temperature=0.6,
                     top_p=0.95,
+                    max_tokens=self.max_length,
                     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
                 text = response.choices[0].message.content
-                batch_results.append(text.strip() if text else "")
-            results.append("\n".join(batch_results))
+                out = text.strip() if text else ""
+                # 输出完整性守卫：纠错器不应大幅缩短文本。模型输出远短于
+                # 输入批次时（如输出长度被服务端截断），diff 会把其余内容
+                # 全部标记为删除——宁可不纠错，也不能静默丢文本。
+                batch_chars = len(batch.strip())
+                if (
+                    batch_chars >= _MIN_BATCH_CHARS_FOR_GUARD
+                    and len(out) < batch_chars * _MIN_OUTPUT_RATIO
+                ):
+                    logger.warning(
+                        "CEC 模型输出疑似截断：输入 %d 字，输出 %d 字，该批按原文保留",
+                        batch_chars,
+                        len(out),
+                    )
+                    warnings.append(
+                        f"纠错模型输出疑似截断（输出 {len(out)} 字 < 输入 "
+                        f"{batch_chars} 字的 {_MIN_OUTPUT_RATIO:.0%}），"
+                        "该批次已按原文保留、未做模型纠错（规则类检查仍生效）。"
+                    )
+                    batch_results.append(batch)
+                else:
+                    batch_results.append(out)
+            results.append({"text": "\n".join(batch_results), "warnings": warnings})
         return results
 
 
@@ -644,7 +675,12 @@ class ErrorCorrect:
     def infer(self, input_list: list[str]) -> list[dict]:
         # ── 阶段二：4B 模型纠错（模型 diff 误差为权威，规则不与模型争抢）──
         res = self.inferencer.infer(input_list)
-        results = res_format(input_list, res)
+        outputs = [cast(str, r.get("text", "")) for r in res]
+        warnings_by_input = [cast(list[str], r.get("warnings", [])) for r in res]
+        results = res_format(input_list, outputs)
+        for item, warns in zip(results, warnings_by_input):
+            if warns:
+                item["warnings"] = warns
 
         for item in results:
             source = cast(str, item["source"])
