@@ -19,7 +19,9 @@ class TextCorrectionTool:
         "issues, and punctuation mixing errors. Each result contains source, target, "
         "and errors: target is the fully corrected text with every listed error "
         "applied (errors is the complete source→target diff, including delete and "
-        "insert operations), so errors and target are always consistent."
+        "insert operations), so errors and target are always consistent. When the "
+        "correction model truncates a batch abnormally, that batch is returned "
+        "unchanged and reported in the result's warnings field."
     )
     parameters: dict[str, Any] = {
         "type": "object",
