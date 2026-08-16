@@ -7,7 +7,11 @@
   阶段三-b：全角半角检测
   阶段三-c：标点语种混用检测
   阶段三-d：截断人名检测
-  阶段四：冲突消解（保护词兜底）
+  阶段四：冲突消解（保护词兜底 + 模型/规则重叠消解）
+  阶段五：target 构造（errors 确定性应用到 source）
+
+结果契约：每条结果的 target 由 errors 应用生成（target == 在 source 上
+应用全部 errors），两者必然一致。
 """
 
 import difflib
@@ -468,6 +472,52 @@ def _resolve_conflicts(
     return _protect_corrected_text(resolved, source, protected_words)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# 阶段五：target 构造与区间重叠判断
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _error_range(e: dict) -> tuple[int, int]:
+    """该 error 在原文中的 [start, end) 区间；零宽（insert）按单点处理。"""
+    pos = e.get("position", 0)
+    width = len(e.get("original", "") or e.get("corrected", "") or "")
+    return (pos, pos + max(width, 1))
+
+
+def _overlaps_any(e: dict, refs: list[dict]) -> bool:
+    """判断 error e 的原文区间是否与 refs 中任一 error 相交。"""
+    start, end = _error_range(e)
+    for r in refs:
+        r_start, r_end = _error_range(r)
+        if start < r_end and r_start < end:
+            return True
+    return False
+
+
+def _apply_errors(source: str, errors: list[dict]) -> str:
+    """按 errors 列表把修正应用到 source，构造最终 target。
+
+    errors 须已按 position 升序且区间两两不重叠。单次从左到右应用，
+    position 语义始终基于原 source（与 res_format 的 difflib 坐标一致）。
+    """
+    parts: list[str] = []
+    cursor = 0  # source 中下一未消费位置
+    for e in errors:
+        op = e.get("operation", "replace")
+        pos = e.get("position", 0)
+        original = e.get("original", "")
+        corrected = e.get("corrected", "")
+        parts.append(source[cursor:pos])
+        if op == "insert":
+            parts.append(corrected)
+            cursor = pos
+        else:
+            parts.append(corrected)  # delete 时 corrected=""
+            cursor = pos + len(original)
+    parts.append(source[cursor:])
+    return "".join(parts)
+
+
 # ── 推理类 ─────────────────────────────────────────────────────────
 
 
@@ -565,10 +615,13 @@ class OpenAITextCorrectInfer:
 
 
 class ErrorCorrect:
-    """中文拼写和语法错误纠正 — 四阶段流水线
+    """中文拼写和语法错误纠正 — 五阶段流水线
 
     配置全部通过构造参数显式传入；库本身不读取应用配置或环境变量，
     由调用方（如 text_correction 插件）负责从环境注入。
+
+    结果契约：每条结果的 target 由 errors 确定性应用生成
+    （target == 在 source 上应用全部 errors），两者必然一致。
     """
 
     def __init__(
@@ -589,14 +642,15 @@ class ErrorCorrect:
         self._protected_words: set[str] = _load_user_words(user_dict)
 
     def infer(self, input_list: list[str]) -> list[dict]:
-        # ── 阶段二：4B 模型纠错 ────────────────────────────────────
+        # ── 阶段二：4B 模型纠错（模型 diff 误差为权威，规则不与模型争抢）──
         res = self.inferencer.infer(input_list)
         results = res_format(input_list, res)
 
-        # ── 阶段三：规则补充 ──────────────────────────────────
         for item in results:
             source = cast(str, item["source"])
-            errors = cast(list[dict[str, Any]], item["errors"])
+            model_errors = cast(list[dict[str, Any]], item["errors"])
+
+            # ── 阶段三：规则补充 ──────────────────────────────────
             # 重复字检测
             dup_errors = _detect_duplicate_chars(source)
             # 全角半角检测
@@ -607,23 +661,33 @@ class ErrorCorrect:
             py_errors = _pycorrector_check(source)
             # 正向纠错：检测截断的人名（如"王洪"→"王小洪"）
             trunc_errors = _find_truncated_forms(source, self._protected_words)
-            # 合并并按位置排序
-            errors.extend(dup_errors)
-            errors.extend(fw_errors)
-            errors.extend(punc_errors)
-            errors.extend(py_errors)
-            errors.extend(trunc_errors)
-            errors.sort(key=lambda e: e.get("position", 0))
+            rule_errors = dup_errors + fw_errors + punc_errors + py_errors + trunc_errors
 
-        # ── 阶段五：冲突消解（两层：原文区间 + 纠错后文本完整性）──
-        for item in results:
-            source = cast(str, item["source"])
+            # ── 阶段四：冲突消解（保护词两层兜底 + 重叠消解）──
             protected_ranges = _build_protected_ranges(source, self._protected_words)
-            item["errors"] = _resolve_conflicts(
-                cast(list[dict[str, Any]], item["errors"]),
+            resolved = _resolve_conflicts(
+                model_errors,
                 source,
                 self._protected_words,
                 protected_ranges,
             )
+            rule_resolved = _resolve_conflicts(
+                rule_errors,
+                source,
+                self._protected_words,
+                protected_ranges,
+            )
+            # 模型已改的位置规则不再重复报（模型 diff 优先）；规则内部
+            # 重叠（如重复字检测与 pycorrector 双报）按位置靠前者保留。
+            rule_kept: list[dict] = []
+            for e in sorted(rule_resolved, key=lambda e: e.get("position", 0)):
+                if not _overlaps_any(e, resolved) and not _overlaps_any(e, rule_kept):
+                    rule_kept.append(e)
+            resolved.extend(rule_kept)
+            resolved.sort(key=lambda e: e.get("position", 0))
+
+            # ── 阶段五：构造性一致——target 由最终 errors 应用生成 ──
+            item["errors"] = resolved
+            item["target"] = _apply_errors(source, resolved)
 
         return results
