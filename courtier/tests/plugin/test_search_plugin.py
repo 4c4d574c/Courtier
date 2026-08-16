@@ -1154,3 +1154,31 @@ class TestRankField:
         second = await tool.execute(query="缓存查询", limit=5)
         assert second.data.get("cached") is True
         assert [h["rank"] for h in second.data["hits"]] == list(range(1, 6))
+
+
+class TestEnvKnobs:
+    def test_env_int_defaults_and_overrides(self, monkeypatch):
+        assert tools._env_int("SEARCH_TEST_UNSET", 7) == 7
+        monkeypatch.setenv("SEARCH_TEST_UNSET", "9")
+        assert tools._env_int("SEARCH_TEST_UNSET", 7) == 9
+        monkeypatch.setenv("SEARCH_TEST_UNSET", "not-a-number")
+        assert tools._env_int("SEARCH_TEST_UNSET", 7) == 7
+
+    def test_manifest_declares_knob_defaults(self):
+        import yaml
+        from pathlib import Path
+
+        manifest_path = (
+            Path(__file__).resolve().parents[2] / "plugins" / "shared" / "search" / "plugin.yaml"
+        )
+        env = yaml.safe_load(manifest_path.read_text("utf-8"))["runtime"]["env"]
+        for knob in (
+            "SEARCH_KNN_K",
+            "SEARCH_MAX_WINDOW",
+            "SEARCH_RERANK_FETCH",
+            "SEARCH_NEIGHBOR_WINDOW",
+            "SEARCH_CACHE_TTL_S",
+            "SEARCH_CACHE_MAX_ENTRIES",
+            "SEARCH_CANDIDATE_BUDGET_CHARS",
+        ):
+            assert knob in env

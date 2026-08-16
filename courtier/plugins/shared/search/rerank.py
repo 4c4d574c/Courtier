@@ -13,7 +13,7 @@ import os
 import re
 from typing import Any
 
-from tools import _parse_query
+from tools import _env_int, _parse_query
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ _TIMEOUT_SECONDS = 30.0
 #: Total char budget across all candidates in one listwise prompt; each
 #: candidate gets budget//n chars, clamped to [min, max].  50 candidates
 #: ≈ 480 chars each; short candidate lists get richer evidence.
-_CANDIDATE_BUDGET_CHARS = 24_000
+_CANDIDATE_BUDGET_CHARS = _env_int("SEARCH_CANDIDATE_BUDGET_CHARS", 24_000)
 _CANDIDATE_MIN_CHARS = 240
 _CANDIDATE_MAX_CHARS = 800
 _ORDER_RE = re.compile(r"\[[\d,\s]*\]")

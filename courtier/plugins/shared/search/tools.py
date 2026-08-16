@@ -6,6 +6,7 @@ import asyncio
 import copy
 import hashlib
 import logging
+import os
 import re
 import threading
 import time
@@ -16,6 +17,20 @@ from typing import Any
 from courtier_plugin_sdk import ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read an int knob from the process env (values injected via
+    plugin.yaml runtime.env); fall back to the built-in default on
+    missing/invalid values so a bad override never breaks the plugin."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("invalid %s=%r, using default %d", name, raw, default)
+        return default
 
 _QUOTE_RE = re.compile(
     r"[\u0022\u201c\u201d\u2018\u2019\u300c\u300d]"
@@ -68,24 +83,25 @@ _SYNONYM_BOOST = 1.5
 #: Neighbor context expansion: chunks within +/- this window of a hit are
 #: attached as `neighbors` so provisions spanning chunk boundaries are
 #: returned as a unit.
-_NEIGHBOR_WINDOW = 2
+_NEIGHBOR_WINDOW = _env_int("SEARCH_NEIGHBOR_WINDOW", 2)
 _NEIGHBOR_PREVIEW_CHARS = 300
 
 #: Hybrid retrieval knobs.  ES `rank.rrf` needs a commercial license, so
 #: fusion is done client-side: run the lexical query and a kNN query, then
-#: merge with reciprocal rank fusion in-process.
-_KNN_K = 50
+#: merge with reciprocal rank fusion in-process.  (Env-tunable, see
+#: plugin.yaml runtime.env.)
+_KNN_K = _env_int("SEARCH_KNN_K", 50)
 _KNN_NUM_CANDIDATES = 200
 _RRF_RANK_CONSTANT = 60
 
 #: How many rough-ranked hits rerank mode fetches before LLM listwise
 #: reordering (then slices to the requested limit).
-_RERANK_MAX_FETCH = 100
+_RERANK_MAX_FETCH = _env_int("SEARCH_RERANK_FETCH", 100)
 
 #: Hybrid/rerank pages slice an in-process fused candidate list, so both
 #: arms fetch a common window of this size; paging deeper than the window
 #: yields empty pages (use filters to narrow instead).
-_MAX_WINDOW = 200
+_MAX_WINDOW = _env_int("SEARCH_MAX_WINDOW", 200)
 
 #: Optional publish_date recency weighting (gauss decay on the lexical arm).
 _TIME_DECAY_SCALE = "730d"
@@ -114,8 +130,8 @@ def _decay_multiplier(publish_date: str | None, now: date) -> float:
 #: Process-local TTL cache for coarse search results (pre-rerank).  Rerank
 #: results are recomputed per call (LLM nondeterminism); neighbor expansion
 #: is cached only on the non-rerank path where the final hit set is stable.
-_CACHE_TTL_SECONDS = 120.0
-_CACHE_MAX_ENTRIES = 256
+_CACHE_TTL_SECONDS = float(_env_int("SEARCH_CACHE_TTL_S", 120))
+_CACHE_MAX_ENTRIES = _env_int("SEARCH_CACHE_MAX_ENTRIES", 256)
 _cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _cache_lock = threading.Lock()
 

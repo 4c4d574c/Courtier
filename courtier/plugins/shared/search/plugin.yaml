@@ -26,3 +26,12 @@ runtime:
     LLM_EMBEDDING_NAME: "${ENV:LLM_EMBEDDING_NAME}"
     LLM_EMBEDDING_DIM: "${ENV:LLM_EMBEDDING_DIM}"
     LLM_EMBEDDING_BATCH_SIZE: "${ENV:LLM_EMBEDDING_BATCH_SIZE}"
+    # Retrieval knobs (consumed by tools.py / rerank.py; literals here are
+    # the defaults — override per deployment without a code change).
+    SEARCH_KNN_K: "50"
+    SEARCH_MAX_WINDOW: "200"
+    SEARCH_RERANK_FETCH: "100"
+    SEARCH_NEIGHBOR_WINDOW: "2"
+    SEARCH_CACHE_TTL_S: "120"
+    SEARCH_CACHE_MAX_ENTRIES: "256"
+    SEARCH_CANDIDATE_BUDGET_CHARS: "24000"
