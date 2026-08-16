@@ -351,3 +351,32 @@ class TestConvertDocumentOCR:
         result = await tool.execute(file_path=str(pdf))
         assert result.success is False
         assert "第 1 页" in result.error
+
+
+class TestEmptyExtraction:
+    @pytest.mark.asyncio
+    async def test_empty_markdown_fails_with_guidance(self, tmp_path, monkeypatch):
+        """A document that yields zero text (empty shell docx, pure-image
+        content) must fail loudly — a silent "" markdown sends the model
+        chasing a nonexistent full version via get_artifact."""
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "anydoc", _fake_anydoc(markdown=""))
+        import plugins.shared.anydoc.tools as tools_mod
+
+        doc = tmp_path / "empty.docx"
+        doc.write_bytes(b"fake empty docx")
+        result = await tools_mod.ConvertDocumentTool().execute(file_path=str(doc))
+        assert result.success is False
+        assert "未提取到任何文本内容" in result.error
+        assert "parse_document" in result.error
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_markdown_also_fails(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+        monkeypatch.setitem(sys.modules, "anydoc", _fake_anydoc(markdown="  \n\n \t"))
+        import plugins.shared.anydoc.tools as tools_mod
+
+        doc = tmp_path / "blank.docx"
+        doc.write_bytes(b"fake blank docx")
+        result = await tools_mod.ConvertDocumentTool().execute(file_path=str(doc))
+        assert result.success is False

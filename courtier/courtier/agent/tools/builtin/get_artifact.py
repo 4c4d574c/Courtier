@@ -175,9 +175,37 @@ class GetArtifactTool:
                 "或 list_artifacts 返回的 artifact_id 字段值。",
             )
 
-        # Unified dispatch: $ref → resolve from persistence, otherwise look up
-        # in the typed artifact registry.
+        # Registry-first dispatch for $ref ids: list_artifacts advertises
+        # ids like ``$ref:<tool>:latest`` for small inline outputs — those
+        # live only in the typed registry, and the persistence read path
+        # below cannot see them (observed: model followed list_artifacts'
+        # guidance and got "result not found").
         if id.startswith("$ref:"):
+            artifact = artifact_store.get(id)
+            if artifact is not None and getattr(artifact, "data", None) is not None:
+                on_progress({"status": "done", "message": "执行完成", "detail": None})
+                if not artifact_type:
+                    return ToolResult(
+                        success=True,
+                        data=artifact.data,
+                        metadata={"result_id": id, "artifact_id": id},
+                    )
+                return await self._project_artifact(
+                    artifact_store=artifact_store,
+                    artifact_id=id,
+                    artifact_type=artifact_type,
+                    source_scope=source_scope,
+                    max_chars=max_chars,
+                    normalize_whitespace=normalize_whitespace,
+                    max_items=max_items,
+                    min_text_chars=min_text_chars,
+                    dedupe=dedupe,
+                    materialize_as=materialize_as,
+                    label=label,
+                    on_progress=on_progress,
+                )
+            # Registry miss — fall through to the persistence read path
+            # (numbered refs from other processes/sessions resolve there).
             return await self._resolve_ref(
                 artifact_store=artifact_store,
                 id=id,

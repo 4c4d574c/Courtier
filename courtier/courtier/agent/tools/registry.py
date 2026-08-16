@@ -12,6 +12,7 @@ from courtier.agent.artifacts.models import (
     RuntimePolicy,
     build_contract_from_input_fields,
     derive_upstream_producers,
+    stable_content_hash,
 )
 from courtier.agent.artifacts.projectors import ProjectorRegistry, create_default_projector_registry
 from courtier.agent.artifacts.resolver import emit_event
@@ -601,12 +602,16 @@ class ToolRegistry:
         summarizer, whose ``ExecutionResult.result_id`` carries the numbered
         ``$ref:<tool>:N`` — the artifact is registered under that SAME id so
         get_artifact's persisted-ref read and typed projection resolve against
-        one id space.  Only unp persisted (small, inline) outputs fall back to
-        the single-slot ``$ref:<tool>:latest``.
+        one id space.  Unpersisted (small, inline) outputs get a
+        content-addressed ``inline:<tool>:<hash>`` id.
         """
         if data is None:
             return
-        ref_id = persisted_ref_id or f"$ref:{tool_name}:latest"
+        # Unpersisted (small, inline) outputs get a content-addressed id
+        # instead of the single-slot ``$ref:<tool>:latest`` — repeated calls
+        # must not overwrite each other's artifact, and the id must not
+        # masquerade as a persistence ref.
+        ref_id = persisted_ref_id or f"inline:{tool_name}:{stable_content_hash(data)[-12:]}"
         if isinstance(data, dict) and data.get("__persisted_output__"):
             ref_id = data.get("ref_id", ref_id)
             data = self._resolve_persisted_data(data)

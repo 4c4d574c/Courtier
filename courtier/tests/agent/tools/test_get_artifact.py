@@ -265,3 +265,67 @@ class TestRefVersionFallback:
         )
         assert result.success
         assert result.data["markdown"] == "正文"
+
+
+class TestRegistryFirstRefRouting:
+    """list_artifacts advertises ``$ref:<tool>:latest`` / ``inline:<tool>:<hash>``
+    ids for unpersisted outputs — those live only in the typed registry, so
+    get_artifact must look there before the persistence read path."""
+
+    @pytest.mark.asyncio
+    async def test_latest_alias_resolves_from_registry(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        data = {"markdown": "# 标题\n\n正文", "format": "docx"}
+        store.put(
+            _make_artifact(
+                "$ref:convert_document:latest",
+                atype="core.document_markdown",
+                data=data,
+            )
+        )
+        # No disk/ES record exists for this id — the old code routed
+        # straight to artifact_store.read() and reported not found.
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:latest",
+        )
+        assert result.success, result.error
+        assert result.data == data
+
+    @pytest.mark.asyncio
+    async def test_latest_alias_with_artifact_type_projects(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        store.put(
+            _make_artifact(
+                "$ref:convert_document:latest",
+                atype="core.document_markdown",
+                data={"markdown": "# 标题\n\n正文", "format": "docx"},
+            )
+        )
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:latest",
+            artifact_type="core.plain_text",
+        )
+        assert result.success, result.error
+        assert result.data["value"] == "# 标题\n\n正文"
+
+    @pytest.mark.asyncio
+    async def test_inline_content_addressed_id_resolves(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        store.put(
+            _make_artifact(
+                "inline:convert_document:abc123def456",
+                atype="core.document_markdown",
+                data={"markdown": "内容", "format": "docx"},
+            )
+        )
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="inline:convert_document:abc123def456",
+        )
+        assert result.success, result.error
+        assert result.data["markdown"] == "内容"

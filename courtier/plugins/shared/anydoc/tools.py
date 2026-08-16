@@ -151,6 +151,14 @@ class ConvertDocumentTool:
                     markdown, page_count = await ocr.ocr_pdf(str(resolved))
                 except RuntimeError as oexc:
                     return ToolResult(success=False, error=str(oexc))
+                if not str(markdown or "").strip():
+                    return ToolResult(
+                        success=False,
+                        error=(
+                            "OCR 完成但未识别到任何文本内容"
+                            "（可能是空白文档或纯图形页面）"
+                        ),
+                    )
                 return ToolResult(
                     success=True,
                     data={
@@ -169,6 +177,19 @@ class ConvertDocumentTool:
                 # Malformed / ResourceLimit / MissingPart
                 return ToolResult(success=False, error=f"文件无法转换: {exc}")
 
+            # An empty extraction must surface as a failure: downstream
+            # audit/correction steps have nothing to work on, and a silent
+            # "" markdown pushes the model into chasing a nonexistent
+            # "full version" (get_artifact on refs that were never minted).
+            if not str(markdown or "").strip():
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"文档转换完成但未提取到任何文本内容（{fmt}）。"
+                        "可能是空文档、纯图片型文件，或内容位于不受支持的容器中；"
+                        "扫描件请使用 parse_document。"
+                    ),
+                )
             return ToolResult(success=True, data={"markdown": markdown, "format": fmt})
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))

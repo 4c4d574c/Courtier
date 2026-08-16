@@ -644,3 +644,39 @@ class TestToolRegistryVersioning:
         assert info is not None
         assert info.version == "2.0.0"
         assert info.api_version == "2.0"
+
+
+@pytest.mark.asyncio
+async def test_inline_outputs_get_distinct_content_addressed_ids(tmp_path):
+    """Unpersisted outputs must not share a single :latest slot — two
+    different small results register as separate artifacts."""
+    from courtier.agent.core.cache_store import CacheStore
+    from courtier.agent.artifacts.store import ArtifactStore
+
+    store = ArtifactStore(cache_dir=str(tmp_path / "c"))
+
+    class SmallTool:
+        name = "small_tool"
+        description = "test"
+        parameters = {"type": "object", "properties": {}}
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        async def execute(self, **kwargs):
+            return ToolResult(success=True, data=self._payload)
+
+    registry = ToolRegistry()
+    registry.register(SmallTool({"markdown": "甲文档", "format": "docx"}))
+
+    await registry.execute("small_tool", artifact_store=store)
+    ids_first = {a.artifact_id for a in store.list_all()}
+
+    registry.register(SmallTool({"markdown": "乙文档", "format": "docx"}), force=True)
+    await registry.execute("small_tool", artifact_store=store)
+    ids_all = {a.artifact_id for a in store.list_all()}
+
+    assert len(ids_first) == 1
+    assert len(ids_all) == 2  # second call must NOT overwrite the first
+    assert all(i.startswith("inline:small_tool:") for i in ids_all)
+    assert "$ref:small_tool:latest" not in ids_all
