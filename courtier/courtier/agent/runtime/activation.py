@@ -234,7 +234,10 @@ class DomainActivator:
         # per-run sync only picks up newly visible tools at the START of the
         # next run, so same-turn use after activation would otherwise fail.
         self._inject_domain_tools(domain)
-        new_tools = self._domain_plugin_tools(domain)
+        # Report callable tool names (plugin names like "parse" differ from
+        # their tool names like "parse_document" — the model calls the
+        # latter).
+        new_tools = self._domain_plugin_tool_names(domain)
         logger.info(
             "Domain '%s' activated: tools=%s skills=%s",
             domain,
@@ -247,8 +250,16 @@ class DomainActivator:
             new_skills=new_skills,
             message=(
                 f"领域 {domain} 已激活。"
-                + (f"新增可用工具: {', '.join(new_tools)}。" if new_tools else "")
-                + (f"新增可用技能: {', '.join(new_skills)}。" if new_skills else "")
+                + (
+                    f"新增技能（任务级工作流，调用即启动子代理执行）: {', '.join(new_skills)}。"
+                    if new_skills
+                    else ""
+                )
+                + (
+                    f"新增工具（原子能力，可直接调用）: {', '.join(new_tools)}。"
+                    if new_tools
+                    else ""
+                )
             ),
         )
 
@@ -272,16 +283,6 @@ class DomainActivator:
         self._skill_registries[domain] = registry
         return registry
 
-    def _domain_plugin_tools(self, domain: str) -> list[str]:
-        """Names of valid plugin tools belonging to *domain*."""
-        if self._plugin_system is None:
-            return []
-        return sorted(
-            name
-            for name, result in self._plugin_system.get_scan_results().items()
-            if result.manifest is not None and self.plugin_domain(name) == domain
-        )
-
     def _inject_domain_tools(self, domain: str) -> None:
         """Register the domain's plugin proxies on the agent's registry now.
 
@@ -295,3 +296,14 @@ class DomainActivator:
                 continue
             if self.plugin_domain(plugin_name) == domain:
                 self._agent.tool_registry.register(tool)
+
+    def _domain_plugin_tool_names(self, domain: str) -> list[str]:
+        """Callable tool names provided by *domain*'s plugins (from the
+        shared registry, regardless of current agent visibility)."""
+        return sorted(
+            tool.name
+            for tool in self._tool_registry.list_tools()
+            if (pn := getattr(getattr(tool, "_client", None), "plugin_name", None))
+            is not None
+            and self.plugin_domain(pn) == domain
+        )

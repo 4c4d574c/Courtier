@@ -148,7 +148,9 @@ class TestDomainActivator:
         result = await activator.activate("docaudit")
         assert result.success is True
         assert result.new_skills == ["format_audit"]
-        assert "parse" in result.new_tools
+        # Tool names (not plugin names) are reported.
+        assert result.new_tools == ["domain_parse"]
+        assert "parse" not in result.new_tools
         assert activator.active_domains == {"docaudit"}
 
         # SkillTool registered on the agent's private registry.
@@ -203,7 +205,10 @@ class TestActivateDomainTool:
         assert result.success is True
         assert result.data["domain"] == "docaudit"
         assert result.data["new_skills"] == ["format_audit"]
-        assert "parse" in result.data["new_tools"]
+        assert result.data["new_tools"] == ["domain_parse"]
+        # Skills and tools are labelled distinctly in the message.
+        assert "新增技能（任务级工作流" in result.data["message"]
+        assert "新增工具（原子能力" in result.data["message"]
 
     @pytest.mark.asyncio
     async def test_execute_unknown_domain_reports_error(self, tmp_path):
