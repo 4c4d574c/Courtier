@@ -253,6 +253,29 @@ def _detect_fullwidth_chars(text: str, check_punc: bool = False) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════
 
 
+# 半角 → 全角 映射（引号除外，见 _QUOTE_PAIRS 开闭配对）
+_HW_TO_FW = {
+    ",": "，",
+    ".": "。",
+    ";": "；",
+    ":": "：",
+    "!": "！",
+    "?": "？",
+    "(": "（",
+    ")": "）",
+    "[": "【",
+    "]": "】",
+    "<": "《",
+    ">": "》",
+}
+
+# 半角引号 → 弯引号对：按出现顺序开闭交替（GB/T 15834，公文统一全角标点）
+_QUOTE_PAIRS: dict[str, tuple[str, str]] = {'"': ("“", "”"), "'": ("‘", "’")}
+
+# 半角数字字符集（用于数字内小数点豁免判断）
+_ASCII_DIGITS = frozenset("0123456789")
+
+
 def _detect_punctuation_mixing(text: str) -> list[dict]:
     """检测标点语种混用，标记为 replace 错误。
 
@@ -261,36 +284,36 @@ def _detect_punctuation_mixing(text: str) -> list[dict]:
     规则：
       - 检测所有半角标点，建议改为全角
       - 标点混用时，全部半角标点都标记为错误
+      - 半角引号按出现顺序开闭交替转为弯引号（“”、‘’）
+      - 数字内小数点（前后均为半角数字，如 5.8 亿元）豁免——
+        GB/T 15835-2011 规定数字中的小数点使用半角句点
     """
     errors: list[dict] = []
-
-    # 半角 → 全角 映射
-    hw_to_fw = {
-        ",": "，",
-        ".": "。",
-        ";": "；",
-        ":": "：",
-        "!": "！",
-        "?": "？",
-        "(": "（",
-        ")": "）",
-        "[": "【",
-        "]": "】",
-        "<": "《",
-        ">": "》",
-        '"': "「",
-        "'": "『",
-    }
+    # False = 下一处该字符期望开引号
+    quote_state: dict[str, bool] = {'"': False, "'": False}
 
     for i, ch in enumerate(text):
-        if ch not in hw_to_fw:
+        if ch in _QUOTE_PAIRS:
+            open_q, close_q = _QUOTE_PAIRS[ch]
+            corrected = open_q if not quote_state[ch] else close_q
+            quote_state[ch] = not quote_state[ch]
+        elif ch in _HW_TO_FW:
+            if (
+                ch == "."
+                and 0 < i < len(text) - 1
+                and text[i - 1] in _ASCII_DIGITS
+                and text[i + 1] in _ASCII_DIGITS
+            ):
+                continue
+            corrected = _HW_TO_FW[ch]
+        else:
             continue
         ctx_start = max(0, i - 3)
         ctx_end = min(len(text), i + 4)
         errors.append(
             {
                 "original": ch,
-                "corrected": hw_to_fw[ch],
+                "corrected": corrected,
                 "position": i,
                 "operation": "replace",
                 "context": text[ctx_start:ctx_end],
