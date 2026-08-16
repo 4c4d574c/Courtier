@@ -627,3 +627,48 @@ class TestCacheStoreHashIndexSalt:
         index_after = json.loads(index_path.read_text(encoding="utf-8"))
         assert len(index_after) == 1
         assert all(v["ref_id"] == r2.ref_id for v in index_after.values())
+
+
+@pytest.mark.asyncio
+class TestRefStringAdaptation:
+    """Persisted dicts adapted to a string parameter yield the document
+    text, not the serialized wrapper object."""
+
+    async def test_markdown_envelope_extracts_text(self, cache_store):
+        data = {"markdown": "正文内容", "format": "docx"}
+        result = await cache_store.persist(data, "convert_document", force=True)
+        kwargs = cache_store.resolve_refs(
+            {"text": result.ref_id},
+            {"text": {"type": "string"}},
+        )
+        assert kwargs["text"] == "正文内容"
+
+    async def test_chunk_text_field_extracted(self, cache_store):
+        data = {"chunk_text": "条款正文", "title": "条例", "resource_id": 9}
+        result = await cache_store.persist(data, "search_documents", force=True)
+        kwargs = cache_store.resolve_refs(
+            {"text": result.ref_id},
+            {"text": {"type": "string"}},
+        )
+        assert kwargs["text"] == "条款正文"
+
+    async def test_no_text_field_falls_back_to_json(self, cache_store):
+        data = {"hits": [{"title": "t"}], "total": 1}
+        result = await cache_store.persist(data, "search_documents", force=True)
+        kwargs = cache_store.resolve_refs(
+            {"text": result.ref_id},
+            {"text": {"type": "string"}},
+        )
+        import json as _json
+
+        parsed = _json.loads(kwargs["text"])
+        assert parsed["total"] == 1
+
+    async def test_object_param_still_gets_whole_dict(self, cache_store):
+        data = {"markdown": "正文内容", "format": "docx"}
+        result = await cache_store.persist(data, "convert_document", force=True)
+        kwargs = cache_store.resolve_refs(
+            {"payload": result.ref_id},
+            {"payload": {"type": "object"}},
+        )
+        assert kwargs["payload"] == data

@@ -612,6 +612,10 @@ class _PersistenceBackend:
             "exists": True,
         }
 
+    #: Fields probed, in order, when adapting a persisted dict to a string
+#: parameter — the model should be able to pass ``$ref:convert_document:N``
+#: straight into a text parameter and receive the document text, not the
+#: serialized ``{"markdown": ..., "format": ...}`` envelope.
     def _load_and_adapt(self, ref_id: str, param_schema: dict[str, Any] | None = None) -> Any:
         """Load data for *ref_id* and adapt based on *param_schema* type.
 
@@ -630,6 +634,13 @@ class _PersistenceBackend:
         if schema_type == "string":
             if isinstance(data, str):
                 return data
+            if isinstance(data, dict):
+                # Text params expect prose, not a JSON envelope: pull the
+                # document text out of wrapper objects.
+                for field_name in _TEXT_FIELD_PRIORITY:
+                    value = data.get(field_name)
+                    if isinstance(value, str) and value.strip():
+                        return value
             return json.dumps(data, ensure_ascii=False)
 
         elif schema_type == "object":
@@ -810,6 +821,13 @@ class _PersistenceBackend:
             resolved_kwargs[key] = self._resolve_value(value, key_schema)
 
         return resolved_kwargs
+
+
+#: Fields probed, in order, when adapting a persisted dict to a string
+#: parameter — the model should be able to pass ``$ref:convert_document:N``
+#: straight into a text parameter and receive the document text, not the
+#: serialized ``{"markdown": ..., "format": ...}`` envelope.
+_TEXT_FIELD_PRIORITY = ("markdown", "text", "content", "plain_text", "chunk_text", "data")
 
 
 def _sample_field_paths(data: Any, *, max_depth: int = 3, max_paths: int = 12) -> list[str]:
