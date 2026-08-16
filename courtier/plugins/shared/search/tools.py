@@ -672,17 +672,12 @@ class SearchDocumentsTool:
             cleaned["cached"] = True
 
         query_vector: list[float] | None = None
+        # Set when the fetch used the window policy (embedding configured or
+        # rerank): such results are sliced in-process, including the embed-
+        # degraded fallback where query_vector is None but the lexical arm
+        # already fetched a window instead of the requested page.
+        hybrid_planned = False
         if cleaned is None:
-            # Hybrid mode: embed the query when the embedding endpoint is
-            # configured; any failure degrades to lexical-only search.
-            try:
-                from embeddings import embed_query, embedding_config
-
-                if embedding_config() is not None:
-                    query_vector = await embed_query(query)
-            except Exception:
-                logger.warning("query embedding failed; falling back to lexical", exc_info=True)
-
             try:
                 es_body = _build_es_query(
                     query=query,
@@ -705,20 +700,57 @@ class SearchDocumentsTool:
                 # fetch the whole window (skip+limit) — fetching just the
                 # first page would keep lexical hits beyond page 1 out of
                 # fusion.  Pure lexical keeps ES-native paging (exact
-                # totals, deep paging up to _MAX_SKIP).
+                # totals, deep paging up to _MAX_SKIP).  hybrid_planned is
+                # a pure config check (no network): when embedding is
+                # configured the window fetch applies even if the embed
+                # call later fails, and the degraded result is sliced.
+                embed_planned = False
+                try:
+                    from embeddings import embedding_config
+
+                    embed_planned = embedding_config() is not None
+                except Exception:
+                    logger.warning("embedding config check failed; lexical only", exc_info=True)
+                hybrid_planned = embed_planned
+
                 window = min(max(skip + limit, _KNN_K), _MAX_WINDOW)
                 if rerank:
                     lex_skip, lex_limit = 0, min(window, _RERANK_MAX_FETCH)
-                elif query_vector is not None:
+                elif hybrid_planned:
                     lex_skip, lex_limit = 0, window
                 else:
                     lex_skip, lex_limit = skip, limit
-                raw = await asyncio.to_thread(
+
+                # The lexical fetch and the query embedding (when planned)
+                # run concurrently — the kNN arm depends on the vector and
+                # is issued after both resolve.  Any embedding failure
+                # degrades to lexical-only search.
+                lex_task = asyncio.to_thread(
                     search_chunks,
                     query_body=es_body,
                     skip=lex_skip,
                     limit=lex_limit,
                 )
+                if hybrid_planned:
+                    try:
+                        from embeddings import embed_query
+                    except Exception:
+                        logger.warning("embedding import failed; lexical only", exc_info=True)
+                        raw = await lex_task
+                    else:
+                        raw, query_vector = await asyncio.gather(
+                            lex_task, embed_query(query), return_exceptions=True
+                        )
+                        if isinstance(query_vector, Exception):
+                            logger.warning(
+                                "query embedding failed; falling back to lexical",
+                                exc_info=query_vector,
+                            )
+                            query_vector = None
+                        if isinstance(raw, BaseException):
+                            raise raw
+                else:
+                    raw = await lex_task
             except Exception as exc:
                 return ToolResult(success=False, error=str(exc))
 
@@ -794,7 +826,9 @@ class SearchDocumentsTool:
                 logger.warning("rerank failed; keeping original order", exc_info=True)
                 cleaned["hits"] = cleaned["hits"][skip : skip + limit]
                 cleaned["rerank_partial"] = True
-        elif query_vector is not None:
+        elif hybrid_planned:
+            # Window fetch (hybrid planned or degraded): slice in-process.
+            # Covers both the fused result and the embed-failure fallback.
             cleaned["hits"] = cleaned["hits"][skip : skip + limit]
 
         # Neighbor context expansion: attach chunks adjacent to each hit so

@@ -373,6 +373,64 @@ class TestFetchWindow:
         assert [h["chunk_no"] for h in result.data["hits"]] == list(range(85, 95))
 
 
+class TestParallelRetrieval:
+    """The lexical fetch and the query embedding run concurrently; the kNN
+    arm follows once the vector resolves."""
+
+    @pytest.mark.asyncio
+    async def test_embed_runs_concurrently_with_lexical_fetch(self, monkeypatch):
+        tools._cache_clear()
+        import embeddings
+        import es_client
+
+        loop = asyncio.get_running_loop()
+        lexical_done = asyncio.Event()
+
+        def fake_search_chunks(query_body, skip, limit):
+            body_json = json.dumps(query_body)
+            if "knn" in query_body or '"range"' in body_json:
+                return {"hits": {"total": {"value": 0}, "hits": []}, "took": 1}
+            loop.call_soon_threadsafe(lexical_done.set)
+            return {"hits": {"total": {"value": 1}, "hits": [_corpus_hit(0)]}, "took": 1}
+
+        monkeypatch.setattr(es_client, "search_chunks", fake_search_chunks)
+
+        async def fake_embed(query):
+            # Only resolvable while the lexical fetch is executing: proves
+            # the two overlap.  A sequential embed-then-lexical order would
+            # deadlock here and fail the 3s timeout.
+            await asyncio.wait_for(lexical_done.wait(), timeout=3)
+            return [0.1, 0.2, 0.3]
+
+        monkeypatch.setattr(embeddings, "embedding_config", lambda: object())
+        monkeypatch.setattr(embeddings, "embed_query", fake_embed)
+
+        result = await tools.SearchDocumentsTool().execute(query="通知", limit=5)
+        assert result.success
+        assert result.data["mode"] == "hybrid"
+
+    @pytest.mark.asyncio
+    async def test_embed_failure_degrades_to_window_sliced_lexical(self, monkeypatch):
+        tools._cache_clear()
+        import embeddings
+
+        calls = TestFetchWindow._install_es(monkeypatch, n_corpus=30)
+
+        async def failing_embed(query):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(embeddings, "embedding_config", lambda: object())
+        monkeypatch.setattr(embeddings, "embed_query", failing_embed)
+
+        result = await tools.SearchDocumentsTool().execute(query="通知", skip=10, limit=10)
+        assert result.success
+        assert result.data["mode"] == "lexical"
+        # Embedding was planned → window fetch (not native skip=10 page);
+        # the degraded result must still be sliced in-process to the page.
+        assert [c for c in calls if c[0] == "lexical"] == [("lexical", 0, 50)]
+        assert [h["chunk_no"] for h in result.data["hits"]] == list(range(10, 20))
+
+
 class TestNeighborExpansion:
     def test_build_neighbor_query_windows(self):
         body = tools._build_neighbor_query(
