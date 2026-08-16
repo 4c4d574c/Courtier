@@ -27,6 +27,9 @@ behavioral:
       do not get_artifact-read the value and paste it back yourself.
       Read a tool result's summary and key_excerpts first; call
       get_artifact only when you need the full text verbatim.
+      For long documents, call get_artifact with outline=true first and
+      then read sections with the section parameter — never read the
+      whole document back or page blindly.
     - 【Critical】search_documents citation marker rules:
       Place each `[[n]]` marker immediately after the exact content it cites
       (a clause, sentence, or phrase) — at the actual cited position; never

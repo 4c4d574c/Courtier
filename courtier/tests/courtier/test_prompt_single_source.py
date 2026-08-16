@@ -39,6 +39,7 @@ def test_behavioral_zh_carries_citation_rules():
         "严禁使用 [[0]]",
         "key_excerpts",
         "无需先 get_artifact 读回",
+        "outline=true",
     ):
         assert needle in content, f"behavioral.yaml (zh-CN) lost citation rule: {needle}"
     # The two rules jammed onto one line (formatting damage) must stay split.
