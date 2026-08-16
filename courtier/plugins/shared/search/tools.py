@@ -612,6 +612,7 @@ class SearchDocumentsTool:
         "支持按文档ID、文档类型、标签过滤。"
         "词法模式下 total 为精确总数（total_mode=exact）；"
         "hybrid 模式下 total 为窗口内融合候选数（total_mode=window）。"
+        "相关性以 hits 中的 rank 为准（页内 1 起序号），_score 跨模式不可比仅供排障。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -927,6 +928,14 @@ class SearchDocumentsTool:
         # Cache the final result (with neighbors) on the non-rerank path.
         if not rerank and not from_cache:
             _cache_put(cache_key, copy.deepcopy(cleaned))
+
+        # Page-relative rank (1-based) on the final hit list — assigned after
+        # every slicing/reordering path (fused slice, rerank, cache hit) so
+        # it always matches the returned page. More reliable for the model
+        # than _score, whose scale differs across retrieval modes (BM25 vs
+        # RRF). Neighbors are context, not ranked hits.
+        for i, hit in enumerate(cleaned.get("hits") or [], 1):
+            hit["rank"] = i
 
         return ToolResult(success=True, data=cleaned)
 

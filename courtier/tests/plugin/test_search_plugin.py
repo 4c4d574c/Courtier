@@ -1110,3 +1110,47 @@ class TestLimitCap:
         assert not result.success
         assert "1 到 50" in result.error
 
+
+
+class TestRankField:
+    """Every returned hit carries a page-relative 1-based rank, assigned
+    after slicing/reordering so it always matches the returned page."""
+
+    @pytest.mark.asyncio
+    async def test_hybrid_page_ranks_restart_at_one(self, monkeypatch):
+        tools._cache_clear()
+        TestFetchWindow._install_es(monkeypatch, n_corpus=30)
+        TestFetchWindow._enable_hybrid(monkeypatch)
+
+        result = await tools.SearchDocumentsTool().execute(query="通知", skip=10, limit=10)
+        assert [h["rank"] for h in result.data["hits"]] == list(range(1, 11))
+
+    @pytest.mark.asyncio
+    async def test_rerank_ranks_follow_reordered_page(self, monkeypatch):
+        tools._cache_clear()
+        import rerank
+
+        TestFetchWindow._install_es(monkeypatch, n_corpus=10)
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+
+        async def fake_rerank(query, hits):
+            return list(reversed(hits)), False
+
+        monkeypatch.setattr(rerank, "rerank_hits", fake_rerank)
+
+        result = await tools.SearchDocumentsTool().execute(query="通知", rerank=True, limit=5)
+        chunk_nos = [h["chunk_no"] for h in result.data["hits"]]
+        assert chunk_nos == [9, 8, 7, 6, 5]  # reversed order
+        assert [h["rank"] for h in result.data["hits"]] == [1, 2, 3, 4, 5]
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_still_carries_ranks(self, monkeypatch):
+        tools._cache_clear()
+        TestFetchWindow._install_es(monkeypatch, n_corpus=30)
+        TestFetchWindow._enable_hybrid(monkeypatch)
+
+        tool = tools.SearchDocumentsTool()
+        first = await tool.execute(query="缓存查询", limit=5)
+        second = await tool.execute(query="缓存查询", limit=5)
+        assert second.data.get("cached") is True
+        assert [h["rank"] for h in second.data["hits"]] == list(range(1, 6))
