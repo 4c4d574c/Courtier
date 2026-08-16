@@ -22,21 +22,11 @@ def _fake_es_client(existing: dict[str, int] | None = None):
     client = MagicMock()
 
     def _search(index=None, body=None, **kw):
-        # Aggregate max seq per tool over stored docs.
-        maxima: dict[str, int] = {}
-        for rid in docs:
-            if not rid.startswith("$ref:"):
-                continue
-            tool, _, seq = rid.lstrip("$ref:").rpartition(":")
-            if seq.isdigit():
-                maxima[tool] = max(maxima.get(tool, 0), int(seq))
+        # Mirror the production query: terms over result_id only.
         return {
             "aggregations": {
-                "by_tool": {
-                    "buckets": [
-                        {"key": tool, "max_seq": {"value": seq}}
-                        for tool, seq in maxima.items()
-                    ]
+                "by_result_id": {
+                    "buckets": [{"key": rid, "doc_count": 1} for rid in docs]
                 }
             }
         }

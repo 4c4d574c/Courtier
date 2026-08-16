@@ -92,6 +92,8 @@ RESULT_INDEX_MAPPING = {
             "size_bytes": {"type": "integer"},
             "content_type": {"type": "keyword"},
             "created_at": {"type": "date"},
+            "tool": {"type": "keyword"},
+            "seq": {"type": "integer"},
         }
     }
 }
@@ -290,31 +292,23 @@ class ElasticsearchResultBackend(ResultBackend):
             return dict(cached[1])
         seqs: dict[str, int] = dict(cached[1]) if cached else {}
         try:
+            # Aggregate over result_id only: it is an explicit keyword field
+            # in every generation of this index, while tool/seq are dynamic
+            # text in legacy indexes (fielddata-disabled → terms agg 400s).
             resp = self._client.search(
                 index=self._index_name,
                 body={
                     "size": 0,
                     "aggs": {
-                        "by_tool": {
-                            "terms": {"field": "tool", "size": 100},
-                            "aggs": {"max_seq": {"max": {"field": "seq"}}},
-                        },
-                        # Legacy documents (pre tool/seq fields) only carry
-                        # result_id — parse the sequence out of it so a fresh
-                        # store still numbers past everything ever written.
                         "by_result_id": {
                             "terms": {"field": "result_id", "size": 10000},
                         },
                     },
                 },
             )
-            aggs = resp.get("aggregations", {})
-            for bucket in aggs.get("by_tool", {}).get("buckets", []):
-                tool = bucket.get("key")
-                max_seq = bucket.get("max_seq", {}).get("value")
-                if tool and max_seq is not None and int(max_seq) > seqs.get(tool, 0):
-                    seqs[tool] = int(max_seq)
-            for bucket in aggs.get("by_result_id", {}).get("buckets", []):
+            for bucket in (
+                resp.get("aggregations", {}).get("by_result_id", {}).get("buckets", [])
+            ):
                 match = _REF_ID_RE.match(str(bucket.get("key", "")))
                 if match and int(match.group(2)) > seqs.get(match.group(1), 0):
                     seqs[match.group(1)] = int(match.group(2))
