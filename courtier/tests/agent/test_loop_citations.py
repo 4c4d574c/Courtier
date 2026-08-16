@@ -138,7 +138,9 @@ def test_search_tool_attributes_recorded():
             "hits": [{}, {}, {}],
             "mode": "hybrid",
             "reranked": True,
+            "rerank_partial": False,
             "cached": False,
+            "time_decay_applied": True,
         },
     )
     _set_search_tool_attributes(span, record)
@@ -146,7 +148,9 @@ def test_search_tool_attributes_recorded():
         "gen_ai.tool.hits": 3,
         "retrieval.mode": "hybrid",
         "retrieval.reranked": True,
+        "retrieval.rerank_partial": False,
         "retrieval.cached": False,
+        "retrieval.time_decay": True,
     }
 
 
@@ -411,6 +415,10 @@ async def test_annotation_builds_compact_table_for_persisted_results():
     annotated = await _annotate_search_citations(persisted, _Store())
     assert annotated[0].key_excerpts[0].startswith("【引用编号 1】来源1｜")
     assert annotated[0].key_excerpts[2].startswith("【引用编号 3】来源3｜")
+    # Coordinate segment lets the model read the full text back via
+    # read_chunks instead of paraphrasing the 80-char preview.
+    assert "rid=1,chunk=1｜" in annotated[0].key_excerpts[0]
+    assert "rid=3,chunk=3｜" in annotated[0].key_excerpts[2]
     assert "共 3 条命中" in annotated[0].summary
     assert "编号 1~3" in annotated[0].summary
     # Second call continues cumulatively after the first call's 3 hits.

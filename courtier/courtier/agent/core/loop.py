@@ -216,9 +216,15 @@ async def _annotate_search_citations(
                 if isinstance(hit, dict):
                     title = str(hit.get("title", ""))
                     chunk = str(hit.get("chunk_text", "")).replace("\n", " ")
+                    rid, cno = hit.get("resource_id"), hit.get("chunk_no")
+                    # Coordinates let the model read the full text back via
+                    # read_chunks instead of paraphrasing the 80-char preview.
+                    coord = (
+                        f"rid={rid},chunk={cno}｜" if rid is not None and cno is not None else ""
+                    )
                 else:
-                    title, chunk = "", str(hit)
-                compact.append(f"【引用编号 {offset + i + 1}】{title}｜{chunk[:80]}")
+                    title, chunk, coord = "", str(hit), ""
+                compact.append(f"【引用编号 {offset + i + 1}】{title}｜{coord}{chunk[:80]}")
             total = data.get("total", len(hits))
             result = _dc_replace(
                 result,
