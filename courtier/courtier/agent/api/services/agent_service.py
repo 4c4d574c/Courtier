@@ -300,7 +300,7 @@ def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
             from ...runtime.es_backend import ElasticsearchResultBackend
 
             primary_backend = ElasticsearchResultBackend(
-                index_name=getattr(settings, "es_index_results", "agent_results"),
+                index_name=settings.es_index_results,
             )
         except Exception as exc:
             logger.warning(

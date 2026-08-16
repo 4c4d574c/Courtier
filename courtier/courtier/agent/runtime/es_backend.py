@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from courtier.config import Settings
+from courtier.config import get_settings
 from courtier.es.client import get_es_client
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,10 @@ class ElasticsearchResultBackend(ResultBackend):
     name = "elasticsearch"
 
     def __init__(self, index_name: str | None = None) -> None:
-        self._index_name = index_name or Settings().es_index_results
+        # Default comes from the shared Settings singleton (same object the
+        # host injects elsewhere) — a fresh Settings() would re-read env/.env
+        # and could point reads/writes at a different index.
+        self._index_name = index_name or get_settings().es_index_results
         self._client = get_es_client()
 
     def _ensure_index(self) -> None:
