@@ -69,14 +69,17 @@ def _parse_order(content: str, n: int) -> list[int] | None:
     return order or None
 
 
-async def rerank_hits(query: str, hits: list[dict]) -> list[dict]:
-    """Return *hits* reordered by an LLM listwise judgment.
+async def rerank_hits(query: str, hits: list[dict]) -> tuple[list[dict], bool]:
+    """Return (*hits* reordered, partial).
 
-    Raises on configuration/request/parse failure; the caller keeps the
-    original order in that case.
+    Unranked candidates are appended in original order so a partial model
+    answer never silently drops hits.  Coverage below half the candidates is
+    treated as an untrustworthy ordering and keeps the original order
+    entirely.  Raises on configuration/request/parse failure; the caller
+    keeps the original order in that case.
     """
     if len(hits) <= 1:
-        return hits
+        return hits, False
     env = _llm_env()
     if env is None:
         raise RuntimeError("LLM_IP/LLM_NAME not configured for rerank")
@@ -106,4 +109,9 @@ async def rerank_hits(query: str, hits: list[dict]) -> list[dict]:
     if order is None:
         raise RuntimeError(f"unparsable rerank output: {content[:80]!r}")
     by_index = {i + 1: hit for i, hit in enumerate(hits)}
-    return [by_index[num] for num in order] or hits
+    ordered = [by_index[num] for num in order]
+    ranked = set(order)
+    remainder = [hit for i, hit in enumerate(hits, 1) if i not in ranked]
+    if len(order) * 2 < len(hits):
+        return list(hits), True
+    return ordered + remainder, bool(remainder)

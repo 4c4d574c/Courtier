@@ -432,8 +432,40 @@ class TestRerank:
         monkeypatch.setattr(self.httpx, "AsyncClient", self._FakeAsyncClient)
 
         hits = [_rerank_hit(i) for i in (1, 2, 3)]
-        ordered = await rerank.rerank_hits("查询", hits)
+        ordered, partial = await rerank.rerank_hits("查询", hits)
         assert [h["chunk_no"] for h in ordered] == [3, 1, 2]
+        assert partial is False
+
+    @pytest.mark.asyncio
+    async def test_rerank_hits_appends_unranked_remainder(self, monkeypatch):
+        import rerank
+
+        monkeypatch.setenv("LLM_IP", "https://example.com/v1")
+        monkeypatch.setenv("LLM_NAME", "qwen")
+        # Model returned only 6 of 10 candidates (>= 50% coverage): the
+        # other 4 must be appended in original order, not dropped.
+        self._FakeAsyncClient.response_content = "[3, 1, 2, 4, 5, 6]"
+        monkeypatch.setattr(self.httpx, "AsyncClient", self._FakeAsyncClient)
+
+        hits = [_rerank_hit(i) for i in range(1, 11)]
+        ordered, partial = await rerank.rerank_hits("查询", hits)
+        assert [h["chunk_no"] for h in ordered] == [3, 1, 2, 4, 5, 6, 7, 8, 9, 10]
+        assert partial is True
+
+    @pytest.mark.asyncio
+    async def test_rerank_hits_low_coverage_keeps_original_order(self, monkeypatch):
+        import rerank
+
+        monkeypatch.setenv("LLM_IP", "https://example.com/v1")
+        monkeypatch.setenv("LLM_NAME", "qwen")
+        # 1 of 10 (< 50%): the ordering is untrustworthy, keep input order.
+        self._FakeAsyncClient.response_content = "[2]"
+        monkeypatch.setattr(self.httpx, "AsyncClient", self._FakeAsyncClient)
+
+        hits = [_rerank_hit(i) for i in range(1, 11)]
+        ordered, partial = await rerank.rerank_hits("查询", hits)
+        assert [h["chunk_no"] for h in ordered] == list(range(1, 11))
+        assert partial is True
 
     @pytest.mark.asyncio
     async def test_rerank_failure_raises(self, monkeypatch):
@@ -478,7 +510,7 @@ class TestRerank:
         reverse = [_rerank_hit(3), _rerank_hit(2), _rerank_hit(1)]
 
         async def fake_rerank(query, hits):
-            return reverse
+            return reverse, False
 
         monkeypatch.setattr(rerank, "rerank_hits", fake_rerank)
 
@@ -486,6 +518,7 @@ class TestRerank:
         result = await tool.execute(query="查询", rerank=True, limit=2)
         assert result.success
         assert result.data["reranked"] is True
+        assert result.data["rerank_partial"] is False
         assert [h["chunk_no"] for h in result.data["hits"]] == [3, 2]
 
 

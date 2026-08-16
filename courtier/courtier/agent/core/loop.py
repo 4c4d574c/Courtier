@@ -82,6 +82,7 @@ def _set_search_tool_attributes(tool_span: Any, record: Any) -> None:
     if mode:
         tool_span.set_attribute("retrieval.mode", str(mode))
     tool_span.set_attribute("retrieval.reranked", bool(data.get("reranked")))
+    tool_span.set_attribute("retrieval.rerank_partial", bool(data.get("rerank_partial")))
     tool_span.set_attribute("retrieval.cached", bool(data.get("cached")))
 
 

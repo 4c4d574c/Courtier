@@ -749,16 +749,20 @@ class SearchDocumentsTool:
 
         # Optional LLM listwise rerank: reorder the rough top-N, then slice.
         # Failures keep the original order — reranking is best-effort.
+        # ``rerank_partial`` marks that reordering did not fully apply
+        # (model omitted candidates, or rerank failed outright).
         if rerank:
             try:
                 from rerank import rerank_hits
 
-                ordered = await rerank_hits(query, cleaned["hits"][:_RERANK_FETCH])
+                ordered, partial = await rerank_hits(query, cleaned["hits"][:_RERANK_FETCH])
                 cleaned["hits"] = ordered[skip : skip + limit]
                 cleaned["reranked"] = True
+                cleaned["rerank_partial"] = partial
             except Exception:
                 logger.warning("rerank failed; keeping original order", exc_info=True)
                 cleaned["hits"] = cleaned["hits"][skip : skip + limit]
+                cleaned["rerank_partial"] = True
         elif query_vector is not None:
             cleaned["hits"] = cleaned["hits"][skip : skip + limit]
 
