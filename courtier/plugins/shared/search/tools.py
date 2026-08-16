@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from datetime import date
 from typing import Any
 
 from courtier_plugin_sdk import ToolResult
@@ -86,6 +87,26 @@ _MAX_WINDOW = 200
 #: Optional publish_date recency weighting (gauss decay on the lexical arm).
 _TIME_DECAY_SCALE = "730d"
 _TIME_DECAY_DECAY = 0.5
+#: Client-side twin of the ES gauss decay, applied on the fused scores when
+#: hybrid retrieval is planned (ES function_score cannot decorate the kNN
+#: arm, so both arms decay consistently only when done here).
+_TIME_DECAY_SCALE_DAYS = 730.0
+
+
+def _decay_multiplier(publish_date: str | None, now: date) -> float:
+    """ES-gauss-shaped score multiplier: decay ** ((age/scale) ** 2).
+
+    Chunks without a publish date stay neutral (multiplier 1.0), mirroring
+    the neutral weight function the server-side decay uses for undated docs.
+    """
+    if not publish_date:
+        return 1.0
+    try:
+        published = date.fromisoformat(str(publish_date)[:10])
+    except ValueError:
+        return 1.0
+    age_days = max((now - published).days, 0)
+    return _TIME_DECAY_DECAY ** ((age_days / _TIME_DECAY_SCALE_DAYS) ** 2)
 
 #: Process-local TTL cache for coarse search results (pre-rerank).  Rerank
 #: results are recomputed per call (LLM nondeterminism); neighbor expansion
@@ -395,13 +416,20 @@ def _fusion_sort_key(hit: dict) -> tuple:
     )
 
 
-def _rrf_fuse(lexical_hits: list[dict], knn_hits: list[dict]) -> list[dict]:
+def _rrf_fuse(
+    lexical_hits: list[dict],
+    knn_hits: list[dict],
+    decay_fn: Any = None,
+) -> list[dict]:
     """Client-side reciprocal rank fusion of two hit lists.
 
     ES `rank.rrf` requires a commercial license, so fusion happens here:
     each hit scores sum(1 / (rank_constant + rank)) over the lists it
     appears in.  The lexical hit dict wins on collision (it carries the
-    highlight snippets); the fused score lands in ``_rrf``.
+    highlight snippets); the fused score lands in ``_rrf``.  *decay_fn*
+    (hit → multiplier) is applied to ``_rrf`` before sorting — used for
+    client-side publish_date recency weighting so both arms decay
+    consistently.
     """
     merged: dict[str, dict] = {}
     scores: dict[str, float] = {}
@@ -413,7 +441,10 @@ def _rrf_fuse(lexical_hits: list[dict], knn_hits: list[dict]) -> list[dict]:
             merged.setdefault(hit_id, hit)
             scores[hit_id] = scores.get(hit_id, 0.0) + 1.0 / (_RRF_RANK_CONSTANT + rank)
     for hit_id, hit in merged.items():
-        hit["_rrf"] = scores[hit_id]
+        score = scores[hit_id]
+        if decay_fn is not None:
+            score *= decay_fn(hit)
+        hit["_rrf"] = score
     return sorted(merged.values(), key=_fusion_sort_key, reverse=True)
 
 
@@ -660,6 +691,7 @@ class SearchDocumentsTool:
                 error=f"limit 必须是 1 到 {_MAX_LIMIT} 之间的整数",
             )
         rerank = bool(kwargs.pop("rerank", False))
+        use_time_decay = bool(kwargs.get("use_time_decay", False))
 
         # TTL cache: coarse results are reusable within a short window.
         # Rerank always recomputes (LLM nondeterminism); on a non-rerank
@@ -678,6 +710,19 @@ class SearchDocumentsTool:
         # already fetched a window instead of the requested page.
         hybrid_planned = False
         if cleaned is None:
+            # Pure config check (no network) — decides both the fetch window
+            # policy and where time decay is applied (server-side gauss only
+            # on the pure lexical path; hybrid plans decay client-side on
+            # the fused scores so both arms decay consistently).
+            embed_planned = False
+            try:
+                from embeddings import embedding_config
+
+                embed_planned = embedding_config() is not None
+            except Exception:
+                logger.warning("embedding config check failed; lexical only", exc_info=True)
+            hybrid_planned = embed_planned
+
             try:
                 es_body = _build_es_query(
                     query=query,
@@ -686,7 +731,7 @@ class SearchDocumentsTool:
                     tags=kwargs.get("tags"),
                     search_fields=kwargs.get("search_fields"),
                     owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
-                    use_time_decay=bool(kwargs.get("use_time_decay", False)),
+                    use_time_decay=use_time_decay and not hybrid_planned,
                 )
             except Exception as exc:
                 return ToolResult(success=False, error=f"查询构建失败: {exc}")
@@ -700,19 +745,10 @@ class SearchDocumentsTool:
                 # fetch the whole window (skip+limit) — fetching just the
                 # first page would keep lexical hits beyond page 1 out of
                 # fusion.  Pure lexical keeps ES-native paging (exact
-                # totals, deep paging up to _MAX_SKIP).  hybrid_planned is
-                # a pure config check (no network): when embedding is
+                # totals, deep paging up to _MAX_SKIP).  hybrid_planned was
+                # decided above (pure config check): when embedding is
                 # configured the window fetch applies even if the embed
                 # call later fails, and the degraded result is sliced.
-                embed_planned = False
-                try:
-                    from embeddings import embedding_config
-
-                    embed_planned = embedding_config() is not None
-                except Exception:
-                    logger.warning("embedding config check failed; lexical only", exc_info=True)
-                hybrid_planned = embed_planned
-
                 window = min(max(skip + limit, _KNN_K), _MAX_WINDOW)
                 if rerank:
                     lex_skip, lex_limit = 0, min(window, _RERANK_MAX_FETCH)
@@ -775,9 +811,22 @@ class SearchDocumentsTool:
                     raw_knn = await asyncio.to_thread(
                         _search_chunks, query_body=knn_body, skip=0, limit=knn_k
                     )
+                    # Recency weighting on fused scores keeps both arms
+                    # consistent (server-side gauss cannot reach the kNN arm).
+                    decay_fn = None
+                    if use_time_decay:
+                        today = date.today()
+
+                        def _decay(hit: dict) -> float:
+                            return _decay_multiplier(
+                                (hit.get("_source", {}) or {}).get("publish_date"), today
+                            )
+
+                        decay_fn = _decay
                     fused = _rrf_fuse(
                         raw.get("hits", {}).get("hits", []),
                         raw_knn.get("hits", {}).get("hits", []),
+                        decay_fn=decay_fn,
                     )
                     cleaned = {
                         "total": len(fused),
@@ -789,6 +838,8 @@ class SearchDocumentsTool:
                         ),
                         "mode": "hybrid",
                     }
+                    if use_time_decay:
+                        cleaned["time_decay_applied"] = True
                 except Exception:
                     logger.warning("kNN arm failed; falling back to lexical", exc_info=True)
                     cleaned = _clean_response(
@@ -797,6 +848,12 @@ class SearchDocumentsTool:
                     )
                     cleaned["mode"] = "lexical"
                     cleaned["total_mode"] = "exact"
+                    if use_time_decay:
+                        # The lexical body was built without server-side
+                        # gauss (hybrid planned client-side decay); losing
+                        # the vector loses decay for this call.
+                        cleaned["time_decay_applied"] = False
+                        logger.warning("time decay skipped: kNN arm failed")
             else:
                 cleaned = _clean_response(
                     raw,
@@ -804,6 +861,14 @@ class SearchDocumentsTool:
                 )
                 cleaned["mode"] = "lexical"
                 cleaned["total_mode"] = "exact"
+                if use_time_decay:
+                    # True decay on the pure lexical path (server-side gauss
+                    # in the body); False when a planned hybrid degraded and
+                    # the body was built without gauss.
+                    applied = not hybrid_planned
+                    cleaned["time_decay_applied"] = applied
+                    if not applied:
+                        logger.warning("time decay skipped: embedding failed, degraded lexical")
 
             # Coarse result (pre-rerank, pre-neighbors) is what the cache
             # stores for rerank calls.

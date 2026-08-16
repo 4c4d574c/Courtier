@@ -84,6 +84,8 @@ def _set_search_tool_attributes(tool_span: Any, record: Any) -> None:
     tool_span.set_attribute("retrieval.reranked", bool(data.get("reranked")))
     tool_span.set_attribute("retrieval.rerank_partial", bool(data.get("rerank_partial")))
     tool_span.set_attribute("retrieval.cached", bool(data.get("cached")))
+    if "time_decay_applied" in data:
+        tool_span.set_attribute("retrieval.time_decay", bool(data.get("time_decay_applied")))
 
 
 async def _build_citations_payload(

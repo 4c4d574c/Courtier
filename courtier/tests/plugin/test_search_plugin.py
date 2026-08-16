@@ -226,6 +226,129 @@ class TestHybridQuery:
         assert mm["query"] == "安监局的通知"
 
 
+class TestTimeDecay:
+    """Client-side decay on fused scores (hybrid) vs server-side gauss
+    (pure lexical), with an explicit flag when decay is skipped on a
+    degraded path."""
+
+    def test_decay_multiplier_values(self):
+        from datetime import date
+
+        now = date(2026, 8, 16)
+        assert tools._decay_multiplier(None, now) == 1.0
+        assert tools._decay_multiplier("", now) == 1.0
+        assert tools._decay_multiplier("garbage", now) == 1.0
+        assert tools._decay_multiplier("2026-08-16", now) == 1.0
+        # one scale (730d) out → multiplier == decay (0.5)
+        assert tools._decay_multiplier("2024-08-16", now) == pytest.approx(0.5)
+        # half a scale out → 0.5 ** 0.25
+        assert tools._decay_multiplier("2025-08-16", now) == pytest.approx(0.5**0.25)
+
+    def test_rrf_fuse_decay_demotes_old_docs(self):
+        lex = [
+            {
+                "_id": "old",
+                "_score": 10.0,
+                "_source": {"resource_id": 1, "chunk_no": 0, "publish_date": "2020-01-01"},
+            },
+            {
+                "_id": "new",
+                "_score": 9.0,
+                "_source": {"resource_id": 2, "chunk_no": 0, "publish_date": "2026-08-01"},
+            },
+        ]
+        from datetime import date
+
+        def decay(hit):
+            return tools._decay_multiplier(hit["_source"].get("publish_date"), date.today())
+
+        fused = tools._rrf_fuse(lex, [], decay_fn=decay)
+        # Equal-rank proximity: without decay "old" wins on lexical score;
+        # with decay the fresh chunk must rank first.
+        assert [h["_id"] for h in fused] == ["new", "old"]
+
+    @staticmethod
+    def _install_body_capture(monkeypatch, n_corpus: int, knn_hits: list[dict] | None = None):
+        import es_client
+
+        bodies: dict[str, dict] = {}
+
+        def fake_search_chunks(query_body, skip, limit):
+            body_json = json.dumps(query_body)
+            if "knn" in query_body:
+                bodies["knn"] = query_body
+                return {"hits": {"total": {"value": 0}, "hits": knn_hits or []}, "took": 1}
+            if '"range"' in body_json:
+                return {"hits": {"total": {"value": 0}, "hits": []}, "took": 1}
+            bodies["lexical"] = query_body
+            corpus = [_corpus_hit(i) for i in range(n_corpus)]
+            return {
+                "hits": {"total": {"value": n_corpus}, "hits": corpus[skip : skip + limit]},
+                "took": 1,
+            }
+
+        monkeypatch.setattr(es_client, "search_chunks", fake_search_chunks)
+        return bodies
+
+    @pytest.mark.asyncio
+    async def test_hybrid_decay_is_client_side_not_in_body(self, monkeypatch):
+        tools._cache_clear()
+        import embeddings
+
+        bodies = self._install_body_capture(monkeypatch, n_corpus=5)
+
+        async def fake_embed(query):
+            return [0.1, 0.2, 0.3]
+
+        monkeypatch.setattr(embeddings, "embedding_config", lambda: object())
+        monkeypatch.setattr(embeddings, "embed_query", fake_embed)
+
+        result = await tools.SearchDocumentsTool().execute(
+            query="通知", use_time_decay=True, limit=5
+        )
+        assert result.success
+        assert result.data["mode"] == "hybrid"
+        # No server-side gauss on the lexical arm (it would double-decay).
+        assert "function_score" not in json.dumps(bodies["lexical"])
+        assert result.data["time_decay_applied"] is True
+
+    @pytest.mark.asyncio
+    async def test_pure_lexical_decay_uses_server_side_gauss(self, monkeypatch):
+        tools._cache_clear()
+        bodies = self._install_body_capture(monkeypatch, n_corpus=5)
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+
+        result = await tools.SearchDocumentsTool().execute(
+            query="通知", use_time_decay=True, limit=5
+        )
+        assert result.success
+        assert "function_score" in json.dumps(bodies["lexical"])
+        assert result.data["time_decay_applied"] is True
+
+    @pytest.mark.asyncio
+    async def test_degraded_hybrid_loses_decay_and_flags_it(self, monkeypatch):
+        tools._cache_clear()
+        import embeddings
+
+        bodies = self._install_body_capture(monkeypatch, n_corpus=5)
+
+        async def failing_embed(query):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(embeddings, "embedding_config", lambda: object())
+        monkeypatch.setattr(embeddings, "embed_query", failing_embed)
+
+        result = await tools.SearchDocumentsTool().execute(
+            query="通知", use_time_decay=True, limit=5
+        )
+        assert result.success
+        assert result.data["mode"] == "lexical"
+        # Hybrid planned → body built without gauss; embed failed → decay
+        # skipped, explicitly flagged.
+        assert "function_score" not in json.dumps(bodies["lexical"])
+        assert result.data["time_decay_applied"] is False
+
+
 def _neighbor_hit(resource_id: int, chunk_no: int) -> dict:
     return {"resource_id": resource_id, "chunk_no": chunk_no, "chunk_text": "x", "title": "t"}
 
