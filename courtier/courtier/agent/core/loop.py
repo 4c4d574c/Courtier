@@ -7,6 +7,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from dataclasses import replace as _dc_replace
+from inspect import signature as _inspect_signature
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as otel_trace
@@ -550,7 +551,12 @@ async def _run_think_phase(
         # reason and mis-mapped the turn to a text_response step.)
         await _publish(
             "think.tool_calls",
-            {"names": [tc.name for tc in current_state.tool_calls]},
+            {
+                "names": [tc.name for tc in current_state.tool_calls],
+                # Parallel same-name calls are paired to their cards by
+                # tool_call_id — the names alone are ambiguous.
+                "ids": [tc.id for tc in current_state.tool_calls],
+            },
         )
     else:
         current_state = await state_machine.transition_async(
@@ -637,8 +643,8 @@ async def _run_tool_phase(
     artifact_store: Any | None,
     audit_logger: AuditLogger | None,
     on_step: Callable[[str, str], Awaitable[None]],
-    on_tool_result: Callable[[str, ExecutionResult, str], Awaitable[None]] | None,
-    on_tool_start: Callable[[str], Awaitable[None]] | None,
+    on_tool_result: Callable[..., Awaitable[None]] | None,
+    on_tool_start: Callable[..., Awaitable[None]] | None,
     on_tool_progress: Callable[[str, Any], Awaitable[None]] | None,
     _publish: Callable[..., Awaitable[None]],
     tracer: AgentTracer,
@@ -917,6 +923,26 @@ async def _run_tool_phase(
     )
 
 
+def _positional_capacity(callback: Callable) -> int | None:
+    """Number of positional args *callback* accepts, None when unlimited.
+
+    Legacy display callbacks predate the tool_call_id parameter; rather
+    than relying on swallowed TypeErrors, inspect the signature once and
+    only forward the id when the callback can receive it.
+    """
+    try:
+        sig = _inspect_signature(callback)
+    except (TypeError, ValueError):
+        return None  # non-introspectable — be permissive
+    count = 0
+    for p in sig.parameters.values():
+        if p.kind == p.VAR_POSITIONAL:
+            return None
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+            count += 1
+    return count
+
+
 async def agent_loop(
     *,
     state: AgentState,
@@ -927,8 +953,8 @@ async def agent_loop(
     on_step: Callable[[str, str], Awaitable[None]] | None = None,
     on_token: Callable[[str], Awaitable[None]] | None = None,
     on_content_token: Callable[[str], Awaitable[None]] | None = None,
-    on_tool_result: Callable[[str, ExecutionResult, str], Awaitable[None]] | None = None,
-    on_tool_start: Callable[[str], Awaitable[None]] | None = None,
+    on_tool_result: Callable[..., Awaitable[None]] | None = None,
+    on_tool_start: Callable[..., Awaitable[None]] | None = None,
     on_tool_progress: Callable[[str, ToolProgress], Awaitable[None]] | None = None,
     context_manager: ContextManager | None = None,
     audit_logger: AuditLogger | None = None,
@@ -1037,10 +1063,17 @@ async def agent_loop(
         if on_content_token is not None:
             await _safe_call(on_content_token, token)
 
-    async def _on_tool_start(tool_name: str) -> None:
-        await _publish("tool.start", {"name": tool_name})
+    async def _on_tool_start(tool_name: str, tool_call_id: str | None = None) -> None:
+        payload: dict[str, Any] = {"name": tool_name}
+        if tool_call_id is not None:
+            payload["tool_call_id"] = tool_call_id
+        await _publish("tool.start", payload)
         if on_tool_start is not None:
-            await _safe_call(on_tool_start, tool_name)
+            cap = _positional_capacity(on_tool_start)
+            if tool_call_id is not None and (cap is None or cap >= 2):
+                await _safe_call(on_tool_start, tool_name, tool_call_id)
+            else:
+                await _safe_call(on_tool_start, tool_name)
 
     async def _on_tool_progress(tool_name: str, progress: ToolProgress) -> None:
         await _publish(
@@ -1050,21 +1083,33 @@ async def agent_loop(
         if on_tool_progress is not None:
             await _safe_call(on_tool_progress, tool_name, progress)
 
-    async def _on_tool_result(tool_name: str, result: ExecutionResult, summary: str) -> None:
+    async def _on_tool_result(
+        tool_name: str,
+        result: ExecutionResult,
+        summary: str,
+        tool_call_id: str | None = None,
+    ) -> None:
         citations = await _build_citations_payload(tool_name, result, artifact_store)
+        payload: dict[str, Any] = {
+            "name": tool_name,
+            "summary": summary,
+            "success": result.success,
+            "error": result.error,
+            "issue_counts": result.metadata.get("issue_counts"),
+            "citations": citations,
+        }
+        if tool_call_id is not None:
+            payload["tool_call_id"] = tool_call_id
         await _publish(
             "tool.result" if result.success else "tool.error",
-            {
-                "name": tool_name,
-                "summary": summary,
-                "success": result.success,
-                "error": result.error,
-                "issue_counts": result.metadata.get("issue_counts"),
-                "citations": citations,
-            },
+            payload,
         )
         if on_tool_result is not None:
-            await _safe_call(on_tool_result, tool_name, result, summary)
+            cap = _positional_capacity(on_tool_result)
+            if tool_call_id is not None and (cap is None or cap >= 4):
+                await _safe_call(on_tool_result, tool_name, result, summary, tool_call_id)
+            else:
+                await _safe_call(on_tool_result, tool_name, result, summary)
 
     async def _on_guardrail_event(result: GuardResult) -> None:
         """Publish guard.triggered events when a guard emits log/block."""

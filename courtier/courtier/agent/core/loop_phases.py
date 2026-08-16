@@ -218,14 +218,32 @@ async def think_phase(
     )
 
 
+def _wrap_tool_start(
+    callback: Callable[..., Awaitable[None]] | None, call_id: str
+) -> Callable[[str], Awaitable[None]] | None:
+    """Attach *call_id* to a registry-level on_tool_start(name) callback.
+
+    The registry only knows the tool name; the loop knows the specific
+    call. Same-name parallel calls are paired to their UI cards and
+    citations by tool_call_id, so the id must ride along on every event.
+    """
+    if callback is None:
+        return None
+
+    async def wrapped(name: str) -> None:
+        await callback(name, call_id)
+
+    return wrapped
+
+
 async def execute_tools_phase(
     *,
     state: "AgentState",
     tool_registry: "ToolRegistry | None",
     context_manager: Any,
     artifact_store: Any,
-    on_tool_result: Callable[[str, ExecutionResult, str], Awaitable[None]] | None,
-    on_tool_start: Callable[[str], Awaitable[None]] | None = None,
+    on_tool_result: Callable[..., Awaitable[None]] | None,
+    on_tool_start: Callable[..., Awaitable[None]] | None = None,
     on_tool_progress: Callable[[str, Any], Awaitable[None]] | None = None,
     audit_logger: Any | None = None,
 ) -> tuple[list[ExecutionResult], list[Any]]:
@@ -280,7 +298,7 @@ async def execute_tools_phase(
                 tool_call.name,
                 context_manager=context_manager,
                 artifact_store=artifact_store,
-                on_tool_start=on_tool_start,
+                on_tool_start=_wrap_tool_start(on_tool_start, tool_call.id),
                 on_tool_progress=on_tool_progress,
                 audit_logger=audit_logger,
                 **tool_call.arguments,
@@ -298,7 +316,7 @@ async def execute_tools_phase(
         # Notify display of tool result
         if on_tool_result:
             summary = tool_result_summary(result)
-            await on_tool_result(tool_call.name, result, summary)
+            await on_tool_result(tool_call.name, result, summary, tool_call.id)
 
         records.append(
             ToolExecutionRecord(

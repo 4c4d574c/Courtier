@@ -535,6 +535,65 @@ class TestModelErrorEvents:
         assert any(e.type == "loop.completed" for e in events)
 
 
+class TestToolCallIdEvents:
+    """think/tool.start/tool.result events carry tool_call_id so parallel
+    same-name calls can be paired to their cards and citations."""
+
+    @pytest.mark.asyncio
+    async def test_same_name_parallel_calls_carry_ids(self, registry_with_echo):
+        from courtier.agent.core.event_bus import EventBus
+        from courtier.agent.core.model import ToolCall
+
+        model = MockModelClient(
+            tool_calls=[
+                ToolCall(id="call_A", name="echo", arguments={"message": "a"}),
+                ToolCall(id="call_B", name="echo", arguments={"message": "b"}),
+            ]
+        )
+        bus = EventBus()
+        sub = bus.subscribe()
+        state = AgentState.initial(task="test")
+        await agent_loop(
+            state=state, model=model, tool_registry=registry_with_echo, event_bus=bus
+        )
+        events = []
+        while not sub.queue.empty():
+            events.append(sub.queue.get_nowait())
+
+        announced = next(e for e in events if e.type == "think.tool_calls")
+        assert announced.payload["names"] == ["echo", "echo"]
+        assert announced.payload["ids"] == ["call_A", "call_B"]
+
+        starts = [e for e in events if e.type == "tool.start"]
+        assert [e.payload["tool_call_id"] for e in starts] == ["call_A", "call_B"]
+
+        results = [e for e in events if e.type == "tool.result"]
+        assert [e.payload["tool_call_id"] for e in results] == ["call_A", "call_B"]
+
+    @pytest.mark.asyncio
+    async def test_legacy_callback_without_id_still_works(self, registry_with_echo):
+        """A (name)-only legacy on_tool_start callback must not break runs."""
+        from courtier.agent.core.model import ToolCall
+
+        seen: list[str] = []
+
+        async def legacy_start(name: str) -> None:
+            seen.append(name)
+
+        model = MockModelClient(
+            tool_calls=[ToolCall(id="call_X", name="echo", arguments={"message": "x"})]
+        )
+        state = AgentState.initial(task="test")
+        final = await agent_loop(
+            state=state,
+            model=model,
+            tool_registry=registry_with_echo,
+            on_tool_start=legacy_start,
+        )
+        assert final.status == "completed"
+        assert seen == ["echo"]
+
+
 class TestLoopHints:
     def test_append_hint_message_dedupes_identical_hints(self):
         from courtier.agent.core.loop_hints import _append_hint_message

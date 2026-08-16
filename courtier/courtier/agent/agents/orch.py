@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 
 from courtier.prompts.engine import PromptEngine
 
-from ..core.execution_result import ExecutionResult
 from ..core.model import ModelClient
 from ..core.state import AgentState
 from ..hooks.chain import HookChain
@@ -153,8 +152,8 @@ class OrchestratorAgent(Agent):
         on_step: Callable[[str, str], Awaitable[None]] | None = None,
         on_token: Callable[[str], Awaitable[None]] | None = None,
         on_content_token: Callable[[str], Awaitable[None]] | None = None,
-        on_tool_result: Callable[[str, ExecutionResult, str], Awaitable[None]] | None = None,
-        on_tool_start: Callable[[str], Awaitable[None]] | None = None,
+        on_tool_result: Callable[..., Awaitable[None]] | None = None,
+        on_tool_start: Callable[..., Awaitable[None]] | None = None,
         on_tool_progress: Callable[[str, ToolProgress], Awaitable[None]] | None = None,
         on_subagent_event: Callable[..., Awaitable[None]] | None = None,
         context_manager: Any | None = None,
