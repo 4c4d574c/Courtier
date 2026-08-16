@@ -24,13 +24,16 @@ _spec.loader.exec_module(tools)
 
 
 @pytest.mark.asyncio
-async def test_search_plugin_registers_with_system_prompt():
+async def test_search_plugin_registers_tools_without_system_prompt():
     plugin = SearchPlugin()
     plugin._setup_handlers()
     caps, system_prompt = plugin._collect_capabilities()
-    tool_names = [c["name"] for c in caps if c["type"] == "tool"]
-    assert "search_documents" in tool_names
-    assert len(system_prompt) > 0
+    tool_names = {c["name"] for c in caps if c["type"] == "tool"}
+    assert tool_names == {"search_documents", "read_chunks"}
+    # Model-facing guidance lives in core behavioral.yaml only; a plugin
+    # system_prompt would drift from it (it used to duplicate citation
+    # rules that were never forwarded to the host anyway).
+    assert system_prompt == ""
 
 
 @pytest.mark.asyncio
