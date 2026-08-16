@@ -931,3 +931,153 @@ class SearchDocumentsTool:
 def create_search_documents_tool() -> SearchDocumentsTool:
     """Factory function for backward compatibility with existing imports."""
     return SearchDocumentsTool()
+
+
+#: read_chunks guards: coordinate count, per-chunk and total response size.
+_READ_MAX_CHUNKS = 10
+_READ_CHUNK_MAX_CHARS = 3_000
+_READ_TOTAL_MAX_CHARS = 30_000
+
+
+class ReadChunksTool:
+    """Coordinate-based full chunk retrieval for search_documents hits.
+
+    Hits and neighbor previews are truncated for context economy; this tool
+    reads complete chunk text back by (resource_id, chunk_no) coordinate so
+    provisions spanning chunk boundaries can be quoted in full.  Subject to
+    the same host-injected owner-scope visibility as search_documents.
+    """
+
+    name: str = "read_chunks"
+    display_name: str | None = "读取文档块"
+    description: str = (
+        "按 resource_id+chunk_no 坐标取回完整文档块原文（含跨块条款续文）。"
+        "坐标来自 search_documents 结果的 hits/neighbors 字段。一次最多 10 个坐标。"
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "chunks": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "resource_id": {"type": "integer"},
+                        "chunk_no": {"type": "integer"},
+                    },
+                    "required": ["resource_id", "chunk_no"],
+                },
+                "description": "要读取的块坐标列表，最多 10 个",
+            },
+            "with_neighbors": {
+                "type": "boolean",
+                "description": "同时返回每个坐标 ±1 相邻块，默认 false",
+            },
+        },
+        "required": ["chunks"],
+    }
+    #: Full text is the point of this tool; results stay inline (no $ref
+    #: persistence) so the model can actually read them back.
+    skip_persist: bool = True
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        raw_chunks = kwargs.get("chunks")
+        if not isinstance(raw_chunks, list) or not raw_chunks:
+            return ToolResult(success=False, error="chunks 必须是非空坐标数组")
+        if len(raw_chunks) > _READ_MAX_CHUNKS:
+            return ToolResult(success=False, error=f"一次最多读取 {_READ_MAX_CHUNKS} 个块")
+
+        coords: list[tuple[int, int]] = []
+        seen: set[tuple[int, int]] = set()
+        for item in raw_chunks:
+            if not isinstance(item, dict):
+                continue
+            rid, cno = item.get("resource_id"), item.get("chunk_no")
+            if isinstance(rid, bool) or isinstance(cno, bool):
+                continue
+            if not isinstance(rid, int) or not isinstance(cno, int):
+                continue
+            if (rid, cno) not in seen:
+                seen.add((rid, cno))
+                coords.append((rid, cno))
+        if not coords:
+            return ToolResult(
+                success=False, error="坐标无效：需要 resource_id 与 chunk_no 整数字段"
+            )
+
+        with_neighbors = bool(kwargs.get("with_neighbors", False))
+        should: list[dict] = []
+        for rid, cno in coords:
+            chunk_clause: dict[str, Any] = (
+                {"range": {"chunk_no": {"gte": cno - 1, "lte": cno + 1}}}
+                if with_neighbors
+                else {"term": {"chunk_no": cno}}
+            )
+            should.append({"bool": {"must": [{"term": {"resource_id": rid}}, chunk_clause]}})
+        body: dict[str, Any] = {
+            "query": {"bool": {"should": should, "minimum_should_match": 1}}
+        }
+        # Same visibility semantics as the main search — filtered-out
+        # chunks simply land in `missing` (no exists/permission distinction,
+        # avoiding existence leaks).
+        scope_filter = _owner_scope_filter(kwargs.get("_owner_scope", _QUERY_UNSET))
+        if scope_filter:
+            body["query"]["bool"]["filter"] = scope_filter
+
+        try:
+            from es_client import search_chunks
+
+            raw = await asyncio.to_thread(
+                search_chunks,
+                query_body=body,
+                skip=0,
+                limit=len(coords) * 3 + 2,
+            )
+        except Exception as exc:
+            return ToolResult(success=False, error=str(exc))
+
+        found: dict[tuple[int, int], dict[str, Any]] = {}
+        total_chars = 0
+        truncated = False
+        for hit in raw.get("hits", {}).get("hits", []):
+            src = hit.get("_source", {}) or {}
+            rid, cno = src.get("resource_id"), src.get("chunk_no")
+            if rid is None or cno is None:
+                continue
+            text = src.get("chunk_text") or ""
+            if len(text) > _READ_CHUNK_MAX_CHARS:
+                text = text[:_READ_CHUNK_MAX_CHARS] + "…"
+                truncated = True
+            remaining = _READ_TOTAL_MAX_CHARS - total_chars
+            if len(text) > remaining:
+                text = text[: max(remaining, 0)] + "…"
+                truncated = True
+            entry = {
+                "resource_id": rid,
+                "chunk_no": cno,
+                "title": src.get("title", ""),
+                "doc_type": src.get("doc_type", ""),
+                "publish_date": src.get("publish_date"),
+                "chunk_text": text,
+            }
+            total_chars += len(entry["chunk_text"])
+            found[(rid, cno)] = entry
+            if truncated and total_chars >= _READ_TOTAL_MAX_CHARS:
+                break
+
+        # Requested coordinates keep their order; neighbor extras follow,
+        # sorted deterministically.
+        chunks_out = [found[c] for c in coords if c in found]
+        if with_neighbors:
+            requested = set(coords)
+            chunks_out.extend(found[c] for c in sorted(found) if c not in requested)
+        missing = [
+            {"resource_id": rid, "chunk_no": cno} for rid, cno in coords if (rid, cno) not in found
+        ]
+        data: dict[str, Any] = {"chunks": chunks_out}
+        if missing:
+            data["missing"] = missing
+        if truncated:
+            data["truncated"] = True
+        return ToolResult(success=True, data=data)

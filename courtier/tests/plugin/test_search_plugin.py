@@ -763,6 +763,134 @@ class TestRerankEvidenceWindow:
         assert "…" in prompt
 
 
+class TestReadChunks:
+    """Coordinate-based full chunk read-back with owner-scope visibility."""
+
+    @staticmethod
+    def _install(monkeypatch, corpus: dict[tuple[int, int], str], bodies: list | None = None):
+        import es_client
+
+        def fake_search_chunks(query_body, skip, limit):
+            if bodies is not None:
+                bodies.append(query_body)
+            should = query_body["query"]["bool"]["should"]
+            matched: set[tuple[int, int]] = set()
+            for clause in should:
+                must = clause["bool"]["must"]
+                rid = must[0]["term"]["resource_id"]
+                cc = must[1]
+                if "term" in cc:
+                    coord = (rid, cc["term"]["chunk_no"])
+                    if coord in corpus:
+                        matched.add(coord)
+                else:
+                    rng = cc["range"]["chunk_no"]
+                    for cno in range(rng["gte"], rng["lte"] + 1):
+                        if (rid, cno) in corpus:
+                            matched.add((rid, cno))
+            hits = [
+                {
+                    "_id": f"{rid}-{cno}",
+                    "_source": {
+                        "resource_id": rid,
+                        "chunk_no": cno,
+                        "title": f"t{rid}",
+                        "doc_type": "通知",
+                        "publish_date": "2026-01-01",
+                        "chunk_text": corpus[(rid, cno)],
+                    },
+                }
+                for rid, cno in sorted(matched)
+            ]
+            return {"hits": {"total": {"value": len(hits)}, "hits": hits}, "took": 1}
+
+        monkeypatch.setattr(es_client, "search_chunks", fake_search_chunks)
+
+    @pytest.mark.asyncio
+    async def test_reads_exact_coordinates_in_request_order(self, monkeypatch):
+        corpus = {(1, 5): "甲" * 100, (2, 3): "乙" * 100}
+        self._install(monkeypatch, corpus)
+
+        result = await tools.ReadChunksTool().execute(
+            chunks=[{"resource_id": 2, "chunk_no": 3}, {"resource_id": 1, "chunk_no": 5}]
+        )
+        assert result.success
+        assert [(c["resource_id"], c["chunk_no"]) for c in result.data["chunks"]] == [(2, 3), (1, 5)]
+        assert result.data["chunks"][0]["chunk_text"] == "乙" * 100
+        assert "missing" not in result.data
+
+    @pytest.mark.asyncio
+    async def test_absent_coordinates_reported_as_missing(self, monkeypatch):
+        self._install(monkeypatch, {(1, 5): "甲"})
+        result = await tools.ReadChunksTool().execute(
+            chunks=[{"resource_id": 1, "chunk_no": 5}, {"resource_id": 9, "chunk_no": 9}]
+        )
+        assert result.success
+        assert result.data["missing"] == [{"resource_id": 9, "chunk_no": 9}]
+
+    @pytest.mark.asyncio
+    async def test_over_limit_rejected(self):
+        result = await tools.ReadChunksTool().execute(
+            chunks=[{"resource_id": 1, "chunk_no": i} for i in range(11)]
+        )
+        assert not result.success
+        assert "最多" in result.error
+
+    @pytest.mark.asyncio
+    async def test_duplicate_coordinates_deduped(self, monkeypatch):
+        self._install(monkeypatch, {(1, 5): "甲"})
+        result = await tools.ReadChunksTool().execute(
+            chunks=[
+                {"resource_id": 1, "chunk_no": 5},
+                {"resource_id": 1, "chunk_no": 5},
+            ]
+        )
+        assert result.success
+        assert len(result.data["chunks"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_owner_scope_filter_applied_to_query(self, monkeypatch):
+        bodies: list = []
+        self._install(monkeypatch, {(1, 5): "甲"}, bodies=bodies)
+
+        await tools.ReadChunksTool().execute(
+            chunks=[{"resource_id": 1, "chunk_no": 5}], _owner_scope=7
+        )
+        body = bodies[0]
+        scope = body["query"]["bool"]["filter"][0]
+        assert {"term": {"owner_id": 7}} in scope["bool"]["should"]
+
+    @pytest.mark.asyncio
+    async def test_with_neighbors_returns_adjacent_chunks(self, monkeypatch):
+        corpus = {(1, 4): "四", (1, 5): "五", (1, 6): "六"}
+        self._install(monkeypatch, corpus)
+
+        result = await tools.ReadChunksTool().execute(
+            chunks=[{"resource_id": 1, "chunk_no": 5}], with_neighbors=True
+        )
+        assert result.success
+        # Requested coordinate first; neighbor extras follow in chunk order.
+        assert [c["chunk_no"] for c in result.data["chunks"]] == [5, 4, 6]
+
+    @pytest.mark.asyncio
+    async def test_long_chunk_truncated_with_flag(self, monkeypatch):
+        self._install(monkeypatch, {(1, 5): "长" * 5000})
+        result = await tools.ReadChunksTool().execute(chunks=[{"resource_id": 1, "chunk_no": 5}])
+        assert result.success
+        assert len(result.data["chunks"][0]["chunk_text"]) == tools._READ_CHUNK_MAX_CHARS + 1
+        assert result.data["truncated"] is True
+
+    @pytest.mark.asyncio
+    async def test_registered_with_skip_persist(self):
+        plugin = SearchPlugin()
+        plugin._setup_handlers()
+        caps, _ = plugin._collect_capabilities()
+        by_name = {c["name"]: c for c in caps if c.get("type") == "tool"}
+        assert "read_chunks" in by_name
+        assert by_name["read_chunks"]["skip_persist"] is True
+        assert by_name["search_documents"].get("skip_persist") is None
+
+
 def _rerank_hit(i: int) -> dict:
     return {"title": f"标题{i}", "chunk_text": f"内容{i}", "chunk_no": i}
 

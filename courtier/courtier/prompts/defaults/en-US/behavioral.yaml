@@ -53,6 +53,10 @@ behavioral:
       invent or guess a hit that wasn't returned.
       Markers only annotate the cited source; they don't change the wording
       of the conclusion.
+    - 【Read-back】When you need the full text of a provision (or its
+      continuation across chunks), call read_chunks with the
+      resource_id+chunk_no coordinates from hits/neighbors; never paraphrase
+      provision text from a truncated preview.
     - Output format: Final conclusions in Markdown (headings, lists, tables).
       If a Skill's instructions require JSON or another format, the Skill may use it
       internally, but your final aggregated output must be Markdown.

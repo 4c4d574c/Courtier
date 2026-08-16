@@ -1,7 +1,7 @@
 """Search plugin — Elasticsearch document chunk search."""
 
 from courtier_plugin_sdk import PluginRuntime
-from tools import SearchDocumentsTool
+from tools import ReadChunksTool, SearchDocumentsTool
 
 
 class SearchPlugin(PluginRuntime):
@@ -19,9 +19,9 @@ class SearchPlugin(PluginRuntime):
         }
 
     def _setup_handlers(self):
-        tool = SearchDocumentsTool()
-        # register_tool() makes the tool available to the built-in dispatcher.
-        self.register_tool(tool)
+        # register_tool() makes each tool available to the built-in dispatcher.
+        self.register_tool(SearchDocumentsTool())
+        self.register_tool(ReadChunksTool())
 
 
 if __name__ == "__main__":

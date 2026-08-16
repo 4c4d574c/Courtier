@@ -11,7 +11,7 @@ from courtier.prompts.engine import PromptEngine
 logger = logging.getLogger(__name__)
 
 # Tools that read the resource library and must be scope-filtered per caller.
-_SCOPE_SENSITIVE_TOOLS = ("search_documents",)
+_SCOPE_SENSITIVE_TOOLS = ("search_documents", "read_chunks")
 
 
 def apply_owner_scope(agent: Any, owner_id: int | None) -> None:
