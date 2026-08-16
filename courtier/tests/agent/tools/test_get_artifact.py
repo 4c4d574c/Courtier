@@ -581,7 +581,7 @@ class TestGetArtifactRefAutoProjection:
         )
         assert not result.success
         assert "无法投影" in result.error
-        assert "core.plain_text" in result.error
+        assert "projectable_to_types" in result.error
 
     @pytest.mark.asyncio
     async def test_untyped_persisted_ref_projection_reports_error(self, tmp_path):
@@ -658,3 +658,62 @@ class TestGetArtifactOutlineParsedDocument:
         assert not result.success
         assert "不支持大纲" in result.error
         assert "不含可解析的文本内容" not in result.error
+
+
+class TestGetArtifactCapFallback:
+    """仅尺寸上限类约束且无法投影时：原始数据满足上限即直接返回。
+
+    对应 2026-08-16 第二轮日志 sess_4ee0d4de0fd1 子代理 turn_003 场景：
+    correct_text 结果（core.cached_output，不可投影）+ max_chars=50000。
+    """
+
+    def _register_cached(self, store: ArtifactStore, data):
+        store.register_cached_ref(
+            ref_id="$ref:correct_text:4",
+            artifact_type="core.cached_output",
+            created_by="correct_text",
+            data=data,
+            debug_only=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_max_chars_within_cap_returns_raw(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        data = {"results": [{"source": "x" * 8000, "target": "x" * 8000, "errors": []}]}
+        self._register_cached(store, data)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:correct_text:4",
+            max_chars=50000,
+        )
+        assert result.success, result.error
+        assert result.data == data
+
+    @pytest.mark.asyncio
+    async def test_max_chars_exceeding_cap_reports_error(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        data = {"results": [{"source": "x" * 8000, "target": "x" * 8000, "errors": []}]}
+        self._register_cached(store, data)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:correct_text:4",
+            max_chars=1000,
+        )
+        assert not result.success
+        assert "无法投影" in result.error
+
+    @pytest.mark.asyncio
+    async def test_semantic_constraint_still_strict(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        data = {"results": [{"source": "x" * 8000, "target": "x" * 8000, "errors": []}]}
+        self._register_cached(store, data)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:correct_text:4",
+            source_scope="body",
+        )
+        assert not result.success
+        assert "无法投影" in result.error

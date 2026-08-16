@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -134,6 +135,44 @@ def _looks_like_parsed_document(data: dict) -> bool:
         return False
     first = pages[0]
     return isinstance(first, dict) and isinstance(first.get("page_content"), dict)
+
+
+def _has_semantic_constraints(
+    *,
+    source_scope: str | None,
+    normalize_whitespace: bool | None,
+    min_text_chars: int | None,
+    dedupe: bool | None,
+) -> bool:
+    """语义类约束（改变数据内容/区域），与纯尺寸上限类约束区分。"""
+    return (
+        source_scope is not None
+        or normalize_whitespace is not None
+        or min_text_chars is not None
+        or dedupe is not None
+    )
+
+
+def _raw_satisfies_caps(
+    data: Any,
+    *,
+    max_chars: int | None,
+    max_items: int | None,
+) -> bool:
+    """原始数据是否已满足尺寸上限类约束（无法投影时的回退判据）。
+
+    max_chars/max_items 语义是"至多 N"：若原始数据本就不超上限，
+    直接返回原始数据即满足请求，无需强制投影。
+    """
+    if max_chars is not None:
+        size = len(data) if isinstance(data, str) else len(json.dumps(data, ensure_ascii=False))
+        if size > max_chars:
+            return False
+    if max_items is not None:
+        n = len(data) if isinstance(data, (list, dict)) else 1
+        if n > max_items:
+            return False
+    return True
 
 
 class GetArtifactTool:
@@ -363,6 +402,25 @@ class GetArtifactTool:
                         constraints=constraints,
                     )
                     if target is None:
+                        if (
+                            not materialize_as
+                            and not _has_semantic_constraints(
+                                source_scope=source_scope,
+                                normalize_whitespace=normalize_whitespace,
+                                min_text_chars=min_text_chars,
+                                dedupe=dedupe,
+                            )
+                            and _raw_satisfies_caps(
+                                artifact.data, max_chars=max_chars, max_items=max_items
+                            )
+                        ):
+                            # 仅尺寸上限类约束且原始数据已满足上限："至多 N"的
+                            # 语义成立，直接返回原始数据（无需强制投影）。
+                            return ToolResult(
+                                success=True,
+                                data=artifact.data,
+                                metadata={"result_id": id, "artifact_id": id},
+                            )
                         return ToolResult(
                             success=False,
                             error=(
@@ -370,8 +428,8 @@ class GetArtifactTool:
                                 f"（materialize_as={materialize_as or '未指定'}，"
                                 f"约束={sorted(constraints) or '无'}）。"
                                 "可改用可投影目标类型并附带 artifact_type 参数"
-                                "（取值见 list_artifacts 的 projectable_to_types，"
-                                "如 core.plain_text），"
+                                "（可用目标类型以 list_artifacts 输出的 "
+                                "projectable_to_types 为准），"
                                 "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
                             ),
                         )
@@ -586,7 +644,67 @@ class GetArtifactTool:
             min_text_chars=min_text_chars,
             dedupe=dedupe,
         ):
+            semantic = _has_semantic_constraints(
+                source_scope=source_scope,
+                normalize_whitespace=normalize_whitespace,
+                min_text_chars=min_text_chars,
+                dedupe=dedupe,
+            )
             source = self._find_artifact_for_ref(artifact_store, id)
+            constraints = _collect_constraints(
+                source_scope=source_scope,
+                max_chars=max_chars,
+                normalize_whitespace=normalize_whitespace,
+                max_items=max_items,
+                min_text_chars=min_text_chars,
+                dedupe=dedupe,
+            )
+            if source is not None:
+                target = _infer_projection_target(
+                    source,
+                    materialize_as=materialize_as,
+                    constraints=constraints,
+                )
+                if target is not None:
+                    return await self._project_artifact(
+                        artifact_store=artifact_store,
+                        artifact_id=source.artifact_id,
+                        artifact_type=target,
+                        source_scope=source_scope,
+                        max_chars=max_chars,
+                        normalize_whitespace=normalize_whitespace,
+                        max_items=max_items,
+                        min_text_chars=min_text_chars,
+                        dedupe=dedupe,
+                        materialize_as=materialize_as,
+                        label=label,
+                        on_progress=on_progress,
+                    )
+            # 投影不可行：仅尺寸上限类约束时，原始数据满足上限即语义成立，
+            # 直接返回原始数据（"至多 N"不要求必须投影）。
+            if not materialize_as and not semantic:
+                raw = await artifact_store.read(
+                    id,
+                    query=None,
+                    chunk_index=0,
+                    max_tokens=max_tokens,
+                )
+                data = (
+                    raw.get("data")
+                    if isinstance(raw, dict) and "error" not in raw
+                    else None
+                )
+                if data is not None and _raw_satisfies_caps(
+                    data, max_chars=max_chars, max_items=max_items
+                ):
+                    return ToolResult(
+                        success=True,
+                        data=data,
+                        metadata={
+                            "result_id": id,
+                            **(raw.get("metadata", {}) if isinstance(raw, dict) else {}),
+                        },
+                    )
             if source is None:
                 return ToolResult(
                     success=False,
@@ -596,45 +714,17 @@ class GetArtifactTool:
                         "或先调用 list_artifacts 查看可用工件。"
                     ),
                 )
-            constraints = _collect_constraints(
-                source_scope=source_scope,
-                max_chars=max_chars,
-                normalize_whitespace=normalize_whitespace,
-                max_items=max_items,
-                min_text_chars=min_text_chars,
-                dedupe=dedupe,
-            )
-            target = _infer_projection_target(
-                source,
-                materialize_as=materialize_as,
-                constraints=constraints,
-            )
-            if target is None:
-                return ToolResult(
-                    success=False,
-                    error=(
-                        f"产物类型 {source.artifact_type} 无法投影以满足请求"
-                        f"（materialize_as={materialize_as or '未指定'}，"
-                        f"约束={sorted(constraints) or '无'}）。"
-                        "可改用可投影目标类型并附带 artifact_type 参数"
-                        "（取值见 list_artifacts 的 projectable_to_types，"
-                        "如 core.plain_text），"
-                        "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
-                    ),
-                )
-            return await self._project_artifact(
-                artifact_store=artifact_store,
-                artifact_id=source.artifact_id,
-                artifact_type=target,
-                source_scope=source_scope,
-                max_chars=max_chars,
-                normalize_whitespace=normalize_whitespace,
-                max_items=max_items,
-                min_text_chars=min_text_chars,
-                dedupe=dedupe,
-                materialize_as=materialize_as,
-                label=label,
-                on_progress=on_progress,
+            return ToolResult(
+                success=False,
+                error=(
+                    f"产物类型 {source.artifact_type} 无法投影以满足请求"
+                    f"（materialize_as={materialize_as or '未指定'}，"
+                    f"约束={sorted(constraints) or '无'}）。"
+                    "可改用可投影目标类型并附带 artifact_type 参数"
+                    "（可用目标类型以 list_artifacts 输出的 "
+                    "projectable_to_types 为准），"
+                    "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
+                ),
             )
 
         try:
