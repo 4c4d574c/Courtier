@@ -338,3 +338,19 @@ docs(prompts): scope outline guidance to text-type results                     #
    - turn_002（outline=true 对 parse_document 产物）：返回 27 节大纲（原必然失败）。
 4. **重放中发现的额外事实（超出原计划问题清单）**：真实文档正文为 110 段 / 7154 字，而原始会话中 orchestrator 粘贴进 content_audit task 的文本仅 907 字，且**不是真实正文的子序列**（模型在上下文被 44KB JSON 污染后重建了截断版文档）。原报告的 3 条「仅有标题无正文」warning 均为假阳性——真实文档中这些章节有内容；correct_text 也只纠了截断文本。修复的价值不只是 token 节省，而是审核准确性。
 5. **全量回归**：`uv run pytest -m "not integration"` → 1593 passed, 6 skipped, 22 deselected；`uv run courtier validate-domain domains/docaudit/` 通过；behavioral.yaml 两语种 YAML 解析正常。
+
+---
+
+## 第二轮实施记录（2026-08-16 晚，会话 sess_4ee0d4de0fd1 验证后追加）
+
+修复上线后跑了一轮真实会话（技术方案文档，14K 字），验证结果与发现的新问题：
+
+**验证通过的部分：** orchestrator 直接调 content_audit 传 file_path（无 parse_document 绕路）；子代理按技能指引把 `$ref` 直接传给 correct_text（全量 14K 字，不再是截断粘贴）；上下文重复注入消失（132K → 29K prompt tokens，4 轮完成）；新技能要求生效——子代理完整披露差异，主动对 2 处巨量误删和 3 处误报做了「复核排除」并给出依据（GB/T 15835-2011 等）。
+
+**新发现并已修复（3 个提交 `adab99c` `397ec09` `186e6fd`）：**
+
+1. **CEC 模型输出截断（关键）**：correct_text 对 14007 字输入只输出 1574 字，diff 把约 12.4K 字全部标记为删除——数据静默丢失，靠子代理人工兜底才没进报告。根因是纠错调用未传 `max_tokens`（服务端默认上限截断输出）。修复：`infer()` 调用补 `max_tokens=self.max_length`；新增**输出完整性守卫**——单批输出低于输入 50%（批 ≥50 字）即判定截断，该批按原文保留并把提示写入结果的 `warnings` 字段；`ErrorCorrect.infer` 把 warnings 透传到每条结果。重放验证：两个批次（8189/5816 字输入 vs 1574 字输出）均触发守卫，target 内容无损、errors/target 仍机械一致、规则类检查照常生效。守卫阈值（`_MIN_OUTPUT_RATIO=0.5`）若与 CEC 端点行为不符，可后续调整为配置项。
+2. **get_artifact 上限类约束误伤（次要）**：子代理对 correct_text 结果（core.cached_output，不可投影）请求 `max_chars=50000` 被严格报错，导致 3 次调用才读到数据。语义修正：`max_chars`/`max_items` 是"至多 N"——原始数据本就不超上限时直接返回原始数据即满足请求（`_raw_satisfies_caps` 判据）；语义类约束（source_scope/normalize_whitespace/min_text_chars/dedupe）仍严格报错。同时删掉错误信息里"如 core.plain_text"这个对该产物不成立的示例（本次会话中它把模型引向了死胡同）。重放验证：同一请求一次成功返回 48927 字符原始数据。
+3. **技能与工具契约同步**：correct_text 描述增补 warnings 契约；content_audit 技能要求报告注明"未经机器纠错的段落"并补人工复核，严禁把"未纠错"当"无错误"。
+
+**第二轮回归**：`uv run pytest -m "not integration"` → 1601 passed, 6 skipped, 22 deselected；领域校验通过。新增单测 10 个（守卫 5、上限回退 3、契约透传 2 类计数）。
