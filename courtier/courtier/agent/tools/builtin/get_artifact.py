@@ -24,8 +24,104 @@ from ..protocol import OnToolProgress, ToolResult
 
 logger = logging.getLogger(__name__)
 
+# 投影目标候选：materialize_as → 目标类型优先级。"dict" 由
+# _infer_projection_target 特判为源类型自身；候选逐个经 ProjectionResolver
+# 按源类型可行性筛选，避免硬编码类型表。
+_PROJECTION_TARGET_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "string": ("core.plain_text",),
+    "list_string": ("docaudit.paragraph_list", "core.text_collection"),
+    "list_dict": ("docaudit.paragraph_list", "docaudit.reference_text_list"),
+}
+
 if TYPE_CHECKING:
     from ..summary import ToolSummary
+
+
+def _collect_constraints(
+    *,
+    source_scope: str | None,
+    max_chars: int | None,
+    normalize_whitespace: bool | None,
+    max_items: int | None,
+    min_text_chars: int | None,
+    dedupe: bool | None,
+) -> dict[str, Any]:
+    """把投影约束参数收敛为 dict（None 剔除），_project_artifact 同源。"""
+    constraints: dict[str, Any] = {}
+    if source_scope is not None:
+        constraints["source_scope"] = source_scope
+    if max_chars is not None:
+        constraints["max_chars"] = max_chars
+    if normalize_whitespace is not None:
+        constraints["normalize_whitespace"] = normalize_whitespace
+    if max_items is not None:
+        constraints["max_items"] = max_items
+    if min_text_chars is not None:
+        constraints["min_text_chars"] = min_text_chars
+    if dedupe is not None:
+        constraints["dedupe"] = dedupe
+    return constraints
+
+
+def _has_projection_request(
+    *,
+    materialize_as: str | None,
+    source_scope: str | None,
+    max_chars: int | None,
+    normalize_whitespace: bool | None,
+    max_items: int | None,
+    min_text_chars: int | None,
+    dedupe: bool | None,
+) -> bool:
+    """是否构成投影请求：任一物化/约束参数非空。"""
+    return bool(
+        materialize_as
+        or source_scope is not None
+        or max_chars is not None
+        or normalize_whitespace is not None
+        or max_items is not None
+        or min_text_chars is not None
+        or dedupe is not None
+    )
+
+
+def _infer_projection_target(
+    source: Any,
+    *,
+    materialize_as: str | None,
+    constraints: dict[str, Any],
+) -> str | None:
+    """为未显式给 artifact_type 的投影请求推断目标类型。
+
+    依次尝试与 materialize_as 匹配的候选目标，取第一个能被
+    ProjectionResolver 从源类型解析到的；仅约束参数（无 materialize_as）
+    时只试纯文本目标——source_scope/max_chars 等约束只在文本投影链上生效。
+    全部不可解析返回 None：调用方必须明确报错，禁止静默退回原始数据。
+    """
+    registry = create_default_projector_registry()
+    resolver = ProjectionResolver(registry)
+    policy = ProjectionPolicy()
+
+    def _resolvable(target: str) -> bool:
+        field = InputField(
+            name="value",
+            artifact_type=target,
+            materialize_as=materialize_as or _default_materialize_as(target),
+            constraints=constraints,
+        )
+        resolution = resolver.resolve((field,), "get_artifact", [source], policy)
+        return resolution.status == "resolved"
+
+    if materialize_as == "dict":
+        return source.artifact_type if _resolvable(source.artifact_type) else None
+    if materialize_as is None:
+        candidates: tuple[str, ...] = ("core.plain_text",)
+    else:
+        candidates = _PROJECTION_TARGET_CANDIDATES.get(materialize_as, ())
+    for target in candidates:
+        if _resolvable(target):
+            return target
+    return None
 
 
 class GetArtifactTool:
@@ -34,6 +130,9 @@ class GetArtifactTool:
     两种使用方式：
     1. 只传 id：直接返回原始数据（从持久化存储读取或从 artifact 注册表查找）
     2. 传 id + artifact_type：执行类型投影链，将数据转换为目标类型
+    3. 只传 id + materialize_as/source_scope 等投影参数：按产物自身类型
+       自动推断投影目标并执行投影（无需 artifact_type）；推断失败明确报错，
+       不会静默返回原始数据。
     """
 
     name: str = "get_artifact"
@@ -111,6 +210,7 @@ class GetArtifactTool:
                 "description": (
                     "限定提取的文档区域："
                     "body=正文、header=页眉、footer=页脚、full_document=全文。默认全文。"
+                    "对 $ref 产物生效时会自动投影为文本（无需同时传 artifact_type）。"
                 ),
             },
             "max_chars": {
@@ -138,6 +238,8 @@ class GetArtifactTool:
                 "description": (
                     "物化方式，如不指定则用类型的默认值。"
                     "常见值：string（纯文本字符串）、list_string（字符串列表）、dict。"
+                    "对 $ref 产物生效时会按产物类型自动推断投影目标"
+                    "（无需同时传 artifact_type）。"
                 ),
             },
             "label": {
@@ -218,10 +320,62 @@ class GetArtifactTool:
             if artifact is not None and getattr(artifact, "data", None) is not None:
                 on_progress({"status": "done", "message": "执行完成", "detail": None})
                 if not artifact_type:
-                    return ToolResult(
-                        success=True,
-                        data=artifact.data,
-                        metadata={"result_id": id, "artifact_id": id},
+                    if not _has_projection_request(
+                        materialize_as=materialize_as,
+                        source_scope=source_scope,
+                        max_chars=max_chars,
+                        normalize_whitespace=normalize_whitespace,
+                        max_items=max_items,
+                        min_text_chars=min_text_chars,
+                        dedupe=dedupe,
+                    ):
+                        return ToolResult(
+                            success=True,
+                            data=artifact.data,
+                            metadata={"result_id": id, "artifact_id": id},
+                        )
+                    # 投影参数存在但未给目标类型：按产物自身类型推断目标。
+                    # 推断失败必须明确报错——过去这里静默返回原始数据，
+                    # 模型请求 string 物化却收到未物化的 dict。
+                    constraints = _collect_constraints(
+                        source_scope=source_scope,
+                        max_chars=max_chars,
+                        normalize_whitespace=normalize_whitespace,
+                        max_items=max_items,
+                        min_text_chars=min_text_chars,
+                        dedupe=dedupe,
+                    )
+                    target = _infer_projection_target(
+                        artifact,
+                        materialize_as=materialize_as,
+                        constraints=constraints,
+                    )
+                    if target is None:
+                        return ToolResult(
+                            success=False,
+                            error=(
+                                f"产物类型 {artifact.artifact_type} 无法投影以满足请求"
+                                f"（materialize_as={materialize_as or '未指定'}，"
+                                f"约束={sorted(constraints) or '无'}）。"
+                                "可改用可投影目标类型并附带 artifact_type 参数"
+                                "（取值见 list_artifacts 的 projectable_to_types，"
+                                "如 core.plain_text），"
+                                "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
+                            ),
+                        )
+                    return await self._project_artifact(
+                        artifact_store=artifact_store,
+                        artifact_id=id,
+                        artifact_type=target,
+                        source_scope=source_scope,
+                        max_chars=max_chars,
+                        normalize_whitespace=normalize_whitespace,
+                        max_items=max_items,
+                        min_text_chars=min_text_chars,
+                        dedupe=dedupe,
+                        materialize_as=materialize_as,
+                        label=label,
+                        on_progress=on_progress,
                     )
                 return await self._project_artifact(
                     artifact_store=artifact_store,
@@ -402,6 +556,68 @@ class GetArtifactTool:
     ) -> ToolResult:
         """Resolve a $ref id — read raw data, optionally project to target type."""
 
+        # 投影参数存在但未给目标类型：找带真实类型的工件做目标推断，
+        # 推断失败明确报错（与 registry 分支同契约，禁止静默退回原始数据）。
+        if not artifact_type and _has_projection_request(
+            materialize_as=materialize_as,
+            source_scope=source_scope,
+            max_chars=max_chars,
+            normalize_whitespace=normalize_whitespace,
+            max_items=max_items,
+            min_text_chars=min_text_chars,
+            dedupe=dedupe,
+        ):
+            source = self._find_artifact_for_ref(artifact_store, id)
+            if source is None:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"未找到引用 {id} 的类型化工件，无法执行投影请求。"
+                        "请省略 materialize_as/source_scope 等参数直接读取原始数据，"
+                        "或先调用 list_artifacts 查看可用工件。"
+                    ),
+                )
+            constraints = _collect_constraints(
+                source_scope=source_scope,
+                max_chars=max_chars,
+                normalize_whitespace=normalize_whitespace,
+                max_items=max_items,
+                min_text_chars=min_text_chars,
+                dedupe=dedupe,
+            )
+            target = _infer_projection_target(
+                source,
+                materialize_as=materialize_as,
+                constraints=constraints,
+            )
+            if target is None:
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"产物类型 {source.artifact_type} 无法投影以满足请求"
+                        f"（materialize_as={materialize_as or '未指定'}，"
+                        f"约束={sorted(constraints) or '无'}）。"
+                        "可改用可投影目标类型并附带 artifact_type 参数"
+                        "（取值见 list_artifacts 的 projectable_to_types，"
+                        "如 core.plain_text），"
+                        "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
+                    ),
+                )
+            return await self._project_artifact(
+                artifact_store=artifact_store,
+                artifact_id=source.artifact_id,
+                artifact_type=target,
+                source_scope=source_scope,
+                max_chars=max_chars,
+                normalize_whitespace=normalize_whitespace,
+                max_items=max_items,
+                min_text_chars=min_text_chars,
+                dedupe=dedupe,
+                materialize_as=materialize_as,
+                label=label,
+                on_progress=on_progress,
+            )
+
         try:
             raw = await artifact_store.read(
                 id,
@@ -524,19 +740,14 @@ class GetArtifactTool:
     ) -> ToolResult:
         """Execute type projection for *artifact_id* → *artifact_type*."""
 
-        constraints: dict[str, Any] = {}
-        if source_scope is not None:
-            constraints["source_scope"] = source_scope
-        if max_chars is not None:
-            constraints["max_chars"] = max_chars
-        if normalize_whitespace is not None:
-            constraints["normalize_whitespace"] = normalize_whitespace
-        if max_items is not None:
-            constraints["max_items"] = max_items
-        if min_text_chars is not None:
-            constraints["min_text_chars"] = min_text_chars
-        if dedupe is not None:
-            constraints["dedupe"] = dedupe
+        constraints = _collect_constraints(
+            source_scope=source_scope,
+            max_chars=max_chars,
+            normalize_whitespace=normalize_whitespace,
+            max_items=max_items,
+            min_text_chars=min_text_chars,
+            dedupe=dedupe,
+        )
 
         registry = create_default_projector_registry()
         resolver = ProjectionResolver(registry)

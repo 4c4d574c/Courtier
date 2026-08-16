@@ -456,3 +456,143 @@ class TestStructuredRead:
         )
         assert result.success, result.error
         assert result.data == {"markdown": self.LONG_MD, "format": "docx"}
+
+
+def _para(text: str) -> dict:
+    """构造与 docparse 输出一致的段落块（elements[].font.text）。"""
+    return {"elements": [{"font": {"text": text}}]}
+
+
+PARSED_DOC_DATA = {
+    "schema_version": "1.0",
+    "source": "docx",
+    "doc_id": "d1",
+    "total_page_num": 1,
+    "pages": [
+        {
+            "page_no": 0,
+            "page_content": {
+                "body": {
+                    "title": _para("关于申请百京市智慧城市建设项目资金支持的请示"),
+                    "main_text": [
+                        _para("现将项目有关情况请示如下。"),
+                        _para("一、项目背景与建设必要性"),
+                        _para("（一）国家战略导向与政策机遇"),
+                        _para("当前，以大数据、人工智能为代表的新一代信息技术加速创新。"),
+                    ],
+                }
+            },
+        }
+    ],
+}
+
+
+class TestGetArtifactRefAutoProjection:
+    """$ref + 投影参数（无 artifact_type）自动推断目标类型。"""
+
+    def _register_parsed_doc(self, store: ArtifactStore, ref_id: str = "$ref:parse_document:1"):
+        store.register_cached_ref(
+            ref_id=ref_id,
+            artifact_type="docaudit.parsed_document",
+            created_by="parse_document",
+            data=PARSED_DOC_DATA,
+        )
+
+    @pytest.mark.asyncio
+    async def test_ref_materialize_string_with_body_scope(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        self._register_parsed_doc(store)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:parse_document:1",
+            materialize_as="string",
+            source_scope="body",
+        )
+        assert result.success, result.error
+        value = result.data["value"]
+        assert isinstance(value, str)
+        # 正文段落按阅读序拼接；标题不在 body 范围
+        expected = "\n".join(
+            p["elements"][0]["font"]["text"]
+            for p in PARSED_DOC_DATA["pages"][0]["page_content"]["body"]["main_text"]
+        )
+        assert value == expected
+
+    @pytest.mark.asyncio
+    async def test_ref_materialize_string_default_scope(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        self._register_parsed_doc(store)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:parse_document:1",
+            materialize_as="string",
+        )
+        assert result.success, result.error
+        value = result.data["value"]
+        assert isinstance(value, str)
+        title = PARSED_DOC_DATA["pages"][0]["page_content"]["body"]["title"]["elements"][0]["font"]["text"]
+        assert title in value
+        assert "现将项目有关情况请示如下。" in value
+
+    @pytest.mark.asyncio
+    async def test_ref_source_scope_alone_projects_to_text(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        self._register_parsed_doc(store)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:parse_document:1",
+            source_scope="body",
+        )
+        assert result.success, result.error
+        value = result.data["value"]
+        assert isinstance(value, str)
+        assert "关于申请百京市" not in value  # 标题不在 body
+        assert "一、项目背景与建设必要性" in value
+
+    @pytest.mark.asyncio
+    async def test_ref_raw_read_without_projection_params(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        self._register_parsed_doc(store)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:parse_document:1",
+        )
+        assert result.success, result.error
+        assert result.data == PARSED_DOC_DATA  # raw-read 行为不变
+
+    @pytest.mark.asyncio
+    async def test_ref_projection_inference_failure_reports_error(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        store.register_cached_ref(
+            ref_id="$ref:some_tool:1",
+            artifact_type="docaudit.audit_report",
+            created_by="some_tool",
+            data={"report": "x"},
+        )
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:some_tool:1",
+            materialize_as="string",
+        )
+        assert not result.success
+        assert "无法投影" in result.error
+        assert "core.plain_text" in result.error
+
+    @pytest.mark.asyncio
+    async def test_untyped_persisted_ref_projection_reports_error(self, tmp_path):
+        """持久化存在但注册表无类型信息：投影请求必须报错而非静默返回原始数据。"""
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist({"markdown": "text"}, "convert_document", force=True)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+            materialize_as="string",
+        )
+        assert not result.success
+        assert "类型化工件" in result.error
