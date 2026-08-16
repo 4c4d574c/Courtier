@@ -267,10 +267,11 @@ class TestToolRegistryWithCacheStore:
             # Data was persisted — test passes (resolution worked)
             pass
         else:
-            # Small data case — check that ref_id was resolved to JSON, not kept as $ref
+            # Small data case — check that ref_id was resolved, not kept as $ref.
+            # A single-string-field object now adapts to the text itself.
             received = result.raw_data.get("received_ref_id", "")
             assert received != "$ref:parse_document:1"
-            assert "text" in received
+            assert "x" * 100 in received
 
     @pytest.mark.asyncio
     async def test_skip_ref_resolution_also_skips_context_manager_fallback(self):

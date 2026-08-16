@@ -106,23 +106,41 @@ class RuleBasedSummaryStrategy:
     ) -> list[str]:
         """Recursively sample meaningful leaf values from nested structures.
 
-        Prioritises longer string values (likely content) over metadata and
-        short values.  Hash-like strings (hex-only, >20 chars) and values
-        from known metadata keys are deprioritised.  Returns field-path
-        annotated excerpts like
-        ``"pages[0].body.main_text[0].text: 为深入贯彻落实..."``.
+        Prioritises compact scalars (likely the structured decision data —
+        correction errors, counts, verdicts) over blob text (whole documents,
+        source/target payloads): a giant string carries nothing actionable
+        past a few hundred chars, and near-duplicate giants (source/target)
+        crowd the comparison fields out of the excerpt budget entirely.
+        Hash-like strings (hex-only, >20 chars) and values from known
+        metadata keys are deprioritised.  Returns field-path annotated
+        excerpts like ``"results[0].errors[0].operation: replace"``.
         """
         candidates: list[tuple[str, str, bool]] = []  # (path, value, is_hash)
-        cls._collect_string_leaves(obj, "", candidates, max_depth, max_excerpts * 3)
+        cls._collect_string_leaves(obj, "", candidates, max_depth, max_excerpts * 4)
 
         if not candidates:
             return []
 
-        # Sort by (non-hash, length) descending: content strings first,
-        # hash-like / metadata strings last.  Long content strings are the
-        # most useful to the LLM; a 64-char hex doc_id is meaningless.
-        candidates.sort(key=lambda x: (not x[2], len(x[1])), reverse=True)
-        return [f"{path}: {value[:500]}" for path, value, _ in candidates[:max_excerpts]]
+        # Order: compact scalars (ascending length) → blob text → hashes.
+        # Within a tier, prefix-near-duplicates keep only the first entry so
+        # source/target-shaped payloads cannot consume two slots.
+        candidates.sort(
+            key=lambda x: (
+                0 if not x[2] and len(x[1]) <= 500 else (1 if not x[2] else 2),
+                len(x[1]),
+            )
+        )
+        selected: list[tuple[str, str, bool]] = []
+        for cand in candidates:
+            if len(selected) >= max_excerpts:
+                break
+            if any(selected_entry[1][:160] == cand[1][:160] for selected_entry in selected):
+                continue
+            selected.append(cand)
+        return [
+            f"{path}: {value[:300] + '…' if len(value) > 300 else value}"
+            for path, value, _ in selected
+        ]
 
     _HEX_RE = re.compile(r"^[0-9a-fA-F]{21,}$")
 

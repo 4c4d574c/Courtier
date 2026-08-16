@@ -105,3 +105,65 @@ async def test_error_result(summarizer):
     )
     assert result.success is False
     assert result.error == "boom"
+
+
+@pytest.mark.asyncio
+async def test_excerpts_prefer_compact_fields_over_blob_duplicates():
+    """correct_text-shaped results: errors[] compact fields must appear in
+    key_excerpts instead of two near-identical full-text source/target
+    blobs (the original behavior, which forced the model to re-read the
+    whole result via get_artifact)."""
+    from courtier.agent.runtime.summarizer import RuleBasedSummaryStrategy
+
+    full_text = "密级▲长期\n\nX办请[2025】 签发人：\n\n关于申请追加经费的请示。" + "字" * 1200
+    data = {
+        "results": [
+            {
+                "source": full_text,
+                "target": full_text[:-1] + "。",  # near-duplicate of source
+                "errors": [
+                    {
+                        "operation": "replace",
+                        "context": "X办请[2025】",
+                        "replacement": "X办请〔2025〕",
+                    },
+                    {
+                        "operation": "replace",
+                        "context": "关建阶段",
+                        "replacement": "关键阶段",
+                    },
+                    {
+                        "operation": "replace",
+                        "context": "效溢分析",
+                        "replacement": "效益分析",
+                    },
+                ],
+            }
+        ]
+    }
+    strategy = RuleBasedSummaryStrategy()
+    _summary, excerpts = await strategy.summarize(data, "correct_text")
+    assert excerpts
+    joined = "\n".join(excerpts)
+    # Compact comparison fields surface first...
+    assert "operation: replace" in joined
+    assert "replacement" in joined
+    # ...and the two giant blobs do not both take slots.
+    blob_hits = [e for e in excerpts if "results[0].source" in e or "results[0].target" in e]
+    assert len(blob_hits) <= 1
+    # Blob values are truncated instead of dumping 500 chars of body text.
+    for entry in blob_hits:
+        assert entry.endswith("…")
+
+
+@pytest.mark.asyncio
+async def test_excerpts_short_content_still_first_class():
+    """Plain small results keep their informative strings (no regression)."""
+    from courtier.agent.runtime.summarizer import RuleBasedSummaryStrategy
+
+    data = {"title": "安全生产法", "summary_text": "第一条 为了加强安全生产工作……"}
+    strategy = RuleBasedSummaryStrategy()
+    _summary, excerpts = await strategy.summarize(data, "search_documents")
+    joined = "\n".join(excerpts)
+    assert "安全生产法" in joined
+    assert "第一条" in joined
