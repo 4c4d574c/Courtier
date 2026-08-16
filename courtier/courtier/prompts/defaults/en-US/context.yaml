@@ -7,6 +7,7 @@ context:
     4. Key decisions and constraints
     5. Next concrete action
     6. All available $ref IDs and file paths
+    7. The 【引用编号 N】 citation tables (with their rid/chunk coordinates) from search_documents results — keep every row verbatim; do not summarize, reword, or drop them. Later answers depend on these numbers for [[n]] citation resolution and read_chunks read-back.
 
     Conversation history:
     {history}
@@ -20,6 +21,7 @@ context:
     4. Key decisions and constraints
     5. Next concrete action
     6. All available $ref IDs and file paths
+    7. The 【引用编号 N】 citation tables (with their rid/chunk coordinates) from search_documents results — keep every row verbatim; do not summarize, reword, or drop them. Later answers depend on these numbers for [[n]] citation resolution and read_chunks read-back.
 
     EXISTING SUMMARY:
     {previous_summary}

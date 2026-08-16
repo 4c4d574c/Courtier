@@ -7,6 +7,7 @@ context:
     4. 关键决策和约束
     5. 下一步具体行动
     6. 所有可用的 $ref 引用 ID 与文件路径清单
+    7. search_documents 结果中的【引用编号 N】引用表及 rid/chunk 坐标——必须逐行原样保留，禁止摘要、改写或丢弃；后续回答依赖这些编号做 [[n]] 引用定位与 read_chunks 回读
 
     输入对话历史：
     {history}
@@ -20,6 +21,7 @@ context:
     4. 关键决策和约束
     5. 下一步具体行动
     6. 所有可用的 $ref 引用 ID 与文件路径清单
+    7. search_documents 结果中的【引用编号 N】引用表及 rid/chunk 坐标——必须逐行原样保留，禁止摘要、改写或丢弃；后续回答依赖这些编号做 [[n]] 引用定位与 read_chunks 回读
 
     【既有摘要】
     {previous_summary}
