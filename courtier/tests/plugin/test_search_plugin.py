@@ -1099,3 +1099,14 @@ class TestResultCache:
         # No neighbor expansion (hits carry no resource_id/chunk_no), so the
         # only ES round-trip is the first call's lexical search.
         assert len(calls) == 1
+
+class TestLimitCap:
+    def test_limit_over_50_rejected(self):
+        import asyncio
+
+        result = asyncio.run(
+            tools.SearchDocumentsTool().execute(query="通知", limit=51)
+        )
+        assert not result.success
+        assert "1 到 50" in result.error
+

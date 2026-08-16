@@ -26,7 +26,10 @@ _QUOTE_RE = re.compile(
 _FUZZY_MAX_LEN = 4
 _MAX_QUERY_CHARS = 500
 _MAX_SKIP = 10_000
-_MAX_LIMIT = 100
+#: Aligned with the host's citation cap (_CITATION_MAX_HITS in loop.py):
+#: every returned hit must carry a citation_index, which only holds while
+#: limit cannot exceed that cap.
+_MAX_LIMIT = 50
 _LOW_SIGNAL_QUERY_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 _FALLBACK_PREVIEW_CHARS = 300
 
@@ -653,7 +656,7 @@ class SearchDocumentsTool:
             },
             "limit": {
                 "type": "integer",
-                "description": "返回的最大结果数，默认 10",
+                "description": "返回的最大结果数，默认 10，上限 50",
             },
             "rerank": {
                 "type": "boolean",
