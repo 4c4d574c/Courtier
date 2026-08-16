@@ -1100,6 +1100,9 @@ async def agent_loop(
         }
         if tool_call_id is not None:
             payload["tool_call_id"] = tool_call_id
+        if citations:
+            payload["citation_offset"] = emitted_citation_offset[0]
+            emitted_citation_offset[0] += len(citations)
         await _publish(
             "tool.result" if result.success else "tool.error",
             payload,
@@ -1158,6 +1161,11 @@ async def agent_loop(
         # Cross-phase citation numbering: one running offset per agent_loop
         # run (= one turn), mutated in place by _annotate_search_citations.
         citation_offset: list[int] = [0]
+        # Mirror counter for emitted tool.result events: lets the frontend
+        # build an absolute [[n]] → hit map without relying on event order.
+        # Same math as the annotation (successful search results, citable
+        # hits capped at _CITATION_MAX_HITS, execution order).
+        emitted_citation_offset: list[int] = [0]
         # Reset ToolRuntimePolicy per-run counters
         if tool_registry is not None:
             tool_registry.reset_run_state()

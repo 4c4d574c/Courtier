@@ -202,7 +202,8 @@ class SSEAdapter:
             # Structured tool-call announcement from the loop (the bare
             # "tool_calls" transition reason carries no names).
             names = payload.get("names") or []
-            await self._handle_think_tool_calls([str(n) for n in names])
+            ids = [str(i) for i in (payload.get("ids") or [])][: len(names)]
+            await self._handle_think_tool_calls([str(n) for n in names], ids)
         elif event_type == "think.text_response":
             await self.on_step("think", "text_response")
         elif event_type == "context.compacted":
@@ -231,7 +232,7 @@ class SSEAdapter:
         elif event_type == "tool.start":
             name = payload.get("name")
             if name:
-                await self.on_tool_start(name)
+                await self.on_tool_start(name, payload.get("tool_call_id"))
         elif event_type == "tool.progress":
             name = payload.get("name")
             progress = payload.get("progress")
@@ -256,7 +257,9 @@ class SSEAdapter:
                 error=payload.get("error"),
                 metadata=metadata,
             )
-            await self.on_tool_result(name or "unknown", result, summary)
+            await self.on_tool_result(
+                name or "unknown", result, summary, payload.get("tool_call_id")
+            )
         elif event_type == "guard.triggered":
             await self._emit_sse(
                 {
@@ -364,10 +367,15 @@ class SSEAdapter:
         self._final_verdict_parts.append(token)
         await self._emit_sse({"type": "conclusion_token", "text": token})
 
-    async def on_tool_start(self, tool_name: str) -> None:
+    async def on_tool_start(self, tool_name: str, tool_call_id: str | None = None) -> None:
         await self._check_pause()
-        self._tool_start_times[tool_name] = _time.time()
-        await self._emit_sse({"type": "tool_start", "name": tool_name})
+        # Key durations by call id when available — parallel same-name
+        # calls would otherwise overwrite each other's start time.
+        self._tool_start_times[tool_call_id or tool_name] = _time.time()
+        sse: dict[str, Any] = {"type": "tool_start", "name": tool_name}
+        if tool_call_id is not None:
+            sse["toolCallId"] = tool_call_id
+        await self._emit_sse(sse)
 
     async def on_tool_progress(self, tool_name: str, progress: ToolProgress) -> None:
         await self._check_pause()
@@ -379,14 +387,20 @@ class SSEAdapter:
             }
         )
 
-    async def on_tool_result(self, tool_name: str, result: Any, summary: str) -> None:
+    async def on_tool_result(
+        self,
+        tool_name: str,
+        result: Any,
+        summary: str,
+        tool_call_id: str | None = None,
+    ) -> None:
         await self._check_pause()
 
         self._segment_index += 1
         self._segment_type = "tool_result"
 
         now = _time.time()
-        start = self._tool_start_times.get(tool_name, now)
+        start = self._tool_start_times.pop(tool_call_id or tool_name, now)
         duration = round(now - start, 1)
         metadata = getattr(result, "metadata", None)
         classification = normalize_tool_call_classification(metadata)
@@ -428,6 +442,7 @@ class SSEAdapter:
             parent_handle_id=metadata.get("parent_handle_id") if metadata else None,
             issue_counts=issue_counts,
             citations=citations,
+            tool_call_id=tool_call_id,
         )
         await self._store.add_tool_info(self._session_id, tool_info)
 
@@ -456,6 +471,8 @@ class SSEAdapter:
             "handleId": tool_info.handle_id,
             "parentHandleId": tool_info.parent_handle_id,
         }
+        if tool_call_id is not None:
+            sse_payload["toolCallId"] = tool_call_id
         if detail is not None:
             sse_payload["detail_data"] = detail
         if issue_counts is not None:
@@ -657,7 +674,9 @@ class SSEAdapter:
             await self._store.add_step(self._session_id, self._current_step)
         await self._emit_sse({"type": "think", "detail": "text_response", "textResponse": True})
 
-    async def _handle_think_tool_calls(self, names: list[str]) -> None:
+    async def _handle_think_tool_calls(
+        self, names: list[str], ids: list[str] | None = None
+    ) -> None:
         """Create a step for announced tool calls and notify the frontend."""
         self._step_index += 1
         # Only retarget the owner index here — the accumulated sub-agent
@@ -676,21 +695,27 @@ class SSEAdapter:
             turn_index=turn_index,
             start_segment_index=self._segment_index,
         )
-        self._tool_start_times = {name: _time.time() for name in names}
+        # Key per call, not per name — parallel same-name calls each need
+        # their own start time for correct durations.
+        self._tool_start_times = {
+            (ids[i] if ids and i < len(ids) and ids[i] else name): _time.time()
+            for i, name in enumerate(names)
+        }
         self._tool_calls_pending = True
         await self._store.add_step(self._session_id, self._current_step)
 
-        await self._emit_sse(
-            {
-                "type": "think",
-                # Legacy wire field kept for older consumers; prefer toolCalls.
-                "detail": f"tool_calls:{','.join(names)}",
-                "toolCalls": names,
-                # Chinese display names per tool, so pending/running tool
-                # cards can render them before the result arrives.
-                "displayNames": {name: self._tool_meta_for(name)["display_name"] for name in names},
-            }
-        )
+        think_payload: dict[str, Any] = {
+            "type": "think",
+            # Legacy wire field kept for older consumers; prefer toolCalls.
+            "detail": f"tool_calls:{','.join(names)}",
+            "toolCalls": names,
+            # Chinese display names per tool, so pending/running tool
+            # cards can render them before the result arrives.
+            "displayNames": {name: self._tool_meta_for(name)["display_name"] for name in names},
+        }
+        if ids:
+            think_payload["toolCallIds"] = ids
+        await self._emit_sse(think_payload)
 
     async def _handle_observe(self) -> None:
         # Flush accumulated verdict text

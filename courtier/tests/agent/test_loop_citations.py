@@ -485,3 +485,68 @@ async def test_annotation_numbering_persists_across_tool_phases():
     second = await _annotate_search_citations([_search_execution(3)], None, holder)
     assert [h["citation_index"] for h in second[0].raw_data["hits"]] == [3, 4, 5]
     assert holder[0] == 5
+
+
+@pytest.mark.asyncio
+async def test_tool_result_events_carry_cumulative_citation_offset():
+    """Each search tool.result event reports the absolute [[n]] offset of
+    its first hit, so the frontend can index citations without relying on
+    event order."""
+    from courtier.agent.core.event_bus import EventBus
+    from courtier.agent.core.loop import agent_loop
+    from courtier.agent.core.model import MockModelClient, ToolCall
+    from courtier.agent.core.state import AgentState
+    from courtier.agent.tools.registry import ToolRegistry
+    from courtier.agent.tools.protocol import ToolResult
+
+    class FakeSearch:
+        name = "search_documents"
+        display_name = None
+        description = ""
+        parameters: dict = {"type": "object", "properties": {}}
+        output_schema = None
+        skill = ""
+        skip_persist = True
+        output_content_type = None
+        input_contract = None
+        output_contract = None
+        runtime_policy = None
+
+        def __init__(self) -> None:
+            self._calls = 0
+
+        async def execute(self, **kwargs):
+            self._calls += 1
+            hits = 3 if self._calls == 1 else 2
+            return ToolResult(
+                success=True,
+                data={"total": hits, "hits": [{"title": f"t{i}"} for i in range(hits)]},
+            )
+
+    registry = ToolRegistry()
+    registry.register(FakeSearch())
+
+    model = MockModelClient(
+        tool_calls=[
+            ToolCall(id="c1", name="search_documents", arguments={}),
+            ToolCall(id="c2", name="search_documents", arguments={}),
+        ]
+    )
+    bus = EventBus()
+    sub = bus.subscribe()
+    await agent_loop(
+        state=AgentState.initial(task="t"),
+        model=model,
+        tool_registry=registry,
+        event_bus=bus,
+    )
+    events = []
+    while not sub.queue.empty():
+        events.append(sub.queue.get_nowait())
+    offsets = [
+        (e.payload["tool_call_id"], e.payload["citation_offset"])
+        for e in events
+        if e.type == "tool.result"
+    ]
+    # First call's hits number 1..3 (offset 0); second call's 4..5.
+    assert offsets == [("c1", 0), ("c2", 3)]

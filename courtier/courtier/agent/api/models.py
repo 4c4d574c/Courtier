@@ -158,6 +158,9 @@ class ToolInfo:
     #: Citation payload for search tools (search_documents hits).  Referenced
     #: from assistant conclusions via ``[[n]]`` markers (1-based hit index).
     citations: list[dict[str, Any]] | None = None
+    #: Model-assigned call id — pairs results to their cards when several
+    #: same-name tools run in one turn.
+    tool_call_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -182,6 +185,8 @@ class ToolInfo:
             result["issueCounts"] = self.issue_counts
         if self.citations is not None:
             result["citations"] = self.citations
+        if self.tool_call_id is not None:
+            result["toolCallId"] = self.tool_call_id
         return result
 
 
