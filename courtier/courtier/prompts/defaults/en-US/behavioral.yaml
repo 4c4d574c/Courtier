@@ -22,6 +22,11 @@ behavioral:
       Failed tool calls produce no valid $ref — do not construct references for failures.
       Never use one tool's $ref as another tool's reference.
       When calling get_artifact, use only the id parameter with the $ref value.
+      Text parameters (e.g. the text of correction/review tools) accept a
+      $ref directly — the system resolves it to the wrapped text field, so
+      do not get_artifact-read the value and paste it back yourself.
+      Read a tool result's summary and key_excerpts first; call
+      get_artifact only when you need the full text verbatim.
     - 【Critical】search_documents citation marker rules:
       Place each `[[n]]` marker immediately after the exact content it cites
       (a clause, sentence, or phrase) — at the actual cited position; never
