@@ -21,6 +21,11 @@ def apply_owner_scope(agent: Any, owner_id: int | None) -> None:
     The injected ``_owner_scope`` kwarg is host-side: it is not part of the
     tool's parameters schema and always wins over model-supplied arguments.
     Anonymous callers (owner_id=None) are scoped to public-only content.
+
+    Any pre-existing ScopedTool chain is unwrapped first so repeated
+    application replaces the injection instead of nesting wrappers (nested
+    ScopedTools resolve innermost-wins, which would silently pin the first
+    owner across sessions).
     """
     from ...tools.scoped import ScopedTool
 
@@ -32,6 +37,8 @@ def apply_owner_scope(agent: Any, owner_id: int | None) -> None:
             inner = registry.get(name)
         except KeyError:
             continue
+        if isinstance(inner, ScopedTool):
+            inner = inner.unwrapped
         registry.register(ScopedTool(inner, {"_owner_scope": owner_id}), force=True)
 
 
@@ -150,6 +157,14 @@ async def build_agent(
         courtier_config = CourtierConfig.from_env()
         courtier_config.discover()
 
+    # Per-session shallow clone: each agent gets its own registry view so
+    # owner-scope wrapping, SkillTool callback re-registration, and per-run
+    # counters never leak across concurrent sessions sharing the app-wide
+    # registry (tool instances are shared by reference; see
+    # ToolRegistry.clone).  Admin/management endpoints keep reading the base
+    # registry, which retains the raw plugin proxies.
+    session_registry = tool_registry.clone() if tool_registry is not None else None
+
     # Build unified ArtifactStore (which now subsumes CacheStore).
     store = _build_artifact_store(settings, None)
 
@@ -160,10 +175,10 @@ async def build_agent(
         max_depth=settings.subagent_max_depth,
         remaining_total_spawns=settings.subagent_max_total_spawns,
     )
-    # Full runtime over the app-wide registry; skills are registered
+    # Full runtime over the session registry; skills are registered
     # per-domain by the activator (no upfront skill_registry).
     agent_runtime = AgentRuntime(
-        tool_registry=tool_registry,
+        tool_registry=session_registry,
         model=model,
         skill_registry=None,
         artifact_store=store,
@@ -178,7 +193,7 @@ async def build_agent(
     activate_tool = ActivateDomainTool(domain_catalog)
 
     activator = DomainActivator(
-        tool_registry=tool_registry,
+        tool_registry=session_registry,
         courtier_config=courtier_config,
         agent_runtime=agent_runtime,
         plugin_system=plugin_system,
@@ -189,7 +204,7 @@ async def build_agent(
     agent = OrchestratorAgent(
         model=model,
         plugin_system=plugin_system,
-        tool_registry=tool_registry,
+        tool_registry=session_registry,
         skill_registry=None,
         agent_runtime=agent_runtime,
         courtier_md_content=courtier_md_content,

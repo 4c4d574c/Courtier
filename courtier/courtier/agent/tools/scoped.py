@@ -37,6 +37,14 @@ class ScopedTool:
         ):
             setattr(self, attr, getattr(inner, attr, None))
 
+    @property
+    def unwrapped(self) -> Any:
+        """Peel any ScopedTool chain down to the original tool."""
+        inner = self._inner
+        while isinstance(inner, ScopedTool):
+            inner = inner._inner
+        return inner
+
     async def execute(self, **kwargs: Any) -> Any:
         # Injected scope wins over model-supplied arguments.
         merged = {**kwargs, **self._injections}

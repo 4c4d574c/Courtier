@@ -69,6 +69,25 @@ class ToolRegistry:
         self._tool_consecutive_counts.clear()
         self._last_tool_called = None
 
+    def clone(self) -> "ToolRegistry":
+        """Per-session shallow copy: same tool instances, fresh bookkeeping.
+
+        Shares policy/projector/result_store/summarizer by reference;
+        registrations and per-run counters are independent, so wrapping a
+        tool (e.g. ScopedTool owner-scope injection), re-registering SkillTool
+        callbacks, or resetting run state on a clone never leaks into the
+        base registry or other concurrent sessions.
+        """
+        clone = ToolRegistry(
+            policy=self._policy,
+            projector_registry=self._projector_registry,
+            result_store=self._result_store,
+            summarizer=self._summarizer,
+        )
+        for tool in self._tools.values():
+            clone.register(tool, force=True)
+        return clone
+
     def register(self, tool: ToolProtocol, force: bool = False) -> None:
         """Register a tool. Raises ValueError on duplicate name unless force=True.
 
