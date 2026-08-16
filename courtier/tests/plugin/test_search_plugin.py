@@ -230,6 +230,149 @@ def _neighbor_hit(resource_id: int, chunk_no: int) -> dict:
     return {"resource_id": resource_id, "chunk_no": chunk_no, "chunk_text": "x", "title": "t"}
 
 
+def _corpus_hit(i: int) -> dict:
+    return {
+        "_id": f"lex-{i}",
+        "_score": 100.0 - i,
+        "_source": {
+            "resource_id": 1,
+            "chunk_no": i,
+            "title": f"t{i}",
+            "chunk_text": f"内容{i}",
+            "chunk_text_preview": f"内容{i}",
+        },
+    }
+
+
+class TestFetchWindow:
+    """Hybrid/rerank pages slice an in-process fused list, so both arms
+    must fetch the full window (skip+limit) — the old behavior fetched only
+    the first `limit` lexical hits, silently keeping deep lexical hits out
+    of fusion on page 2+."""
+
+    @staticmethod
+    def _install_es(monkeypatch, n_corpus: int, knn_hits: list[dict] | None = None):
+        """Capture (mode, skip, limit) per ES call; neighbor queries → empty."""
+        import es_client
+
+        calls: list[tuple[str, int, int]] = []
+
+        def fake_search_chunks(query_body, skip, limit):
+            body_json = json.dumps(query_body)
+            if "knn" in query_body:
+                mode = "knn"
+            elif '"range"' in body_json:
+                mode = "neighbor"
+            else:
+                mode = "lexical"
+            calls.append((mode, skip, limit))
+            if mode == "knn":
+                return {"hits": {"total": {"value": 0}, "hits": knn_hits or []}, "took": 1}
+            if mode == "neighbor":
+                return {"hits": {"total": {"value": 0}, "hits": []}, "took": 1}
+            corpus = [_corpus_hit(i) for i in range(n_corpus)]
+            return {
+                "hits": {"total": {"value": n_corpus}, "hits": corpus[skip : skip + limit]},
+                "took": 1,
+            }
+
+        monkeypatch.setattr(es_client, "search_chunks", fake_search_chunks)
+        return calls
+
+    @staticmethod
+    def _enable_hybrid(monkeypatch):
+        import embeddings
+
+        async def fake_embed(query):
+            return [0.1, 0.2, 0.3]
+
+        monkeypatch.setattr(embeddings, "embedding_config", lambda: object())
+        monkeypatch.setattr(embeddings, "embed_query", fake_embed)
+
+    @pytest.mark.asyncio
+    async def test_hybrid_lexical_arm_fetches_full_window_per_page(self, monkeypatch):
+        tools._cache_clear()
+        calls = self._install_es(monkeypatch, n_corpus=30)
+        self._enable_hybrid(monkeypatch)
+
+        tool = tools.SearchDocumentsTool()
+        result = await tool.execute(query="通知", skip=10, limit=10)
+        assert result.success
+        # Page 2: window = min(max(10+10, 50), 200) = 50 — the lexical arm
+        # must fetch all 50, not just the 10-hit first page.
+        lexical_calls = [c for c in calls if c[0] == "lexical"]
+        assert lexical_calls == [("lexical", 0, 50)]
+        knn_calls = [c for c in calls if c[0] == "knn"]
+        assert knn_calls == [("knn", 0, 50)]
+        # kNN arm empty → fused list is lexical order; page 2 = corpus[10:20].
+        assert [h["chunk_no"] for h in result.data["hits"]] == list(range(10, 20))
+        assert result.data["total_mode"] == "window"
+        assert result.data["total"] == 30
+        assert result.data["mode"] == "hybrid"
+
+    @pytest.mark.asyncio
+    async def test_hybrid_pages_are_disjoint_and_complete(self, monkeypatch):
+        tools._cache_clear()
+        self._install_es(monkeypatch, n_corpus=30)
+        self._enable_hybrid(monkeypatch)
+
+        tool = tools.SearchDocumentsTool()
+        pages = []
+        for skip in (0, 10, 20):
+            result = await tool.execute(query="通知", skip=skip, limit=10)
+            pages.extend(h["chunk_no"] for h in result.data["hits"])
+        assert pages == list(range(30))
+
+    @pytest.mark.asyncio
+    async def test_deep_skip_beyond_window_returns_empty_page(self, monkeypatch):
+        tools._cache_clear()
+        calls = self._install_es(monkeypatch, n_corpus=300)
+        self._enable_hybrid(monkeypatch)
+
+        tool = tools.SearchDocumentsTool()
+        result = await tool.execute(query="通知", skip=250, limit=10)
+        assert result.success
+        assert result.data["hits"] == []
+        # window capped: lexical fetched 200, not 260.
+        assert ("lexical", 0, 200) in [c for c in calls if c[0] == "lexical"]
+
+    @pytest.mark.asyncio
+    async def test_pure_lexical_keeps_native_paging_and_exact_total(self, monkeypatch):
+        tools._cache_clear()
+        calls = self._install_es(monkeypatch, n_corpus=30)
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+
+        tool = tools.SearchDocumentsTool()
+        result = await tool.execute(query="通知", skip=10, limit=10)
+        assert result.success
+        assert [c for c in calls if c[0] == "lexical"] == [("lexical", 10, 10)]
+        assert not [c for c in calls if c[0] == "knn"]
+        assert result.data["mode"] == "lexical"
+        assert result.data["total_mode"] == "exact"
+        assert result.data["total"] == 30
+        assert [h["chunk_no"] for h in result.data["hits"]] == list(range(10, 20))
+
+    @pytest.mark.asyncio
+    async def test_rerank_fetch_capped_at_100(self, monkeypatch):
+        tools._cache_clear()
+        import rerank
+
+        calls = self._install_es(monkeypatch, n_corpus=300)
+        monkeypatch.delenv("LLM_EMBEDDING_NAME", raising=False)
+
+        async def fake_rerank(query, hits):
+            return hits, False
+
+        monkeypatch.setattr(rerank, "rerank_hits", fake_rerank)
+
+        tool = tools.SearchDocumentsTool()
+        result = await tool.execute(query="通知", rerank=True, skip=85, limit=10)
+        assert result.success
+        # window = min(85+10, 200) = 95; fetch from 0, no extra cap applied.
+        assert [c for c in calls if c[0] == "lexical"] == [("lexical", 0, 95)]
+        assert [h["chunk_no"] for h in result.data["hits"]] == list(range(85, 95))
+
+
 class TestNeighborExpansion:
     def test_build_neighbor_query_windows(self):
         body = tools._build_neighbor_query(

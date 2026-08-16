@@ -76,7 +76,12 @@ _RRF_RANK_CONSTANT = 60
 
 #: How many rough-ranked hits rerank mode fetches before LLM listwise
 #: reordering (then slices to the requested limit).
-_RERANK_FETCH = 50
+_RERANK_MAX_FETCH = 100
+
+#: Hybrid/rerank pages slice an in-process fused candidate list, so both
+#: arms fetch a common window of this size; paging deeper than the window
+#: yields empty pages (use filters to narrow instead).
+_MAX_WINDOW = 200
 
 #: Optional publish_date recency weighting (gauss decay on the lexical arm).
 _TIME_DECAY_SCALE = "730d"
@@ -358,15 +363,19 @@ def _build_es_query(
     return body
 
 
-def _build_knn_query(query_vector: list[float], filter_clauses: list[dict]) -> dict:
+def _build_knn_query(
+    query_vector: list[float],
+    filter_clauses: list[dict],
+    k: int = _KNN_K,
+) -> dict:
     """kNN arm of hybrid retrieval.  Must carry the same filters as the
     lexical arm, otherwise fusion could surface documents the lexical
     filters excluded (visibility leak)."""
     knn: dict[str, Any] = {
         "field": "chunk_vector",
         "query_vector": query_vector,
-        "k": _KNN_K,
-        "num_candidates": _KNN_NUM_CANDIDATES,
+        "k": k,
+        "num_candidates": max(_KNN_NUM_CANDIDATES, k),
     }
     if filter_clauses:
         knn["filter"] = filter_clauses
@@ -567,6 +576,8 @@ class SearchDocumentsTool:
         '用引号包裹的词会作为精确短语匹配（如 "安全生产" 匹配完整短语），'
         "其余部分需大部分关键词命中（含完整短语的文档排名更靠前）。"
         "支持按文档ID、文档类型、标签过滤。"
+        "词法模式下 total 为精确总数（total_mode=exact）；"
+        "hybrid 模式下 total 为窗口内融合候选数（total_mode=window）。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -603,7 +614,11 @@ class SearchDocumentsTool:
             },
             "skip": {
                 "type": "integer",
-                "description": "跳过的结果数，用于分页，默认 0",
+                "description": (
+                    "跳过的结果数，用于分页，默认 0。hybrid/重排模式下翻页深度受融合窗口"
+                    "上限（默认 200）约束，超深分页返回空页，请改用 document_id/doc_type/tags"
+                    " 过滤缩小范围"
+                ),
             },
             "limit": {
                 "type": "integer",
@@ -685,10 +700,19 @@ class SearchDocumentsTool:
             try:
                 from es_client import search_chunks
 
-                # Rerank mode fetches a rough top-_RERANK_FETCH window and
-                # slices after reordering; otherwise fetch the requested page.
-                lex_skip = 0 if rerank else skip
-                lex_limit = _RERANK_FETCH if rerank else limit
+                # Fetch-window policy: hybrid/rerank pages slice an
+                # in-process fused candidate list, so the lexical arm must
+                # fetch the whole window (skip+limit) — fetching just the
+                # first page would keep lexical hits beyond page 1 out of
+                # fusion.  Pure lexical keeps ES-native paging (exact
+                # totals, deep paging up to _MAX_SKIP).
+                window = min(max(skip + limit, _KNN_K), _MAX_WINDOW)
+                if rerank:
+                    lex_skip, lex_limit = 0, min(window, _RERANK_MAX_FETCH)
+                elif query_vector is not None:
+                    lex_skip, lex_limit = 0, window
+                else:
+                    lex_skip, lex_limit = skip, limit
                 raw = await asyncio.to_thread(
                     search_chunks,
                     query_body=es_body,
@@ -701,7 +725,10 @@ class SearchDocumentsTool:
             if query_vector is not None:
                 # Hybrid: fuse the lexical result with a parallel kNN result
                 # (client-side RRF — ES rank.rrf needs a commercial license).
-                # A failing kNN arm degrades to the lexical result.
+                # A failing kNN arm degrades to the lexical result.  Both
+                # arms fetch the same window; the fused total is the number
+                # of candidates inside that window (total_mode=window), not
+                # an exact corpus count.
                 try:
                     filters = _build_filters(
                         document_id=kwargs.get("document_id"),
@@ -709,18 +736,20 @@ class SearchDocumentsTool:
                         tags=kwargs.get("tags"),
                         owner_scope=kwargs.get("_owner_scope", _QUERY_UNSET),
                     )
-                    knn_body = _build_knn_query(query_vector, filters)
+                    knn_k = max(_KNN_K, window)
+                    knn_body = _build_knn_query(query_vector, filters, k=knn_k)
                     from es_client import search_chunks as _search_chunks
 
                     raw_knn = await asyncio.to_thread(
-                        _search_chunks, query_body=knn_body, skip=0, limit=_KNN_K
+                        _search_chunks, query_body=knn_body, skip=0, limit=knn_k
                     )
                     fused = _rrf_fuse(
                         raw.get("hits", {}).get("hits", []),
                         raw_knn.get("hits", {}).get("hits", []),
                     )
                     cleaned = {
-                        "total": _extract_total(raw),
+                        "total": len(fused),
+                        "total_mode": "window",
                         "took_ms": raw.get("took", 0) + raw_knn.get("took", 0),
                         "hits": _clean_hits(
                             fused,
@@ -735,12 +764,14 @@ class SearchDocumentsTool:
                         include_annotations=bool(kwargs.get("include_annotations", False)),
                     )
                     cleaned["mode"] = "lexical"
+                    cleaned["total_mode"] = "exact"
             else:
                 cleaned = _clean_response(
                     raw,
                     include_annotations=bool(kwargs.get("include_annotations", False)),
                 )
                 cleaned["mode"] = "lexical"
+                cleaned["total_mode"] = "exact"
 
             # Coarse result (pre-rerank, pre-neighbors) is what the cache
             # stores for rerank calls.
@@ -755,7 +786,7 @@ class SearchDocumentsTool:
             try:
                 from rerank import rerank_hits
 
-                ordered, partial = await rerank_hits(query, cleaned["hits"][:_RERANK_FETCH])
+                ordered, partial = await rerank_hits(query, cleaned["hits"][:_RERANK_MAX_FETCH])
                 cleaned["hits"] = ordered[skip : skip + limit]
                 cleaned["reranked"] = True
                 cleaned["rerank_partial"] = partial
