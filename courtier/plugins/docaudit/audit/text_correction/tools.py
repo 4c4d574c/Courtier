@@ -16,8 +16,10 @@ class TextCorrectionTool:
     display_name: str | None = "文本纠错"
     description: str = (
         "Detect and correct Chinese spelling, grammar, fullwidth/halfwidth character "
-        "issues, and punctuation mixing errors. Returns a list of corrections with "
-        "original text, corrected text, and per-sentence error details."
+        "issues, and punctuation mixing errors. Each result contains source, target, "
+        "and errors: target is the fully corrected text with every listed error "
+        "applied (errors is the complete source→target diff, including delete and "
+        "insert operations), so errors and target are always consistent."
     )
     parameters: dict[str, Any] = {
         "type": "object",
