@@ -642,10 +642,12 @@ try {
     [],
   );
   const assistantMsg = mergedMsgs.find((m) => m.type === "assistant");
-  assert.equal(assistantMsg.citations.length, 3);
-  assert.equal(assistantMsg.citations[0].title, "文档A");
-  assert.equal(assistantMsg.citations[1].title, "文档B");
-  assert.equal(assistantMsg.citations[2].title, "文档C");
+  // Legacy events (no offsets): merge-order list + sequential numbering.
+  assert.equal(assistantMsg.citations.list.length, 3);
+  assert.equal(assistantMsg.citations.list[0].title, "文档A");
+  assert.equal(assistantMsg.citations.list[1].title, "文档B");
+  assert.equal(assistantMsg.citations.list[2].title, "文档C");
+  assert.equal(assistantMsg.citations.byNumber.get(3).title, "文档C");
 
   console.log("chatMessages verification passed");
 } finally {

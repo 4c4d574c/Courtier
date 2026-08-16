@@ -11,9 +11,18 @@ export function handleToolStartEvent(
   const { session } = deps();
   const currentStep = session.steps[session.steps.length - 1];
   if (!currentStep) return;
-  const idx = currentStep.tools.findIndex(
-    (t) => t.name === event.name && t.status === "pending",
-  );
+  // Pair by call id first — same-name pending cards are otherwise
+  // indistinguishable.
+  let idx = event.toolCallId
+    ? currentStep.tools.findIndex(
+        (t) => t.toolCallId === event.toolCallId && t.status === "pending",
+      )
+    : -1;
+  if (idx < 0) {
+    idx = currentStep.tools.findIndex(
+      (t) => t.name === event.name && t.status === "pending",
+    );
+  }
   if (idx >= 0) {
     patchLastStep(deps, {
       tools: currentStep.tools.map((t, i) =>

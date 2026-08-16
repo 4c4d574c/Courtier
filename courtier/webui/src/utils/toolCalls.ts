@@ -63,6 +63,8 @@ export function normalizeToolResult(tool: ToolResultInput): ToolResult {
     summary: tool.summary,
     issueCounts: tool.issueCounts,
     detail: tool.detail,
+    toolCallId: tool.toolCallId ?? null,
+    citationOffset: tool.citationOffset ?? null,
     startTime: tool.startTime,
     progress: tool.progress,
   };

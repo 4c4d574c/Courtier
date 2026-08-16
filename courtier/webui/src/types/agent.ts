@@ -60,6 +60,10 @@ export interface ToolResult {
   detail?: ToolDetail
   /** search_documents hits for `[[n]]` citation markers */
   citations?: CitationHit[]
+  /** 模型分配的工具调用 id——同名单工具并行时用于结果↔卡片精确配对 */
+  toolCallId?: string | null
+  /** 该次搜索命中的绝对引用编号偏移（首个 hit 对应 [[offset+1]]） */
+  citationOffset?: number | null
   startTime?: number
   progress?: string
 }
@@ -277,6 +281,12 @@ export interface AgentEvent {
   issueCounts?: IssueCounts
   /** search_documents 命中的引用载荷（tool_result 事件携带） */
   citations?: CitationHit[]
+  /** 工具调用 id（tool_start / tool_result 事件携带） */
+  toolCallId?: string | null
+  /** think 事件公告的调用 id 列表（与 toolCalls 同序） */
+  toolCallIds?: string[]
+  /** 该次搜索命中的绝对引用编号偏移（tool_result 事件携带） */
+  citationOffset?: number
   result?: unknown
   tokens_in?: number
   tokens_out?: number

@@ -13,13 +13,14 @@
 
 <script setup lang="ts">
 import type { CitationHit } from "../../types/agent";
+import type { CitationIndex } from "../../types/chat";
 import StreamingMarkdown from "../StreamingMarkdown.vue";
 
 interface Props {
   content: string;
   isStreaming?: boolean;
   /** search_documents hits referenced by `[[n]]` markers in content */
-  citations?: CitationHit[];
+  citations?: CitationIndex;
 }
 const props = defineProps<Props>();
 
@@ -28,9 +29,12 @@ const props = defineProps<Props>();
 const emit = defineEmits<{ "citation-click": [hit: CitationHit | undefined] }>();
 
 function onCitation(index: number) {
-  const hit = props.citations?.[index - 1];
+  const c = props.citations;
+  const hit = c?.byNumber.get(index) ?? c?.list[index - 1];
   if (!hit) {
-    console.warn(`citation [[${index}]] out of range (${props.citations?.length ?? 0} hits)`);
+    console.warn(
+      `citation [[${index}]] out of range (${c?.list.length ?? 0} hits)`,
+    );
   }
   emit("citation-click", hit);
 }

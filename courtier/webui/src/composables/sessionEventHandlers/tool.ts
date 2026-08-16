@@ -114,6 +114,8 @@ export function handleRegularToolResult(
       duration: event.duration ?? tool.duration,
       issueCounts: event.issueCounts ?? tool.issueCounts,
       citations: event.citations ?? tool.citations,
+      toolCallId: event.toolCallId ?? tool.toolCallId,
+      citationOffset: event.citationOffset ?? tool.citationOffset,
       progress: ["done", "error"].includes(status)
         ? undefined
         : tool.progress,

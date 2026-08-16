@@ -6,12 +6,20 @@ export interface ChatUserMessageItem {
   content: string;
 }
 
+/** [[n]] → hit resolution index for one assistant message. */
+export interface CitationIndex {
+  /** Absolute marker numbers (offset-aware) → hit; preferred lookup. */
+  byNumber: Map<number, CitationHit>;
+  /** Merge-order fallback list (legacy events without offsets). */
+  list: CitationHit[];
+}
+
 export interface ChatAssistantMessageItem {
   type: "assistant";
   id: string;
   content: string;
   /** search_documents hits referenced by `[[n]]` markers in content */
-  citations?: CitationHit[];
+  citations?: CitationIndex;
 }
 
 export interface ChatFileItem {

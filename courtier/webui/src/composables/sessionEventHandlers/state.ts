@@ -17,15 +17,18 @@ export function createStep(
   index: number,
   toolNames: string[],
   displayNames: Record<string, string | null> = {},
+  toolCallIds: string[] = [],
 ): Step {
   const { state: s } = deps();
-  const tools: ToolResult[] = toolNames.map((name) =>
+  const tools: ToolResult[] = toolNames.map((name, i) =>
     normalizeToolResult({
       id: `tool-${++s.toolIdCounter}`,
       name,
       displayName: displayNames[name] ?? null,
       skill: "",
       status: "pending",
+      // Same-name parallel calls are paired to results by this id.
+      toolCallId: toolCallIds[i] ?? null,
     }),
   );
   return {

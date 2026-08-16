@@ -55,6 +55,20 @@ export function findMatchingToolIndex(
   session: Session,
   event: AgentEvent,
 ): { stepIndex: number; toolIndex: number } | null {
+  // Exact pairing by tool_call_id beats any name heuristic: parallel
+  // same-name calls otherwise get results attached in reverse card order
+  // (name matching scans running cards from the last index).
+  if (event.toolCallId) {
+    for (let i = session.steps.length - 1; i >= 0; i--) {
+      const step = session.steps[i];
+      for (let j = step.tools.length - 1; j >= 0; j--) {
+        const tool = step.tools[j];
+        if (tool.toolCallId === event.toolCallId) {
+          return { stepIndex: i, toolIndex: j };
+        }
+      }
+    }
+  }
   for (const preferScoped of [true, false]) {
     for (let i = session.steps.length - 1; i >= 0; i--) {
       const step = session.steps[i];

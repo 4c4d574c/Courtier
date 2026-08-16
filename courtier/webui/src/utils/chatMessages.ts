@@ -1,5 +1,6 @@
 import type { CitationHit, Session, Thought, Turn } from "../types/agent";
 import type {
+  CitationIndex,
   ChatFileRecord,
   ChatMessageItem,
   ChatUserMessageItem,
@@ -191,20 +192,29 @@ function buildProcessItems(
  * Find the citations attached to a turn's search_documents results.
  *
  * A turn may run several search_documents calls (e.g. one per topic).  The
- * backend numbers hits cumulatively across the calls of the turn, so the
- * frontend merges the per-call citation payloads in call order — `[[n]]`
- * resolves against this merged list.
+ * backend numbers hits cumulatively across the calls of the turn; each
+ * tool result carries citationOffset (the absolute index of its first
+ * hit), so `byNumber` maps `[[n]]` directly regardless of event order.
+ * Older events without offsets fall back to merge order.
  */
-function citationsForTurn(turn: Turn): CitationHit[] | undefined {
-  const merged: CitationHit[] = [];
+function citationsForTurn(turn: Turn): CitationIndex | undefined {
+  const byNumber = new Map<number, CitationHit>();
+  const list: CitationHit[] = [];
   for (const step of turn.steps) {
     for (const tool of step.tools) {
-      if (tool.name === "search_documents" && tool.citations?.length) {
-        merged.push(...tool.citations);
-      }
+      if (tool.name !== "search_documents" || !tool.citations?.length) continue;
+      const offset = tool.citationOffset;
+      tool.citations.forEach((hit, i) => {
+        if (offset != null) {
+          byNumber.set(offset + i + 1, hit);
+        } else {
+          byNumber.set(list.length + 1, hit);
+        }
+        list.push(hit);
+      });
     }
   }
-  return merged.length ? merged : undefined;
+  return list.length ? { byNumber, list } : undefined;
 }
 
 function buildAssistantItem(

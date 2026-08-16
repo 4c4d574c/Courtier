@@ -29,6 +29,7 @@ export function handleThinkEvent(
 
   if (toolNames) {
     const displayNames = event.displayNames ?? {};
+    const callIds = event.toolCallIds ?? [];
     const lastStep = session.steps[session.steps.length - 1];
 
     if (
@@ -36,13 +37,15 @@ export function handleThinkEvent(
       lastStep.tools.length === 0 &&
       lastStep.turnIndex === s.currentTurnIndex
     ) {
-      const tools: ToolResult[] = toolNames.map((name) =>
+      const tools: ToolResult[] = toolNames.map((name, i) =>
         normalizeToolResult({
           id: `tool-${++s.toolIdCounter}`,
           name,
           displayName: displayNames[name] ?? null,
           skill: "",
           status: "pending",
+          // Same-name parallel calls are paired to results by this id.
+          toolCallId: callIds[i] ?? null,
         }),
       );
       replaceStepAt(deps, session.steps.length - 1, {
@@ -53,7 +56,7 @@ export function handleThinkEvent(
       s.currentStepIndex = lastStep.index;
     } else {
       if (lastStep) patchLastStep(deps, { endSegmentIndex: s.segmentIndex });
-      const step = createStep(deps, session.steps.length + 1, toolNames, displayNames);
+      const step = createStep(deps, session.steps.length + 1, toolNames, displayNames, callIds);
       addStep(deps, step);
       s.currentStepIndex = step.index;
       assignPendingThoughtsToCurrentStep(deps);
