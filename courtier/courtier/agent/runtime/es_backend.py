@@ -298,15 +298,26 @@ class ElasticsearchResultBackend(ResultBackend):
                         "by_tool": {
                             "terms": {"field": "tool", "size": 100},
                             "aggs": {"max_seq": {"max": {"field": "seq"}}},
-                        }
+                        },
+                        # Legacy documents (pre tool/seq fields) only carry
+                        # result_id — parse the sequence out of it so a fresh
+                        # store still numbers past everything ever written.
+                        "by_result_id": {
+                            "terms": {"field": "result_id", "size": 10000},
+                        },
                     },
                 },
             )
-            for bucket in resp.get("aggregations", {}).get("by_tool", {}).get("buckets", []):
+            aggs = resp.get("aggregations", {})
+            for bucket in aggs.get("by_tool", {}).get("buckets", []):
                 tool = bucket.get("key")
                 max_seq = bucket.get("max_seq", {}).get("value")
                 if tool and max_seq is not None and int(max_seq) > seqs.get(tool, 0):
                     seqs[tool] = int(max_seq)
+            for bucket in aggs.get("by_result_id", {}).get("buckets", []):
+                match = _REF_ID_RE.match(str(bucket.get("key", "")))
+                if match and int(match.group(2)) > seqs.get(match.group(1), 0):
+                    seqs[match.group(1)] = int(match.group(2))
         except Exception:
             logger.warning("ref sequence seed query failed; numbering falls back", exc_info=True)
         _seq_seed_cache[self._index_name] = (_time.monotonic(), dict(seqs))

@@ -296,11 +296,19 @@ class _PersistenceBackend:
         Returns a dict with ``data`` (or ``error``) and ``metadata``.
         If *query* is provided, returns matching excerpts.
         """
-        # Try primary backend first (e.g. ES), fall back to disk.
+        # Disk first: refs minted by this store are authoritative on disk —
+        # the shared ES index is a global namespace where another session's
+        # document can sit under the same id (older writers win with
+        # op_type=create), so asking ES first can return a DIFFERENT
+        # session's content.  ES is only the cross-process fallback for
+        # refs this store never wrote.
         data: Any = None
         metadata: dict[str, Any] = {"backend": "disk", "ref_id": ref_id}
 
-        if self._primary_backend is not None:
+        if ref_id in self.ref_map:
+            data, _ = self._load_ref(ref_id)
+
+        if data is None and self._primary_backend is not None:
             try:
                 primary_result: dict[str, Any] = await self._primary_backend.read(
                     ref_id, query=query, chunk_index=chunk_index, max_tokens=max_tokens
@@ -314,9 +322,11 @@ class _PersistenceBackend:
                     ref_id,
                 )
                 metadata["primary_error"] = f"primary_backend_failed: {exc}"
+            # Last resort: the load() path covers disk-unknown refs via the
+            # backend's synchronous load (already consulted above for ES) —
+            # this only helps custom backends with extra lookup channels.
+            data = self.load(ref_id)
 
-        # Disk fallback
-        data = self.load(ref_id)
         if data is None:
             return {"error": f"result not found: {ref_id}", "data": None}
 

@@ -143,3 +143,44 @@ class TestLoadEsFallback:
         backend = _backend(client, monkeypatch)
         store = ArtifactStore(cache_dir=str(tmp_path), primary_backend=backend)
         assert store.load("$ref:search_documents:99") is None
+
+
+class TestReadPrefersLocalDisk:
+    @pytest.mark.asyncio
+    async def test_read_returns_local_write_not_stale_es_doc(self, tmp_path, monkeypatch):
+        """Regression for sess_8873fbece988: another session's document sat
+        in ES under the same ref id; read() asked ES first and returned the
+        wrong session's content."""
+        client = _fake_es_client()
+        backend = _backend(client, monkeypatch)
+        # A "previous session" already owns $ref:content_audit:1 in ES, so
+        # the fresh store numbers past it.
+        client._docs["$ref:content_audit:1"] = {
+            "data": "旧会话的安全生产报告",
+            "data_text": "旧会话的安全生产报告",
+        }
+
+        store = ArtifactStore(cache_dir=str(tmp_path), primary_backend=backend)
+        result = await store.persist("本会话的智慧城市报告", "content_audit", force=True)
+        assert result.ref_id == "$ref:content_audit:2"
+
+        # ES write conflicts (or a lagging index) can leave a stale document
+        # under this session's id — reads must still prefer the local disk.
+        client._docs["$ref:content_audit:2"] = {
+            "data": "ES 里的陈旧内容",
+            "data_text": "ES 里的陈旧内容",
+        }
+        read = await store.read("$ref:content_audit:2")
+        assert read.get("data") == "本会话的智慧城市报告"
+
+    @pytest.mark.asyncio
+    async def test_seed_numbers_past_legacy_docs_without_tool_seq(self, tmp_path, monkeypatch):
+        """Legacy ES docs carry only result_id; seeding must still count them."""
+        client = _fake_es_client()
+        backend = _backend(client, monkeypatch)
+        client._docs["$ref:content_audit:1"] = {"data": "旧"}
+        client._docs["$ref:search_documents:3"] = {"data": "旧"}
+
+        store = ArtifactStore(cache_dir=str(tmp_path), primary_backend=backend)
+        result = await store.persist("新数据", "content_audit", force=True)
+        assert result.ref_id == "$ref:content_audit:2"
