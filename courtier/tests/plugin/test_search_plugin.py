@@ -698,6 +698,71 @@ class TestEmbeddingClient:
             await embeddings.embed_texts(["甲"])
 
 
+class TestRerankEvidenceWindow:
+    """Adaptive per-candidate length + segment localization in the rerank
+    prompt: relevant clauses beyond the first 200 chars used to be cut out
+    of the evidence the rerank LLM sees."""
+
+    def test_candidate_chars_budget(self):
+        import rerank
+
+        assert rerank._candidate_chars(1) == rerank._CANDIDATE_MAX_CHARS
+        assert rerank._candidate_chars(10) == 800  # 2400 clamped to max
+        assert rerank._candidate_chars(50) == 24_000 // 50  # 480
+        assert rerank._candidate_chars(500) == rerank._CANDIDATE_MIN_CHARS
+
+    def test_query_grams_mix_phrases_and_bigrams(self):
+        import rerank
+
+        grams = rerank._query_grams('关于"安全生产"的通知')
+        assert "安全生产" in grams  # quoted phrase kept whole
+        assert "通知" in grams  # bigram of free text
+        assert "关于" in grams
+
+    def test_best_window_centers_on_relevant_sentence(self):
+        import rerank
+
+        filler = "各单位应当加强日常管理，做好统筹协调工作。" * 10  # ~250 chars
+        clause = "落实安全生产责任制，实行党政同责、一岗双责。"
+        tail = "其他事项按照有关规定执行。" * 20
+        text = filler + clause + tail
+        grams = rerank._query_grams("安全生产责任制 落实")
+
+        window = rerank._best_window(grams, text, chars=200)
+        assert "安全生产责任制" in window
+        assert window.startswith("…")  # relevant part is beyond the head
+        assert len(window) <= 202  # 200 + up to 2 ellipsis markers
+
+    def test_best_window_falls_back_to_head_without_overlap(self):
+        import rerank
+
+        text = "完全无关的内容。" * 100
+        window = rerank._best_window({"zz"}, text, chars=100)
+        assert window == text[:100]
+
+    def test_best_window_short_text_untouched(self):
+        import rerank
+
+        text = "短文本。"
+        assert rerank._best_window({"短文"}, text, chars=100) == text
+
+    def test_prompt_carries_localized_evidence(self):
+        import rerank
+
+        filler = "各单位应当加强日常管理，做好统筹协调工作。" * 30
+        clause = "特种作业人员必须持证上岗，严禁无证操作。"
+        hit = {
+            "title": "管理办法",
+            "chunk_text": filler + clause + filler,
+            "chunk_no": 1,
+        }
+        prompt = rerank._prompt("特种作业 持证上岗", [hit])
+        assert "持证上岗" in prompt
+        assert "候选为原文节选" in prompt
+        # The clause sits ~750 chars in; only a localized window reaches it.
+        assert "…" in prompt
+
+
 def _rerank_hit(i: int) -> dict:
     return {"title": f"标题{i}", "chunk_text": f"内容{i}", "chunk_no": i}
 
