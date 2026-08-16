@@ -167,3 +167,41 @@ async def test_excerpts_short_content_still_first_class():
     joined = "\n".join(excerpts)
     assert "安全生产法" in joined
     assert "第一条" in joined
+
+
+@pytest.mark.asyncio
+async def test_summary_carries_outline_for_structured_markdown():
+    """Long markdown results announce their section structure in the
+    summary — the model can then read sections via get_artifact(section=…)
+    instead of a full read-back."""
+    from courtier.agent.runtime.summarizer import RuleBasedSummaryStrategy
+
+    text = (
+        "# 一、项目背景\n背景内容。\n\n"
+        "## 建设方案\n方案内容。\n\n"
+        "# 二、实施计划\n计划内容。\n"
+    ) + "补充。\n" * 200  # push past the 800-char outline gate
+
+    strategy = RuleBasedSummaryStrategy()
+    summary, _excerpts = await strategy.summarize(
+        {"markdown": text, "format": "docx"}, "convert_document"
+    )
+    assert "文档大纲" in summary
+    assert "一、项目背景" in summary
+    assert "section 参数" in summary
+    assert "共3节" in summary
+
+
+@pytest.mark.asyncio
+async def test_no_outline_for_short_or_unstructured_results():
+    from courtier.agent.runtime.summarizer import RuleBasedSummaryStrategy
+
+    strategy = RuleBasedSummaryStrategy()
+    # Short text: below the outline gate.
+    summary_short, _ = await strategy.summarize({"markdown": "短文本"}, "convert_document")
+    assert "文档大纲" not in summary_short
+    # Long but heading-less: degradation blocks carry no outline.
+    summary_flat, _ = await strategy.summarize(
+        {"markdown": "无标题内容。" * 300}, "convert_document"
+    )
+    assert "文档大纲" not in summary_flat

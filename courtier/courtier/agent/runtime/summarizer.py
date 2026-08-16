@@ -9,6 +9,13 @@ from typing import Any, Literal, Protocol
 
 from .result import ExecutionResult
 
+#: Text fields probed for outline attachment (mirrors cache_store's
+#: adaptation priority).
+_TEXT_FIELD_PRIORITY = ("markdown", "text", "content", "plain_text", "chunk_text", "data")
+#: Outline attachment caps.
+_OUTLINE_MAX_TITLES = 10
+_OUTLINE_MAX_CHARS = 500
+
 
 class SummaryStrategy(Protocol):
     """Pluggable strategy for producing a summary and excerpts."""
@@ -50,6 +57,7 @@ class RuleBasedSummaryStrategy:
             if not excerpts:
                 # Fallback to top-level keys when nothing meaningful is found
                 excerpts = self._top_level_excerpts(data, keys)
+            summary = self._attach_outline(summary, data)
             return summary, excerpts
 
         # list
@@ -67,6 +75,48 @@ class RuleBasedSummaryStrategy:
             else:
                 excerpts.append(str(item)[:500])
         return summary, excerpts
+
+    @staticmethod
+    def _attach_outline(summary: str, data: dict) -> str:
+        """Append a compact document outline to the summary when *data*
+        wraps a long, structured text — the model sees the section list on
+        the first screen and can read sections via get_artifact(section=…)
+        instead of a full read-back or blind paging.
+
+        Pure decoration of the summary string; excerpts stay untouched.
+        """
+        text: str | None = None
+        for field_name in _TEXT_FIELD_PRIORITY:
+            value = data.get(field_name)
+            if isinstance(value, str) and value.strip():
+                text = value
+                break
+        if text is None or len(text) < 800:
+            return summary
+        try:
+            from courtier.agent.artifacts.outline import parse_sections
+
+            sections = parse_sections(text)
+        except Exception:
+            return summary
+        if len(sections) < 2:
+            return summary
+        # Degradation blocks (块 N) carry no information — skip outline
+        # attachment when nothing was recognised.
+        if all(s.title.startswith("块 ") for s in sections):
+            return summary
+        titles: list[str] = []
+        for section in sections[:_OUTLINE_MAX_TITLES]:
+            titles.append(f"{section.index}.{section.title}（约{section.chars}字）")
+        outline_line = (
+            f"\n文档大纲（共{len(sections)}节，可用 get_artifact 的 section 参数按节读取）: "
+            + "；".join(titles)
+        )
+        if len(sections) > _OUTLINE_MAX_TITLES:
+            outline_line += "；…"
+        if len(outline_line) > _OUTLINE_MAX_CHARS:
+            outline_line = outline_line[:_OUTLINE_MAX_CHARS] + "…"
+        return summary + outline_line
 
     @staticmethod
     def _top_level_excerpts(data: dict, keys: list[str]) -> list[str]:
