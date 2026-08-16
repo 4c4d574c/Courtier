@@ -29,7 +29,9 @@ behavioral:
       get_artifact only when you need the full text verbatim.
       For long documents, call get_artifact with outline=true first and
       then read sections with the section parameter — never read the
-      whole document back or page blindly.
+      whole document back or page blindly. (Applies to text results and
+      parse_document results; to get the body of a parse_document result,
+      prefer materialize_as=string with source_scope instead of an outline.)
     - 【Critical】search_documents citation marker rules:
       Place each `[[n]]` marker immediately after the exact content it cites
       (a clause, sentence, or phrase) — at the actual cited position; never

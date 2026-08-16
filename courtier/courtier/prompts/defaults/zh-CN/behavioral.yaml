@@ -25,7 +25,7 @@ behavioral:
       · 调用 get_artifact 时直接使用 id 参数传入 $ref 值即可，不要自行添加 artifact_type。
       · 文本类参数（如纠错/审阅的 text）可直接传 $ref，系统自动解析为其中的文本字段，无需先 get_artifact 读回再粘贴原文。
       · 查看工具结果优先读返回中的 summary 与 key_excerpts，仅当需要逐字引用全文时才 get_artifact。
-      · 读取长文档/长结果时，先用 get_artifact 的 outline=true 获取大纲，再用 section 参数按节读取，避免全文回读或盲翻页。
+      · 读取长文档/长结果时，先用 get_artifact 的 outline=true 获取大纲，再用 section 参数按节读取，避免全文回读或盲翻页（适用于文本类结果与 parse_document 解析结果；parse_document 产物如需正文，优先用 materialize_as=string + source_scope 提取，无需先取大纲）。
     - 【关键】search_documents 引用标记规则：
       · 引用标记 [[n]] 必须紧跟在实际被引用的具体内容之后（某条款、某句或某短语），标注在引用位置；禁止把标记统一堆到段落或列表项末尾，禁止在一处集中堆叠多个标记。引用或摘录结果中的条文、条款、原文时同样必须标注。n 为该次搜索结果 hits 列表的序号（从 1 开始，第 1 条命中为 [[1]]）；【严禁使用 [[0]]】编号从 1 开始，与数组下标无关，[[0]] 是无效标记。
       · 【编号来源】引用标记的数字直接使用命中自带的编号：内联结果中的 citation_index 字段，或摘要中标注的【引用编号 N】。禁止自行推算序号；一轮中多次调用 search_documents 时编号跨调用连续累计；只引用本轮实际看到的命中；

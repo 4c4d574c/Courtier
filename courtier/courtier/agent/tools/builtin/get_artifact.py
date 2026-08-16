@@ -16,7 +16,10 @@ from courtier.agent.artifacts.models import (
     RuntimePolicy,
 )
 from courtier.agent.artifacts.outline import find_section, parse_sections
-from courtier.agent.artifacts.projectors import create_default_projector_registry
+from courtier.agent.artifacts.projectors import (
+    create_default_projector_registry,
+    parsed_document_to_text,
+)
 from courtier.agent.artifacts.resolver import ProjectionResolver
 from courtier.agent.core.cache_store import _TEXT_FIELD_PRIORITY
 
@@ -122,6 +125,15 @@ def _infer_projection_target(
         if _resolvable(target):
             return target
     return None
+
+
+def _looks_like_parsed_document(data: dict) -> bool:
+    """探测 parsed_document 形状：pages 列表且首页含 page_content。"""
+    pages = data.get("pages")
+    if not isinstance(pages, list) or not pages:
+        return False
+    first = pages[0]
+    return isinstance(first, dict) and isinstance(first.get("page_content"), dict)
 
 
 class GetArtifactTool:
@@ -485,13 +497,20 @@ class GetArtifactTool:
                 if isinstance(value, str) and value.strip():
                     text = value
                     break
+            if text is None and _looks_like_parsed_document(data):
+                # parse_document 产物：文本嵌套在 pages[].page_content 里，
+                # 走与投影器共用的提取路径（避免两处结构理解漂移）。
+                text = parsed_document_to_text(data) or None
 
         on_progress({"status": "done", "message": "执行完成", "detail": None})
         if text is None:
             return ToolResult(
                 success=False,
                 error=(
-                    f"结果 {id} 不含可解析的文本内容，无法生成大纲/按节读取。"
+                    f"结果 {id} 不支持大纲/按节读取：仅文本类结果"
+                    "（Markdown/纯文本）与 parse_document 解析结果可用。"
+                    "可直接 get_artifact 读取原始数据，"
+                    "或加 materialize_as=string 提取正文文本。"
                 ),
             )
 

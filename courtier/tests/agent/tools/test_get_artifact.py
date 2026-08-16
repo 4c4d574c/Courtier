@@ -596,3 +596,65 @@ class TestGetArtifactRefAutoProjection:
         )
         assert not result.success
         assert "类型化工件" in result.error
+
+
+class TestGetArtifactOutlineParsedDocument:
+    """parse_document 产物的大纲/按节读取（Phase 4）。"""
+
+    def _register(self, store: ArtifactStore):
+        store.register_cached_ref(
+            ref_id="$ref:parse_document:1",
+            artifact_type="docaudit.parsed_document",
+            created_by="parse_document",
+            data=PARSED_DOC_DATA,
+        )
+
+    @pytest.mark.asyncio
+    async def test_outline_for_parsed_document(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        self._register(store)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:parse_document:1",
+            outline=True,
+        )
+        assert result.success, result.error
+        titles = [s["title"] for s in result.data["outline"]]
+        assert "一、项目背景与建设必要性" in titles
+        assert "（一）国家战略导向与政策机遇" in titles
+
+    @pytest.mark.asyncio
+    async def test_section_read_for_parsed_document(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        self._register(store)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:parse_document:1",
+            section="一、项目背景与建设必要性",
+        )
+        assert result.success, result.error
+        content = result.data["content"]
+        assert "（一）国家战略导向与政策机遇" in content
+        assert "当前，以大数据" in content
+        assert "关于申请百京市" not in content  # 标题段不混入该节
+
+    @pytest.mark.asyncio
+    async def test_outline_failure_reports_honest_error(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        store.register_cached_ref(
+            ref_id="$ref:search_documents:1",
+            artifact_type="docaudit.search_results",
+            created_by="search_documents",
+            data={"hits": [{"chunk_text": "x"}], "total": 1},
+        )
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:search_documents:1",
+            outline=True,
+        )
+        assert not result.success
+        assert "不支持大纲" in result.error
+        assert "不含可解析的文本内容" not in result.error

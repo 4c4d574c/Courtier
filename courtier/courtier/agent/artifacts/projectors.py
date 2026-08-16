@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from .models import (
@@ -344,28 +344,54 @@ def _append_paragraph(
     )
 
 
+def _iter_body_paragraphs(data: dict) -> Iterator[tuple[str, dict[str, Any], str]]:
+    """遍历 parsed_document 正文段落：yield (section, paragraph, source_path)。
+
+    parsed_document → paragraph_list 投影与 parsed_document_to_text 共用此
+    提取路径，避免两处对 pages[].page_content.body.{title,main_text} 结构的
+    理解漂移。
+    """
+    for page_index, page in enumerate(data.get("pages", []) or []):
+        body = (page.get("page_content") or {}).get("body") or {}
+        title = body.get("title")
+        if isinstance(title, dict):
+            yield (
+                "title",
+                title,
+                f".pages[{page_index}].page_content.body.title",
+            )
+        for paragraph_index, paragraph in enumerate(body.get("main_text", []) or []):
+            if isinstance(paragraph, dict):
+                yield (
+                    "body",
+                    paragraph,
+                    f".pages[{page_index}].page_content.body.main_text[{paragraph_index}]",
+                )
+
+
+def parsed_document_to_text(data: dict, source_scope: str | None = None) -> str:
+    """parsed_document 数据 → 按阅读序拼接的正文文本。
+
+    与 _parsed_document_to_paragraph_list 共用 _iter_body_paragraphs 提取路径；
+    source_scope="body" 时仅取正文段落，缺省取 title + body。
+    """
+    lines: list[str] = []
+    for section, paragraph, _ in _iter_body_paragraphs(data):
+        if source_scope == "body" and section != "body":
+            continue
+        text = _paragraph_text(paragraph)
+        if text:
+            lines.append(text)
+    return "\n".join(lines)
+
+
 def _parsed_document_to_paragraph_list(
     artifact: Artifact,
     constraints: dict[str, Any],
 ) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
     paragraphs: list[dict[str, Any]] = []
-    for page_index, page in enumerate(artifact.data.get("pages", []) or []):
-        body = (page.get("page_content") or {}).get("body") or {}
-        _append_paragraph(
-            paragraphs,
-            body.get("title"),
-            section="title",
-            source_path=f".pages[{page_index}].page_content.body.title",
-        )
-        for paragraph_index, paragraph in enumerate(body.get("main_text", []) or []):
-            _append_paragraph(
-                paragraphs,
-                paragraph,
-                section="body",
-                source_path=(
-                    f".pages[{page_index}].page_content.body.main_text[{paragraph_index}]"
-                ),
-            )
+    for section, paragraph, source_path in _iter_body_paragraphs(artifact.data):
+        _append_paragraph(paragraphs, paragraph, section=section, source_path=source_path)
     diagnostics: tuple[ProjectionDiagnostic, ...] = ()
     confidence = 1.0
     if not paragraphs:

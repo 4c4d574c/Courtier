@@ -40,6 +40,8 @@ def test_behavioral_zh_carries_citation_rules():
         "key_excerpts",
         "无需先 get_artifact 读回",
         "outline=true",
+        "materialize_as=string",
+        "source_scope",
     ):
         assert needle in content, f"behavioral.yaml (zh-CN) lost citation rule: {needle}"
     # The two rules jammed onto one line (formatting damage) must stay split.
@@ -52,3 +54,5 @@ def test_behavioral_en_carries_citation_rules():
     ).read_text("utf-8")
     assert "[[n]]" in content
     assert "read_chunks" in content
+    assert "materialize_as=string" in content
+    assert "source_scope" in content
