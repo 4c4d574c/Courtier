@@ -114,12 +114,25 @@ class PluginSystem:
         return status
 
     async def cancel_pending(self) -> None:
-        """Cancel pending requests on all plugin connections.
+        """Cancel pending requests on all active plugin connections.
 
         Called when a session is stopped via /stop.  Plugins stay alive
         for future sessions.
         """
         await self._manager.cancel_pending()
+
+    async def notify_plugin(self, name: str, method: str, params: dict | None = None) -> None:
+        """Send a fire-and-forget notification to one live plugin."""
+        await self._manager.notify(name, method, params)
+
+    async def broadcast(self, method: str, params: dict | None = None) -> None:
+        """Notify every live plugin; single-plugin failures are logged and
+        skipped (notifications are advisory, e.g. cache invalidation)."""
+        from .manager import PluginState
+
+        for name, proc in self._manager.get_processes().items():
+            if proc.state == PluginState.ACTIVE:
+                await self._manager.notify(name, method, params)
 
     async def shutdown(self) -> None:
         """Gracefully shut down all plugins."""

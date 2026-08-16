@@ -207,6 +207,7 @@ async def ingest_resource(
     visibility: str = "public",
     settings: Any,
     db: AsyncDatabase,
+    plugin_system: Any = None,
 ) -> ResourceTable:
     """Ingest an uploaded document into the resource library (ES + MySQL + MinIO).
 
@@ -318,6 +319,16 @@ async def ingest_resource(
             await resource_repo.delete(session, resource.id)
             await session.commit()
         raise HTTPException(502, f"Elasticsearch 索引写入失败：{exc}") from exc
+
+    # Fresh chunks must be searchable immediately: ask live plugins to drop
+    # their coarse-result caches (the search plugin's TTL is only the
+    # fallback for a missed broadcast).  Advisory only — never fails the
+    # ingest.
+    if plugin_system is not None:
+        try:
+            await plugin_system.broadcast("search.cache_clear")
+        except Exception:
+            logger.warning("cache invalidation broadcast failed", exc_info=True)
 
     return resource
 

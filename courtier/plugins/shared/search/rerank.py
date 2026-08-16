@@ -13,15 +13,17 @@ import os
 import re
 from typing import Any
 
-from tools import _env_int, _parse_query
+# This module stays free of plugin-local imports on purpose: test suites
+# load plugin files by path while other plugins' ``tools`` modules may be
+# cached in sys.modules, so importing ``tools`` here resolves to the wrong
+# plugin outside the subprocess.
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_SECONDS = 30.0
-#: Total char budget across all candidates in one listwise prompt; each
-#: candidate gets budget//n chars, clamped to [min, max].  50 candidates
-#: ≈ 480 chars each; short candidate lists get richer evidence.
-_CANDIDATE_BUDGET_CHARS = _env_int("SEARCH_CANDIDATE_BUDGET_CHARS", 24_000)
+_CANDIDATE_BUDGET_DEFAULT = 24_000
+#: Per-candidate evidence clamp: 50 candidates ≈ 480 chars each; short
+#: candidate lists get richer evidence (budget split, see _candidate_chars).
 _CANDIDATE_MIN_CHARS = 240
 _CANDIDATE_MAX_CHARS = 800
 _ORDER_RE = re.compile(r"\[[\d,\s]*\]")
@@ -29,6 +31,11 @@ _ORDER_RE = re.compile(r"\[[\d,\s]*\]")
 #: 。/；, items with newlines); zero-width lookbehind keeps delimiters.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[。；！？\n])")
 _QUERY_NOISE_RE = re.compile(r"[\s，。；、！？·\"'\u201c\u201d\u2018\u2019「』『』]")
+_PHRASE_RE = re.compile(
+    r"[\u0022\u201c\u201d\u2018\u2019\u300c\u300d]"
+    r"(.+?)"
+    r"[\u0022\u201c\u201d\u2018\u2019\u300c\u300d]"
+)
 
 
 def _llm_env() -> tuple[str, str, str] | None:
@@ -40,9 +47,18 @@ def _llm_env() -> tuple[str, str, str] | None:
     return base_url, os.environ.get("LLM_API_KEY", "").strip(), model
 
 
+def _candidate_budget() -> int:
+    """Total char budget across candidates (SEARCH_CANDIDATE_BUDGET_CHARS)."""
+    raw = os.environ.get("SEARCH_CANDIDATE_BUDGET_CHARS", "").strip()
+    try:
+        return int(raw) if raw else _CANDIDATE_BUDGET_DEFAULT
+    except ValueError:
+        return _CANDIDATE_BUDGET_DEFAULT
+
+
 def _candidate_chars(n: int) -> int:
     """Per-candidate evidence length: total budget split over *n* candidates."""
-    budget = _CANDIDATE_BUDGET_CHARS // max(n, 1)
+    budget = _candidate_budget() // max(n, 1)
     return min(_CANDIDATE_MAX_CHARS, max(_CANDIDATE_MIN_CHARS, budget))
 
 
@@ -50,11 +66,11 @@ def _query_grams(query: str) -> set[str]:
     """Lexical matching units for segment localization: quoted phrases
     whole, free text as character bigrams (mirrors the bigram tokenization
     the lexical search arm relies on)."""
-    phrases, free = _parse_query(query)
-    grams = {p for p in phrases if p}
+    grams = {m.group(1) for m in _PHRASE_RE.finditer(query)}
+    free = _PHRASE_RE.sub(" ", query)
     cleaned = _QUERY_NOISE_RE.sub("", free)
     grams |= {cleaned[i : i + 2] for i in range(len(cleaned) - 1)}
-    return grams
+    return {g for g in grams if g}
 
 
 def _best_window(grams: set[str], text: str, chars: int) -> str:

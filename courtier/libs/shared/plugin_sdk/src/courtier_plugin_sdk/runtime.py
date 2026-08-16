@@ -222,6 +222,7 @@ class PluginRuntime:
         self._host_artifact_store: Any = None
         self._runtime_context: dict[str, str] = {}
         self._stdin_transport: asyncio.ReadTransport | None = None
+        self._notification_handlers: dict[str, Callable] = {}
 
     @property
     def host_service_client(self) -> HostServiceClient | None:
@@ -343,6 +344,19 @@ class PluginRuntime:
 
         def decorator(fn: Callable) -> Callable:
             self._handlers[method] = fn
+            return fn
+
+        return decorator
+
+    def on_notification(self, method: str) -> Callable:
+        """Decorator: register a handler for a host→plugin notification.
+
+        Notifications carry no request id and expect no response; handlers
+        run as background tasks (sync or async) with exceptions logged.
+        """
+
+        def decorator(fn: Callable) -> Callable:
+            self._notification_handlers[method] = fn
             return fn
 
         return decorator
@@ -571,9 +585,24 @@ class PluginRuntime:
         finally:
             self._active_requests.pop(req_id, None)
 
+    async def _run_notification_handler(self, handler: Callable, params: dict) -> None:
+        """Invoke a custom notification handler (sync or async)."""
+        result = handler(params)
+        if asyncio.iscoroutine(result):
+            await result
+
     def _handle_notification(self, msg: dict) -> None:
         """Handle incoming notifications (e.g., shutdown, request.cancel)."""
         method = msg.get("method", "")
+        params = msg.get("params", {})
+        # Custom handlers first; built-in methods keep their semantics.
+        handler = self._notification_handlers.get(method)
+        if handler is not None:
+            task = asyncio.create_task(self._run_notification_handler(handler, params))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
+            task.add_done_callback(_log_task_exception)
+            return
         if method == METHOD_SHUTDOWN:
             self._running = False
             # The stdin loop blocks in readline(); closing the transport

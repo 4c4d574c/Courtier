@@ -53,6 +53,7 @@ async def upload_resource(
         visibility=visibility,
         settings=request.app.state.settings,
         db=db,
+        plugin_system=getattr(request.app.state, "plugin_system", None),
     )
     return {
         "id": resource.id,

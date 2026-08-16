@@ -1116,6 +1116,25 @@ class ProcessManager:
                         exc_info=True,
                     )
 
+    async def notify(
+        self, plugin_name: str, method: str, params: dict[str, Any] | None = None
+    ) -> None:
+        """Send a fire-and-forget notification to a live plugin.
+
+        Silently skips plugins that are unknown or not ACTIVE; delivery
+        failures are logged at debug level — notifications are advisory
+        (e.g. cache invalidation) and must never block the caller.
+        """
+        proc = self._processes.get(plugin_name)
+        if proc is None or proc.state != PluginState.ACTIVE or proc._client is None:
+            return
+        try:
+            await proc._client.notify(method, params or {})
+        except Exception:
+            logger.debug(
+                "notify(%s) to plugin '%s' failed", method, plugin_name, exc_info=True
+            )
+
     async def _stop_one(self, proc: PluginProcess) -> None:
         """Stop a single plugin subprocess and unregister its capabilities."""
         if proc.state not in (PluginState.ACTIVE, PluginState.REGISTERING):

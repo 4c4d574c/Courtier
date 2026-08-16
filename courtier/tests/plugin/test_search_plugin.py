@@ -1182,3 +1182,59 @@ class TestEnvKnobs:
             "SEARCH_CANDIDATE_BUDGET_CHARS",
         ):
             assert knob in env
+
+
+class TestCacheInvalidationNotification:
+    """The host broadcasts search.cache_clear after reindexing; the plugin
+    drops its coarse-result cache so fresh chunks are searchable at once."""
+
+    @pytest.mark.asyncio
+    async def test_cache_clear_notification_clears_cache(self):
+        # In shared-process runs sys.modules["tools"] may be another
+        # plugin's module; the handler is pinned to search's tools via
+        # entry's module-level binding, so reach that namespace through it.
+        from plugins.shared.search import entry as search_entry
+
+        live = search_entry._cache_clear.__globals__
+
+        plugin = SearchPlugin()
+        plugin._setup_handlers()
+        live["_cache_put"]("stale-key", {"hits": []})
+        assert live["_cache_get"]("stale-key") is not None
+
+        await plugin._process_line(json.dumps({"method": "search.cache_clear", "params": {}}))
+        # The handler runs as a background task — give the loop a tick.
+        await asyncio.sleep(0.01)
+        assert live["_cache_get"]("stale-key") is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_notification_is_ignored(self):
+        plugin = SearchPlugin()
+        plugin._setup_handlers()
+        # Must not raise and must not disturb builtin handling.
+        await plugin._process_line(json.dumps({"method": "no.such.notification", "params": {}}))
+
+    @pytest.mark.asyncio
+    async def test_process_manager_notify_skips_inactive_plugins(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from courtier.plugin.manager import PluginState, ProcessManager
+        from courtier.plugin.registry import ExtensionRegistry
+
+        sent: list = []
+
+        class FakeClient:
+            async def notify(self, method, params):
+                sent.append((method, params))
+
+        pm = ProcessManager(Path("plugins"), ExtensionRegistry())
+        proc = SimpleNamespace(state=PluginState.ACTIVE, _client=FakeClient())
+        pm._processes["search"] = proc
+
+        await pm.notify("search", "search.cache_clear", {})
+        assert sent == [("search.cache_clear", {})]
+
+        proc.state = PluginState.STOPPED
+        await pm.notify("search", "search.cache_clear", {})
+        assert len(sent) == 1  # inactive → skipped silently
