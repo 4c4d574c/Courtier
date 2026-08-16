@@ -329,3 +329,130 @@ class TestRegistryFirstRefRouting:
         )
         assert result.success, result.error
         assert result.data["markdown"] == "内容"
+
+
+class TestStructuredRead:
+    """outline/section structured reading over long documents."""
+
+    LONG_MD = (
+        "# 一、项目背景\n"
+        "背景内容第一段。\n背景内容第二段。\n\n"
+        "## 建设方案\n"
+        "方案正文A。\n\n"
+        "## 经费测算\n"
+        "经费正文B。\n\n"
+        "# 二、实施计划\n"
+        "计划正文C。\n"
+    )
+
+    @pytest.mark.asyncio
+    async def test_outline_returns_sections(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+            outline=True,
+        )
+        assert result.success, result.error
+        titles = [s["title"] for s in result.data["outline"]]
+        assert titles == ["一、项目背景", "建设方案", "经费测算", "二、实施计划"]
+        assert result.data["total_chars"] == len(self.LONG_MD)
+
+    @pytest.mark.asyncio
+    async def test_section_by_title_contains_subsections(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+            section="一、项目背景",
+        )
+        assert result.success, result.error
+        assert "背景内容第一段" in result.data["content"]
+        assert "方案正文A" in result.data["content"]  # subsections included
+        assert "实施计划" not in result.data["content"]  # sibling chapter excluded
+        assert result.data["truncated"] is False
+
+    @pytest.mark.asyncio
+    async def test_section_by_index(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        for selector in ("3", "三", "第三节"):
+            result = await GetArtifactTool().execute(
+                on_progress=_noop_progress,
+                artifact_store=store,
+                id="$ref:convert_document:1",
+                section=selector,
+            )
+            assert result.success, result.error
+            assert result.data["section_title"] == "经费测算"
+
+    @pytest.mark.asyncio
+    async def test_section_miss_lists_candidates(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+            section="不存在的节",
+        )
+        assert not result.success
+        assert "经费测算" in result.error
+        assert "一、项目背景" in result.error
+
+    @pytest.mark.asyncio
+    async def test_truncation_flag_on_oversized_section(self, tmp_path):
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist(
+            {"markdown": "# 大节\n" + "字" * 20_000, "format": "docx"},
+            "convert_document",
+            force=True,
+        )
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+            section="大节",
+            max_tokens=500,
+        )
+        assert result.success, result.error
+        assert result.data["truncated"] is True
+        assert len(result.data["content"]) <= 500 * 4
+        assert result.data["section_chars"] > 19_000
+
+    @pytest.mark.asyncio
+    async def test_registry_first_path_supports_outline(self, tmp_path):
+        """Inline artifacts (registry-only) also serve outline reads."""
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        store.put(
+            _make_artifact(
+                "inline:convert_document:abc123",
+                atype="core.document_markdown",
+                data={"markdown": self.LONG_MD, "format": "docx"},
+            )
+        )
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="inline:convert_document:abc123",
+            outline=True,
+        )
+        assert result.success, result.error
+        assert len(result.data["outline"]) == 4
+
+    @pytest.mark.asyncio
+    async def test_plain_read_unchanged(self, tmp_path):
+        """Without outline/section, behavior is byte-identical to before."""
+        store = ArtifactStore(cache_dir=str(tmp_path))
+        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        result = await GetArtifactTool().execute(
+            on_progress=_noop_progress,
+            artifact_store=store,
+            id="$ref:convert_document:1",
+        )
+        assert result.success, result.error
+        assert result.data == {"markdown": self.LONG_MD, "format": "docx"}

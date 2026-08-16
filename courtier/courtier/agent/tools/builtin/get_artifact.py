@@ -15,8 +15,10 @@ from courtier.agent.artifacts.models import (
     ProjectionPolicy,
     RuntimePolicy,
 )
+from courtier.agent.artifacts.outline import find_section, parse_sections
 from courtier.agent.artifacts.projectors import create_default_projector_registry
 from courtier.agent.artifacts.resolver import ProjectionResolver
+from courtier.agent.core.cache_store import _TEXT_FIELD_PRIORITY
 
 from ..protocol import OnToolProgress, ToolResult
 
@@ -48,7 +50,8 @@ class GetArtifactTool:
         "或 list_artifacts 输出中的 artifact_id 字段值。\n"
         "2. 传 id + artifact_type —— 仅在需要把数据【转换为另一种类型】时使用，"
         "系统执行类型投影链。\n"
-        "支持 query/chunk_index/max_tokens 分页读取。"
+        "支持 query/chunk_index/max_tokens 分页读取。\n"
+        "长文档建议先传 outline=true 获取章节大纲，再用 section 参数按节定点读取。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -70,6 +73,22 @@ class GetArtifactTool:
                     "取值见 list_artifacts 输出的 projectable_to_types"
                     "（如 core.plain_text、docaudit.paragraph_list）。\n"
                     "不传则按原始数据直接返回（推荐，大多数情况不需要转换）。"
+                ),
+            },
+            "outline": {
+                "type": "boolean",
+                "description": (
+                    "返回文档的结构化大纲（标题/层级/长度/位置）。"
+                    "读取长文档时先传 outline=true 定位章节，再配合 section 参数定点读取，"
+                    "默认 false。"
+                ),
+            },
+            "section": {
+                "type": "string",
+                "description": (
+                    "按大纲序号或标题文本读取指定节的完整内容（含子节）。"
+                    "支持：序号（如 \"3\"、\"三\"、\"第三节\"）或标题文本（精确/包含匹配）。"
+                    "超长节按 max_tokens 截断并标注。"
                 ),
             },
             "query": {
@@ -136,6 +155,8 @@ class GetArtifactTool:
         id: str = "",
         artifact_type: str = "",
         # Raw-data params
+        outline: bool = False,
+        section: str | None = None,
         query: str | None = None,
         chunk_index: int = 0,
         max_tokens: int = 2000,
@@ -173,6 +194,18 @@ class GetArtifactTool:
                 error="必须提供 id 参数。"
                 "使用工具输出中的 result_id 字段（$ref:...:N 格式），"
                 "或 list_artifacts 返回的 artifact_id 字段值。",
+            )
+
+        # Structured reading (outline/section) bypasses the projection/paging
+        # paths entirely — it needs the full text, not a truncated page.
+        if outline or section:
+            return await self._structured_read(
+                artifact_store=artifact_store,
+                id=id,
+                outline=bool(outline),
+                section=section,
+                max_tokens=max_tokens,
+                on_progress=on_progress,
             )
 
         # Registry-first dispatch for $ref ids: list_artifacts advertises
@@ -260,6 +293,93 @@ class GetArtifactTool:
             label=label,
             on_progress=on_progress,
         )
+
+    async def _structured_read(
+        self,
+        *,
+        artifact_store: Any,
+        id: str,
+        outline: bool,
+        section: str | None,
+        max_tokens: int,
+        on_progress: OnToolProgress,
+    ) -> ToolResult:
+        """Outline/section structured reading over the FULL stored text.
+
+        Registry first (same order as the main dispatch), then a full
+        synchronous load (no token truncation — outline needs the whole
+        text; the persistence read path truncates by max_tokens).
+        """
+        data: Any = None
+        artifact = artifact_store.get(id)
+        if artifact is not None:
+            data = getattr(artifact, "data", None)
+        if data is None:
+            loader = getattr(artifact_store, "load", None)
+            if callable(loader):
+                try:
+                    data = loader(id)
+                except Exception:
+                    logger.warning("structured read load failed for %s", id, exc_info=True)
+
+        text: str | None = None
+        if isinstance(data, str):
+            text = data
+        elif isinstance(data, dict):
+            for field_name in _TEXT_FIELD_PRIORITY:
+                value = data.get(field_name)
+                if isinstance(value, str) and value.strip():
+                    text = value
+                    break
+
+        on_progress({"status": "done", "message": "执行完成", "detail": None})
+        if text is None:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"结果 {id} 不含可解析的文本内容，无法生成大纲/按节读取。"
+                ),
+            )
+
+        sections = parse_sections(text)
+        if outline:
+            return ToolResult(
+                success=True,
+                data={
+                    "outline": [s.to_dict() for s in sections],
+                    "total_chars": len(text),
+                    "section_count": len(sections),
+                },
+                metadata={"result_id": id},
+            )
+
+        if section:
+            found = find_section(sections, section)
+            if found is None:
+                candidates = "；".join(s.title for s in sections[:10])
+                return ToolResult(
+                    success=False,
+                    error=(
+                        f"未找到节「{section}」。可用节（序号+标题）: {candidates}"
+                        + ("…" if len(sections) > 10 else "")
+                    ),
+                )
+            from courtier.agent.core.loop_utils import truncate_data
+
+            content = text[found.start_char : found.end_char]
+            truncated_content = truncate_data(content, max_tokens)
+            return ToolResult(
+                success=True,
+                data={
+                    "section_index": found.index,
+                    "section_title": found.title,
+                    "section_chars": found.chars,
+                    "content": truncated_content,
+                    "truncated": len(truncated_content) < len(content),
+                },
+                metadata={"result_id": id},
+            )
+        return ToolResult(success=False, error="结构化读取需要 outline 或 section 参数")
 
     async def _resolve_ref(
         self,
