@@ -540,6 +540,7 @@ class PluginRuntime:
         self._token: str | None = None
         self._connections: set[_Connection] = set()
         self._server: asyncio.AbstractServer | None = None
+        self._prepared = False
 
     @property
     def host_service_client(self) -> HostServiceClient | None:
@@ -711,16 +712,11 @@ class PluginRuntime:
 
     # ------------------------------------------------------------------ run
 
-    async def run(self) -> None:
-        """Start the plugin: TCP server in production, in-process loop in tests."""
-        # Ensure INFO-level logs are visible (plugins own their stdout/stderr
-        # now — there is no host-side stderr capture anymore).
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(levelname)s %(name)s: %(message)s",
-            force=False,  # don't override if plugin configures its own
-        )
-
+    def _prepare(self) -> None:
+        """Collect handlers and capabilities exactly once (both entry paths)."""
+        if self._prepared:
+            return
+        self._prepared = True
         self._setup_handlers()
 
         # Collect tool/checker names for built-in list handlers
@@ -737,9 +733,20 @@ class PluginRuntime:
                 if name not in self._checker_names:
                     self._checker_names.append(name)
 
+    async def run(self) -> None:
+        """Start the plugin: TCP server in production, in-process loop in tests."""
+        # Ensure INFO-level logs are visible (plugins own their stdout/stderr
+        # now — there is no host-side stderr capture anymore).
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(levelname)s %(name)s: %(message)s",
+            force=False,  # don't override if plugin configures its own
+        )
+
         if self._reader is not None or self._writer is not None:
             # In-process test path: duck-typed I/O injection, no auth gate
             # (there is no trust boundary inside a single process).
+            self._prepare()
             conn = _Connection(self, self._reader, self._writer, require_auth=False)
             await conn.serve()
             return
@@ -751,6 +758,7 @@ class PluginRuntime:
 
         ``listen`` (``host:port``) overrides CLI/env/manifest resolution.
         """
+        self._prepare()
         self._token = os.environ.get(ENV_PLUGIN_TOKEN) or None
         if not self._token:
             logger.error(
@@ -777,21 +785,31 @@ class PluginRuntime:
 
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
+        added_signals: list[signal.Signals] = []
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
                 loop.add_signal_handler(sig, stop.set)
+                added_signals.append(sig)
             except (NotImplementedError, RuntimeError):
                 pass  # Windows / non-main thread — Ctrl+C still works via KeyboardInterrupt
 
         sockets = ", ".join(str(s.getsockname()) for s in (self._server.sockets or []))
         logger.info("Plugin server listening on %s", sockets)
-        async with self._server:
-            await stop.wait()
-
-        logger.info("Shutting down: closing %d connection(s)", len(self._connections))
-        await asyncio.gather(
-            *(conn.close() for conn in list(self._connections)), return_exceptions=True
-        )
+        try:
+            async with self._server:
+                await stop.wait()
+        finally:
+            # Remove our handlers before the loop closes or is reused (test
+            # runners cycle event loops per test).
+            for sig in added_signals:
+                try:
+                    loop.remove_signal_handler(sig)
+                except (NotImplementedError, RuntimeError):
+                    pass
+            logger.info("Shutting down: closing %d connection(s)", len(self._connections))
+            await asyncio.gather(
+                *(conn.close() for conn in list(self._connections)), return_exceptions=True
+            )
 
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle one inbound host connection."""
