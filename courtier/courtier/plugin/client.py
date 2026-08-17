@@ -70,6 +70,9 @@ class JSONRPCClient:
         self._register_event: asyncio.Event | None = None
         self._register_caps: list[dict] | None = None
         self._register_system_prompt: str = ""
+        # Token the plugin presented in its register notification; the
+        # manager verifies it against the shared secret (mutual auth).
+        self._register_token: str = ""
 
     def set_host_request_handler(
         self,
@@ -251,6 +254,7 @@ class JSONRPCClient:
             caps = params.get("capabilities", [])
             self._register_caps = caps
             self._register_system_prompt = params.get("system_prompt", "")
+            self._register_token = params.get("token") or ""
             if self._register_event is not None:
                 self._register_event.set()
 

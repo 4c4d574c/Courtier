@@ -50,6 +50,7 @@ class JSONRPCNotification(BaseModel):
 
 # Method names (host → plugin, requests)
 METHOD_HEALTH = "plugin.health"
+METHOD_PLUGIN_AUTH = "plugin.auth"
 
 # Method names (plugin → host, notifications)
 METHOD_REGISTER = "plugin.register"
@@ -66,6 +67,7 @@ INTERNAL_ERROR = -32603
 TIMEOUT_ERROR = -32000
 TOOL_NOT_FOUND = -32001
 PLUGIN_CRASHED = -32002
+AUTH_ERROR = -32003
 
 # Host service method names (plugin → host requests)
 METHOD_CACHE_PERSIST = "cache.persist"

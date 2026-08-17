@@ -1,9 +1,9 @@
 """Courtier Plugin System.
 
-Provides a full-stack plugin system with subprocess isolation and
-JSON-RPC over stdio communication.
-
-See docs/architecture/plugin-skill-boundary.md for Skill vs Plugin guidance.
+Plugins are standalone TCP services with their own lifecycle (compose,
+systemd, dev runner); the host dials them over newline-delimited JSON-RPC
+with a mutual token handshake.  See
+docs/architecture/plugin-skill-boundary.md for Skill vs Plugin guidance.
 
 Usage:
     from courtier.plugin import PluginSystem
@@ -67,7 +67,8 @@ class PluginSystem:
         checker_registry: Any = None,
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
-        log_dir: str | Path = ".agent_logs/plugins",
+        endpoints: dict[str, tuple[str, int]] | None = None,
+        token: str | None = None,
     ) -> None:
         self._plugins_dir = Path(plugins_dir)
         self._scanner = PluginScanner()
@@ -80,12 +81,17 @@ class PluginSystem:
             extension_registry=self._registry,
             artifact_store=artifact_store,
             artifact_store_registry=artifact_store_registry,
-            log_dir=log_dir,
+            endpoints=endpoints,
+            token=token,
         )
         self._started = False
 
     async def start(self) -> dict[str, str]:
-        """Scan plugins directory and start all valid plugins."""
+        """Scan plugin manifests and dial all endpoints (non-blocking).
+
+        Tools register as each plugin connects; startup never blocks on
+        plugin availability.
+        """
         if self._started:
             raise RuntimeError("PluginSystem already started")
 
@@ -116,7 +122,7 @@ class PluginSystem:
     async def cancel_pending(self) -> None:
         """Cancel pending requests on all active plugin connections.
 
-        Called when a session is stopped via /stop.  Plugins stay alive
+        Called when a session is stopped via /stop.  Plugins stay connected
         for future sessions.
         """
         await self._manager.cancel_pending()
@@ -135,7 +141,7 @@ class PluginSystem:
                 await self._manager.notify(name, method, params)
 
     async def shutdown(self) -> None:
-        """Gracefully shut down all plugins."""
+        """Disconnect all plugin channels (the plugins keep running)."""
         if not self._started:
             return
         await self._manager.shutdown()
@@ -148,7 +154,7 @@ class PluginSystem:
             status[name] = {
                 "state": proc.state.value,
                 "version": proc.manifest.version if proc.manifest else "unknown",
-                "restart_count": proc._restart_count,
+                "restart_count": proc._reconnect_count,
             }
         return status
 
@@ -186,29 +192,17 @@ class PluginSystem:
         first = rel.parts[0]
         return None if first == "shared" else first
 
-    def get_log_path(self, name: str) -> Path | None:
-        """Return the plugin's stderr log file path, or None for unknown plugins.
-
-        The file captures everything the plugin writes to stderr (its runtime
-        log), tee'd by the host with timestamps.  Exposed for the admin
-        log-viewing API; the name must come from the scan results so this
-        cannot be abused for path traversal.
-        """
-        if name not in self._manager.get_scan_results():
-            return None
-        return self._manager._log_dir / f"{name}.log"
-
     async def start_plugin(self, name: str) -> str:
-        """Start a stopped/fatal/never-started plugin; return its final state."""
+        """(Re)connect a stopped/blocked plugin; return its current state."""
         state = await self._manager.start_plugin(name)
         return state.value
 
     async def stop_plugin(self, name: str) -> str:
-        """Stop a running plugin; return its final state."""
+        """Disconnect a plugin; return its final state."""
         state = await self._manager.stop_plugin(name)
         return state.value
 
     async def restart_plugin(self, name: str) -> str:
-        """Restart a plugin; return its final state."""
+        """Drop the connection and redial; return the current state."""
         state = await self._manager.restart_plugin(name)
         return state.value

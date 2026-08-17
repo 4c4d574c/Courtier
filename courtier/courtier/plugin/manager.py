@@ -1,18 +1,25 @@
-"""ProcessManager — manages plugin subprocess lifecycle."""
+"""ProcessManager — connection manager for standalone plugin servers.
+
+Plugins are independent TCP services (started and supervised outside this
+process — docker-compose, systemd, or the dev runner).  The manager dials
+each plugin's configured endpoint, performs the mutual token handshake,
+routes registered capabilities into the ExtensionRegistry, and keeps the
+channel alive with health checks plus an infinite exponential-backoff
+reconnect loop.  There is no subprocess management here anymore.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import json
 import logging
-import os
 import platform
-import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -24,8 +31,7 @@ from courtier.agent.telemetry.metrics import PLUGIN_STATE
 from courtier.config import get_settings
 from courtier.storage import client as storage_client
 
-from .client import JSONRPCClient, PluginCrashedError
-from .lifecycle import PluginHandle, PluginLifecycle
+from .client import JSONRPCClient, PluginCrashedError, PluginRPCError
 from .manifest import PluginManifest
 from .protocol import (
     INTERNAL_ERROR,
@@ -39,6 +45,7 @@ from .protocol import (
     METHOD_CACHE_RESOLVE,
     METHOD_HOST_SERVICES,
     METHOD_NOT_FOUND,
+    METHOD_PLUGIN_AUTH,
     METHOD_RUNTIME_CONTEXT,
     METHOD_STORAGE_PUT,
     METHOD_TEMPLATE_STORE_GET,
@@ -50,133 +57,12 @@ from .scanner import PluginScanResult
 # (S3 SigV4 presigned URLs are capped at 7 days).
 _STORAGE_URL_EXPIRES_SECONDS = 7 * 24 * 3600
 
-
-def _find_project_root(plugin_dir: Path) -> Path:
-    """Walk up from plugin_dir to find the project root.
-
-    The project root is identified by the presence of both ``pyproject.toml``
-    and a ``courtier/`` package directory. Plugin directories themselves
-    contain ``pyproject.toml`` but not ``courtier/``, so the search continues
-    upward past them.
-    """
-    path = plugin_dir.resolve()
-    while path != path.parent:
-        if (path / "pyproject.toml").is_file() and (path / "courtier").is_dir():
-            return path
-        path = path.parent
-    return plugin_dir.resolve()
-
+# Reconnect backoff: 1s doubling to this cap, forever — a remote plugin being
+# down is transient by definition, and tools re-register on reconnect.
+_RECONNECT_MAX_DELAY = 30.0
+_RECONNECT_INITIAL_DELAY = 1.0
 
 logger = logging.getLogger(__name__)
-
-# Environment variables that may be resolved from ${ENV:VAR_NAME} references in
-# plugin manifests. Restricting this list prevents a plugin manifest from
-# exfiltrating database/cloud credentials from the host process. The LLM_* and
-# DOCPARSE_OCR_* entries are required by the parse plugin's scanned-document
-# pipeline, and ES_* by the
-# search plugin's chunk index access; manifests are first-party (shipped in
-# plugins/) and plugin subprocesses already run with host OS permissions, so
-# exposing endpoint credentials to declaring plugins is accepted. DB/MinIO/cloud
-# credentials remain excluded.
-_ALLOWED_MANIFEST_ENV_VARS: frozenset[str] = frozenset(
-    {
-        "PATH",
-        "HOME",
-        "USER",
-        "TMPDIR",
-        "TEMP",
-        "TMP",
-        "PYTHONPATH",
-        "PYTHONUNBUFFERED",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "TZ",
-        "COURTIER_UPLOAD_DIR",
-        "DOCAUDIT_UPLOAD_DIR",
-        "UPLOAD_DIR",
-        "COURTIER_REPO_ROOT",
-        "LLM_IP",
-        "LLM_API_KEY",
-        "LLM_NAME",
-        "LLM_EMBEDDING_NAME",
-        "LLM_EMBEDDING_DIM",
-        "LLM_EMBEDDING_BATCH_SIZE",
-        "ANYDOC_OCR_API_URL",
-        "DOCPARSE_OCR_API_URL",
-        "DOCPARSE_OCR_LANG",
-        "DOCPARSE_OCR_ENGINE",
-        "DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE",
-        "DOCPARSE_OCR_DESKEW",
-        "DOCPARSE_MAX_LLM_CONCURRENT",
-        "DOCPARSE_MAX_OCR_CONCURRENT",
-        "DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE",
-        "DOCPARSE_CLASSIFY_MODE",
-        "FONT_MODEL_URL",
-        "FONT_MODEL_CONF_THRESHOLD",
-        "FONT_MODEL_MARGIN_THRESHOLD",
-        "ES_HOSTS",
-        "ES_INDEX_CHUNKS",
-        "ES_USERNAME",
-        "ES_PASSWORD",
-    }
-)
-
-# ${ENV:VAR} references to these variables fall back to the host Settings
-# singleton when the variable is absent from os.environ. pydantic-settings
-# reads .env into the Settings object without writing os.environ, so without
-# this bridge manifests could only reference shell-exported variables and
-# .env-only configuration would silently resolve to empty strings.
-_SETTINGS_ENV_FALLBACK: dict[str, str] = {
-    "LLM_IP": "llm_base_url",
-    "LLM_API_KEY": "llm_api_key",
-    "LLM_NAME": "llm_model",
-    "LLM_EMBEDDING_NAME": "llm_embedding_model",
-    "LLM_EMBEDDING_DIM": "llm_embedding_dim",
-    "LLM_EMBEDDING_BATCH_SIZE": "llm_embedding_batch_size",
-    "ANYDOC_OCR_API_URL": "anydoc_ocr_api_url",
-    "DOCPARSE_OCR_API_URL": "docparse_ocr_api_url",
-    "DOCPARSE_OCR_LANG": "docparse_ocr_lang",
-    "DOCPARSE_OCR_ENGINE": "docparse_ocr_engine",
-    "DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE": "docparse_ocr_max_image_long_side",
-    "DOCPARSE_OCR_DESKEW": "docparse_ocr_deskew",
-    "DOCPARSE_MAX_LLM_CONCURRENT": "docparse_max_llm_concurrent",
-    "DOCPARSE_MAX_OCR_CONCURRENT": "docparse_max_ocr_concurrent",
-    "DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE": "docparse_llm_image_max_long_side",
-    "DOCPARSE_CLASSIFY_MODE": "docparse_classify_mode",
-    "FONT_MODEL_URL": "font_model_url",
-    "FONT_MODEL_CONF_THRESHOLD": "font_model_conf_threshold",
-    "FONT_MODEL_MARGIN_THRESHOLD": "font_model_margin_threshold",
-    "ES_HOSTS": "es_hosts",
-    "ES_INDEX_CHUNKS": "es_index_chunks",
-    "ES_USERNAME": "es_username",
-    "ES_PASSWORD": "es_password",
-}
-
-
-def _settings_env_fallback(var_name: str) -> str:
-    """Resolve *var_name* from the host Settings singleton, or "" if unmapped/empty."""
-    attr = _SETTINGS_ENV_FALLBACK.get(var_name)
-    if not attr:
-        return ""
-    from courtier.config import get_settings
-
-    return str(getattr(get_settings(), attr, "") or "")
-
-
-def _resolve_plugin_entry_path(plugin_dir: Path, entry: str) -> Path:
-    """Resolve a plugin entry point path and validate it stays within the plugin dir."""
-    p = Path(entry)
-    if p.is_absolute():
-        raise ValueError(f"Plugin entry path must be relative: {entry}")
-    if ".." in p.parts:
-        raise ValueError(f"Plugin entry path must not contain '..': {entry}")
-    resolved = (plugin_dir / p).resolve()
-    try:
-        resolved.relative_to(plugin_dir.resolve())
-    except ValueError:
-        raise ValueError(f"Plugin entry path escapes plugin directory: {entry}")
-    return resolved
 
 
 async def _micro_compact_dict_messages(
@@ -238,81 +124,38 @@ async def _micro_compact_dict_messages(
     return [_to_dict(m) for m in compacted]
 
 
-# Regex for resolving ${ENV:VAR_NAME} patterns in manifest env values
-_ENV_REF_RE = re.compile(r"\$\{ENV:([^}]+)\}")
-
-# Patterns that indicate a plugin stderr line is an error worth surfacing
-_ERROR_PATTERNS = [
-    re.compile(r"Traceback \(most recent call last\)"),
-    re.compile(r"^\s*File \".+\", line \d+"),
-    re.compile(r"^[A-Za-z_]\w*(?:Error|Exception|Warning|Interrupt)"),
-]
-
-
-def _is_error_line(line: str) -> bool:
-    """Return True if *line* looks like a traceback or error message."""
-    return any(p.search(line) for p in _ERROR_PATTERNS)
-
-
-# Window (seconds) after reaching ACTIVE within which a crash is treated as
-# a deterministic startup failure -> FATAL with no restart attempts.
-_IMMEDIATE_CRASH_WINDOW = 5.0
-_MAX_STDERR_LOG_BYTES = 1_000_000
-
-
-def _resolve_env(value: str) -> str:
-    """Resolve ${ENV:VAR_NAME} references in a string value.
-
-    Only variables explicitly listed in _ALLOWED_MANIFEST_ENV_VARS are
-    resolved; all other references are left unchanged so secrets cannot be
-    pulled into the plugin environment via manifest configuration. Allowed
-    variables resolve from os.environ first, then fall back to the host
-    Settings singleton for names in _SETTINGS_ENV_FALLBACK.
-    """
-
-    def _replace(match: re.Match[str]) -> str:
-        var_name = match.group(1)
-        if var_name not in _ALLOWED_MANIFEST_ENV_VARS:
-            logger.warning(
-                "Blocked manifest env reference to non-whitelisted variable: %s",
-                var_name,
-            )
-            return match.group(0)
-        # Real environment wins; fall back to the host Settings (.env) so
-        # plugin manifests work without requiring shell-exported variables.
-        return os.environ.get(var_name, "") or _settings_env_fallback(var_name)
-
-    return _ENV_REF_RE.sub(_replace, value)
-
-
 class PluginState(str, Enum):
     SCANNED = "SCANNED"
-    LOADING = "LOADING"
+    CONNECTING = "CONNECTING"
     REGISTERING = "REGISTERING"
     ACTIVE = "ACTIVE"
-    CRASHED = "CRASHED"
-    RESTARTING = "RESTARTING"
-    FATAL = "FATAL"
+    DISCONNECTED = "DISCONNECTED"
+    # Terminal config/auth error (missing endpoint, token mismatch, API
+    # mismatch); an admin ``start`` action re-enters the reconnect loop.
+    BLOCKED = "BLOCKED"
     STOPPING = "STOPPING"
     STOPPED = "STOPPED"
 
 
+class PluginAuthError(Exception):
+    """The mutual token handshake failed (deterministic — no auto-retry)."""
+
+
 @dataclass
 class PluginProcess:
-    """Handle for a single plugin subprocess."""
+    """Handle for one plugin connection (kept across reconnects)."""
 
     name: str
     manifest: "PluginManifest"
     plugin_dir: Path
+    endpoint: tuple[str, int] | None = None
     state: PluginState = PluginState.SCANNED
-    _process: asyncio.subprocess.Process | None = field(default=None, repr=False)
     _client: JSONRPCClient | None = field(default=None, repr=False)
-    _restart_count: int = field(default=0, repr=False)
+    _reconnect_count: int = field(default=0, repr=False)
     _health_failures: int = field(default=0, repr=False)
     _health_task: asyncio.Task | None = field(default=None, repr=False)
-    _stderr_task: asyncio.Task | None = field(default=None, repr=False)
-    _started_at: float = field(default=0.0, repr=False)
-    _crash_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    _connect_task: asyncio.Task | None = field(default=None, repr=False)
+    _stop_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
     @property
     def client(self) -> JSONRPCClient:
@@ -322,355 +165,262 @@ class PluginProcess:
 
 
 class ProcessManager:
-    """Manages the lifecycle of all plugin subprocesses.
+    """Keeps a live channel to every configured plugin server.
 
     Parameters
     ----------
     plugin_dir : Path
-        Root directory containing plugin subdirectories.
+        Root directory containing plugin manifests (policy root: timeouts,
+        host-service declarations, permissions are read from plugin.yaml).
     extension_registry : ExtensionRegistry
         Registry to route plugin capabilities into.
-    max_restarts : int
-        Maximum consecutive restart attempts before marking FATAL.
     health_interval : float
         Seconds between health-check pings (default 30s).
+    endpoints : dict[str, tuple[str, int]], optional
+        Plugin name → (host, port).  Defaults to
+        ``Settings.plugin_endpoints()`` at start time.
+    token : str, optional
+        Shared handshake secret.  Defaults to
+        ``Settings.courtier_plugin_token`` at start time.
     """
 
     def __init__(
         self,
         plugin_dir: Path,
         extension_registry: "ExtensionRegistry",
-        max_restarts: int = 3,
         health_interval: float = 30.0,
         artifact_store: Any = None,
         artifact_store_registry: Any = None,
-        plugin_lifecycle: PluginLifecycle | None = None,
-        log_dir: str | Path = ".agent_logs/plugins",
+        endpoints: dict[str, tuple[str, int]] | None = None,
+        token: str | None = None,
     ) -> None:
         self._plugin_dir = plugin_dir
         self._extension_registry = extension_registry
-        self._max_restarts = max_restarts
         self._health_interval = health_interval
         self._artifact_store = artifact_store
         self._artifact_store_registry = artifact_store_registry
-        self._log_dir = Path(log_dir)
+        self._endpoints = endpoints
+        self._token = token
         self._processes: dict[str, PluginProcess] = {}
         self._scan_results: dict[str, PluginScanResult] = {}
-
-        # Use a provided lifecycle or create one wired to the capability registry.
-        cap_registry = getattr(extension_registry, "_capability_registry", None)
-        self._lifecycle: PluginLifecycle | None
-        if plugin_lifecycle is not None:
-            self._lifecycle = plugin_lifecycle
-        elif cap_registry is not None:
-            self._lifecycle = PluginLifecycle(
-                capability_registry=cap_registry,
-                max_restarts=max_restarts,
-                immediate_crash_window=_IMMEDIATE_CRASH_WINDOW,
-                restart_callback=self._restart_provider,
-            )
-        else:
-            self._lifecycle = None
 
     def get_processes(self) -> dict[str, PluginProcess]:
         """Return a copy of the process map keyed by plugin name."""
         return dict(self._processes)
 
-    # -- Crash diagnostics: stderr tee + exit-code reporting ---------------------
-
-    def _stderr_log_path(self, name: str) -> Path:
-        return self._log_dir / f"{name}.log"
-
-    def _append_stderr_log(self, name: str, text: str) -> None:
-        """Append a line to the plugin's stderr log (bounded file size)."""
-        try:
-            path = self._stderr_log_path(name)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if path.exists() and path.stat().st_size > _MAX_STDERR_LOG_BYTES:
-                # Keep the tail so the log stays bounded.
-                tail = path.read_bytes()[-_MAX_STDERR_LOG_BYTES // 4 :]
-                path.write_bytes(tail)
-            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            with path.open("a", encoding="utf-8") as f:
-                f.write(f"[{ts}] {text}\n")
-        except Exception:
-            logger.debug("Failed to write plugin stderr log", exc_info=True)
-
-    @staticmethod
-    def _describe_exit_code(returncode: int | None) -> str:
-        """Human-readable exit status: code, or signal name for negative codes."""
-        if returncode is None:
-            return "unknown"
-        if returncode >= 0:
-            return str(returncode)
-        try:
-            import signal
-
-            return f"{returncode} (signal {-returncode}={signal.Signals(-returncode).name})"
-        except (ValueError, KeyError):
-            return f"{returncode} (signal {-returncode})"
-
     def get_scan_results(self) -> dict[str, PluginScanResult]:
         """Return the last scan results keyed by plugin name (valid + blocked)."""
         return dict(self._scan_results)
 
-    async def start_plugin(self, name: str) -> PluginState:
-        """Start a stopped/fatal/never-started plugin by name.
+    def _resolve_connection_config(self) -> None:
+        """Fill endpoints/token from Settings when not injected (tests inject)."""
+        if self._endpoints is None or self._token is None:
+            settings = get_settings()
+            if self._endpoints is None:
+                self._endpoints = settings.plugin_endpoints()
+            if self._token is None:
+                self._token = settings.courtier_plugin_token
 
-        Manual starts get a fresh crash budget.  No-op when already running.
-        """
-        proc = self._processes.get(name)
-        if proc is not None and proc.state in (
-            PluginState.ACTIVE,
-            PluginState.REGISTERING,
-            PluginState.LOADING,
-            PluginState.RESTARTING,
-        ):
-            return proc.state
-        if proc is None:
-            result = self._scan_results.get(name)
-            if result is None or result.manifest is None:
-                raise KeyError(f"Unknown plugin: {name}")
-            proc = PluginProcess(
-                name=result.name,
-                manifest=result.manifest,
-                plugin_dir=result.dir,
-            )
-            self._processes[name] = proc
-        proc._restart_count = 0
-        proc._health_failures = 0
-        try:
-            await self._start_one(proc)
-        except Exception:
-            logger.error("Manual start of plugin '%s' failed", name, exc_info=True)
-            await self._on_crash(proc)
-        return proc.state
-
-    async def stop_plugin(self, name: str) -> PluginState:
-        """Stop a running plugin and unregister its capabilities."""
-        proc = self._processes.get(name)
-        if proc is None:
-            raise KeyError(f"Unknown plugin: {name}")
-        await self._stop_one(proc)
-        return proc.state
-
-    async def restart_plugin(self, name: str) -> PluginState:
-        """Stop (when running) then start a plugin."""
-        proc = self._processes.get(name)
-        if proc is not None and proc.state in (
-            PluginState.ACTIVE,
-            PluginState.REGISTERING,
-        ):
-            await self._stop_one(proc)
-        return await self.start_plugin(name)
+    # ------------------------------------------------------------------ start
 
     async def start_all(self, results: list[PluginScanResult]) -> None:
-        """Start all valid plugins from scan results."""
-        self._scan_results = {result.name: result for result in results}
-        for result in results:
-            if result.status.value != "VALID":
-                continue
-            if result.manifest is None:
-                continue
+        """Kick off connection loops for all valid plugins (non-blocking).
 
+        Tools appear as each plugin connects and registers; the application
+        startup never blocks on plugin availability.
+        """
+        self._resolve_connection_config()
+        self._scan_results = {result.name: result for result in results}
+
+        for name in self._endpoints or {}:
+            if name not in self._scan_results:
+                logger.warning(
+                    "COURTIER_PLUGIN_ENDPOINTS lists '%s', but no such plugin was scanned",
+                    name,
+                )
+
+        for result in results:
+            if result.status.value != "VALID" or result.manifest is None:
+                continue
+            endpoint = (self._endpoints or {}).get(result.name)
             proc = PluginProcess(
                 name=result.name,
                 manifest=result.manifest,
                 plugin_dir=result.dir,
+                endpoint=endpoint,
             )
             self._processes[result.name] = proc
-            try:
-                await self._start_one(proc)
-            except PluginCrashedError:
-                # _on_crash is already handling the crash recovery;
-                # only set FATAL if recovery didn't change the state.
-                if proc.state not in (
-                    PluginState.CRASHED,
-                    PluginState.RESTARTING,
-                    PluginState.ACTIVE,
-                ):
-                    proc.state = PluginState.FATAL
-                    PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
-            except Exception:
+            if endpoint is None:
+                proc.state = PluginState.BLOCKED
+                PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.BLOCKED.value).set(1)
                 logger.error(
-                    "Failed to start plugin '%s'",
-                    result.name,
-                    exc_info=True,
-                )
-                proc.state = PluginState.FATAL
-                PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
-
-        # Validate artifact contracts after all plugins are loaded so
-        # the full producer graph is available — per-tool registration-time
-        # validation would fire false positives due to load ordering.
-        self._extension_registry.validate_all_contracts()
-
-    async def _start_one(self, proc: PluginProcess) -> None:
-        """Start a single plugin subprocess and wait for registration."""
-        proc.state = PluginState.LOADING
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.LOADING.value).set(1)
-
-        entry = proc.manifest.runtime.entry if proc.manifest else "entry.py"
-        try:
-            entry_path = _resolve_plugin_entry_path(proc.plugin_dir, entry)
-        except ValueError as exc:
-            raise FileNotFoundError(str(exc)) from exc
-        if not entry_path.exists():
-            raise FileNotFoundError(f"Entry point not found: {entry_path}")
-
-        # Build environment with ${ENV:VAR_NAME} resolution.
-        # Only pass whitelisted host env vars to plugins — full env inheritance
-        # would leak DB/LLM/MinIO credentials to plugin subprocesses.
-        env_whitelist = {
-            "PATH",
-            "HOME",
-            "USER",
-            "TMPDIR",
-            "TEMP",
-            "TMP",
-            "PYTHONPATH",
-            "PYTHONUNBUFFERED",
-            "LANG",
-            "LC_ALL",
-            "LC_CTYPE",
-            "TZ",
-            "COURTIER_UPLOAD_DIR",
-            "DOCAUDIT_UPLOAD_DIR",  # deprecated fallback
-            "UPLOAD_DIR",
-        }
-        env = {k: v for k, v in os.environ.items() if k in env_whitelist}
-        if proc.manifest and proc.manifest.runtime.env:
-            for key, value in proc.manifest.runtime.env.items():
-                env[key] = _resolve_env(value)
-
-        # Locate the project root (identified by pyproject.toml and a
-        # courtier/ package directory) for COURTIER_REPO_ROOT.  Plugin
-        # imports resolve from the plugin's own venv — libs and the plugin
-        # SDK are installed packages, no PYTHONPATH assembly needed.
-        _project_root_path = _find_project_root(proc.plugin_dir)
-        project_root = str(_project_root_path)
-
-        # Expose the repo root so plugins can resolve relative paths correctly.
-        # The plugin subprocess CWD is the plugin directory, not the project
-        # root, so Path.resolve() against a relative path yields a wrong result.
-        # Prefer the explicit COURTIER_REPO_ROOT env var if already set.
-        repo_root = os.environ.get("COURTIER_REPO_ROOT", project_root)
-        env["COURTIER_REPO_ROOT"] = repo_root
-
-        # Expose upload directory so sandboxed tools (parse_document,
-        # annotate_document) can validate paths against the safe root.
-        upload_dir = str(Path(get_settings().upload_dir).resolve())
-        env["COURTIER_UPLOAD_DIR"] = upload_dir
-        env["DOCAUDIT_UPLOAD_DIR"] = upload_dir  # deprecated fallback
-
-        # Spawn the plugin's own venv python directly when available.
-        # `uv run` wraps the real interpreter: SIGKILL then hits the wrapper
-        # while the grandchild keeps the stdio pipes open, so wait() hangs
-        # ("did not exit after SIGKILL").  A direct interpreter keeps the
-        # process tree flat and kill/wait reliable.
-        # .absolute(), NOT .resolve(): bin/python in a venv is a symlink to
-        # the system interpreter — resolving it would drop the venv's
-        # site-packages and the plugin would fail to start.
-        venv_python = (proc.plugin_dir / ".venv" / "bin" / "python").absolute()
-        if venv_python.is_file():
-            cmd = [str(venv_python), entry]
-        else:
-            cmd = ["uv", "run", entry]
-        proc._process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(proc.plugin_dir),
-            env=env,
-            # Responses carry whole parsed documents on one JSON-RPC line —
-            # the default 64 KiB stream limit made the host misdiagnose
-            # healthy plugins as crashed (LimitOverrunError → kill).
-            limit=STREAM_LIMIT_BYTES,
-        )
-
-        # CRITICAL: Any failure after subprocess creation must clean up the
-        # child process to prevent zombie processes.  The finally block
-        # below ensures cleanup on all error paths.
-        try:
-            # Create client with crash callback wired to _on_crash
-            client_timeout = proc.manifest.timeout_ms / 1000.0 if proc.manifest else 30.0
-            proc._client = JSONRPCClient(
-                reader=proc._process.stdout,
-                writer=proc._process.stdin,
-                plugin_name=proc.name,
-                on_disconnect=lambda: self._on_crash(proc),
-                default_timeout=client_timeout,
-            )
-
-            # Wait for register notification
-            proc.state = PluginState.REGISTERING
-            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.REGISTERING.value).set(1)
-            try:
-                capabilities = await proc._client.wait_for_register(timeout=10.0)
-            except asyncio.TimeoutError:
-                proc.state = PluginState.FATAL
-                PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
-                logger.error(
-                    "Plugin '%s' did not send register notification within 10s, marking FATAL",
+                    "Plugin '%s' has no endpoint in COURTIER_PLUGIN_ENDPOINTS — BLOCKED",
                     proc.name,
                 )
-                raise
+                continue
+            self._spawn_connection_loop(proc)
 
-            # Route capabilities to registries
-            self._extension_registry.on_register(
-                proc.name,
-                proc._client,
-                capabilities,
-                system_prompt=proc._client._register_system_prompt,
-            )
-            proc.state = PluginState.ACTIVE
-            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.ACTIVE.value).set(1)
-            proc._started_at = asyncio.get_event_loop().time()
-            proc._restart_count = 0
-            proc._health_failures = 0
+    def _spawn_connection_loop(self, proc: PluginProcess) -> None:
+        proc._stop_event.clear()
+        proc._connect_task = asyncio.create_task(self._connection_loop(proc))
 
-            if self._lifecycle is not None:
-                handle = PluginHandle(
-                    provider=proc.name,
-                    process=proc,
-                    restart_count=proc._restart_count,
-                    started_at=proc._started_at,
-                    state="active",
+    # --------------------------------------------------------- connection loop
+
+    async def _connection_loop(self, proc: PluginProcess) -> None:
+        """Connect → handshake → serve → reconnect, until stopped."""
+        backoff = _RECONNECT_INITIAL_DELAY
+        while not proc._stop_event.is_set():
+            assert proc.endpoint is not None
+            proc.state = PluginState.CONNECTING
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CONNECTING.value).set(1)
+            try:
+                reader, writer = await asyncio.open_connection(
+                    proc.endpoint[0], proc.endpoint[1], limit=STREAM_LIMIT_BYTES
                 )
-                self._lifecycle.track_process(handle)
-                self._lifecycle.reset_health(proc.name)
+            except OSError as exc:
+                proc._reconnect_count += 1
+                proc.state = PluginState.DISCONNECTED
+                PLUGIN_STATE.labels(
+                    plugin_name=proc.name, state=PluginState.DISCONNECTED.value
+                ).set(1)
+                logger.warning(
+                    "Plugin '%s' unreachable at %s:%d (%s); retry in %.0fs",
+                    proc.name,
+                    proc.endpoint[0],
+                    proc.endpoint[1],
+                    exc,
+                    backoff,
+                )
+                if await self._sleep_or_stopped(proc, backoff):
+                    break
+                backoff = min(backoff * 2, _RECONNECT_MAX_DELAY)
+                continue
 
-            # Start stderr reader for crash detection and log forwarding
-            proc._stderr_task = asyncio.create_task(self._monitor_stderr(proc))
+            disconnected = asyncio.Event()
 
-            # Start periodic health check loop
-            proc._health_task = asyncio.create_task(self._health_loop(proc))
+            async def _on_disconnect() -> None:
+                disconnected.set()
 
-            # Register host service handler and tell the plugin which services it may use.
-            proc._client.set_host_request_handler(self._create_host_request_handler(proc))
-            await proc._client.notify(
-                METHOD_HOST_SERVICES,
-                {
-                    "host_services": list(proc.manifest.dependencies.host_services or []),
-                    "permissions": list(proc.manifest.dependencies.permissions or []),
-                },
+            client = JSONRPCClient(
+                reader=reader,
+                writer=writer,
+                plugin_name=proc.name,
+                on_disconnect=_on_disconnect,
+                default_timeout=(
+                    proc.manifest.timeout_ms / 1000.0 if proc.manifest else 30.0
+                ),
             )
-
-            # Send runtime context (COURTIER.md, environment) so plugins can
-            # inject project-level rules into their tool system prompts.
-            await proc._client.notify(
-                METHOD_RUNTIME_CONTEXT,
-                _build_runtime_context(),
-            )
-        except Exception:
-            # Clean up subprocess on any failure after process creation.
-            # _kill_process handles the case where the process is already dead.
-            await self._kill_process(proc)
-            if proc._client is not None:
-                proc._client.close()
+            proc._client = client
+            try:
+                await self._handshake(proc, client)
+            except PluginAuthError as exc:
+                logger.error("Plugin '%s' blocked: %s", proc.name, exc)
+                proc.state = PluginState.BLOCKED
+                PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.BLOCKED.value).set(1)
+                client.close()
                 proc._client = None
-            raise
+                return  # terminal until an admin start re-enters the loop
+            except Exception:
+                logger.warning(
+                    "Plugin '%s' handshake failed; will reconnect",
+                    proc.name,
+                    exc_info=True,
+                )
+            else:
+                backoff = _RECONNECT_INITIAL_DELAY  # handshake succeeded — reset
+                proc._health_task = asyncio.create_task(self._health_loop(proc))
+                # Validate contracts now that this plugin's producers exist.
+                self._extension_registry.validate_all_contracts()
+                await disconnected.wait()
+
+            # Teardown for this connection (handshake failure or disconnect).
+            if proc._health_task is not None:
+                proc._health_task.cancel()
+                proc._health_task = None
+            if proc.state == PluginState.ACTIVE:
+                self._extension_registry.on_unregister(proc.name)
+            client.close()
+            proc._client = None
+
+            if proc._stop_event.is_set():
+                break
+            proc._reconnect_count += 1
+            proc.state = PluginState.DISCONNECTED
+            PLUGIN_STATE.labels(
+                plugin_name=proc.name, state=PluginState.DISCONNECTED.value
+            ).set(1)
+            logger.warning(
+                "Plugin '%s' connection lost; reconnect in %.0fs",
+                proc.name,
+                backoff,
+            )
+            if await self._sleep_or_stopped(proc, backoff):
+                break
+            backoff = min(backoff * 2, _RECONNECT_MAX_DELAY)
+
+        if proc.state != PluginState.BLOCKED:
+            proc.state = PluginState.STOPPED
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPED.value).set(1)
+
+    async def _sleep_or_stopped(self, proc: PluginProcess, delay: float) -> bool:
+        """Sleep *delay* seconds; return True immediately when stopping."""
+        try:
+            await asyncio.wait_for(proc._stop_event.wait(), timeout=delay)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    async def _handshake(self, proc: PluginProcess, client: JSONRPCClient) -> None:
+        """Register + mutual token auth + capability registration."""
+        proc.state = PluginState.REGISTERING
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.REGISTERING.value).set(1)
+
+        capabilities = await client.wait_for_register(timeout=10.0)
+
+        # plugin → host auth: the token the plugin presented must match ours.
+        expected = self._token or ""
+        presented = client._register_token
+        if not expected:
+            raise PluginAuthError(
+                "COURTIER_PLUGIN_TOKEN is not configured on the host — "
+                "refusing unauthenticated plugin channel"
+            )
+        if not hmac.compare_digest(presented, expected):
+            raise PluginAuthError("plugin presented an invalid token")
+
+        # host → plugin auth: plugin rejects every method until this passes.
+        try:
+            await client.call(METHOD_PLUGIN_AUTH, {"token": expected}, timeout=10.0)
+        except PluginRPCError as exc:
+            raise PluginAuthError(f"plugin rejected our token: {exc}") from exc
+
+        # Route capabilities to registries
+        self._extension_registry.on_register(
+            proc.name,
+            client,
+            capabilities,
+            system_prompt=client._register_system_prompt,
+        )
+        proc.state = PluginState.ACTIVE
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.ACTIVE.value).set(1)
+        proc._health_failures = 0
+
+        # Register host service handler and tell the plugin which services it may use.
+        client.set_host_request_handler(self._create_host_request_handler(proc))
+        await client.notify(
+            METHOD_HOST_SERVICES,
+            {
+                "host_services": list(proc.manifest.dependencies.host_services or []),
+                "permissions": list(proc.manifest.dependencies.permissions or []),
+            },
+        )
+
+        # Send runtime context (COURTIER.md, environment) so plugins can
+        # inject project-level rules into their tool system prompts.
+        await client.notify(METHOD_RUNTIME_CONTEXT, _build_runtime_context())
+        logger.info("Plugin '%s' connected and ACTIVE", proc.name)
+
+    # ------------------------------------------------------------ host services
 
     def _create_host_request_handler(
         self, proc: PluginProcess
@@ -729,7 +479,7 @@ class ProcessManager:
 
             if method == METHOD_CACHE_MICRO_COMPACT:
                 if "cache" not in host_services:
-                    return _deny(INVALID_PARAMS, "Cache host service not declared")
+                    return _deny(INTERNAL_ERROR, "Cache host service not declared")
                 if not ({"read:cache", "write:cache"} <= perms):
                     return _deny(
                         INVALID_PARAMS,
@@ -845,6 +595,8 @@ class ProcessManager:
 
         return handler
 
+    # ------------------------------------------------------------------ health
+
     async def health_check(self, proc: PluginProcess) -> bool:
         """Check if a plugin is responsive.
 
@@ -860,41 +612,11 @@ class ProcessManager:
         except Exception:
             return False
 
-    async def _monitor_stderr(self, proc: PluginProcess) -> None:
-        """Read stderr for logging and crash detection.
-
-        When stderr closes (EOF), the subprocess has exited.
-        If the plugin is still in ACTIVE state at that point,
-        treat it as an unexpected crash.
-        """
-        try:
-            while proc._process and proc._process.stderr:
-                line = await proc._process.stderr.readline()
-                if not line:  # EOF — subprocess exited
-                    self._append_stderr_log(proc.name, "<stderr closed (process exited)>")
-                    if proc.state == PluginState.ACTIVE:
-                        logger.warning(
-                            "Plugin '%s' stderr closed unexpectedly (state=%s), treating as crash",
-                            proc.name,
-                            proc.state.value,
-                        )
-                        await self._on_crash(proc)
-                    break
-                text = line.decode().rstrip()
-                # Tee every stderr line to the per-plugin log so crashes
-                # (which often carry no Python traceback) stay diagnosable.
-                self._append_stderr_log(proc.name, text)
-                if _is_error_line(text):
-                    logger.warning("[plugin:%s] %s", proc.name, text)
-        except Exception:
-            if proc.state == PluginState.ACTIVE:
-                await self._on_crash(proc)
-
     async def _health_loop(self, proc: PluginProcess) -> None:
         """Periodic health check loop.
 
-        After 3 consecutive health check failures the plugin is
-        restarted via ``_on_crash``.
+        After 3 consecutive failures the connection is closed, which the
+        connection loop observes as a disconnect and reconnects.
         """
         while proc.state == PluginState.ACTIVE:
             await asyncio.sleep(self._health_interval)
@@ -918,182 +640,90 @@ class ProcessManager:
 
             if proc._health_failures >= 3:
                 logger.error(
-                    "Plugin '%s' failed health check 3 times, restarting",
+                    "Plugin '%s' failed health check 3 times, closing connection",
                     proc.name,
                 )
-                await self._on_crash(proc)
+                if proc._client is not None:
+                    proc._client.close()
                 break
 
-    async def _on_crash(self, proc: PluginProcess) -> None:
-        """Handle a plugin subprocess crash — cleanup, then attempt restart."""
-        async with proc._crash_lock:
-            # Guard against re-entrancy: when the process exits during _start_one,
-            # on_disconnect fires immediately AND wait_for_register raises, causing
-            # two concurrent _on_crash calls.  Only the first one should proceed.
-            if proc.state not in (
-                PluginState.ACTIVE,
-                PluginState.REGISTERING,
-                PluginState.LOADING,
-            ):
-                return  # Already handled or shutting down
-            # Atomically mark CRASHED to prevent re-entrant calls from passing the
-            # guard above.
-            proc.state = PluginState.CRASHED
-            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CRASHED.value).set(1)
+    # --------------------------------------------------------------- admin ops
 
-            # Crash diagnostics first (every crash path records these):
-            # exit code/signal + a marker line in the plugin's stderr log.
-            returncode = proc._process.returncode if proc._process is not None else None
-            if returncode is None and proc._process is not None:
-                # Pipes hit EOF before the child is reaped — give it a brief
-                # moment so we record the real exit code instead of "unknown".
-                try:
-                    await asyncio.wait_for(proc._process.wait(), timeout=0.5)
-                    returncode = proc._process.returncode
-                except (TimeoutError, ProcessLookupError):
-                    pass
-            exit_desc = self._describe_exit_code(returncode)
-            self._append_stderr_log(
-                proc.name,
-                f"<crash detected: exit={exit_desc}, "
-                f"restart={proc._restart_count}/{self._max_restarts}>",
-            )
-
-            # Cancel in-flight requests BEFORE unregistering so callers get a
-            # clear PluginCrashedError instead of cryptic "tool not found" or
-            # "agent not found" errors after the extension entries are removed.
-            if proc._client is not None:
-                try:
-                    await proc._client.cancel_pending()
-                except Exception:
-                    logger.debug(
-                        "Error cancelling pending requests for crashed plugin '%s'",
-                        proc.name,
-                        exc_info=True,
-                    )
-
-            # Sync lifecycle handle state before unregistering; the unregister
-            # event will be observed by PluginLifecycle and may schedule a restart.
-            if self._lifecycle is not None:
-                handle = self._lifecycle.get_handle(proc.name)
-                if handle is not None:
-                    handle.state = "crashed"
-                    handle.restart_count = proc._restart_count
-                    handle.started_at = proc._started_at
-
-            # Always unregister before any crash handling so registries never
-            # retain stale entries — this must run before the circuit breaker
-            # return below.
-            self._extension_registry.on_unregister(proc.name)
-
-            # When a PluginLifecycle is wired to the capability registry, the
-            # unregister event above already triggered the restart decision.
-            # Fall back to the local restart policy only when no lifecycle is
-            # available.
-            if self._lifecycle is not None:
-                lifecycle_fatal = self._lifecycle.health_check(proc.name) == "unhealthy"
-                if lifecycle_fatal:
-                    proc.state = PluginState.FATAL
-                    PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
-                # Restart scheduling is handled by the lifecycle listener.
-                lifecycle_handled = True
-            else:
-                lifecycle_handled = False
-                # Circuit breaker: if the plugin crashed within seconds of reaching
-                # ACTIVE, it's a deterministic startup failure -- skip restart.
-                if proc._started_at > 0:
-                    uptime = asyncio.get_event_loop().time() - proc._started_at
-                    if uptime < _IMMEDIATE_CRASH_WINDOW:
-                        proc.state = PluginState.FATAL
-                        PLUGIN_STATE.labels(
-                            plugin_name=proc.name, state=PluginState.FATAL.value
-                        ).set(1)
-                        logger.error(
-                            "Plugin '%s' crashed %.1fs after startup "
-                            "(< %.0fs window, exit=%s), marking FATAL",
-                            proc.name,
-                            uptime,
-                            _IMMEDIATE_CRASH_WINDOW,
-                            exit_desc,
-                        )
-                        return
-
-        logger.error(
-            "Plugin '%s' crashed (restart %d/%d, exit=%s)",
-            proc.name,
-            proc._restart_count,
-            self._max_restarts,
-            exit_desc,
-        )
-
-        # Cancel background tasks
-        if proc._health_task:
-            proc._health_task.cancel()
-            proc._health_task = None
-        if proc._stderr_task:
-            proc._stderr_task.cancel()
-            proc._stderr_task = None
-
-        # Clean up old process
-        await self._kill_process(proc)
-        if proc._client:
-            proc._client.close()
-            proc._client = None
-
-        if not lifecycle_handled:
-            await self._attempt_restart(proc)
-
-    async def _restart_provider(self, provider: str) -> None:
-        """Restart callback used by PluginLifecycle.
-
-        Finds the tracked process and re-runs :meth:`_start_one`.  Restart
-        failures are handled by :meth:`_on_crash`.
-        """
-        proc = self._processes.get(provider)
+    async def start_plugin(self, name: str) -> PluginState:
+        """(Re)enter the connection loop for a stopped/blocked plugin."""
+        proc = self._processes.get(name)
+        if proc is not None and proc.state in (
+            PluginState.ACTIVE,
+            PluginState.REGISTERING,
+            PluginState.CONNECTING,
+        ):
+            return proc.state
         if proc is None:
-            logger.error("PluginLifecycle asked to restart unknown provider '%s'", provider)
-            return
-        proc.state = PluginState.RESTARTING
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.RESTARTING.value).set(1)
-        try:
-            await self._start_one(proc)
-        except Exception:
-            logger.error("Plugin '%s' restart failed", proc.name, exc_info=True)
-            await self._on_crash(proc)
-
-    async def _attempt_restart(self, proc: PluginProcess) -> None:
-        """Attempt to restart a crashed plugin with exponential backoff.
-
-        Calls _start_one; on failure, re-enters _on_crash which will
-        decrement the restart budget or mark FATAL.
-        """
-        if proc._restart_count >= self._max_restarts:
-            proc.state = PluginState.FATAL
-            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.FATAL.value).set(1)
-            logger.error(
-                "Plugin '%s' exceeded max restarts (%d), marking FATAL",
-                proc.name,
-                self._max_restarts,
+            result = self._scan_results.get(name)
+            if result is None or result.manifest is None:
+                raise KeyError(f"Unknown plugin: {name}")
+            self._resolve_connection_config()
+            proc = PluginProcess(
+                name=result.name,
+                manifest=result.manifest,
+                plugin_dir=result.dir,
+                endpoint=(self._endpoints or {}).get(result.name),
             )
-            return
+            self._processes[name] = proc
+        if proc.endpoint is None:
+            proc.state = PluginState.BLOCKED
+            logger.error("Plugin '%s' has no endpoint configured — stays BLOCKED", name)
+            return proc.state
+        proc._health_failures = 0
+        self._spawn_connection_loop(proc)
+        return proc.state
 
-        proc._restart_count += 1
-        delay = min(1 * (2 ** (proc._restart_count - 1)), 30)
-        proc.state = PluginState.RESTARTING
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.RESTARTING.value).set(1)
-        await asyncio.sleep(delay)
-        try:
-            await self._start_one(proc)
-        except Exception:
-            logger.error("Plugin '%s' restart failed", proc.name, exc_info=True)
-            await self._on_crash(proc)
+    async def stop_plugin(self, name: str) -> PluginState:
+        """Disconnect from a plugin and unregister its capabilities."""
+        proc = self._processes.get(name)
+        if proc is None:
+            raise KeyError(f"Unknown plugin: {name}")
+        if proc.state in (PluginState.STOPPED, PluginState.SCANNED):
+            return proc.state
+        was_active = proc.state == PluginState.ACTIVE
+        proc.state = PluginState.STOPPING
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPING.value).set(1)
+        proc._stop_event.set()
+        client = proc._client
+        if client is not None:
+            await client.notify("plugin.shutdown")
+            client.close()
+            proc._client = None
+        if was_active:
+            self._extension_registry.on_unregister(proc.name)
+        task = proc._connect_task
+        if task is not None and task is not asyncio.current_task():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                task.cancel()
+        proc.state = PluginState.STOPPED
+        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPED.value).set(1)
+        return proc.state
+
+    async def restart_plugin(self, name: str) -> PluginState:
+        """Drop the current connection (if any) and redial."""
+        proc = self._processes.get(name)
+        if proc is not None and proc.state in (
+            PluginState.ACTIVE,
+            PluginState.REGISTERING,
+            PluginState.CONNECTING,
+            PluginState.DISCONNECTED,
+        ):
+            await self.stop_plugin(name)
+        return await self.start_plugin(name)
 
     async def cancel_pending(self) -> None:
         """Cancel pending requests on all active plugin connections.
 
         Sends ``request.cancel`` notifications so plugins stop processing
-        in-flight requests.  Does NOT shut down the plugins — they remain
-        alive for future sessions.
+        in-flight requests.  Does NOT disconnect — plugins remain ACTIVE
+        for future sessions.
         """
         for proc in self._processes.values():
             if proc.state == PluginState.ACTIVE and proc._client is not None:
@@ -1125,82 +755,14 @@ class ProcessManager:
                 "notify(%s) to plugin '%s' failed", method, plugin_name, exc_info=True
             )
 
-    async def _stop_one(self, proc: PluginProcess) -> None:
-        """Stop a single plugin subprocess and unregister its capabilities."""
-        if proc.state not in (PluginState.ACTIVE, PluginState.REGISTERING):
-            return
-        proc.state = PluginState.STOPPING
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPING.value).set(1)
-        if self._lifecycle is not None:
-            handle = self._lifecycle.get_handle(proc.name)
-            if handle is not None:
-                handle.state = "stopped"
-        self._extension_registry.on_unregister(proc.name)
-
-        # Cancel background tasks
-        if proc._health_task:
-            proc._health_task.cancel()
-            proc._health_task = None
-        if proc._stderr_task:
-            proc._stderr_task.cancel()
-            proc._stderr_task = None
-
-        if proc._client:
-            await proc._client.notify("plugin.shutdown")
-
-        try:
-            if proc._process:
-                await asyncio.wait_for(proc._process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("Plugin '%s' shutdown timeout, force killing", proc.name)
-            await self._kill_process(proc)
-
-        if proc._client:
-            # Detach the crash callback BEFORE closing: the intentional kill
-            # closes the connection, and a stale on_disconnect racing the next
-            # start would otherwise pass the _on_crash state guard (LOADING)
-            # and tear down the fresh registration with a duplicate restart.
-            proc._client._on_disconnect = None
-            proc._client.close()
-            proc._client = None
-
-        proc.state = PluginState.STOPPED
-        PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.STOPPED.value).set(1)
-
     async def shutdown(self) -> None:
-        """Gracefully shut down all plugins."""
+        """Disconnect all plugin channels (plugins themselves keep running)."""
         for proc in self._processes.values():
-            await self._stop_one(proc)
-
-        if self._lifecycle is not None:
-            await self._lifecycle.shutdown()
-
-    async def _kill_process(self, proc: PluginProcess) -> None:
-        """Force kill a plugin subprocess with a timeout."""
-        if proc._process and proc._process.returncode is None:
-            try:
-                proc._process.kill()
-                await asyncio.wait_for(proc._process.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Plugin '%s' did not exit after SIGKILL; sending SIGKILL again",
-                    proc.name,
-                )
+            if proc.state not in (PluginState.STOPPED, PluginState.SCANNED):
                 try:
-                    proc._process.kill()
-                    await asyncio.wait_for(proc._process.wait(), timeout=2.0)
+                    await self.stop_plugin(proc.name)
                 except Exception:
-                    logger.debug(
-                        "Error force-killing plugin '%s' after timeout",
-                        proc.name,
-                        exc_info=True,
-                    )
-            except Exception:
-                logger.debug(
-                    "Error force-killing plugin '%s' (pid may have already exited)",
-                    proc.name,
-                    exc_info=True,
-                )
+                    logger.debug("Error stopping plugin '%s'", proc.name, exc_info=True)
 
 
 def _build_runtime_context() -> dict[str, str]:

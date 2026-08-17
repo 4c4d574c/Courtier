@@ -24,7 +24,9 @@ def test_search_manifest_declares_no_capabilities_or_prompt():
         "plugin.yaml capabilities is dead config: runtime registration is "
         "driven by entry.py register_tool()"
     )
-    assert manifest["runtime"]["env"]["ES_HOSTS"]  # runtime section intact
+    # runtime section intact: standalone listen port + literal env defaults.
+    assert manifest["runtime"]["port"] == 9105
+    assert manifest["runtime"]["env"]["SEARCH_KNN_K"] == "50"
 
 
 def test_behavioral_zh_carries_citation_rules():

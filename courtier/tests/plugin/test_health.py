@@ -93,10 +93,10 @@ class TestHealthCheck:
 
 
 class TestHealthLoopThreeStrike:
-    """Tests for the 3-consecutive-failure restart logic."""
+    """Tests for the 3-consecutive-failure connection-close logic."""
 
-    async def test_three_failures_triggers_restart(self):
-        """After 3 consecutive failures, _on_crash is called."""
+    async def test_three_failures_closes_connection(self):
+        """After 3 consecutive failures the client is closed (loop reconnects)."""
         manifest = _minimal_manifest()
         proc = PluginProcess(
             name=manifest.name,
@@ -115,7 +115,6 @@ class TestHealthLoopThreeStrike:
         manager._processes[manifest.name] = proc
 
         manager.health_check = AsyncMock(return_value=False)
-        manager._on_crash = AsyncMock()
 
         health_task = asyncio.create_task(manager._health_loop(proc))
 
@@ -128,8 +127,9 @@ class TestHealthLoopThreeStrike:
         except (asyncio.CancelledError, Exception):
             pass
 
-        # After the third failure, _on_crash should have been called
-        manager._on_crash.assert_awaited_once_with(proc)
+        # After the third failure the connection is closed so the
+        # connection loop observes the disconnect and redials.
+        proc._client.close.assert_called()
 
     async def test_successful_check_resets_failure_counter(self):
         """A successful health check resets the failure counter."""
@@ -195,7 +195,6 @@ class TestHealthLoopThreeStrike:
             return call_count >= 2  # Fail on first call, succeed after
 
         manager.health_check = _failing_once
-        manager._on_crash = AsyncMock()
 
         health_task = asyncio.create_task(manager._health_loop(proc))
 
@@ -209,7 +208,7 @@ class TestHealthLoopThreeStrike:
 
         # Counter should be 0 (reset by the successful check)
         assert proc._health_failures == 0
-        manager._on_crash.assert_not_awaited()
+        proc._client.close.assert_not_called()
 
 
 class TestTimeoutFromManifest:

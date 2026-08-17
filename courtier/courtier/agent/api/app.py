@@ -167,15 +167,15 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     app.state.courtier_config = courtier_config
     app.state.prompt_engine = courtier_config.build_prompt_engine()
 
-    # PluginSystem scans the first domain's plugins dir
-    # (multi-domain plugin merging is a future enhancement)
+    # PluginSystem scans the first domain's plugins dir for manifests
+    # (multi-domain plugin merging is a future enhancement) and dials the
+    # standalone plugin servers listed in COURTIER_PLUGIN_ENDPOINTS.
     primary_domain = courtier_config.domains[0]
     app.state.plugin_system = PluginSystem(
         plugins_dir=str(primary_domain.plugins_path),
         tool_registry=app.state.tool_registry,
         artifact_store=app.state.artifact_store,
         artifact_store_registry=app.state.artifact_store_registry,
-        log_dir=str(Path(settings.audit_log_dir) / "plugins"),
     )
 
     # Plugin names living under plugins/shared/ — chat-mode agents get these
