@@ -350,8 +350,8 @@ class TestPluginItemsSourceGrouping:
         assert by_name["parse"] == "docaudit"
         # Plugins under plugins/docaudit/audit/ belong to docaudit — the
         # nested wrapper dir must not surface as its own "audit" group.
-        assert by_name["format_audit"] == "docaudit"
-        assert by_name["content_audit"] == "docaudit"
-        assert by_name["text_correction"] == "docaudit"
-        assert by_name["plagiarism"] == "docaudit"
+        assert by_name["check_format"] == "docaudit"
+        assert by_name["check_content"] == "docaudit"
+        assert by_name["correct_text"] == "docaudit"
+        assert by_name["detect_plagiarism"] == "docaudit"
         assert "audit" not in {i["source"] for i in items}
