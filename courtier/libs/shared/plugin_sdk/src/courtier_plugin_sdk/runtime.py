@@ -656,10 +656,16 @@ class PluginRuntime:
         Dispatches to registered tool instances by name.  Plugin authors no
         longer need to write repetitive ``if tool_name == ...`` logic in
         their entry.py — unless they need custom pre/post-processing.
+
+        Every dispatch runs inside a per-request workdir so resolve_file()
+        downloads are cleaned up when the call finishes.
         """
+        from .files import request_workdir
+
         tool_name = params.get("tool", "")
         args = params.get("args", {})
-        return await self._execute_tool(tool_name, args)
+        async with request_workdir():
+            return await self._execute_tool(tool_name, args)
 
     def _tool_skip_persist(self, tool_name: str) -> bool:
         """Return True if the tool is marked to skip automatic persistence."""
@@ -756,6 +762,10 @@ class PluginRuntime:
 
         manifest = self._load_manifest()
         self._apply_manifest_env(manifest)
+
+        from . import files
+
+        files.configure(plugin_name=str(manifest.get("name") or "plugin"))
 
         host, port = self._resolve_listen(listen, manifest)
         self._server = await asyncio.start_server(
