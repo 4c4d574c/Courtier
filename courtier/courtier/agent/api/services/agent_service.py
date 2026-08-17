@@ -166,7 +166,10 @@ async def build_agent(
     session_registry = tool_registry.clone() if tool_registry is not None else None
 
     # Build unified ArtifactStore (which now subsumes CacheStore).
-    store = _build_artifact_store(settings, None)
+    # Session-scoped: disk cache subdir and ES documents are keyed by
+    # session_id, so ref numbering starts at 1 per session and sessions
+    # never collide or see each other's persisted results.
+    store = _build_artifact_store(settings, None, session_id=session_id)
 
     budget = AgentRuntimeBudget(
         max_runtime_seconds=settings.subagent_max_runtime_seconds,
@@ -280,13 +283,14 @@ def _compact_prompt_kwargs(prompt_engine: PromptEngine | None) -> dict[str, str 
     }
 
 
-def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
+def _build_artifact_store(settings: Any, existing_store: Any, session_id: str = "") -> Any:
     """Build an ArtifactStore (which now subsumes CacheStore).
 
     If *existing_store* is provided, return it unchanged.  Otherwise create a
     new ArtifactStore from *settings.cache_dir*, injecting an
     ElasticsearchResultBackend as the primary backend via the public
-    constructor when ``settings.es_hosts`` is configured.
+    constructor when ``settings.es_hosts`` is configured.  *session_id*
+    scopes the store's disk cache directory and ES document namespace.
     """
     from courtier.agent.artifacts.store import ArtifactStore
 
@@ -301,6 +305,7 @@ def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
 
             primary_backend = ElasticsearchResultBackend(
                 index_name=settings.es_index_results,
+                session_id=session_id,
             )
         except Exception as exc:
             logger.warning(
@@ -312,4 +317,5 @@ def _build_artifact_store(settings: Any, existing_store: Any) -> Any:
         cache_dir=str(settings.cache_dir),
         preview_max_chars=int(getattr(settings, "context_preview_max_chars", 1000)),
         primary_backend=primary_backend,
+        session_id=session_id,
     )

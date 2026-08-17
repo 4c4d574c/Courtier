@@ -152,6 +152,7 @@ def _prepare_artifact_store_for_session(
     prior_state: Any,
     context_manager: Any,
     artifact_snapshot: str = "",
+    session_id: str = "",
 ) -> ArtifactStore:
     """Return the artifact store for the current session.
 
@@ -168,7 +169,7 @@ def _prepare_artifact_store_for_session(
     """
     artifact_store = getattr(context_manager, "_cache", None)
     if artifact_store is None:
-        artifact_store = ArtifactStore()
+        artifact_store = ArtifactStore(session_id=session_id)
 
     if artifact_snapshot:
         try:
@@ -273,7 +274,7 @@ async def generate_sse_stream(
                         exc_info=True,
                     )
             artifact_store = _prepare_artifact_store_for_session(
-                prior_state, context_manager, artifact_snapshot
+                prior_state, context_manager, artifact_snapshot, session_id=session_id
             )
             model_config = _build_model_config(settings, model_name)
             result = await agent.run(

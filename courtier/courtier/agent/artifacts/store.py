@@ -26,7 +26,7 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 2
 
 
 def _log_persist_error(task: "asyncio.Task[Any]") -> None:
@@ -55,6 +55,7 @@ class ArtifactStore:
         preview_max_chars: int | None = None,
         primary_backend: Any | None = None,
         cache_salt: str | None = None,
+        session_id: str = "",
     ) -> None:
         self._artifacts: dict[str, Artifact] = {}
         # Per-type policy overrides registered from output contracts
@@ -67,21 +68,13 @@ class ArtifactStore:
             "cache_dir": cache_dir,
             "large_output_threshold": large_output_threshold,
             "primary_backend": primary_backend,
+            "session_id": session_id,
         }
         if preview_max_chars is not None:
             backend_kwargs["preview_max_chars"] = preview_max_chars
         if cache_salt is not None:
             backend_kwargs["cache_salt"] = cache_salt
         self._backend = _PersistenceBackend(**backend_kwargs)
-        # Seed ref numbering from the primary backend (ES result index) so
-        # fresh stores never reissue a ref id that overwrites an existing
-        # index document from another session/process.
-        seeder = getattr(primary_backend, "max_ref_sequences", None)
-        if callable(seeder):
-            try:
-                self._backend.seed_ref_counters(seeder())
-            except Exception:
-                logger.warning("ref counter seeding skipped", exc_info=True)
 
     # -- Persistence delegation (absorbed from CacheStore) ----------------------
 
@@ -334,6 +327,7 @@ class ArtifactStore:
             "persist_policies": dict(self._persist_policies),
             "visible_policies": dict(self._visible_policies),
             "ref_map": dict(ref_map),
+            "ref_counters": dict(self._backend.ref_counters),
             "artifacts": artifacts,
         }
 
@@ -358,6 +352,10 @@ class ArtifactStore:
         self._visible_policies.update(snapshot.get("visible_policies") or {})
         for ref_id, filepath in (snapshot.get("ref_map") or {}).items():
             self.set_ref(ref_id, filepath)
+        # Restore the session's numbering so continuation requests keep
+        # issuing sequential refs instead of restarting at 1 (which would
+        # collide with refs already live in this session's messages).
+        self._backend.seed_ref_counters(snapshot.get("ref_counters") or {})
         skipped = 0
         for entry in snapshot.get("artifacts") or []:
             try:
@@ -390,9 +388,14 @@ class ArtifactStore:
         return True
 
     @classmethod
-    def restore(cls, snapshot: dict[str, Any], cache_dir: str = ".agent_cache") -> "ArtifactStore":
+    def restore(
+        cls,
+        snapshot: dict[str, Any],
+        cache_dir: str = ".agent_cache",
+        session_id: str = "",
+    ) -> "ArtifactStore":
         """Create a new store pre-populated from *snapshot*."""
-        store = cls(cache_dir=cache_dir)
+        store = cls(cache_dir=cache_dir, session_id=session_id)
         store.load_snapshot(snapshot)
         return store
 

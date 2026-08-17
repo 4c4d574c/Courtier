@@ -36,11 +36,6 @@ _HASH_INDEX_FILE = ".hash_index.json"
 
 _REF_PATTERN = re.compile(r"^\$ref:([a-zA-Z_][a-zA-Z0-9_.]*):(\d+)(?::([a-zA-Z_][a-zA-Z0-9_]*))?$")
 
-#: Process-wide floor for per-tool ref numbering.  Updated on every
-#: persist; read by the ES backend's seed cache so a TTL-frozen snapshot
-#: never hands a new store a number a sibling store just issued.
-_SHARED_REF_COUNTERS: dict[str, int] = {}
-
 # Pattern for finding $ref references embedded anywhere in a string
 # (no ^/$ anchors).  Used as a fallback when a string value contains a
 # ref but doesn't start with one.
@@ -117,8 +112,13 @@ class _PersistenceBackend:
         preview_max_chars: int = PREVIEW_MAX_CHARS,
         primary_backend: Any | None = None,
         cache_salt: str | None = None,
+        session_id: str = "",
     ) -> None:
-        self._cache_dir = Path(cache_dir)
+        # Session-scoped cache directory: each session's files (and dedup
+        # hash index) live under <cache_dir>/<session_id>/, so sessions can
+        # never read or overwrite each other's persisted results.  Without a
+        # session id (tests, CLI) the shared directory is used.
+        self._cache_dir = Path(cache_dir) / session_id if session_id else Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self.large_output_threshold = large_output_threshold
         self._preview_max_chars = preview_max_chars
@@ -246,7 +246,10 @@ class _PersistenceBackend:
             logger.debug("persist dedup hit: %s -> %s", tool_name, ref_id)
             return PersistResult(data=marker, ref_id=ref_id, persisted=True)
 
-        ref_id = self._next_ref_id(tool_name, label)
+        # Serialize numbering: same-session concurrent persists share this
+        # backend's lock, so two requests cannot mint the same seq.
+        async with self._lock:
+            ref_id = self._next_ref_id(tool_name, label)
         ext = "txt" if content_type == "text/plain" else "json"
         filepath_str = await self._write_file(tool_name, ref_id, serialized, ext)
         self._dedup_record(tool_name, serialized, ref_id, filepath_str)
@@ -389,12 +392,9 @@ class _PersistenceBackend:
     def seed_ref_counters(self, mapping: dict[str, int]) -> None:
         """Raise per-tool numbering past externally known maxima.
 
-        Never lowers existing counters: in-memory numbering from earlier
-        persists (or a larger later max) always wins, so concurrent stores
-        seeded from the same snapshot still diverge upward.  Used with the
-        ES result index so separate processes/sessions never reissue the
-        same ``$ref:<tool>:N`` (its _id would overwrite a prior session's
-        document).
+        Retained for snapshot-based restore: ArtifactStore.load_snapshot()
+        merges the session's previously issued numbering so continuation
+        requests continue the sequence instead of restarting at 1.
         """
         for tool, seq in mapping.items():
             if seq > self.ref_counters.get(tool, 0):
@@ -403,13 +403,8 @@ class _PersistenceBackend:
     def _next_ref_id(self, tool_name: str, label: str | None) -> str:
         """Return the next ref-id for *tool_name* (not async-safe — callers
         must hold ``self._lock`` or be single-threaded)."""
-        floor = _SHARED_REF_COUNTERS.get(tool_name, 0)
-        if floor > self.ref_counters.get(tool_name, 0):
-            self.ref_counters[tool_name] = floor
         seq = self.ref_counters.get(tool_name, 0) + 1
         self.ref_counters[tool_name] = seq
-        if seq > _SHARED_REF_COUNTERS.get(tool_name, 0):
-            _SHARED_REF_COUNTERS[tool_name] = seq
 
         ref_id = f"$ref:{tool_name}:{seq}"
         if label:
