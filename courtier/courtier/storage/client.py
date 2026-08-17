@@ -61,6 +61,14 @@ def put_object(
     )
 
 
+def fput_object(
+    bucket: str, key: str, path: str, content_type: str = "application/octet-stream"
+) -> None:
+    """流式上传本地文件到指定 Bucket（大文件走磁盘，不进内存）。"""
+    ensure_bucket(bucket)
+    get_minio_client().fput_object(bucket, key, path, content_type=content_type)
+
+
 def get_object(bucket: str, key: str) -> bytes:
     """下载对象字节。"""
     response = get_minio_client().get_object(bucket, key)

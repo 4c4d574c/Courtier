@@ -18,6 +18,7 @@ from courtier.plugin.protocol import (
     METHOD_CACHE_LOAD,
     METHOD_CACHE_PERSIST,
     METHOD_STORAGE_PUT,
+    METHOD_STORAGE_PRESIGN_GET,
     METHOD_TEMPLATE_STORE_GET,
 )
 
@@ -263,6 +264,87 @@ class TestStoragePutHostService:
         )
 
         assert result["error"]["code"] == -32603
+
+
+@pytest.mark.asyncio
+class TestStoragePresignGetHostService:
+    """storage.presign_get：仅中转 bucket 可签名，权限与 key 校验。"""
+
+    def _manager(self, tmp_path: Path) -> ProcessManager:
+        return ProcessManager(plugin_dir=tmp_path, extension_registry=object())
+
+    def _patch(self, monkeypatch):
+        import courtier.storage.client as storage_client_mod
+
+        monkeypatch.setattr(
+            "courtier.plugin.manager.get_settings",
+            lambda: SimpleNamespace(
+                minio_endpoint="minio:9000", minio_bucket_plugin_io="courtier-plugin-io"
+            ),
+        )
+        monkeypatch.setattr(
+            storage_client_mod,
+            "get_presigned_url",
+            lambda bucket, key, expires=3600: f"http://minio/{bucket}/{key}?e={expires}",
+        )
+
+    async def test_presign_transfer_bucket_allowed(self, tmp_path: Path, monkeypatch):
+        self._patch(monkeypatch)
+        proc = _make_process(permissions=["read:storage"], host_services=["storage"])
+        handler = self._manager(tmp_path)._create_host_request_handler(proc)
+
+        result = await handler(
+            {
+                "method": METHOD_STORAGE_PRESIGN_GET,
+                "params": {"bucket": "courtier-plugin-io", "key": "out/annotate/x/a.docx"},
+            }
+        )
+
+        assert result["download_url"].startswith("http://minio/courtier-plugin-io/out/annotate/")
+        assert result["expires_in"] > 0
+        assert result["object_key"] == "out/annotate/x/a.docx"
+
+    async def test_presign_other_bucket_denied(self, tmp_path: Path, monkeypatch):
+        self._patch(monkeypatch)
+        proc = _make_process(permissions=["read:storage"], host_services=["storage"])
+        handler = self._manager(tmp_path)._create_host_request_handler(proc)
+
+        result = await handler(
+            {
+                "method": METHOD_STORAGE_PRESIGN_GET,
+                "params": {"bucket": "courtier-docs", "key": "plugin-outputs/x/a.docx"},
+            }
+        )
+
+        assert result["error"]["code"] == -32602
+
+    async def test_presign_path_traversal_key_denied(self, tmp_path: Path, monkeypatch):
+        self._patch(monkeypatch)
+        proc = _make_process(permissions=["read:storage"], host_services=["storage"])
+        handler = self._manager(tmp_path)._create_host_request_handler(proc)
+
+        for bad_key in ("../escape", "out/../../x", "/absolute"):
+            result = await handler(
+                {
+                    "method": METHOD_STORAGE_PRESIGN_GET,
+                    "params": {"bucket": "courtier-plugin-io", "key": bad_key},
+                }
+            )
+            assert result["error"]["code"] == -32602, bad_key
+
+    async def test_presign_denied_without_permission(self, tmp_path: Path, monkeypatch):
+        self._patch(monkeypatch)
+        proc = _make_process(permissions=["write:storage"], host_services=["storage"])
+        handler = self._manager(tmp_path)._create_host_request_handler(proc)
+
+        result = await handler(
+            {
+                "method": METHOD_STORAGE_PRESIGN_GET,
+                "params": {"bucket": "courtier-plugin-io", "key": "out/x/a.docx"},
+            }
+        )
+
+        assert result["error"]["code"] == -32602
 
 
 @pytest.mark.asyncio

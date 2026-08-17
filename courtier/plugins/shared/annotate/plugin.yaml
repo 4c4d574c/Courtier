@@ -10,6 +10,7 @@ dependencies:
   host_services:
     - storage
   permissions:
+    - read:storage
     - write:storage
 
 capabilities:

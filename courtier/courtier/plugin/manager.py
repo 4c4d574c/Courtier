@@ -48,6 +48,7 @@ from .protocol import (
     METHOD_PLUGIN_AUTH,
     METHOD_RUNTIME_CONTEXT,
     METHOD_STORAGE_PUT,
+    METHOD_STORAGE_PRESIGN_GET,
     METHOD_TEMPLATE_STORE_GET,
 )
 from .registry import ExtensionRegistry
@@ -566,6 +567,40 @@ class ProcessManager:
                     "download_url": url,
                     "expires_in": _STORAGE_URL_EXPIRES_SECONDS,
                     "size_bytes": len(data),
+                }
+
+            if method == METHOD_STORAGE_PRESIGN_GET:
+                if "storage" not in host_services or "read:storage" not in perms:
+                    return _deny(INVALID_PARAMS, "Missing read:storage permission")
+                settings = get_settings()
+                if not settings.minio_endpoint:
+                    return _deny(INTERNAL_ERROR, "MinIO 未配置，无法签名下载链接")
+                bucket = str(params.get("bucket") or "")
+                key = str(params.get("key") or "")
+                # Only the transfer bucket may be presigned through this
+                # channel — plugins hold its restricted credentials already,
+                # and everything else stays unreachable from plugin code.
+                if bucket != settings.minio_bucket_plugin_io:
+                    return _deny(INVALID_PARAMS, f"不允许签名的 bucket: {bucket}")
+                if not key or key.startswith("/") or ".." in key.split("/"):
+                    return _deny(INVALID_PARAMS, "非法的对象 key")
+                try:
+                    expires = int(params.get("expires") or _STORAGE_URL_EXPIRES_SECONDS)
+                except (TypeError, ValueError):
+                    return _deny(INVALID_PARAMS, "expires 必须是整数秒")
+                expires = max(60, min(expires, _STORAGE_URL_EXPIRES_SECONDS))
+                try:
+                    url = await asyncio.to_thread(
+                        storage_client.get_presigned_url, bucket, key, expires
+                    )
+                except Exception as exc:
+                    logger.warning("storage.presign_get 签名失败: %s/%s", bucket, key, exc_info=True)
+                    return _deny(INTERNAL_ERROR, f"签名下载链接失败: {exc}")
+                return {
+                    "bucket": bucket,
+                    "object_key": key,
+                    "download_url": url,
+                    "expires_in": expires,
                 }
 
             if method == METHOD_TEMPLATE_STORE_GET:

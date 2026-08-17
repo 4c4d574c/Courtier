@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
+import mimetypes
+import re
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from courtier_plugin_sdk.types import ComplianceResult, Violation
@@ -33,6 +38,11 @@ class _ToolRegistryLike(Protocol):
 
 
 logger = logging.getLogger(__name__)
+
+# A string consisting purely of base64 alphabet characters is inline data,
+# not a path (annotate's `source` is dual-mode).  Paths always contain at
+# least one character outside this alphabet ("/", ".", …).
+_BASE64_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 
 
 class ProxyTool:
@@ -73,9 +83,79 @@ class ProxyTool:
     # forwarded to plugin subprocesses (they are not JSON-serializable).
     _HOST_KWARGS = frozenset({"context_manager", "artifact_store", "audit_logger"})
 
+    def _file_ref_params(self) -> tuple[str, ...]:
+        """Input properties the plugin marked as file references (file-ref)."""
+        properties = (self.parameters or {}).get("properties") or {}
+        return tuple(
+            name
+            for name, spec in properties.items()
+            if isinstance(spec, dict) and spec.get("format") == "file-ref"
+        )
+
+    async def _rewrite_file_args(self, args: dict[str, Any]) -> str | None:
+        """Rewrite file-ref arguments from upload-dir paths to minio:// refs.
+
+        Returns an error message on sandbox violation / transfer failure
+        (fail-closed), None on success.  The upload-dir containment check is
+        the path sandbox that used to live inside the plugins — with
+        standalone plugins it must happen here, before anything leaves the
+        host.
+        """
+        params = self._file_ref_params()
+        if not params:
+            return None
+        from courtier.config import get_settings
+        from courtier.storage import client as storage_client
+
+        settings = get_settings()
+        upload_root = Path(settings.upload_dir).resolve()
+        bucket = settings.minio_bucket_plugin_io
+
+        for name in params:
+            value = args.get(name)
+            if not isinstance(value, str) or not value or value.startswith("minio://"):
+                continue
+            if _BASE64_RE.fullmatch(value):
+                continue  # inline bytes, not a path
+            p = Path(value)
+            resolved = p.resolve() if p.is_absolute() else (upload_root / p).resolve()
+            if not resolved.is_relative_to(upload_root):
+                return f"参数 {name} 的路径越出上传目录，已拒绝: {value}"
+            if not resolved.is_file():
+                return f"参数 {name} 指向的文件不存在: {value}"
+
+            rel = resolved.relative_to(upload_root)
+            stat = resolved.stat()
+            # Content-addressed key: identical file content/state never
+            # re-uploads; overwriting the file changes the digest.
+            digest = hashlib.sha256(
+                f"{rel}|{stat.st_size}|{stat.st_mtime_ns}".encode()
+            ).hexdigest()[:32]
+            key = f"in/{digest}/{resolved.name}"
+            try:
+                exists = await asyncio.to_thread(storage_client.object_exists, bucket, key)
+                if not exists:
+                    ctype = (
+                        mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+                    )
+                    await asyncio.to_thread(
+                        storage_client.fput_object, bucket, key, str(resolved), ctype
+                    )
+            except Exception as exc:
+                logger.warning("file-ref transfer to MinIO failed: %s", key, exc_info=True)
+                return f"文件转存对象存储失败: {exc}"
+
+            ref = f"minio://{bucket}/{key}"
+            args[name] = ref
+            logger.info("Rewrote file arg %s=%s -> %s", name, value, ref)
+        return None
+
     async def execute(self, *, on_progress: OnToolProgress, **kwargs: Any) -> ToolResult:
         """Forward the execute call to the plugin subprocess via JSON-RPC."""
         args = {k: v for k, v in kwargs.items() if k not in self._HOST_KWARGS}
+        rewrite_error = await self._rewrite_file_args(args)
+        if rewrite_error is not None:
+            return ToolResult(success=False, error=rewrite_error)
         on_progress(
             {
                 "status": "running",

@@ -35,6 +35,7 @@ KNOWN_PERMISSIONS = frozenset(
         "write:artifacts",
         "read:cache",
         "write:cache",
+        "read:storage",
         "write:storage",
         "read:templates",
         "network:outbound",
