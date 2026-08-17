@@ -286,6 +286,46 @@ class Settings(BaseSettings):
     minio_bucket_library: str = "courtier-library"
     minio_bucket_resources: str = "courtier-resources"
     minio_bucket_documents: str = "courtier-documents"
+    minio_bucket_plugin_io: str = Field(
+        default="courtier-plugin-io",
+        description="插件文件中转 bucket（环境变量: MINIO_BUCKET_PLUGIN_IO，24h 生命周期）",
+    )
+
+    # -- Plugin system (standalone TCP plugins, host dials out) --
+    courtier_plugin_endpoints: str = Field(
+        default="",
+        description=(
+            "插件端点映射（环境变量: COURTIER_PLUGIN_ENDPOINTS），形如 "
+            "'parse=127.0.0.1:9101,anydoc=127.0.0.1:9102'；扫描到的每个插件都必须有端点"
+        ),
+    )
+    courtier_plugin_token: str = Field(
+        default="",
+        description="主进程与插件之间的共享鉴权 token（环境变量: COURTIER_PLUGIN_TOKEN）",
+    )
+
+    def plugin_endpoints(self) -> dict[str, tuple[str, int]]:
+        """Parse COURTIER_PLUGIN_ENDPOINTS into {name: (host, port)}.
+
+        Raises ValueError on malformed entries so misconfiguration fails
+        loudly at startup instead of surfacing as silent BLOCKED plugins.
+        """
+        raw = self.courtier_plugin_endpoints.strip()
+        if not raw:
+            return {}
+        endpoints: dict[str, tuple[str, int]] = {}
+        for item in raw.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            name, sep, addr = item.partition("=")
+            host, sep2, port = addr.rpartition(":")
+            if not sep or not sep2 or not name.strip() or not host.strip() or not port.isdigit():
+                raise ValueError(
+                    f"COURTIER_PLUGIN_ENDPOINTS 条目格式错误: {item!r}（应为 name=host:port）"
+                )
+            endpoints[name.strip()] = (host.strip(), int(port))
+        return endpoints
 
     es_hosts: str = ""
     es_username: str = ""
