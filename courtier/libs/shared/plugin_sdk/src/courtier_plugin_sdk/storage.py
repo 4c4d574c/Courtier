@@ -11,7 +11,7 @@ from __future__ import annotations
 import base64
 from typing import Any, cast
 
-from .protocol import METHOD_STORAGE_PUT
+from .protocol import METHOD_STORAGE_PRESIGN_GET, METHOD_STORAGE_PUT
 
 
 class HostStorage:
@@ -50,3 +50,21 @@ class HostStorage:
                 timeout=self._PUT_TIMEOUT,
             ),
         )
+
+    async def presign_get(
+        self,
+        bucket: str,
+        key: str,
+        expires: int | None = None,
+    ) -> dict[str, Any]:
+        """Mint a presigned download URL for a transfer-bucket object.
+
+        The host validates the bucket against its transfer-bucket allowlist
+        before signing.  Pair with :func:`courtier_plugin_sdk.put_file`:
+        upload directly, then turn the ``minio://`` reference into a
+        user-facing ``download_url`` here.
+        """
+        params: dict[str, Any] = {"bucket": bucket, "key": key}
+        if expires is not None:
+            params["expires"] = expires
+        return cast(dict[str, Any], await self._client.call(METHOD_STORAGE_PRESIGN_GET, params))

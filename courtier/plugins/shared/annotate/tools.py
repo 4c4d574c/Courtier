@@ -8,7 +8,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from courtier_plugin_sdk import HostStorage, ToolResult
+from courtier_plugin_sdk import HostStorage, ToolResult, put_file, resolve_file
+from courtier_plugin_sdk.files import parse_minio_ref
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,11 @@ class AnnotateDocumentTool:
         "required": ["source", "rules"],
     }
 
+    # The host rewrites this argument into a minio:// reference before
+    # dispatch when it carries an upload-dir path (base64 passes through);
+    # resolve_file() downloads references into the request workdir.
+    file_params: list[str] = ["source"]
+
     def __init__(self, host_client_getter: Callable[[], Any] | None = None) -> None:
         # Lazy getter: the host-service client only exists after the
         # registration handshake, i.e. after tool construction.
@@ -64,31 +70,32 @@ class AnnotateDocumentTool:
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
-            import os
-
-            from docannot._annotate import annotate
+            from docannot._annotate import _try_base64, annotate
             from docannot._rule import Rule
 
             rules = [Rule(keyword=r["keyword"], comment=r["comment"]) for r in kwargs["rules"]]
             keep = kwargs.get("keep_comments", True)
 
-            upload_dir = Path(
-                os.environ.get("COURTIER_UPLOAD_DIR")
-                or os.environ.get("DOCAUDIT_UPLOAD_DIR")
-                or os.environ.get("UPLOAD_DIR")
-                or ""
-            )
-            allowed_dirs = [upload_dir.resolve()] if upload_dir else None
+            source = await resolve_file(kwargs["source"])
+            # Mirror docannot's source typing: a string that decodes as
+            # base64 is data; anything else is a filesystem path (downloaded
+            # minio refs always are).  docannot only touches the filesystem
+            # for path inputs; base64 sources get no sandbox.
+            source_path = None
+            if isinstance(source, str) and _try_base64(source) is None:
+                source_path = Path(source)
+            allowed_dirs = None
+            if source_path is not None and source_path.is_file():
+                allowed_dirs = [source_path.resolve().parent]
 
             result_bytes = annotate(
-                kwargs["source"],
+                source,
                 rules,
                 keep_comments=keep,
                 allowed_dirs=allowed_dirs,
             )
 
-            source = kwargs["source"]
-            input_name = Path(source).stem if isinstance(source, str) else "annotated"
+            input_name = source_path.stem if source_path is not None else "annotated"
 
             stored = await self._store_output(f"{input_name}_annotated.docx", result_bytes)
             if stored is not None:
@@ -107,7 +114,7 @@ class AnnotateDocumentTool:
                     },
                 )
 
-            # Fallback: host storage unavailable — write annotated bytes to a
+            # Fallback: storage unavailable — write annotated bytes to a
             # temp file so we don't return raw bytes in the tool result
             # (bytes are not JSON-serializable).
             with tempfile.NamedTemporaryFile(
@@ -131,7 +138,39 @@ class AnnotateDocumentTool:
             return ToolResult(success=False, error=str(exc))
 
     async def _store_output(self, filename: str, data: bytes) -> dict[str, Any] | None:
-        """Upload via the host storage service; None when unavailable/failed."""
+        """Upload the annotated DOCX; returns a receipt with download_url.
+
+        Primary path: direct transfer-bucket upload (put_file) + host-minted
+        presigned URL (storage.presign_get).  Falls back to the legacy
+        base64 host service (storage.put) when MinIO is not configured in
+        the plugin environment, and to None when both fail.
+        """
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=f"_{filename}", prefix="docaudit_", delete=False
+            ) as tmp:
+                tmp.write(data)
+                tmp_path = Path(tmp.name)
+            try:
+                ref = await put_file(tmp_path, filename=filename, content_type=_DOCX_MIME)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+            client = self._host_client_getter() if self._host_client_getter else None
+            if client is None:
+                return None
+            bucket, key = parse_minio_ref(ref)
+            receipt = await HostStorage(client).presign_get(bucket, key)
+            return {
+                "download_url": receipt.get("download_url"),
+                "object_key": key,
+                "expires_in": receipt.get("expires_in"),
+            }
+        except RuntimeError:
+            # MinIO env missing — legacy base64 path below.
+            pass
+        except Exception:
+            logger.warning("Direct transfer-bucket upload failed; trying storage.put", exc_info=True)
+
         if self._host_client_getter is None:
             return None
         client = self._host_client_getter()

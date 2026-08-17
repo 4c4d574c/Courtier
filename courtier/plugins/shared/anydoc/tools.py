@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
-from courtier_plugin_sdk import ToolResult
+from courtier_plugin_sdk import ToolResult, resolve_file
 
 # The plugin runs entry.py as a script (sys.path[0] = plugin dir), where
 # ``tools`` is a top-level module and relative imports fail; tests import it
@@ -51,6 +50,10 @@ class ConvertDocumentTool:
         "required": ["file_path"],
     }
 
+    # The host rewrites this argument into a minio:// reference before
+    # dispatch; resolve_file() downloads it into the request workdir.
+    file_params: list[str] = ["file_path"]
+
     output_schema: dict | None = {
         "type": "object",
         "properties": {
@@ -85,27 +88,12 @@ class ConvertDocumentTool:
                     error="缺少必填参数 file_path（文档绝对路径）",
                 )
 
-            # Same upload-root sandbox as parse_document: relative paths are
-            # resolved against the upload dir, absolute paths must stay inside it.
-            safe_root_raw = (
-                os.environ.get("COURTIER_UPLOAD_DIR")
-                or os.environ.get("DOCAUDIT_UPLOAD_DIR")
-                or os.environ.get("UPLOAD_DIR")
-            )
-            if not safe_root_raw:
-                return ToolResult(
-                    success=False,
-                    error="Upload directory not configured",
-                )
-            safe_root = Path(safe_root_raw).resolve()
-
-            p = Path(file_path)
-            resolved = p.resolve() if p.is_absolute() else (safe_root / p).resolve()
-            try:
-                resolved.relative_to(safe_root)
-            except ValueError:
-                logger.warning("Path escape attempt blocked: %s", file_path)
-                return ToolResult(success=False, error=f"Access denied: {file_path}")
+            # File arguments arrive as minio:// references (the host rewrites
+            # upload-dir paths at the proxy boundary after enforcing the
+            # sandbox there); resolve_file downloads into the per-request
+            # workdir.  Plain local paths pass through (tests / direct calls).
+            file_path = await resolve_file(file_path)
+            resolved = Path(file_path).resolve()
 
             if not resolved.is_file():
                 return ToolResult(

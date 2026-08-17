@@ -6,11 +6,10 @@ import asyncio
 import base64
 import copy
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
-from courtier_plugin_sdk import ToolResult
+from courtier_plugin_sdk import ToolResult, resolve_file
 
 # Keys stripped recursively from the dumped Document before it is returned.
 # Position and spacing fields (position, space_before, space_after,
@@ -56,6 +55,10 @@ class ParseTool:
         },
         "required": ["file_path"],
     }
+
+    # The host rewrites this argument into a minio:// reference before
+    # dispatch; resolve_file() downloads it into the request workdir.
+    file_params: list[str] = ["file_path"]
 
     output_schema: dict | None = {
         "type": "object",
@@ -117,32 +120,12 @@ class ParseTool:
                     error="缺少必填参数 file_path（文档绝对路径）",
                 )
 
-            # Resolve the upload root from environment (prefer COURTIER_*, fall back
-            # to legacy DOCAUDIT_* names for compatibility).
-            safe_root_raw = (
-                os.environ.get("COURTIER_UPLOAD_DIR")
-                or os.environ.get("DOCAUDIT_UPLOAD_DIR")
-                or os.environ.get("UPLOAD_DIR")
-            )
-            if not safe_root_raw:
-                return ToolResult(
-                    success=False,
-                    error="Upload directory not configured",
-                )
-            safe_root = Path(safe_root_raw).resolve()
-
-            p = Path(file_path)
-            if p.is_absolute():
-                resolved = p.resolve()
-            else:
-                resolved = (safe_root / p).resolve()
-
-            # Reject paths outside the upload root
-            try:
-                resolved.relative_to(safe_root)
-            except ValueError:
-                logging.getLogger(__name__).warning("Path escape attempt blocked: %s", file_path)
-                return ToolResult(success=False, error=f"Access denied: {file_path}")
+            # File arguments arrive as minio:// references (the host rewrites
+            # upload-dir paths at the proxy boundary after enforcing the
+            # sandbox there); resolve_file downloads into the per-request
+            # workdir.  Plain local paths pass through (tests / direct calls).
+            file_path = await resolve_file(file_path)
+            resolved = Path(file_path).resolve()
 
             if not resolved.is_file():
                 return ToolResult(

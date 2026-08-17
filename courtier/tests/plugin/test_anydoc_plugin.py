@@ -67,35 +67,41 @@ def test_plugin_registers_with_system_prompt():
 
 
 class TestConvertDocumentSandbox:
-    """Verify convert_document rejects paths outside the upload directory."""
+    """Path handling after the sandbox moved to the host proxy boundary.
+
+    The host enforces the upload-dir sandbox before rewriting file
+    arguments into minio:// references; the plugin only ever sees those
+    references (production) or plain local paths (tests / same-machine
+    development), which pass through resolve_file unchanged.
+    """
 
     @pytest.mark.asyncio
-    async def test_rejects_path_escape(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+    async def test_missing_file_is_rejected(self, tmp_path):
         import plugins.shared.anydoc.tools as tools_mod
 
-        outside = tmp_path.parent / "secret.txt"
-        outside.write_text("secret")
         tool = tools_mod.ConvertDocumentTool()
-        result = await tool.execute(file_path=str(outside))
+        result = await tool.execute(file_path=str(tmp_path / "nope.docx"))
         assert result.success is False
-        assert "Access denied" in result.error
+        assert "File not found" in result.error
 
     @pytest.mark.asyncio
-    async def test_rejects_missing_upload_dir(self, monkeypatch):
+    async def test_existing_local_file_passes_through(self, tmp_path, monkeypatch):
+        """Local files are read regardless of any upload-dir configuration."""
         monkeypatch.delenv("COURTIER_UPLOAD_DIR", raising=False)
         monkeypatch.delenv("DOCAUDIT_UPLOAD_DIR", raising=False)
         monkeypatch.delenv("UPLOAD_DIR", raising=False)
+        monkeypatch.setitem(sys.modules, "anydoc", _fake_anydoc())
         import plugins.shared.anydoc.tools as tools_mod
 
+        doc = tmp_path / "notice.docx"
+        doc.write_bytes(b"fake docx bytes")
         tool = tools_mod.ConvertDocumentTool()
-        result = await tool.execute(file_path="/tmp/test.docx")
-        assert result.success is False
-        assert "not configured" in result.error
+        result = await tool.execute(file_path=str(doc))
+        assert result.success is True
+        assert result.data["markdown"] == "# 标题\n\n正文。"
 
     @pytest.mark.asyncio
-    async def test_rejects_missing_file_path(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
+    async def test_rejects_missing_file_path(self):
         import plugins.shared.anydoc.tools as tools_mod
 
         tool = tools_mod.ConvertDocumentTool()

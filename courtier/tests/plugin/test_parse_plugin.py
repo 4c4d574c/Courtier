@@ -62,93 +62,53 @@ async def test_parse_plugin_unknown_tool():
 
 
 class TestParseDocumentSandbox:
-    """Verify parse_document rejects paths outside the upload directory."""
+    """Path handling after the sandbox moved to the host proxy boundary.
+
+    In the standalone architecture the host enforces the upload-dir
+    sandbox before rewriting file arguments into minio:// references; the
+    plugin only ever sees those references (production) or plain local
+    paths (tests / same-machine development), which pass through
+    resolve_file unchanged.
+    """
 
     @pytest.mark.asyncio
-    async def test_rejects_path_escape(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
-        # Force a fresh import so the tool picks up the env var
-        import importlib
-
+    async def test_missing_file_is_rejected(self, tmp_path):
         import plugins.docaudit.parse.tools as tools_mod
 
-        importlib.reload(tools_mod)
-
-        outside = tmp_path.parent / "secret.txt"
-        outside.write_text("secret")
         tool = tools_mod.ParseTool()
-        result = await tool.execute(file_path=str(outside))
+        result = await tool.execute(file_path=str(tmp_path / "nope.pdf"))
         assert result.success is False
-        assert "Access denied" in result.error
+        assert "File not found" in result.error
 
     @pytest.mark.asyncio
-    async def test_allows_file_in_upload_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
-
-        import importlib
-
+    async def test_existing_local_file_passes_through(self, tmp_path):
         import plugins.docaudit.parse.tools as tools_mod
-
-        importlib.reload(tools_mod)
 
         valid = tmp_path / "doc.pdf"
         valid.write_bytes(b"%PDF-1.4 fake pdf content")
         tool = tools_mod.ParseTool()
-        # This will fail on parse (not a real PDF) but should NOT be an
-        # "Access denied" error — it should pass the sandbox check.
+        # Fails inside docparse (not a real PDF) — but the file itself is
+        # accepted; no upload-dir configuration is involved anymore.
         result = await tool.execute(file_path=str(valid))
-        # We expect a docparse parse error, not an access-denied error.
-        assert "Access denied" not in (result.error or "")
+        assert "File not found" not in (result.error or "")
 
     @pytest.mark.asyncio
-    async def test_rejects_missing_upload_dir(self, monkeypatch):
-        monkeypatch.delenv("COURTIER_UPLOAD_DIR", raising=False)
-        monkeypatch.delenv("DOCAUDIT_UPLOAD_DIR", raising=False)
-        monkeypatch.delenv("UPLOAD_DIR", raising=False)
-
-        import importlib
-
+    async def test_minio_ref_is_resolved_via_download(self, tmp_path, monkeypatch):
+        """minio:// arguments go through resolve_file into a local download."""
         import plugins.docaudit.parse.tools as tools_mod
 
-        importlib.reload(tools_mod)
+        downloaded = tmp_path / "downloaded.pdf"
+        downloaded.write_bytes(b"%PDF-1.4 fake pdf content")
 
+        async def fake_resolve(value):
+            assert value == "minio://courtier-plugin-io/in/abc/downloaded.pdf"
+            return str(downloaded)
+
+        monkeypatch.setattr(tools_mod, "resolve_file", fake_resolve)
         tool = tools_mod.ParseTool()
-        result = await tool.execute(file_path="/tmp/test.pdf")
-        assert result.success is False
-        assert "not configured" in result.error
-
-    @pytest.mark.asyncio
-    async def test_prefers_courtier_upload_dir_over_legacy(self, tmp_path, monkeypatch):
-        """COURTIER_UPLOAD_DIR takes precedence over DOCAUDIT_UPLOAD_DIR."""
-        courtier_root = tmp_path / "courtier_uploads"
-        legacy_root = tmp_path / "legacy_uploads"
-        courtier_root.mkdir()
-        legacy_root.mkdir()
-
-        monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(courtier_root))
-        monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(legacy_root))
-        monkeypatch.delenv("UPLOAD_DIR", raising=False)
-
-        import importlib
-
-        import plugins.docaudit.parse.tools as tools_mod
-
-        importlib.reload(tools_mod)
-
-        tool = tools_mod.ParseTool()
-
-        # File inside the COURTIER upload dir should pass sandbox (parse will fail).
-        valid = courtier_root / "doc.pdf"
-        valid.write_bytes(b"%PDF-1.4 fake pdf content")
-        result = await tool.execute(file_path=str(valid))
-        assert "Access denied" not in (result.error or "")
-
-        # File inside the legacy dir only should be denied.
-        outside = legacy_root / "doc.pdf"
-        outside.write_bytes(b"%PDF-1.4 fake pdf content")
-        result = await tool.execute(file_path=str(outside))
-        assert result.success is False
-        assert "Access denied" in result.error
+        # docparse fails on the fake PDF, proving the download path was used.
+        result = await tool.execute(file_path="minio://courtier-plugin-io/in/abc/downloaded.pdf")
+        assert "File not found" not in (result.error or "")
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +219,6 @@ class TestParseCache:
 
     @pytest.mark.asyncio
     async def test_normalized_path_spellings_share_entry(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
         calls: list[str] = []
         _patch_parse(monkeypatch, calls)
 
@@ -272,12 +231,10 @@ class TestParseCache:
         tool = tools_mod.ParseTool()
         r1 = await tool.execute(file_path=str(target))
         assert r1.success, r1.error
-        # Same file via a non-normalized absolute spelling ...
+        # The same file via a non-normalized absolute spelling hits the
+        # same cache entry (paths are normalized with resolve()).
         r2 = await tool.execute(file_path=str(tmp_path / "sub" / ".." / "sub" / "doc.pdf"))
         assert r2.success, r2.error
-        # ... and via a relative spelling both hit the same cache entry.
-        r3 = await tool.execute(file_path="sub/doc.pdf")
-        assert r3.success, r3.error
         assert len(calls) == 1
 
     @pytest.mark.asyncio
@@ -326,20 +283,16 @@ class TestParseCache:
         assert r3.data["pages"] == []
 
     @pytest.mark.asyncio
-    async def test_escape_path_never_touches_cache(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("DOCAUDIT_UPLOAD_DIR", str(tmp_path))
+    async def test_missing_file_never_touches_cache(self, tmp_path, monkeypatch):
         calls: list[str] = []
         _patch_parse(monkeypatch, calls)
 
         import plugins.docaudit.parse.tools as tools_mod
 
-        outside = tmp_path.parent / "secret.pdf"
-        outside.write_bytes(b"secret")
-
         tool = tools_mod.ParseTool()
-        result = await tool.execute(file_path=str(outside))
+        result = await tool.execute(file_path=str(tmp_path / "missing.pdf"))
         assert result.success is False
-        assert "Access denied" in result.error
+        assert "File not found" in result.error
         assert calls == []
         assert tool._cache == {}
 

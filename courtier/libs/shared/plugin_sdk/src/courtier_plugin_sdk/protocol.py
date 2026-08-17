@@ -25,6 +25,7 @@ METHOD_ARTIFACT_STORE_PUT = "artifact_store.put"
 METHOD_ARTIFACT_STORE_GET = "artifact_store.get"
 METHOD_ARTIFACT_STORE_LIST = "artifact_store.list"
 METHOD_STORAGE_PUT = "storage.put"
+METHOD_STORAGE_PRESIGN_GET = "storage.presign_get"
 METHOD_TEMPLATE_STORE_GET = "template_store.get"
 
 # Stream read limit (bytes) for the JSON-RPC line protocol on both ends.
