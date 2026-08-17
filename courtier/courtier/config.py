@@ -273,17 +273,6 @@ class Settings(BaseSettings):
     cec_api_key: str = ""
     cec_model_name: str = "ChineseErrorCorrector3-4B"
     cec_max_length: int = Field(default=16383, alias="cec_max_length")
-    cec_user_dict: str = Field(
-        default=str(
-            _default_project_root()
-            / "domains"
-            / "docaudit"
-            / "plugins"
-            / "doccorrector"
-            / "user_dict.txt"
-        ),
-        alias="cec_user_dict",
-    )
     cec_allowed_patterns: str = Field(
         default="看一看,想一想,试一试,人人,一一", alias="cec_allowed_patterns"
     )

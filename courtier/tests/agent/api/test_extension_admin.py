@@ -352,6 +352,5 @@ class TestPluginItemsSourceGrouping:
         # nested wrapper dir must not surface as its own "audit" group.
         assert by_name["check_format"] == "docaudit"
         assert by_name["check_content"] == "docaudit"
-        assert by_name["correct_text"] == "docaudit"
         assert by_name["detect_plagiarism"] == "docaudit"
         assert "audit" not in {i["source"] for i in items}

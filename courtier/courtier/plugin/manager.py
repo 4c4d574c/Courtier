@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 # plugin manifests. Restricting this list prevents a plugin manifest from
 # exfiltrating database/cloud credentials from the host process. The LLM_* and
 # DOCPARSE_OCR_* entries are required by the parse plugin's scanned-document
-# pipeline, CEC_* by text_correction's correction model, and ES_* by the
+# pipeline, and ES_* by the
 # search plugin's chunk index access; manifests are first-party (shipped in
 # plugins/) and plugin subprocesses already run with host OS permissions, so
 # exposing endpoint credentials to declaring plugins is accepted. DB/MinIO/cloud
@@ -115,11 +115,6 @@ _ALLOWED_MANIFEST_ENV_VARS: frozenset[str] = frozenset(
         "FONT_MODEL_URL",
         "FONT_MODEL_CONF_THRESHOLD",
         "FONT_MODEL_MARGIN_THRESHOLD",
-        "CEC_API_BASE",
-        "CEC_API_KEY",
-        "CEC_MODEL_NAME",
-        "CEC_MAX_LENGTH",
-        "CEC_USER_DICT",
         "ES_HOSTS",
         "ES_INDEX_CHUNKS",
         "ES_USERNAME",
@@ -152,11 +147,6 @@ _SETTINGS_ENV_FALLBACK: dict[str, str] = {
     "FONT_MODEL_URL": "font_model_url",
     "FONT_MODEL_CONF_THRESHOLD": "font_model_conf_threshold",
     "FONT_MODEL_MARGIN_THRESHOLD": "font_model_margin_threshold",
-    "CEC_API_BASE": "cec_api_base",
-    "CEC_API_KEY": "cec_api_key",
-    "CEC_MODEL_NAME": "cec_model_name",
-    "CEC_MAX_LENGTH": "cec_max_length",
-    "CEC_USER_DICT": "cec_user_dict",
     "ES_HOSTS": "es_hosts",
     "ES_INDEX_CHUNKS": "es_index_chunks",
     "ES_USERNAME": "es_username",

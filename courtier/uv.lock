@@ -463,7 +463,6 @@ dependencies = [
     { name = "courtier-plugin-sdk" },
     { name = "cryptography" },
     { name = "docannot" },
-    { name = "doccorrector" },
     { name = "docmodels" },
     { name = "docparse" },
     { name = "docxnote" },
@@ -521,7 +520,6 @@ requires-dist = [
     { name = "courtier-plugin-sdk", editable = "libs/shared/plugin_sdk" },
     { name = "cryptography", specifier = ">=46.0.7" },
     { name = "docannot", editable = "libs/shared/docannot" },
-    { name = "doccorrector", editable = "libs/docaudit/doccorrector" },
     { name = "docmodels", editable = "libs/shared/docmodels" },
     { name = "docparse", editable = "libs/docaudit/docparse" },
     { name = "docxnote", specifier = ">=0.2.0" },
@@ -751,21 +749,6 @@ dependencies = [
 requires-dist = [
     { name = "docxnote", specifier = ">=0.2.0" },
     { name = "lxml", specifier = ">=6.0.4" },
-]
-
-[[package]]
-name = "doccorrector"
-version = "1.0.0"
-source = { editable = "libs/docaudit/doccorrector" }
-dependencies = [
-    { name = "httpx" },
-    { name = "openai" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "openai", specifier = ">=2.31.0" },
 ]
 
 [[package]]

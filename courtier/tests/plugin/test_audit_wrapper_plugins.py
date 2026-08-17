@@ -211,64 +211,6 @@ async def test_content_audit_tool_handles_checker_exception():
 
 
 # ---------------------------------------------------------------------------
-# text_correction
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_text_correction_plugin_registers_correct_text():
-    """Text correction plugin registers correct_text tool."""
-    _ensure_plugin_path("correct_text")
-
-    from plugins.docaudit.audit.correct_text.entry import TextCorrectionPlugin
-
-    plugin = TextCorrectionPlugin()
-    plugin._setup_handlers()
-    caps, _ = plugin._collect_capabilities()
-    tool_names = [c["name"] for c in caps if c["type"] == "tool"]
-    assert "correct_text" in tool_names
-
-
-@pytest.mark.asyncio
-async def test_text_correction_tool_returns_results():
-    """correct_text returns correction results from ErrorCorrect."""
-    _ensure_plugin_path("correct_text")
-
-    from plugins.docaudit.audit.correct_text.tools import TextCorrectionTool
-
-    tool = TextCorrectionTool()
-    mock_corrections = [{"source": "测试文本", "target": "测试文本", "errors": []}]
-
-    with patch(
-        "plugins.docaudit.audit.correct_text.tools.ErrorCorrect",
-        return_value=MagicMock(infer=MagicMock(return_value=mock_corrections)),
-    ):
-        result = await tool.execute(text="测试文本")
-
-    assert result.success is True
-    assert result.data["results"] == mock_corrections
-
-
-@pytest.mark.asyncio
-async def test_text_correction_tool_handles_error():
-    """correct_text handles ErrorCorrect failures gracefully."""
-    _ensure_plugin_path("correct_text")
-
-    from plugins.docaudit.audit.correct_text.tools import TextCorrectionTool
-
-    tool = TextCorrectionTool()
-
-    with patch(
-        "plugins.docaudit.audit.correct_text.tools.ErrorCorrect",
-        side_effect=ConnectionError("API unavailable"),
-    ):
-        result = await tool.execute(text="测试")
-
-    assert result.success is False
-    assert "API unavailable" in result.error
-
-
-# ---------------------------------------------------------------------------
 # plagiarism (existing — verify no regressions)
 # ---------------------------------------------------------------------------
 

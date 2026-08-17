@@ -39,7 +39,6 @@ dependencies = [
     "content_compliance",
     "courtier-plugin-sdk",
     "docannot",
-    "doccorrector",
     "docmodels",
     "docparse",
     "jinja2>=3.1.6",
@@ -55,7 +54,6 @@ courtier = "courtier.cli.main:main"
 content_compliance = { path = "libs/docaudit/content_compliance", editable = true }
 courtier-plugin-sdk = { path = "libs/shared/plugin_sdk", editable = true }
 docannot = { path = "libs/shared/docannot", editable = true }
-doccorrector = { path = "libs/docaudit/doccorrector", editable = true }
 docmodels = { path = "libs/shared/docmodels", editable = true }
 docparse = { path = "libs/docaudit/docparse", editable = true }
 validator = { path = "libs/docaudit/validator", editable = true }
