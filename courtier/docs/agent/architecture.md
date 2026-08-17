@@ -26,7 +26,7 @@
 
 ## 1. 项目概述
 
-DocAudit 是一款面向中文党政机关公文的智能审核系统，提供从文件上传、智能解析、多维度审核到批注导出的全流程自动化服务。系统深度集成大语言模型（LLM）、OCR 文字识别、Elasticsearch 全文检索等技术，覆盖**文件智能解析、格式审核、内容审核、文本纠错、行文风格审查、文档查重**六大核心能力。
+DocAudit 是一款面向中文党政机关公文的智能审核系统，提供从文件上传、智能解析、多维度审核到批注导出的全流程自动化服务。系统深度集成大语言模型（LLM）、OCR 文字识别、Elasticsearch 全文检索等技术，覆盖**文件智能解析、格式审核、内容审核（含文本纠错）、行文风格审查、文档查重**核心能力；文本纠错由内容审核技能通过提示词直接完成，不设独立纠错插件。
 
 ### 技术栈总览
 
@@ -37,7 +37,7 @@ DocAudit 是一款面向中文党政机关公文的智能审核系统，提供�
 | 搜索引擎 | Elasticsearch 8.x | 全文检索、RAG 知识库 |
 | 对象存储 | MinIO (S3 兼容) | 上传文件、解析结果存储 |
 | OCR 引擎 | PaddleOCR (PPStructureV3) | 扫描件文字识别与版面分析 |
-| 大语言模型 | 通义千问 Qwen3.5-27B / ChineseErrorCorrector3-4B | 智能审核、纠错、对话 |
+| 大语言模型 | 通义千问 Qwen3.5-27B | 智能审核、纠错（提示词驱动）、对话 |
 | 文档处理 | PyMuPDF / python-docx / LibreOffice | PDF/DOCX 解析与生成 |
 | 可观测性 | OpenTelemetry + Prometheus + Grafana | 分布式追踪、指标采集 |
 | 插件隔离 | 子进程 + JSON-RPC 2.0 over stdio | 插件能力隔离 |
@@ -119,10 +119,11 @@ DocAudit 是一款面向中文党政机关公文的智能审核系统，提供�
 │  │ (子进程)        │        │ (子进程, LLM Agent)│     │
 │  └────────────────┘        └──────────────────┘     │
 │  ┌────────────────┐        ┌──────────────────┐     │
-│  │text_correction │        │ style_audit      │     │
+│  │ check_content  │        │ detect_plagiarism│     │
 │  │ plugin         │        │ plugin           │     │
 │  └────────────────┘        └──────────────────┘     │
-│  ...  (共 9 个插件子进程)                             │
+│  （纠错由 content_audit 技能承担，无独立插件）        │
+│  ...  (共 8 个插件子进程)                             │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -596,7 +597,6 @@ class PluginRuntime:
 | format_audit | `plugins/audit/format_audit/` | Tools: `detect_document_type`, `audit_format`, `list_format_rule_types` |
 | content_audit | `plugins/audit/content_audit/` | Tools: `audit_content` |
 | style_audit | `plugins/audit/style_audit/` | Tools: `audit_writing_style`, `list_writing_style_types` |
-| text_correction | `plugins/audit/text_correction/` | Tools: `correct_text` |
 | plagiarism | `plugins/audit/plagiarism/` | Tools: `detect_plagiarism` |
 
 子代理（原插件中的 `type: agent`）已迁移至 `skills/` 目录，由 `AgentRuntime` 调起执行。Skills 列表见 [`docs/architecture/plugin-skill-boundary.md`](../architecture/plugin-skill-boundary.md)。
@@ -1064,37 +1064,9 @@ LLM 驱动的内容审查：
 
 **规则系统**：规则库由 `content_compliance/` 模块管理，支持 CRUD 和批量导入。
 
-### 5.4 文本纠错 (doccorrector)
+### 5.4 文本纠错（提示词驱动）
 
-**文件**: `src/doccorrector/corrector.py`
-
-六阶段纠错流水线：
-
-```
-阶段 1：用户词典加载
-  → 加载政务领域专用词汇表
-  → 防止误纠正官方用词
-
-阶段 2：专用纠错模型
-  → ChineseErrorCorrector3-4B 模型
-  → 处理拼写、多字、漏字、倒序等错误
-
-阶段 3：规则检测（由 correct_text 内部统一调用）
-  → 重复字符检测
-  → 全角/半角混用检测
-  → 标点混用检测
-  → 截断姓名检测
-
-阶段 4：冲突消解
-  → 纠错模型 vs 规则的冲突判断
-  → 双层置信度投票
-
-阶段 5：LLM 最终确认
-  → 低置信度结果送 LLM 判定
-
-阶段 6：上下文一致性检查
-  → 全局一致性校验
-```
+文本纠错不再设独立插件：内容审核技能（content_audit）的子代理在提示词引导下直接对文档文本纠错，规则内嵌于技能（错别字/重复字、全角半角、标点语种混用、弯引号开闭配对、数字内小数点豁免等），并以完整差异表披露（含删除操作与复核排除）。
 
 ### 5.5 行文风格审查 (style_audit)
 
@@ -1783,14 +1755,13 @@ docaudit-agent/
 │   ├── plagiarism/            # 文档查重
 │   ├── docannot/              # 批注导出
 │   ├── docbuilder/            # 文档构建
-│   ├── doccorrector/          # 文本纠错
 │   ├── docmodels/             # 数据模型
 │   ├── docparse/              # 文档解析
 │   ├── es/                    # Elasticsearch
 │   ├── storage/               # MinIO 存储
 │   └── validator/             # 格式校验
 │
-├── plugins/                   # 插件目录 (9 个插件)
+├── plugins/                   # 插件目录 (8 个插件)
 │   ├── annotate/
 │   ├── content_audit/
 │   ├── format_audit/
@@ -1799,7 +1770,6 @@ docaudit-agent/
 │   ├── search/
 │   ├── style_audit/
 │   ├── template/
-│   └── text_correction/
 │
 ├── tests/                     # 测试
 ├── docs/                      # 文档

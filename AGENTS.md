@@ -245,7 +245,7 @@ npm run check
    - `libs/shared/` — Cross-domain installable libraries (`docannot`, `docmodels`, `plugin_sdk`).
    - `libs/docaudit/` — Domain-specific installable libraries (`docparse`, `validator`, `content_compliance`, `doccorrector`).
    - `plugins/shared/` — Cross-domain JSON-RPC plugins (`anydoc`, `search`, `annotate`, `template`).
-   - `plugins/docaudit/` — Domain JSON-RPC plugins (`parse`; `format_audit`, `content_audit`, `text_correction`, `plagiarism` under `audit/`).
+   - `plugins/docaudit/` — Domain JSON-RPC plugins (`parse`; `format_audit`, `content_audit`, `plagiarism` under `audit/`).
 
 ### 5.2 Plugin vs Skill vs Library
 

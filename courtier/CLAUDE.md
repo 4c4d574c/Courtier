@@ -36,7 +36,6 @@ courtier/                          # 项目根目录
 │       └── audit/                # 审计包装插件
 │           ├── format_audit/
 │           ├── content_audit/
-│           ├── text_correction/
 │           └── plagiarism/
 ├── webui/                        # Vue 3 + Vite 前端（Terminal-style UI）
 ├── tests/                        # 测试套件
@@ -128,7 +127,7 @@ docker-compose up -d
    - `libs/shared/`: docannot, docmodels, plugin_sdk 等跨领域共享库（可安装包），被共享插件调用
    - `libs/docaudit/`: docparse, validator, content_compliance, doccorrector 等领域专属库（可安装包），被 docaudit 插件调用
    - `plugins/shared/`: anydoc, search, annotate, template 等跨领域共享插件（JSON-RPC 子进程）
-   - `plugins/docaudit/`: parse（`plugins/docaudit/parse/`）与 format_audit, content_audit, text_correction, plagiarism（`plugins/docaudit/audit/`）等领域专属插件（JSON-RPC 子进程）
+   - `plugins/docaudit/`: parse（`plugins/docaudit/parse/`）与 format_audit, content_audit, plagiarism（`plugins/docaudit/audit/`）等领域专属插件（JSON-RPC 子进程）
 
 ### 会话模式（统一编排器 + 域门控）
 
