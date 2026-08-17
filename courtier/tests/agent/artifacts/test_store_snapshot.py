@@ -36,15 +36,6 @@ def _make_disk_ref_artifact(
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_shared_ref_counters():
-    from courtier.agent.core import cache_store as _cs
-
-    _cs._SHARED_REF_COUNTERS.clear()
-    yield
-    _cs._SHARED_REF_COUNTERS.clear()
-
-
 def test_snapshot_restore_roundtrip(tmp_path):
     store = ArtifactStore(cache_dir=str(tmp_path))
     store.set_type_policy("docaudit.parsed_document", persist="always", llm_visible="summary")
@@ -227,3 +218,18 @@ async def test_ref_counter_restore_ignores_non_numeric_refs(tmp_path):
     store.set_ref("$ref:parse_document:4", str(tmp_path / "g.json"))
     store.set_ref("plain-artifact-id", str(tmp_path / "h.json"))
     assert store._backend.ref_counters == {"parse_document": 4}
+
+
+def test_snapshot_carries_ref_counters(tmp_path):
+    """Snapshot includes per-tool numbering so continuation keeps sequence."""
+    import asyncio
+
+    store = ArtifactStore(cache_dir=str(tmp_path), session_id="sess_a")
+    asyncio.run(store.persist({"x": 1}, "echo", force=True))
+    asyncio.run(store.persist({"x": 2}, "echo", force=True))
+    snapshot = store.snapshot()
+    assert snapshot["ref_counters"] == {"echo": 2}
+    assert snapshot["version"] == 2
+
+    restored = ArtifactStore.restore(snapshot, cache_dir=str(tmp_path), session_id="sess_a")
+    assert restored._backend.ref_counters == {"echo": 2}

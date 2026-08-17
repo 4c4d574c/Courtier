@@ -9,15 +9,6 @@ from .conftest import _make as _make_artifact
 from .conftest import _noop_progress
 
 
-@pytest.fixture(autouse=True)
-def _reset_shared_ref_counters():
-    from courtier.agent.core import cache_store as _cs
-
-    _cs._SHARED_REF_COUNTERS.clear()
-    yield
-    _cs._SHARED_REF_COUNTERS.clear()
-
-
 class TestGetArtifactTool:
     """Tests using non-$ref artifact IDs (typed projection path)."""
 
