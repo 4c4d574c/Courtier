@@ -25,7 +25,7 @@ class TestPluginScanner:
         assert echo_result.manifest is not None
         assert echo_result.manifest.name == "echo_plugin"
         assert echo_result.manifest.version == "0.1.0"
-        assert echo_result.manifest.api == "1.0"
+        assert echo_result.manifest.api == "2.0"
         assert len(echo_result.manifest.capabilities.tools) == 1
         assert echo_result.manifest.capabilities.tools[0].name == "echo"
         assert echo_result.error is None
@@ -69,11 +69,11 @@ class TestPluginScanner:
         """Plugins nested under common/ and audit/ subdirs are discovered."""
         (tmp_path / "common" / "parse").mkdir(parents=True)
         (tmp_path / "common" / "parse" / "plugin.yaml").write_text(
-            'name: parse\nversion: "0.1.0"\napi: "1.0"\n', encoding="utf-8"
+            'name: parse\nversion: "0.1.0"\napi: "2.0"\n', encoding="utf-8"
         )
         (tmp_path / "audit" / "format_audit").mkdir(parents=True)
         (tmp_path / "audit" / "format_audit" / "plugin.yaml").write_text(
-            'name: format_audit\nversion: "0.1.0"\napi: "1.0"\n', encoding="utf-8"
+            'name: format_audit\nversion: "0.1.0"\napi: "2.0"\n', encoding="utf-8"
         )
 
         scanner = PluginScanner()
@@ -86,7 +86,7 @@ class TestPluginScanner:
         """Arbitrarily nested plugin.yaml files are discovered via rglob."""
         (tmp_path / "common" / "group" / "deep").mkdir(parents=True)
         (tmp_path / "common" / "group" / "deep" / "plugin.yaml").write_text(
-            'name: deep\nversion: "0.1.0"\napi: "1.0"\n', encoding="utf-8"
+            'name: deep\nversion: "0.1.0"\napi: "2.0"\n', encoding="utf-8"
         )
 
         scanner = PluginScanner()

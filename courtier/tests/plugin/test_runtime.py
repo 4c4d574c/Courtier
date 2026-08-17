@@ -7,7 +7,7 @@ import time
 
 import pytest
 from courtier_plugin_sdk.protocol import METHOD_TOOL_EXECUTE
-from courtier_plugin_sdk.runtime import PluginRuntime, _sanitize_rpc_log
+from courtier_plugin_sdk.runtime import PluginRuntime, _Connection, _sanitize_rpc_log
 
 
 class TestPluginRuntime:
@@ -222,7 +222,9 @@ class TestPluginCancellation:
             def flush(self):
                 pass
 
-        runtime._writer = TestWriter()
+        # Per-connection state lives on _Connection now; the in-process
+        # connection skips the auth gate by construction.
+        conn = _Connection(runtime, None, TestWriter(), require_auth=False)
         handler_started = threading.Event()
 
         @runtime.on(METHOD_TOOL_EXECUTE)
@@ -236,11 +238,11 @@ class TestPluginCancellation:
             "method": METHOD_TOOL_EXECUTE,
             "params": {"tool": "slow", "args": {}},
         }
-        task = asyncio.create_task(runtime._handle_request_async(request_msg))
+        task = asyncio.create_task(conn._handle_request(request_msg))
 
         await asyncio.wait_for(asyncio.to_thread(handler_started.wait), timeout=5.0)
 
-        runtime._handle_notification({"method": "request.cancel", "params": {"id": 42}})
+        await conn._handle_notification({"method": "request.cancel", "params": {"id": 42}})
 
         with pytest.raises(asyncio.CancelledError):
             await task

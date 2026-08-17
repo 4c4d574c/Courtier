@@ -1,7 +1,12 @@
-"""PluginRuntime — base class for plugin subprocess entry points.
+"""PluginRuntime — base class for standalone plugin servers.
 
 Plugin authors subclass PluginRuntime, register capabilities and
 handlers, then call ``await runtime.run()`` in their entry.py.
+
+In production the runtime starts a TCP server (newline-delimited
+JSON-RPC); the host dials in, the plugin registers on every accepted
+connection, and both sides authenticate each other with a shared token
+(``COURTIER_PLUGIN_TOKEN``) before any method is served.
 
 Handlers registered via :meth:`on` are regular functions or coroutines
 that return a result dict directly (for ``tool.execute``, ``checker.check``,
@@ -21,31 +26,41 @@ Usage in entry.py::
             def handle_tool_execute(params):
                 return {"success": True, "data": {"echo": params.get("args", {})}}
 
-            @self.on("checker.check")
-            def handle_checker_check(params):
-                return {"is_valid": True, "violations": []}
-
     if __name__ == "__main__":
         import asyncio
         asyncio.run(MyPlugin().run())
+
+Listen address resolution (first match wins): ``--listen host:port`` CLI
+argument → ``COURTIER_PLUGIN_LISTEN`` env → ``runtime.port`` from the
+plugin.yaml in the current working directory (host defaults to 0.0.0.0).
+
+Tests may inject ``runtime._reader`` (asyncio.Queue) and ``runtime._writer``
+before calling ``run()``; that in-process path skips the network and the
+auth gate entirely (there is no trust boundary inside one process).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hmac
 import inspect
 import json
 import logging
+import os
+import signal
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .protocol import (
+    AUTH_ERROR,
     INTERNAL_ERROR,
     METHOD_CHECKER_LIST,
     METHOD_HEALTH,
     METHOD_HOST_SERVICES,
     METHOD_NOT_FOUND,
+    METHOD_PLUGIN_AUTH,
     METHOD_REGISTER,
     METHOD_RUNTIME_CONTEXT,
     METHOD_SHUTDOWN,
@@ -67,6 +82,11 @@ _SENSITIVE_KEYS = frozenset(
         "auth",
     }
 )
+
+#: Env var holding the shared host↔plugin authentication token.
+ENV_PLUGIN_TOKEN = "COURTIER_PLUGIN_TOKEN"
+#: Env var selecting the listen address (``host:port``).
+ENV_PLUGIN_LISTEN = "COURTIER_PLUGIN_LISTEN"
 
 
 def _sanitize_rpc_log(line: str, max_len: int = 200) -> str:
@@ -101,9 +121,9 @@ class HostServiceError(Exception):
 class HostServiceClient:
     """Client for plugin-initiated JSON-RPC calls to the host.
 
-    Uses negative request IDs so the main PluginRuntime dispatcher can
-    route host responses back to this client without colliding with the
-    positive IDs used for host→plugin requests.
+    Uses negative request IDs so the connection dispatcher can route host
+    responses back to this client without colliding with the positive IDs
+    used for host→plugin requests.
     """
 
     def __init__(self, reader: Any, writer: Any) -> None:
@@ -128,9 +148,8 @@ class HostServiceClient:
         line = json.dumps(msg, ensure_ascii=False)
         self._writer.write((line + "\n").encode("utf-8"))
         # drain() is async (asyncio.StreamWriter); flush() is sync
-        # (sys.stdout.buffer / test writers).  HostServiceClient may
-        # receive either depending on whether PluginRuntime is running
-        # in-process or as a subprocess.
+        # (test writers).  HostServiceClient may receive either depending
+        # on whether the connection is a socket or an in-process double.
         if hasattr(self._writer, "drain"):
             await self._writer.drain()
         elif hasattr(self._writer, "flush"):
@@ -172,6 +191,13 @@ class HostServiceClient:
         else:
             future.set_result(data)
 
+    def fail_all_pending(self, exc: Exception) -> None:
+        """Fail every outstanding call (connection lost)."""
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(exc)
+        self._pending.clear()
+
 
 def _log_task_exception(task: asyncio.Task) -> None:
     """Log any unhandled exception from a concurrently processed request."""
@@ -182,13 +208,305 @@ def _log_task_exception(task: asyncio.Task) -> None:
         logger.error("Unhandled exception in plugin request task: %s", exc, exc_info=exc)
 
 
+class _Connection:
+    """One host↔plugin channel: socket (production) or injected I/O (tests).
+
+    Holds all per-connection state (auth flag, host-service client, active
+    requests) so multiple hosts could attach to one plugin server with
+    independent request-ID spaces; in practice exactly one host connects.
+    """
+
+    def __init__(
+        self,
+        runtime: PluginRuntime,
+        reader: Any,
+        writer: Any,
+        *,
+        peer: Any = None,
+        require_auth: bool,
+    ) -> None:
+        self.runtime = runtime
+        self.reader = reader
+        self.writer = writer
+        self.peer = peer
+        self.require_auth = require_auth
+        self.authed = not require_auth
+        self.closed = False
+        self.host_service_client: HostServiceClient | None = None
+        self._active_requests: dict[int, asyncio.Task] = {}
+        self._pending_tasks: set[asyncio.Task] = set()
+
+    # ------------------------------------------------------------------ serve
+
+    async def serve(self) -> None:
+        """Send registration, then process lines until EOF or shutdown."""
+        params: dict[str, Any] = {
+            "capabilities": self.runtime._caps,
+            "system_prompt": self.runtime._system_prompt,
+        }
+        if self.require_auth:
+            # plugin → host authentication: the host verifies this token
+            # against its own COURTIER_PLUGIN_TOKEN before serving us.
+            params["token"] = self.runtime._token
+        await self._send_notification(METHOD_REGISTER, params)
+        logger.info("Connection open (peer=%s); register sent", self.peer or "in-process")
+
+        try:
+            while not self.closed:
+                if isinstance(self.reader, asyncio.Queue):
+                    line = await self.reader.get()
+                    line = line.strip() if isinstance(line, str) else ""
+                    if not line:
+                        break  # test-side EOF marker
+                else:
+                    raw = await self.reader.readline()
+                    if not raw:
+                        break  # host hung up
+                    line = raw.decode("utf-8").strip()
+                    if not line:
+                        continue
+                logger.info("READ line: %s", _sanitize_rpc_log(line))
+                task = asyncio.create_task(self._process_line_safe(line))
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
+                task.add_done_callback(_log_task_exception)
+        finally:
+            await self._teardown()
+
+    async def _teardown(self) -> None:
+        """Connection lost: cancel in-flight requests, fail pending host calls."""
+        self.closed = True
+        for task in self._active_requests.values():
+            if not task.done():
+                task.cancel()
+        if self._pending_tasks:
+            await asyncio.wait(self._pending_tasks, timeout=5.0)
+        if self.host_service_client is not None:
+            self.host_service_client.fail_all_pending(
+                HostServiceError(-32002, "connection to host lost")
+            )
+        if self.runtime._host_service_client is self.host_service_client:
+            self.runtime._host_service_client = None
+        try:
+            self.writer.close()
+            if hasattr(self.writer, "wait_closed"):
+                await self.writer.wait_closed()
+        except Exception:
+            logger.debug("Error closing connection writer", exc_info=True)
+        logger.info("Connection closed (peer=%s)", self.peer or "in-process")
+
+    async def close(self) -> None:
+        """Actively close this connection (shutdown notification / server stop)."""
+        self.closed = True
+        try:
+            self.writer.close()
+        except Exception:
+            logger.debug("Error closing connection writer", exc_info=True)
+
+    # -------------------------------------------------------------- dispatch
+
+    async def _process_line_safe(self, line: str) -> None:
+        try:
+            await self._process_line(line)
+        except Exception:
+            logger.exception("Unhandled error processing request: %s", line[:200])
+
+    async def _process_line(self, line: str) -> None:
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            logger.error("Malformed JSON: %s", line[:200])
+            return
+
+        if not isinstance(msg, dict):
+            return
+
+        # Host responses to plugin-initiated host-service requests use negative IDs.
+        if "id" in msg and "method" not in msg:
+            msg_id = msg.get("id")
+            if isinstance(msg_id, int) and msg_id < 0 and self.host_service_client is not None:
+                self.host_service_client.dispatch_response(msg)
+            return
+
+        if "method" in msg and "id" not in msg:
+            await self._handle_notification(msg)
+        elif "id" in msg and "method" in msg:
+            logger.info("DISPATCH req=%d method=%s", msg["id"], msg.get("method", "?"))
+            await self._handle_request(msg)
+            logger.info("DISPATCH_DONE req=%d method=%s", msg["id"], msg.get("method", "?"))
+
+    async def _handle_request(self, msg: dict) -> None:
+        """Handle a request, supporting sync and async handlers."""
+        req_id = msg["id"]
+        method = msg.get("method", "")
+        params = msg.get("params", {})
+
+        # Register this task so the host can cancel it via request.cancel
+        task = asyncio.current_task()
+        if task is not None:
+            self._active_requests[req_id] = task
+
+        try:
+            # --- Auth gate: nothing but plugin.auth before authentication ---
+            if not self.authed and method != METHOD_PLUGIN_AUTH:
+                await self._send_error(
+                    req_id, AUTH_ERROR, "not authenticated — send plugin.auth first"
+                )
+                return
+            if method == METHOD_PLUGIN_AUTH:
+                await self._handle_auth(req_id, params)
+                return
+
+            # --- Built-in methods ---
+            if method == METHOD_HEALTH:
+                await self._send_response(req_id, {"status": "ok", "dependencies": {}})
+                return
+            if method == METHOD_SHUTDOWN:
+                await self._send_response(req_id, "ok")
+                await self.close()
+                return
+            if method == METHOD_TOOL_LIST:
+                await self._send_response(req_id, self.runtime._tool_names)
+                return
+            if method == METHOD_CHECKER_LIST:
+                await self._send_response(req_id, self.runtime._checker_names)
+                return
+
+            # --- Custom handlers ---
+            handler = self.runtime._handlers.get(method)
+
+            # Fall back to built-in tool.execute dispatcher when no custom
+            # handler is registered.  Plugin authors can still override this
+            # by registering their own "tool.execute" handler via self.on().
+            if handler is None and method == METHOD_TOOL_EXECUTE:
+                handler = self.runtime._default_tool_execute
+
+            if handler is None:
+                await self._send_error(req_id, METHOD_NOT_FOUND, f"Unknown method: {method}")
+                return
+
+            # Determine handler type BEFORE calling, so we can run sync
+            # handlers in a thread pool instead of blocking the event loop.
+            #
+            # inspect.iscoroutinefunction returns False for bound-method objects,
+            # so unwrap to the underlying function first.
+            _fn = handler.__func__ if hasattr(handler, "__func__") else handler
+            if inspect.iscoroutinefunction(_fn):
+                # Async handler — await directly in the running event loop so
+                # cancellation propagates and the handler can use the same
+                # loop-local state (e.g. asyncio.Queue, locks) as the runtime.
+                value = await handler(params)
+                await self._send_response(req_id, value)
+            else:
+                # Synchronous handler — offload to thread pool to avoid
+                # blocking the event loop.  Even a "fast" sync handler can
+                # accumulate latency when many requests arrive concurrently.
+                logger.info(
+                    "Running sync handler %s in thread executor (req=%d)",
+                    method,
+                    req_id,
+                )
+                loop = asyncio.get_running_loop()
+                value = await loop.run_in_executor(None, handler, params)
+                await self._send_response(req_id, value)
+
+        except asyncio.CancelledError:
+            # Host cancelled this request — don't send a response
+            logger.info("Request %s (req=%d) cancelled by host", method, req_id)
+            raise
+        except Exception as e:
+            logger.exception("Error handling method '%s'", method)
+            await self._send_error(req_id, INTERNAL_ERROR, str(e))
+        finally:
+            self._active_requests.pop(req_id, None)
+
+    async def _handle_auth(self, req_id: int, params: dict) -> None:
+        """Verify the host's token; close the connection on mismatch."""
+        token = params.get("token") if isinstance(params, dict) else None
+        expected = self.runtime._token or ""
+        if isinstance(token, str) and token and hmac.compare_digest(token, expected):
+            self.authed = True
+            logger.info("Host authenticated (peer=%s)", self.peer or "in-process")
+            await self._send_response(req_id, {"ok": True})
+            return
+        logger.warning("Auth failed — closing connection (peer=%s)", self.peer or "in-process")
+        await self._send_error(req_id, AUTH_ERROR, "invalid token")
+        await self.close()
+
+    async def _handle_notification(self, msg: dict) -> None:
+        """Handle incoming notifications (e.g., shutdown, request.cancel)."""
+        method = msg.get("method", "")
+        params = msg.get("params", {})
+        # Custom handlers first; built-in methods keep their semantics.
+        handler = self.runtime._notification_handlers.get(method)
+        if handler is not None:
+            task = asyncio.create_task(self._run_notification_handler(handler, params))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
+            task.add_done_callback(_log_task_exception)
+            return
+        if method == METHOD_SHUTDOWN:
+            await self.close()
+        elif method == METHOD_HOST_SERVICES:
+            services = params.get("host_services") or []
+            self.runtime._host_services = list(services)
+            if self.runtime._host_services:
+                self.host_service_client = HostServiceClient(self.reader, self.writer)
+                # Last connection wins; single-host is the supported topology.
+                self.runtime._host_service_client = self.host_service_client
+        elif method == METHOD_RUNTIME_CONTEXT:
+            self.runtime._runtime_context = params
+        elif method == "request.cancel":
+            req_id = params.get("id")
+            if req_id is not None:
+                task = self._active_requests.get(req_id)
+                if task is not None and not task.done():
+                    logger.info("Cancelling request (req=%d) by host request", req_id)
+                    task.cancel()
+
+    async def _run_notification_handler(self, handler: Callable, params: dict) -> None:
+        """Invoke a custom notification handler (sync or async)."""
+        result = handler(params)
+        if asyncio.iscoroutine(result):
+            await result
+
+    # ------------------------------------------------------------------ send
+
+    async def _send_response(self, req_id: int, result: Any) -> None:
+        msg = json.dumps({"id": req_id, "result": result}, ensure_ascii=False)
+        await self._send_line(msg)
+
+    async def _send_error(self, req_id: int, code: int, message: str) -> None:
+        msg = json.dumps(
+            {"id": req_id, "error": {"code": code, "message": message}},
+            ensure_ascii=False,
+        )
+        await self._send_line(msg)
+
+    async def _send_notification(self, method: str, params: dict) -> None:
+        msg = {"method": method, "params": params}
+        await self._send_line(json.dumps(msg, ensure_ascii=False))
+
+    async def _send_line(self, line: str) -> None:
+        """Write one line (UTF-8) to the connection."""
+        try:
+            self.writer.write((line + "\n").encode("utf-8"))
+            if hasattr(self.writer, "drain"):
+                await self.writer.drain()
+            elif hasattr(self.writer, "flush"):
+                self.writer.flush()
+        except Exception:
+            logger.exception("Failed to write to connection; marking it closed")
+            self.closed = True
+
+
 class PluginRuntime:
-    """Base class for plugin subprocess entry points.
+    """Base class for standalone plugin servers.
 
     Handlers registered via :meth:`on` are regular functions or coroutines
     that return a result dict (for tool/checker calls).
 
-    Built-in methods (health, shutdown, tool.list, checker.list) are
+    Built-in methods (health, shutdown, tool.list, checker.list, auth) are
     handled automatically.
 
     Parameters
@@ -205,9 +523,8 @@ class PluginRuntime:
         checker_names: list[str] | None = None,
     ) -> None:
         self._handlers: dict[str, Callable] = {}
-        self._running = False
-        # Duck-typed I/O: asyncio.Queue / BinaryIO / test doubles are injected
-        # for testing; sys.stdin.buffer / sys.stdout.buffer in production.
+        # Duck-typed I/O: asyncio.Queue / test doubles injected for testing.
+        # When set, run() takes the in-process path (no network, no auth).
         self._reader: Any = None
         self._writer: Any = None
         self._tool_names: list[str] = tool_names or []
@@ -215,14 +532,14 @@ class PluginRuntime:
         self._pending_caps: list[dict[str, Any]] = []
         self._tool_instances: dict[str, Any] = {}
         self._system_prompt: str = ""
-        self._pending_tasks: set[asyncio.Task] = set()
-        self._active_requests: dict[int, asyncio.Task] = {}  # req_id → task
+        self._caps: list[dict[str, Any]] = []
         self._host_services: list[str] = []
         self._host_service_client: HostServiceClient | None = None
-        self._host_artifact_store: Any = None
         self._runtime_context: dict[str, str] = {}
-        self._stdin_transport: asyncio.ReadTransport | None = None
         self._notification_handlers: dict[str, Callable] = {}
+        self._token: str | None = None
+        self._connections: set[_Connection] = set()
+        self._server: asyncio.AbstractServer | None = None
 
     @property
     def host_service_client(self) -> HostServiceClient | None:
@@ -230,7 +547,9 @@ class PluginRuntime:
 
         Set once the host's ``plugin.host_services`` notification arrives
         (during registration, before any tool execution); ``None`` when the
-        plugin declared no host services or the handshake has not run yet.
+        plugin declared no host services, the handshake has not run yet, or
+        the owning connection dropped.  With multiple connections the most
+        recently established one wins (single-host is the supported topology).
         """
         return self._host_service_client
 
@@ -239,7 +558,7 @@ class PluginRuntime:
 
         Extracts: name, display_name, description, parameters,
         output_artifact_type, input_fields, output_schema, runtime_policy,
-        skip_persist, skip_ref_resolution.
+        skip_persist, skip_ref_resolution, file_params.
         """
         cap: dict[str, Any] = {
             "type": "tool",
@@ -259,6 +578,16 @@ class PluginRuntime:
             value = getattr(tool_instance, attr, None)
             if value is not None:
                 cap[attr] = value
+
+        # file_params — mark file-bearing input properties so the host
+        # rewrites them into minio:// references before dispatch.
+        file_params = getattr(tool_instance, "file_params", None)
+        if file_params:
+            properties = cap.get("parameters", {}).get("properties") or {}
+            for param in file_params:
+                if param in properties:
+                    properties[param] = {**properties[param], "format": "file-ref"}
+            cap["file_params"] = list(file_params)
 
         # input_fields — serialize InputField objects to plain dicts
         input_fields = getattr(tool_instance, "input_fields", None)
@@ -374,10 +703,12 @@ class PluginRuntime:
         """Override: register handlers using self.on()."""
         pass
 
+    # ------------------------------------------------------------------ run
+
     async def run(self) -> None:
-        """Start the JSON-RPC server loop on stdin/stdout."""
-        # Ensure INFO-level logs are visible through the host's stderr capture.
-        # Python defaults to WARNING; without this, diagnostic logs are silent.
+        """Start the plugin: TCP server in production, in-process loop in tests."""
+        # Ensure INFO-level logs are visible (plugins own their stdout/stderr
+        # now — there is no host-side stderr capture anymore).
         logging.basicConfig(
             level=logging.INFO,
             format="%(levelname)s %(name)s: %(message)s",
@@ -387,7 +718,8 @@ class PluginRuntime:
         self._setup_handlers()
 
         # Collect tool/checker names for built-in list handlers
-        caps, system_prompt = self._collect_capabilities()
+        caps, _system_prompt = self._collect_capabilities()
+        self._caps = caps
 
         for cap in caps:
             if cap.get("type") == "tool" and "name" in cap:
@@ -399,259 +731,136 @@ class PluginRuntime:
                 if name not in self._checker_names:
                     self._checker_names.append(name)
 
-        # Allow injection of reader/writer for testing.
-        # Use binary I/O for consistency with the host's asyncio.StreamReader/Writer.
-        if self._reader is None:
-            self._reader = sys.stdin.buffer
-        if self._writer is None:
-            self._writer = sys.stdout.buffer
-
-        self._running = True
-
-        # Send registration notification
-        self._send_notification(
-            METHOD_REGISTER,
-            {
-                "capabilities": caps,
-                "system_prompt": system_prompt,
-            },
-        )
-
-        # Process requests line by line
-        if isinstance(self._reader, asyncio.Queue):
-            await self._run_queue_loop()
-        else:
-            await self._run_stdin_loop()
-
-        # On shutdown, wait briefly for pending tasks to finish
-        if self._pending_tasks:
-            logger.debug("Waiting for %d pending task(s) to finish...", len(self._pending_tasks))
-            await asyncio.wait(self._pending_tasks, timeout=5.0)
-            for task in self._pending_tasks:
-                if not task.done():
-                    task.cancel()
-
-    async def _run_queue_loop(self) -> None:
-        """Read lines from an asyncio.Queue (used in tests)."""
-        while True:
-            line = await self._reader.get()
-            if not self._running:
-                break
-            line = line.strip()
-            if not line:
-                break
-            await self._process_line(line)
-
-    async def _run_stdin_loop(self) -> None:
-        """Read lines from stdin using asyncio streams (binary mode)."""
-        loop = asyncio.get_event_loop()
-        # Requests can carry large arguments (e.g. embedded document text) on
-        # a single JSON-RPC line — use the shared protocol limit instead of
-        # the 64 KiB default.
-        reader = asyncio.StreamReader(limit=STREAM_LIMIT_BYTES)
-        # connect_read_pipe returns a (transport, protocol) pair; keep the
-        # transport so it can be closed on shutdown.
-        transport, _protocol = await loop.connect_read_pipe(
-            lambda: asyncio.StreamReaderProtocol(reader),
-            sys.stdin.buffer,
-        )
-        self._stdin_transport = transport
-        try:
-            while self._running:
-                line = await reader.readline()
-                if not line:
-                    break
-                line_str = line.decode("utf-8").strip()
-                if not line_str:
-                    continue
-                # Process requests concurrently so long-running tool.execute
-                # calls don't block other requests.
-                logger.info("READ line: %s", _sanitize_rpc_log(line_str))
-                task = asyncio.create_task(self._process_line_safe(line_str))
-                self._pending_tasks.add(task)
-                task.add_done_callback(self._pending_tasks.discard)
-                task.add_done_callback(_log_task_exception)
-        finally:
-            if transport is not None:
-                try:
-                    transport.close()
-                except Exception:
-                    logger.debug("Error closing stdin transport", exc_info=True)
-
-    async def _process_line(self, line: str) -> None:
-        """Process a single JSON-RPC line."""
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            logger.error("Malformed JSON: %s", line[:200])
+        if self._reader is not None or self._writer is not None:
+            # In-process test path: duck-typed I/O injection, no auth gate
+            # (there is no trust boundary inside a single process).
+            conn = _Connection(self, self._reader, self._writer, require_auth=False)
+            await conn.serve()
             return
 
-        if not isinstance(msg, dict):
-            return
+        await self.serve()
 
-        # Host responses to plugin-initiated host-service requests use negative IDs.
-        if "id" in msg and "method" not in msg:
-            msg_id = msg.get("id")
-            if isinstance(msg_id, int) and msg_id < 0 and self._host_service_client is not None:
-                self._host_service_client.dispatch_response(msg)
-            return
+    async def serve(self, listen: str | None = None) -> None:
+        """Run the standalone TCP server until SIGTERM/SIGINT.
 
-        if "method" in msg and "id" not in msg:
-            self._handle_notification(msg)
-        elif "id" in msg and "method" in msg:
-            logger.info("DISPATCH req=%d method=%s", msg["id"], msg.get("method", "?"))
-            await self._handle_request_async(msg)
-            logger.info("DISPATCH_DONE req=%d method=%s", msg["id"], msg.get("method", "?"))
-
-    async def _process_line_safe(self, line: str) -> None:
-        """Wrapper that logs exceptions from concurrent task processing."""
-        try:
-            await self._process_line(line)
-        except Exception:
-            logger.exception("Unhandled error processing request: %s", line[:200])
-
-    async def _handle_request_async(self, msg: dict) -> None:
-        """Handle a request, supporting sync and async handlers."""
-        req_id = msg["id"]
-        method = msg.get("method", "")
-        params = msg.get("params", {})
-
-        # Register this task so the host can cancel it via request.cancel
-        task = asyncio.current_task()
-        if task is not None:
-            self._active_requests[req_id] = task
-
-        try:
-            # --- Built-in methods ---
-            if method == METHOD_HEALTH:
-                self._send_response(req_id, {"status": "ok", "dependencies": {}})
-                return
-            if method == METHOD_SHUTDOWN:
-                self._running = False
-                self._send_response(req_id, "ok")
-                return
-            if method == METHOD_TOOL_LIST:
-                self._send_response(req_id, self._tool_names)
-                return
-            if method == METHOD_CHECKER_LIST:
-                self._send_response(req_id, self._checker_names)
-                return
-
-            # --- Custom handlers ---
-            handler = self._handlers.get(method)
-
-            # Fall back to built-in tool.execute dispatcher when no custom
-            # handler is registered.  Plugin authors can still override this
-            # by registering their own "tool.execute" handler via self.on().
-            if handler is None and method == METHOD_TOOL_EXECUTE:
-                handler = self._default_tool_execute
-
-            if handler is None:
-                self._send_error(req_id, METHOD_NOT_FOUND, f"Unknown method: {method}")
-                return
-
-            # Determine handler type BEFORE calling, so we can run sync
-            # handlers in a thread pool instead of blocking the event loop.
-            #
-            # inspect.iscoroutinefunction returns False for bound-method objects,
-            # so unwrap to the underlying function first.
-            _fn = handler.__func__ if hasattr(handler, "__func__") else handler
-            if inspect.iscoroutinefunction(_fn):
-                # Async handler — await directly in the running event loop so
-                # cancellation propagates and the handler can use the same
-                # loop-local state (e.g. asyncio.Queue, locks) as the runtime.
-                value = await handler(params)
-                self._send_response(req_id, value)
-            else:
-                # Synchronous handler — offload to thread pool to avoid
-                # blocking the event loop.  Even a "fast" sync handler can
-                # accumulate latency when many requests arrive concurrently.
-                logger.info(
-                    "Running sync handler %s in thread executor (req=%d)",
-                    method,
-                    req_id,
-                )
-                loop = asyncio.get_running_loop()
-                value = await loop.run_in_executor(None, handler, params)
-                self._send_response(req_id, value)
-
-        except asyncio.CancelledError:
-            # Host cancelled this request — don't send a response
-            logger.info("Request %s (req=%d) cancelled by host", method, req_id)
-            raise
-        except Exception as e:
-            logger.exception("Error handling method '%s'", method)
-            self._send_error(req_id, INTERNAL_ERROR, str(e))
-        finally:
-            self._active_requests.pop(req_id, None)
-
-    async def _run_notification_handler(self, handler: Callable, params: dict) -> None:
-        """Invoke a custom notification handler (sync or async)."""
-        result = handler(params)
-        if asyncio.iscoroutine(result):
-            await result
-
-    def _handle_notification(self, msg: dict) -> None:
-        """Handle incoming notifications (e.g., shutdown, request.cancel)."""
-        method = msg.get("method", "")
-        params = msg.get("params", {})
-        # Custom handlers first; built-in methods keep their semantics.
-        handler = self._notification_handlers.get(method)
-        if handler is not None:
-            task = asyncio.create_task(self._run_notification_handler(handler, params))
-            self._pending_tasks.add(task)
-            task.add_done_callback(self._pending_tasks.discard)
-            task.add_done_callback(_log_task_exception)
-            return
-        if method == METHOD_SHUTDOWN:
-            self._running = False
-            # The stdin loop blocks in readline(); closing the transport
-            # wakes it with EOF so the process actually exits on shutdown.
-            if self._stdin_transport is not None:
-                self._stdin_transport.close()
-        elif method == METHOD_HOST_SERVICES:
-            services = msg.get("params", {}).get("host_services") or []
-            self._host_services = list(services)
-            if self._host_services and self._reader is not None and self._writer is not None:
-                self._host_service_client = HostServiceClient(self._reader, self._writer)
-        elif method == METHOD_RUNTIME_CONTEXT:
-            self._runtime_context = msg.get("params", {})
-        elif method == "request.cancel":
-            req_id = msg.get("params", {}).get("id")
-            if req_id is not None:
-                task = self._active_requests.get(req_id)
-                if task is not None and not task.done():
-                    logger.info("Cancelling request (req=%d) by host request", req_id)
-                    task.cancel()
-
-    def _send_response(self, req_id: int, result: Any) -> None:
-        msg = json.dumps({"id": req_id, "result": result}, ensure_ascii=False)
-        self._send_line(msg)
-
-    def _send_error(self, req_id: int, code: int, message: str) -> None:
-        msg = json.dumps(
-            {"id": req_id, "error": {"code": code, "message": message}},
-            ensure_ascii=False,
-        )
-        self._send_line(msg)
-
-    def _send_notification(self, method: str, params: dict) -> None:
-        msg = {"method": method, "params": params}
-        self._send_line(json.dumps(msg, ensure_ascii=False))
-
-    def _send_line(self, line: str) -> None:
-        """Write a single line (as UTF-8 bytes) to stdout.
-
-        Uses ``sys.stdout.buffer`` for consistent binary I/O — the host
-        reads plugin stdout as a binary stream (asyncio.StreamReader),
-        so writing text-mode ``sys.stdout`` can cause encoding mismatches
-        or buffering inconsistencies across platforms.
+        ``listen`` (``host:port``) overrides CLI/env/manifest resolution.
         """
-        if self._writer is None:
-            raise RuntimeError("Plugin not started — call run() before sending messages")
+        self._token = os.environ.get(ENV_PLUGIN_TOKEN) or None
+        if not self._token:
+            logger.error(
+                "%s is not set — refusing to start (the host authenticates "
+                "itself and this plugin with a shared token)",
+                ENV_PLUGIN_TOKEN,
+            )
+            raise SystemExit(1)
+
+        manifest = self._load_manifest()
+        self._apply_manifest_env(manifest)
+
+        host, port = self._resolve_listen(listen, manifest)
+        self._server = await asyncio.start_server(
+            self._accept,
+            host,
+            port,
+            limit=STREAM_LIMIT_BYTES,
+        )
+
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, stop.set)
+            except (NotImplementedError, RuntimeError):
+                pass  # Windows / non-main thread — Ctrl+C still works via KeyboardInterrupt
+
+        sockets = ", ".join(str(s.getsockname()) for s in (self._server.sockets or []))
+        logger.info("Plugin server listening on %s", sockets)
+        async with self._server:
+            await stop.wait()
+
+        logger.info("Shutting down: closing %d connection(s)", len(self._connections))
+        await asyncio.gather(
+            *(conn.close() for conn in list(self._connections)), return_exceptions=True
+        )
+
+    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Handle one inbound host connection."""
+        conn = _Connection(
+            self,
+            reader,
+            writer,
+            peer=writer.get_extra_info("peername"),
+            require_auth=True,
+        )
+        self._connections.add(conn)
         try:
-            self._writer.write((line + "\n").encode("utf-8"))
-            self._writer.flush()
+            await conn.serve()
+        finally:
+            self._connections.discard(conn)
+
+    # ------------------------------------------------------------- manifest
+
+    @staticmethod
+    def _load_manifest() -> dict[str, Any]:
+        """Load plugin.yaml from the current working directory (if present)."""
+        path = Path.cwd() / "plugin.yaml"
+        if not path.is_file():
+            return {}
+        try:
+            import yaml
+
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
         except Exception:
-            logger.exception("Failed to write to stdout; marking runtime as stopped")
-            self._running = False
+            logger.warning("Failed to parse %s", path, exc_info=True)
+            return {}
+
+    def _apply_manifest_env(self, manifest: dict[str, Any]) -> None:
+        """Apply the manifest's ``runtime.env`` block to the process env.
+
+        Plugins own their environment now — the host injects nothing.
+        Literal values in the manifest are applied as defaults
+        (``os.environ.setdefault``) so in-manifest tuning knobs keep working
+        without deployment config; libraries resolve their own code defaults
+        for everything else.  Legacy ``${ENV:...}`` markers are ignored (the
+        plugin simply reads its own env at use sites).
+        """
+        env_block = (manifest.get("runtime") or {}).get("env") or {}
+        if not isinstance(env_block, dict):
+            return
+        for key, raw in env_block.items():
+            if isinstance(raw, str) and raw.strip().startswith("${ENV:"):
+                continue
+            if raw is not None:
+                os.environ.setdefault(key, str(raw))
+
+    @staticmethod
+    def _resolve_listen(listen: str | None, manifest: dict[str, Any]) -> tuple[str, int]:
+        """Resolve ``(host, port)``: arg > --listen CLI > env > manifest port."""
+        candidate = listen or _listen_arg() or os.environ.get(ENV_PLUGIN_LISTEN)
+        if candidate:
+            host, sep, port = candidate.rpartition(":")
+            if not sep or not port.isdigit():
+                logger.error("Invalid listen address %r — expected host:port", candidate)
+                raise SystemExit(1)
+            return host or "0.0.0.0", int(port)
+        port = (manifest.get("runtime") or {}).get("port")
+        if isinstance(port, int) and port > 0:
+            return "0.0.0.0", port
+        logger.error(
+            "No listen address: pass --listen host:port, set %s, or declare "
+            "runtime.port in plugin.yaml",
+            ENV_PLUGIN_LISTEN,
+        )
+        raise SystemExit(1)
+
+
+def _listen_arg() -> str | None:
+    """Extract ``--listen host:port`` / ``--listen=host:port`` from sys.argv."""
+    argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg == "--listen" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--listen="):
+            return arg.split("=", 1)[1]
+    return None

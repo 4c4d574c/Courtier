@@ -9,10 +9,19 @@ from pydantic import BaseModel, Field
 
 
 class RuntimeConfig(BaseModel):
-    """Plugin subprocess runtime configuration."""
+    """Plugin standalone-server runtime configuration."""
 
     language: str = "python"
     entry: str = "entry.py"
+    # Default TCP listen port for the standalone plugin server; the SDK
+    # falls back to it when neither --listen nor COURTIER_PLUGIN_LISTEN is
+    # given.  The host never consumes this field (endpoints come from
+    # COURTIER_PLUGIN_ENDPOINTS) — it documents the canonical port next to
+    # the plugin.
+    port: int | None = None
+    # Literal values are applied by the plugin SDK as environment defaults
+    # at startup (os.environ.setdefault).  Plugins own their environment;
+    # the host injects nothing.
     env: dict[str, str] = Field(default_factory=dict)
 
 

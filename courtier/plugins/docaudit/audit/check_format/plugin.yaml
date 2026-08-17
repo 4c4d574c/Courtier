@@ -1,8 +1,11 @@
 name: check_format
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "Document format audit — validates formatting against GB/T 9704-2012 templates"
 timeout_ms: 180000
+
+runtime:
+  port: 9106
 
 capabilities:
   tools:

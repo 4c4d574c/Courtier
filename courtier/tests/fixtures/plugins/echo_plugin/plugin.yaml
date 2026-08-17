@@ -1,6 +1,6 @@
 name: echo_plugin
 version: "0.1.0"
-api: "1.0"
+api: "2.0"
 description: "Echo test plugin"
 
 runtime:

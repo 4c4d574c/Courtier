@@ -1,7 +1,10 @@
 name: detect_plagiarism
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "Plagiarism detection using dynamic IQR thresholding"
+
+runtime:
+  port: 9108
 
 dependencies:
   host_services:

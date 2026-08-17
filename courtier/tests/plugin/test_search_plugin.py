@@ -1204,7 +1204,11 @@ class TestCacheInvalidationNotification:
         live["_cache_put"]("stale-key", {"hits": []})
         assert live["_cache_get"]("stale-key") is not None
 
-        await plugin._process_line(json.dumps({"method": "search.cache_clear", "params": {}}))
+        # Notification dispatch moved to per-connection state; no I/O needed here.
+        from courtier_plugin_sdk.runtime import _Connection
+
+        conn = _Connection(plugin, None, None, require_auth=False)
+        await conn._process_line(json.dumps({"method": "search.cache_clear", "params": {}}))
         # The handler runs as a background task — give the loop a tick.
         await asyncio.sleep(0.01)
         assert live["_cache_get"]("stale-key") is None
@@ -1214,7 +1218,10 @@ class TestCacheInvalidationNotification:
         plugin = SearchPlugin()
         plugin._setup_handlers()
         # Must not raise and must not disturb builtin handling.
-        await plugin._process_line(json.dumps({"method": "no.such.notification", "params": {}}))
+        from courtier_plugin_sdk.runtime import _Connection
+
+        conn = _Connection(plugin, None, None, require_auth=False)
+        await conn._process_line(json.dumps({"method": "no.such.notification", "params": {}}))
 
     @pytest.mark.asyncio
     async def test_process_manager_notify_skips_inactive_plugins(self):

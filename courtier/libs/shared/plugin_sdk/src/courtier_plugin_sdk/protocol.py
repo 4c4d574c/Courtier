@@ -3,6 +3,7 @@
 # Method names (host → plugin)
 METHOD_HEALTH = "plugin.health"
 METHOD_SHUTDOWN = "plugin.shutdown"
+METHOD_PLUGIN_AUTH = "plugin.auth"
 METHOD_TOOL_LIST = "tool.list"
 METHOD_TOOL_EXECUTE = "tool.execute"
 METHOD_CHECKER_LIST = "checker.list"
@@ -41,3 +42,4 @@ INTERNAL_ERROR = -32603
 TIMEOUT_ERROR = -32000
 TOOL_NOT_FOUND = -32001
 PLUGIN_CRASHED = -32002
+AUTH_ERROR = -32003

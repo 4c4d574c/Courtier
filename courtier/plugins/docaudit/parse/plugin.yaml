@@ -1,6 +1,6 @@
 name: parse
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "Document file parsing (PDF/DOCX/image)"
 # Scanned files go through per-page OCR + multimodal LLM and can take minutes.
 timeout_ms: 600000
@@ -21,23 +21,8 @@ capabilities:
     ## 使用方式
     仅在用户任务属于格式审核时调用 parse_document(file_path)。
 
-# The scanned-document pipeline (OCR + multimodal LLM) reads these from the
-# process environment via ParserConfig.from_env(). ${ENV:VAR} resolves from
-# the host os.environ first, then falls back to the host Settings (.env).
+# The scanned-document pipeline (OCR + multimodal LLM) reads its configuration
+# (LLM_*, DOCPARSE_*, FONT_MODEL_*) from the plugin's own process environment
+# via ParserConfig.from_env(); see plugins/plugin.env.example.
 runtime:
-  env:
-    LLM_IP: "${ENV:LLM_IP}"
-    LLM_API_KEY: "${ENV:LLM_API_KEY}"
-    LLM_NAME: "${ENV:LLM_NAME}"
-    DOCPARSE_OCR_API_URL: "${ENV:DOCPARSE_OCR_API_URL}"
-    DOCPARSE_OCR_LANG: "${ENV:DOCPARSE_OCR_LANG}"
-    DOCPARSE_OCR_ENGINE: "${ENV:DOCPARSE_OCR_ENGINE}"
-    DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE: "${ENV:DOCPARSE_OCR_MAX_IMAGE_LONG_SIDE}"
-    DOCPARSE_OCR_DESKEW: "${ENV:DOCPARSE_OCR_DESKEW}"
-    DOCPARSE_MAX_LLM_CONCURRENT: "${ENV:DOCPARSE_MAX_LLM_CONCURRENT}"
-    DOCPARSE_MAX_OCR_CONCURRENT: "${ENV:DOCPARSE_MAX_OCR_CONCURRENT}"
-    DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE: "${ENV:DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE}"
-    DOCPARSE_CLASSIFY_MODE: "${ENV:DOCPARSE_CLASSIFY_MODE}"
-    FONT_MODEL_URL: "${ENV:FONT_MODEL_URL}"
-    FONT_MODEL_CONF_THRESHOLD: "${ENV:FONT_MODEL_CONF_THRESHOLD}"
-    FONT_MODEL_MARGIN_THRESHOLD: "${ENV:FONT_MODEL_MARGIN_THRESHOLD}"
+  port: 9101

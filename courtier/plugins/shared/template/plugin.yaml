@@ -1,7 +1,10 @@
 name: template
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "Database-backed format template loading"
+
+runtime:
+  port: 9104
 
 dependencies:
   host_services:

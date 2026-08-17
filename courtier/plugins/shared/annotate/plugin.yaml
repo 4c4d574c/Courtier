@@ -1,7 +1,10 @@
 name: annotate
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "DOCX keyword-based annotation"
+
+runtime:
+  port: 9103
 
 dependencies:
   host_services:

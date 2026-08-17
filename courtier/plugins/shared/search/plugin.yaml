@@ -1,6 +1,6 @@
 name: search
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "Elasticsearch document chunk search"
 
 # Runtime tool registration happens in entry.py (register_tool); tool-
@@ -10,24 +10,14 @@ description: "Elasticsearch document chunk search"
 # register notification sent by entry.py, so manifest-level prompt text
 # would be dead config that silently drifts from the live rules.
 #
-# The ES endpoint is read from the process environment by es_client.py.
-# ${ENV:VAR} resolves from the host os.environ first, then falls back to
-# the host Settings (.env).
+# The ES/LLM endpoints are read from the plugin's own process environment
+# (see plugins/plugin.env.example). Literal values below are applied as
+# environment defaults by the SDK at startup.
 runtime:
+  port: 9105
   env:
-    ES_HOSTS: "${ENV:ES_HOSTS}"
-    ES_INDEX_CHUNKS: "${ENV:ES_INDEX_CHUNKS}"
-    ES_USERNAME: "${ENV:ES_USERNAME}"
-    ES_PASSWORD: "${ENV:ES_PASSWORD}"
-    # LLM endpoint for query embeddings (hybrid search) and listwise rerank.
-    LLM_IP: "${ENV:LLM_IP}"
-    LLM_API_KEY: "${ENV:LLM_API_KEY}"
-    LLM_NAME: "${ENV:LLM_NAME}"
-    LLM_EMBEDDING_NAME: "${ENV:LLM_EMBEDDING_NAME}"
-    LLM_EMBEDDING_DIM: "${ENV:LLM_EMBEDDING_DIM}"
-    LLM_EMBEDDING_BATCH_SIZE: "${ENV:LLM_EMBEDDING_BATCH_SIZE}"
     # Retrieval knobs (consumed by tools.py / rerank.py; literals here are
-    # the defaults — override per deployment without a code change).
+    # the defaults — override per deployment via the plugin environment).
     SEARCH_KNN_K: "50"
     SEARCH_MAX_WINDOW: "200"
     SEARCH_RERANK_FETCH: "100"

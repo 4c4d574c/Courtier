@@ -37,7 +37,9 @@ class PluginScanner:
     """Scans a directory for plugin subdirectories with valid plugin.yaml manifests."""
 
     MANIFEST_FILE = "plugin.yaml"
-    HOST_API_VERSION = "1.0"
+    # API 2.0: standalone TCP plugins with token-authenticated handshake.
+    # (1.0 was the stdio subprocess protocol, removed with the spawn path.)
+    HOST_API_VERSION = "2.0"
 
     @staticmethod
     def _is_api_compatible(plugin_api: str, host_api: str) -> bool:

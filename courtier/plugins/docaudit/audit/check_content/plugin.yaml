@@ -1,8 +1,11 @@
 name: check_content
 version: "1.0.0"
-api: "1.0"
+api: "2.0"
 description: "Document content compliance audit — validates document body text against content rules"
 timeout_ms: 120000
+
+runtime:
+  port: 9107
 
 capabilities:
   tools:
