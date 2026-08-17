@@ -147,17 +147,17 @@
 
 **Files:** SDK 新 `files.py`、`runtime.py`（请求生命周期钩子）、`pyproject.toml`
 
-- [ ] **Step 1:** `minio` 依赖入 SDK；Minio client 懒加载（读插件 env，缺配置时给出"该插件需要 MINIO_* 环境变量"的清晰报错）。
-- [ ] **Step 2:** `resolve_file(value)`：`minio://bucket/key` → 下载到请求级临时目录（保留原文件名）返回本地路径；本地路径直传。`put_file(local_path)` → 直传 `out/<插件名>/<uuid>/<文件名>`，返回 `minio://` 引用。
-- [ ] **Step 3:** `tool.execute` 分发时创建请求级临时目录（`COURTIER_PLUGIN_WORKDIR` 或系统 temp 下 `req-<id>/`）；响应发出后 `finally` 清理。
+- [x] **Step 1:** `minio` 依赖入 SDK；Minio client 懒加载（读插件 env，缺配置时给出"该插件需要 MINIO_* 环境变量"的清晰报错）。
+- [x] **Step 2:** `resolve_file(value)`：`minio://bucket/key` → 下载到请求级临时目录（保留原文件名）返回本地路径；本地路径直传。`put_file(local_path)` → 直传 `out/<插件名>/<uuid>/<文件名>`，返回 `minio://` 引用。
+- [x] **Step 3:** `tool.execute` 分发时创建请求级临时目录（`COURTIER_PLUGIN_WORKDIR` 或系统 temp 下 `req-<id>/`）；响应发出后 `finally` 清理。
 
 ### Task 0.3: 8 插件文件参数标记 + 输出审计迁移
 
 **Files:** 8 插件 `tools.py`/`entry.py`
 
-- [ ] **Step 1:** 逐插件审计入参：`parse_document(file_path)`、`convert_document(file_path)`、`annotate_document` 等全部文件参数列入工具类 `file_params`；SDK `register_tool` 将其写入 cap `input_contract` 的 `"format": "file-ref"`。
-- [ ] **Step 2:** 插件工具入口把文件参数过 `resolve_file`；原 allowed-root 逃逸检查改以插件 workdir 为根。
-- [ ] **Step 3:** 输出审计：凡返回本地输出路径的改 `put_file` + `storage.presign_get`（annotate 作为范式完成迁移）；产出审计结论表（哪个插件改了什么）记入本文件实施记录。
+- [x] **Step 1:** 逐插件审计入参：`parse_document(file_path)`、`convert_document(file_path)`、`annotate_document` 等全部文件参数列入工具类 `file_params`；SDK `register_tool` 将其写入 cap `input_contract` 的 `"format": "file-ref"`。
+- [x] **Step 2:** 插件工具入口把文件参数过 `resolve_file`；原 allowed-root 逃逸检查改以插件 workdir 为根。
+- [x] **Step 3:** 输出审计：凡返回本地输出路径的改 `put_file` + `storage.presign_get`（annotate 作为范式完成迁移）；产出审计结论表（哪个插件改了什么）记入本文件实施记录。
 
 ### Task 0.4: SDK 与插件测试
 
@@ -290,9 +290,29 @@ test: full regression and session acceptance                           # 4.x（�
 
 ## 实施记录
 
-**Task 0.1 完成**（SDK serve 模式）。偏差与实测：
+**2026-08-17 计划定稿前偏差修正**：实施起步时发现两项计划前提与仓库现状不符，已修订正文：
+1. **9 插件 → 8 插件**：`correct_text` 插件已由并行计划移除（`b43ca3d`，纠错能力迁入 content_audit 技能提示词），磁盘残留 `.venv`/`__pycache__` 为未跟踪垃圾，可随手清理。端口表收缩为 9101–9108。
+2. **插件名以现状为准**：`parse`/`anydoc`/`annotate`/`template` 尚未改名（改名计划 Phase 1 未实施），endpoint 配置 key、`runtime.port` 均按当前名落地；该计划落地时同步换 key 即可。
+
+**Task 0.1 完成**（SDK serve 模式，`293dba7`）。偏差与实测：
 1. **Task 1.1 的 `manifest.runtime.port` 字段与 `HOST_API_VERSION="2.0"` 提前随本任务落地**——否则 scanner 因 api/未知字段拒收新清单，树立即红。
 2. **in-process 测试注入路径免于鉴权**：queue/TestWriter 注入只在测试中出现，无信任边界；三个直接调用旧内部 API 的测试（test_runtime 取消用例、test_search_plugin 两处 `_process_line`）改用新 `_Connection` 类型适配，随本任务提交以保持单提交绿。
 3. **`runtime.env` 语义落地为"字面量 setdefault 默认值"**（见 Step 4 修订）；`${ENV:}` 形式从 parse/anydoc/search 清单删除，变量文档归 `plugins/plugin.env.example`（Task 3.2）。
 4. **冒烟实测**：anydoc 插件 venv 直起 `--listen 127.0.0.1:19102`——register 立即到达且带 token；未鉴权请求被 -32003 拒绝；错 token 鉴权后连接被插件侧关闭；对 token 鉴权后 `tool.list` 正常返回。`tests/plugin/` 全绿（280 passed, 1 skipped）。
 5. fixture 插件（echo/crashing/slow_register/bad_name_mismatch）api 同步升 2.0；`bad_api_mismatch` 保持 0.9 以覆盖不兼容分支。
+
+**Task 0.2 完成**（SDK 文件能力，`5c0662c`）：`files.py` 新增 `resolve_file`（minio:// 下载，保留原文件名，同目录重名加序号前缀）/`put_file`（`fput_object` 直传）；`_default_tool_execute` 以 `request_workdir()` 包裹每次分发，finally 清理；`serve()` 启动时以 manifest name `files.configure(plugin_name=...)`。`minio` 包在 files.py 内惰性 import，SDK 基础导入不依赖它。
+
+**Task 0.3 完成**（file_params + 输出迁移）。逐插件审计结论：
+
+| 插件 | 文件入参 | 文件输出 | 处置 |
+|------|----------|----------|------|
+| parse | `file_path` | 无（返回 dict） | `file_params=["file_path"]` + `resolve_file`；删 `*_UPLOAD_DIR` allowed-root 检查 |
+| anydoc | `file_path` | 无（返回 markdown 文本） | 同上 |
+| annotate | `source`（路径或 base64 二态） | 批注 docx | `file_params=["source"]` + `resolve_file`（base64 直通，`docannot._try_base64` 对齐类型判断）；输出主路径改 `put_file` + `storage.presign_get`，`storage.put` 保留为回退 |
+| template / search / check_format / check_content / detect_plagiarism | 无（文本/dict/ES/反向 RPC 取数） | 无 | 零改动 |
+
+偏差与实测：
+1. **沙箱边界整体上移至主进程**（ProxyTool fail-closed 校验，Phase 2）：插件侧 `*_UPLOAD_DIR` allowed-root 检查删除，本地路径直通（仅测试/同机开发出现）。parse/anydoc 旧沙箱测试改写为新语义（missing file 拒绝、本地文件直通、minio:// 走下载桩），escape/优先级用例删除——其断言由 Phase 2 主进程侧测试接管。
+2. annotate 命名修复：批注输出文件名 stem 改为按"路径形态"推导（base64 输入得名 `annotated`），修复了旧代码对 base64 输入产出垃圾文件名的问题。
+3. 实测：三插件注册 caps 均带 `file_params` 且对应 property 标 `format: file-ref`；`tests/plugin/` 279 passed, 1 skipped。
