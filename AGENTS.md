@@ -18,7 +18,7 @@ Key capabilities:
 
 - FastAPI backend with Server-Sent Events (SSE) streaming.
 - Agent runtime using a Think → Act → Observe loop.
-- Plugin system based on JSON-RPC 2.0 over stdio (subprocess isolation).
+- Plugin system based on JSON-RPC 2.0 over TCP: plugins are standalone servers; the host dials them (`COURTIER_PLUGIN_ENDPOINTS`) with a mutual token handshake.
 - Skill system: Markdown documents with YAML frontmatter that define SubAgent workflows.
 - Prompt engine using Jinja2 + YAML PromptBundles (zero hardcoded NL text in core).
 - Vue 3 + Vite terminal-style web frontend.
@@ -50,7 +50,7 @@ Key capabilities:
 │   ├── courtier/             # Domain-agnostic agent engine
 │   ├── domains/docaudit/     # docaudit domain package
 │   ├── libs/shared/          # Cross-domain libraries (docannot, docmodels, plugin_sdk)
-│   ├── libs/docaudit/        # docaudit-specific libraries (docparse, validator, content_compliance, doccorrector)
+│   ├── libs/docaudit/        # docaudit-specific libraries (docparse, validator, content_compliance)
 │   ├── plugins/shared/       # Cross-domain JSON-RPC plugins
 │   ├── plugins/docaudit/     # docaudit JSON-RPC plugins
 │   ├── webui/                # Vue 3 + Vite frontend
@@ -122,6 +122,13 @@ cp .env.example .env
 # Run database migrations
 uv run alembic upgrade head
 
+# Provision the plugin transfer bucket on MinIO (idempotent; compose MinIO up first)
+COURTIER_PLUGIN_MINIO_SECRET=<chosen-secret> uv run scripts/minio_plugin_io.py
+
+# Start the plugin servers (separate terminal; reads plugins/plugin.env)
+uv sync  # per plugin dir first time: (cd plugins/<group>/<name> && uv sync)
+python scripts/dev-plugins.py
+
 # Start the API server
 uv run main.py
 
@@ -131,6 +138,13 @@ uv run main.py --host 127.0.0.1 --port 8080 --reload
 # Validate the docaudit domain package
 uv run courtier validate-domain domains/docaudit/
 ```
+
+> **Plugins are required at runtime:** the host dials the endpoints in
+> `COURTIER_PLUGIN_ENDPOINTS` and marks missing/unreachable plugins
+> `BLOCKED`/`DISCONNECTED`; tools appear as plugins connect. Local dev:
+> `python scripts/dev-plugins.py` (loads `plugins/plugin.env`, copy from
+> `plugins/plugin.env.example`); containers: the `plugin-*` services in
+> docker-compose. The token must match `COURTIER_PLUGIN_TOKEN` on both sides.
 
 > **Note on PYTHONPATH:** libs/, docmodels and the plugin SDK are installed into the venv as editable packages (see `[tool.uv.sources]` in `courtier/pyproject.toml`), so no manual `PYTHONPATH` is needed for `uv run` commands. Only direct `python` invocations outside `uv run` may still need it.
 
@@ -243,15 +257,15 @@ npm run check
 4. **Domain/business layer**
    - `domains/docaudit/` — Domain config, prompts, skills (Markdown + typed input schemas).
    - `libs/shared/` — Cross-domain installable libraries (`docannot`, `docmodels`, `plugin_sdk`).
-   - `libs/docaudit/` — Domain-specific installable libraries (`docparse`, `validator`, `content_compliance`, `doccorrector`).
+   - `libs/docaudit/` — Domain-specific installable libraries (`docparse`, `validator`, `content_compliance`).
    - `plugins/shared/` — Cross-domain JSON-RPC plugins (`anydoc`, `search`, `annotate`, `template`).
-   - `plugins/docaudit/` — Domain JSON-RPC plugins (`parse`; `format_audit`, `content_audit`, `plagiarism` under `audit/`).
+   - `plugins/docaudit/` — Domain JSON-RPC plugins (`parse`; `check_format`, `check_content`, `detect_plagiarism` under `audit/`).
 
 ### 5.2 Plugin vs Skill vs Library
 
 | Concept | What it is | Where it lives | How it is invoked |
 |---------|-----------|----------------|-------------------|
-| **Plugin** | Atomic tool running in an isolated subprocess via JSON-RPC 2.0 over stdio | `plugins/shared/`, `plugins/<domain>/` | Registered in `ToolRegistry`; called by the agent loop |
+| **Plugin** | Atomic tool running as a standalone TCP server (JSON-RPC 2.0 over newline-delimited JSON, mutual token auth); may live on another host | `plugins/shared/`, `plugins/<domain>/` | Host dials the endpoint from `COURTIER_PLUGIN_ENDPOINTS`; proxy tools registered in `ToolRegistry`; called by the agent loop |
 | **Skill** | Task workflow defined as Markdown + YAML frontmatter | `domains/<domain>/skills/*.md` | Loaded by `load_skill(skill=..., task=...)` to create a generic `Agent` |
 | **Library** | Code dependency bundled at build time | `libs/shared/`, `libs/<domain>/` | Imported by plugins |
 
@@ -366,9 +380,10 @@ pi/
 - **Commits:** Conventional commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`).
 - **Domain isolation:** Core must never import domain code. Domains are discovered at startup via `CourtierConfig`.
 - **No hardcoded NL text in core:** All natural language is rendered by the Jinja2 PromptEngine from YAML templates. Domain-agnostic text (errors, context compaction, behavioral rules, tool invocation, subagent, welcome message) ships with core as full localized defaults in `courtier/prompts/defaults/{locale}/`; domain packages carry only domain-specific templates (`orchestrator.*`, `chat.system_prompt`) in `domains/<domain>/config/prompts/{locale}/` and may override any core default per key. Minimal English `FALLBACK_TEMPLATES` in `engine.py` are the last resort when a key is missing everywhere.
-- **Plugins are subprocesses:** Each plugin has its own `pyproject.toml`, virtual environment, and `plugin.yaml` manifest.
+- **Plugins are standalone TCP servers:** Each plugin has its own `pyproject.toml`, virtual environment, and `plugin.yaml` manifest, and runs as an independent process (docker-compose service / systemd unit / `scripts/dev-plugins.py` locally). The host never spawns plugins; it dials `name=host:port` endpoints from `COURTIER_PLUGIN_ENDPOINTS` and both sides authenticate with `COURTIER_PLUGIN_TOKEN` (plugin's `plugin.register` carries it, host answers `plugin.auth`). Plugin state is managed as connections (`CONNECTING/ACTIVE/DISCONNECTED/BLOCKED/…`) with infinite exponential-backoff reconnect.
 - **Libraries are installable packages:** Every lib under `libs/shared/` and `libs/<domain>/` has its own `pyproject.toml` and is installed editable via `[tool.uv.sources]`. Plugins depend only on `courtier-plugin-sdk` + the libs they use — never on the `courtier` application package. The plugin SDK lives at `libs/shared/plugin_sdk/` (import name `courtier_plugin_sdk`).
-- **Plugin data access via host services:** Plugins never hold DB/MinIO credentials. Data owned by the host (format templates, artifacts, object storage) is accessed through declared host services (`plugin.yaml` `dependencies.host_services` + `permissions`) over reverse JSON-RPC. Plugin-side endpoint config (LLM/CEC/ES) is injected via `plugin.yaml` `runtime.env` `${ENV:VAR}` passthroughs.
+- **Plugin data access via host services:** Plugins never hold DB credentials. Data owned by the host (format templates, artifacts, cache) is accessed through declared host services (`plugin.yaml` `dependencies.host_services` + `permissions`) over reverse JSON-RPC on the same channel. Plugins own their environment (`plugins/plugin.env.example`); the manifest `runtime.env` block only carries literal defaults applied by the SDK (`os.environ.setdefault`).
+- **Plugin file transfer via the MinIO transfer bucket:** Plugins hold a *restricted* MinIO account scoped to the `courtier-plugin-io` bucket only (provisioned by `scripts/minio_plugin_io.py`; 24h lifecycle). Input: the host rewrites `file-ref`-marked tool arguments from upload-dir paths to `minio://` references at the proxy boundary (fail-closed sandbox), plugins download via SDK `resolve_file()`. Output: plugins upload directly via SDK `put_file()` and mint user-facing URLs through the `storage.presign_get` host service (transfer-bucket allowlist). This is a deliberate, recorded exception to "plugins hold no MinIO credentials" — blast radius is one transient bucket.
 
 ### 7.2 Pi
 
@@ -432,7 +447,7 @@ See `pi/AGENTS.md` for the full rule set. Key points:
 - **CORS:** Configurable via `CORS_ORIGINS`; defaults are permissive for local development only.
 - **Secrets:** `.env` contains credentials and API keys. It is gitignored; use `.env.example` as a template.
 - **File uploads:** Stored under `COURTIER_UPLOAD_DIR` (default `./uploads`). Plugins access uploads through the configured upload path.
-- **Plugin isolation:** Plugins run as separate subprocesses, but they execute with the same OS permissions as the host process. Sandboxing is not enforced by the plugin system itself.
+- **Plugin channel auth:** The host↔plugin TCP channel is authenticated by the shared `COURTIER_PLUGIN_TOKEN` on both sides (mutual: register carries the plugin's token, host proves itself via `plugin.auth`). There is no TLS yet — across untrusted networks put the channel behind WireGuard/stunnel or an overlay network. Plugins hold a restricted MinIO account scoped to the transfer bucket only (see §7.1); DB and full-permission MinIO credentials stay host-side.
 - **Domain gating:** domain tools are visibility-filtered per session (see §5.3); activation state is persisted in `SessionRecord.active_domains`.
 - **LLM endpoints:** Configurable via environment variables; never hardcode API keys.
 

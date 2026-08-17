@@ -40,7 +40,7 @@
 │           修改 1 个文件: src/agent/artifacts/projectors.py
 │                          （在 create_default_projector_registry() 中新增）
 │
-├── Plugin 工具（独立子进程，可独立部署升级）
+├── Plugin 工具（独立 TCP 服务，可独立部署升级）
 │   │
 │   └── 新建一个完整的 Plugin 目录:
 │       plugins/{category}/{plugin_name}/
@@ -459,7 +459,7 @@ experimental ──(验证通过)──▶ stable ──(不再推荐)──▶ 
 
 ## 7. 场景 F：Plugin 工具对接
 
-> **效果：** 工具以独立子进程运行，自动被 `PluginScanner` 发现和加载，通过 `ProxyTool` 进入 `ToolRegistry`，享有全部自动绑定能力。
+> **效果：** 工具以独立服务运行，自动被 `PluginScanner` 发现、由连接管理器拨号加载，通过 `ProxyTool` 进入 `ToolRegistry`，享有全部自动绑定能力。
 
 ### 7.1 涉及的文件操作
 
@@ -616,7 +616,7 @@ PluginScanner.scan("plugins/")
   → 递归搜索所有 plugin.yaml
     → 找到 plugins/audit/my_audit/plugin.yaml
     → 校验 manifest → 标记 VALID
-ProcessManager 启动子进程
+ProcessManager 拨号连接插件服务
   → 运行 entry.py → MyAuditPlugin._setup_handlers()
     → self.register_tool(MyAuditTool())
       → ProxyTool 进入 ToolRegistry
@@ -625,7 +625,7 @@ ProcessManager 启动子进程
 
 ### 7.9 Plugin 直接访问 ArtifactStore（高级）
 
-如果 Plugin 子进程内需要绕过工具契约直接读写 ArtifactStore：
+如果 Plugin 进程内需要绕过工具契约直接读写 ArtifactStore：
 
 **修改 plugin.yaml：**
 

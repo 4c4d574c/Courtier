@@ -24,7 +24,6 @@ courtier/                          # 项目根目录
 │       ├── docparse/             # 文档解析（PDF/DOCX/扫描件 → GB/T 9704 Document 模型）
 │       ├── validator/            # 格式校验
 │       ├── content_compliance/   # 内容合规
-│       └── doccorrector/         # 文本纠错
 ├── plugins/
 │   ├── shared/                   # 跨领域共享插件
 │   │   ├── anydoc/               # 通用文档转换工具（convert_document → Markdown）
@@ -125,9 +124,9 @@ docker-compose up -d
 3. **核心引擎层** (`courtier/agent/`): Agent loop, OrchestratorAgent, AgentRuntime + DomainActivator（域门控自激活）, PluginSystem, ToolRegistry, Artifact 系统, Context 管理, Prompt pipeline, Hooks, Permissions, Telemetry
 4. **领域/业务层**:
    - `libs/shared/`: docannot, docmodels, plugin_sdk 等跨领域共享库（可安装包），被共享插件调用
-   - `libs/docaudit/`: docparse, validator, content_compliance, doccorrector 等领域专属库（可安装包），被 docaudit 插件调用
-   - `plugins/shared/`: anydoc, search, annotate, template 等跨领域共享插件（JSON-RPC 子进程）
-   - `plugins/docaudit/`: parse（`plugins/docaudit/parse/`）与 format_audit, content_audit, plagiarism（`plugins/docaudit/audit/`）等领域专属插件（JSON-RPC 子进程）
+   - `libs/docaudit/`: docparse, validator, content_compliance 等领域专属库（可安装包），被 docaudit 插件调用
+   - `plugins/shared/`: anydoc, search, annotate, template 等跨领域共享插件（独立 TCP 服务）
+   - `plugins/docaudit/`: parse（`plugins/docaudit/parse/`）与 check_format, check_content, detect_plagiarism（`plugins/docaudit/audit/`）等领域专属插件（独立 TCP 服务）
 
 ### 会话模式（统一编排器 + 域门控）
 
@@ -140,21 +139,23 @@ docker-compose up -d
 - `orchestrator.system_prompt` 由 core 默认提供（`prompts/defaults/{locale}/orchestrator.yaml`）；领域包只提供 `orchestrator.workflow_rules` 作为激活载荷。
 - `activate_domain` 工具描述中的领域目录实时包含各域技能清单（`skills/` 目录按 mtime 缓存，`runtime/activation.py` 的 `build_domain_catalog`）——前端新建技能后无需重启即可被模型感知。
 
-### 插件系统（JSON-RPC 2.0）
+### 插件系统（JSON-RPC 2.0 over TCP，独立服务）
 
-插件是独立的子进程，通过 stdio 上的 JSON-RPC 2.0 通信：
+插件是**独立运行的 TCP 服务**，主进程按 `COURTIER_PLUGIN_ENDPOINTS`（`name=host:port` 映射）拨号连接，换行分隔 JSON-RPC 通信；协议与 stdio 时代完全一致（正 id 主进程→插件、负 id 插件→主进程反向 host services）：
 
 - 共享插件位于 `plugins/shared/`（anydoc, search, annotate, template）
 - 领域插件位于 `plugins/<domain>/`（如 `plugins/docaudit/parse/`、`plugins/docaudit/audit/`）
-- 每个插件有独立 `.venv`、`pyproject.toml`、`plugin.yaml`
-- 插件声明 `entry.py:main` 作为入口点
-- `PluginRuntime` SDK 提供 `register_capabilities()`, `register_tool()`, `run()`
-- 宿主进程通过 `PluginProcess` 管理子进程生命周期
-- 工具代理 (`ToolProxy`) 将 JSON-RPC 调用暴露为 `Tool` 对象
+- 每个插件有独立 `.venv`、`pyproject.toml`、`plugin.yaml`（`runtime.port` 声明默认监听端口）
+- 插件声明 `entry.py` 入口；`PluginRuntime` SDK 提供 `register_capabilities()`, `register_tool()`, `run()`（TCP serve 模式）
+- 鉴权：共享 `COURTIER_PLUGIN_TOKEN` 双向校验——插件 `plugin.register` 携带 token 供主进程验证，主进程以 `plugin.auth` 自证；鉴权失败插件置 `BLOCKED`
+- 主进程 `ProcessManager` 是连接管理器：非阻塞启动、健康检查（30s，三连败断连）、断线无限指数退避重连（1s~30s）；状态集 `SCANNED/CONNECTING/REGISTERING/ACTIVE/DISCONNECTED/BLOCKED/STOPPING/STOPPED`
+- 文件传输：主进程在 ProxyTool 派发边界把 `file-ref` 标记参数（upload 目录内路径，fail-closed）改写为 `minio://` 引用（PUT 至 transfer bucket）；插件用自有受限 MinIO 账号经 SDK `resolve_file()` 下载；输出经 SDK `put_file()` 直传 + `storage.presign_get` 换下载链接
+- 本地开发用 `scripts/dev-plugins.py` 拉起全部插件（读 `plugins/plugin.env`）；生产用 `Dockerfile.plugins` 多 target 镜像 + compose `plugin-*` 服务
+- 工具代理 (`ProxyTool`) 将 JSON-RPC 调用暴露为 `Tool` 对象
 
 **插件 vs Skill：** 插件提供原子工具（`type: tool`）。Skill 是 Markdown + frontmatter 定义的任务工作流，经 `SkillTool` + `AgentRuntime` 以子代理（subagent）/内联（inline）模式编排执行（见上文「会话模式」）。
 
-**插件 vs 库：** 插件是可独立部署的服务（JSON-RPC 子进程），库是代码依赖（构建时打包）。库位于 `libs/`，插件位于 `plugins/`。
+**插件 vs 库：** 插件是可独立部署的服务（独立 TCP 进程），库是代码依赖（构建时打包）。库位于 `libs/`，插件位于 `plugins/`。
 
 ### CourtierConfig
 

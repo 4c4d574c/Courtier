@@ -40,7 +40,7 @@ DocAudit 是一款面向中文党政机关公文的智能审核系统，提供�
 | 大语言模型 | 通义千问 Qwen3.5-27B | 智能审核、纠错（提示词驱动）、对话 |
 | 文档处理 | PyMuPDF / python-docx / LibreOffice | PDF/DOCX 解析与生成 |
 | 可观测性 | OpenTelemetry + Prometheus + Grafana | 分布式追踪、指标采集 |
-| 插件隔离 | 子进程 + JSON-RPC 2.0 over stdio | 插件能力隔离 |
+| 插件隔离 | 独立 TCP 服务 + JSON-RPC 2.0（双向 token 鉴权） | 插件能力隔离 |
 | 包管理 | uv | Python 依赖管理与虚拟环境 |
 
 ---
@@ -87,7 +87,7 @@ DocAudit 是一款面向中文党政机关公文的智能审核系统，提供�
 
 ### 2.2 插件化架构
 
-核心引擎通过**插件系统**与业务模块解耦。9 个独立插件运行在子进程中，通过 JSON-RPC 2.0 over stdio 与核心引擎通信：
+核心引擎通过**插件系统**与业务模块解耦。8 个插件是独立运行的 TCP 服务（可跨机部署），主进程按 COURTIER_PLUGIN_ENDPOINTS 拨号，通过换行分隔 JSON-RPC 2.0 通信：
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -112,18 +112,18 @@ DocAudit 是一款面向中文党政机关公文的智能审核系统，提供�
 │  └────────────────────────────────────────────┘     │
 │           │                          │               │
 ├───────────┼──────────────────────────┼───────────────┤
-│           │    JSON-RPC over stdio   │               │
+│           │    JSON-RPC over TCP     │               │
 │           ▼                          ▼               │
 │  ┌────────────────┐        ┌──────────────────┐     │
 │  │ parse plugin   │        │format_audit plugin│     │
-│  │ (子进程)        │        │ (子进程, LLM Agent)│     │
+│  │ (独立服务)      │        │ (独立服务)          │     │
 │  └────────────────┘        └──────────────────┘     │
 │  ┌────────────────┐        ┌──────────────────┐     │
 │  │ check_content  │        │ detect_plagiarism│     │
 │  │ plugin         │        │ plugin           │     │
 │  └────────────────┘        └──────────────────┘     │
 │  （纠错由 content_audit 技能承担，无独立插件）        │
-│  ...  (共 8 个插件子进程)                             │
+│  ...  (共 8 个插件服务)                               │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -344,14 +344,14 @@ class ToolResult(BaseModel):
 
 ### 3.3 插件系统
 
-插件系统是整个架构的核心基础设施，实现了**子进程隔离**和**JSON-RPC 通信**的插件机制。
+插件系统是整个架构的核心基础设施，实现了**进程独立部署**和**JSON-RPC 通信**的插件机制。
 
 #### 3.3.1 设计目标
 
-- **隔离性**：每个插件运行在独立子进程中，崩溃不影响主进程
-- **语言无关性**：通过 JSON-RPC 2.0 over stdio 通信，理论上支持任何语言实现插件
-- **热注册**：插件启动后动态注册能力到主机注册表中
-- **自动恢复**：插件崩溃后自动重启（带指数退避）
+- **隔离性**：每个插件是独立进程/容器（可跨机），崩溃不影响主进程
+- **语言无关性**：通过换行分隔 JSON-RPC 2.0 over TCP 通信，理论上支持任何语言实现插件
+- **热注册**：插件连接后立即动态注册能力到主机注册表中
+- **自动恢复**：断线后主进程以指数退避无限重连（插件进程的重启由部署层负责）
 - **分布式追踪**：支持跨进程 OpenTelemetry 追踪
 
 #### 3.3.2 架构层次
@@ -359,8 +359,8 @@ class ToolResult(BaseModel):
 ```
 PluginSystem (顶层编排器)
 ├── PluginScanner    (扫描 plugins/ 目录，验证 plugin.yaml)
-├── ProcessManager   (子进程生命周期管理)
-│   └── JSONRPCClient (每个子进程一个客户端)
+├── ProcessManager   (插件连接管理：拨号/握手/健康检查/退避重连)
+│   └── JSONRPCClient (每个插件连接一个客户端)
 └── ExtensionRegistry (路由能力到主机注册表)
     ├── ProxyTool    (工具代理 → ToolRegistry)
     ├── ProxyChecker (检查器代理 → CheckerRegistry)
@@ -380,11 +380,11 @@ class PluginSystem:
     async def start() -> None:
         """扫描插件目录，启动所有有效插件。"""
         # 1. PluginScanner.scan() → 读取并验证所有 plugin.yaml
-        # 2. ProcessManager.start(valid_results) → 逐个启动子进程
+        # 2. ProcessManager.start_all(valid_results) → 非阻塞拨号各插件端点
         # 3. 等待每个插件的 plugin.register 通知
         
     async def shutdown() -> None:
-        """优雅关闭所有插件子进程。"""
+        """断开所有插件连接（插件进程继续运行）。"""
         
     def get_agents() -> dict[str, ProxyAgent]:
         """返回所有已注册的插件代理。"""
@@ -474,36 +474,37 @@ capabilities:
 
 **文件**: `src/plugin/manager.py`
 
-管理所有插件子进程的生命周期：
+管理所有插件连接的生命周期（插件进程的启停由部署层负责）：
 
 **状态机**：
 ```
-SCANNED → LOADING → REGISTERING → ACTIVE
-                                 → CRASHED → RESTARTING → REGISTERING → ACTIVE
-                                 → CRASHED → FATAL (5s 内崩溃)
-                                 → STOPPING → STOPPED
+SCANNED → CONNECTING → REGISTERING → ACTIVE
+                                   ↘ DISCONNECTED → CONNECTING（无限退避重连）
+                                   ↘ BLOCKED（缺端点/鉴权失败，需管理员介入）
+                                   → STOPPING → STOPPED
 ```
 
 **关键机制**：
 
 | 机制 | 实现 |
 |------|------|
-| 子进程启动 | `asyncio.create_subprocess_exec("uv", "run", entry)` |
-| 环境变量 | 设置 `PYTHONPATH`（项目根路径）、`DOCAUDIT_PROJECT_ROOT`、解析 `${ENV:VAR}` |
-| 健康检查 | 每 30 秒发送 `plugin.health` RPC |
-| 崩溃恢复 | 最多重启 3 次，指数退避（1s, 2s, 4s, 上限 30s） |
-| 熔断器 | 启动后 5s 内崩溃 → FATAL（不重启） |
-| 优雅关闭 | 发送 SIGTERM → 等待 5s → SIGKILL |
-| Stderr 监控 | 捕获子进程 stderr，检测崩溃并转发日志 |
+| 连接建立 | `asyncio.open_connection` 拨号 `COURTIER_PLUGIN_ENDPOINTS` 端点 |
+| 通道鉴权 | 共享 `COURTIER_PLUGIN_TOKEN` 双向校验（register token + `plugin.auth`） |
+| 环境变量 | 插件自持环境（`plugins/plugin.env`），主进程零注入 |
+| 健康检查 | 每 30 秒发送 `plugin.health` RPC，三连败关闭连接 |
+| 断线恢复 | 无限指数退避重连（1s 起，上限 30s）；工具随重连自动重新注册 |
+| 配置熔断 | 缺端点/鉴权失败 → BLOCKED（终态，管理员 start 重连） |
+| 优雅关闭 | 发送 `plugin.shutdown` 通知并关闭连接（插件进程继续运行） |
+| 文件传输 | ProxyTool 边界改写 `minio://` 引用；插件持受限凭据直连 transfer bucket |
 
 #### 3.3.7 JSONRPCClient（通信客户端）
 
 **文件**: `src/plugin/client.py`
 
-每个插件子进程对应一个 `JSONRPCClient` 实例，管理 JSON-RPC 2.0 over stdio 通信：
+每个插件连接对应一个 `JSONRPCClient` 实例，管理换行分隔 JSON-RPC 2.0 over TCP 通信：
 
 **通信机制**：
-- **传输层**：stdin/stdout，换行符分隔的 JSON
+- **传输层**：TCP socket，换行符分隔的 JSON
 - **消息类型**：Request（有 id）、Response（有 id + result）、Notification（无 id）
 - **流式消息**：`JSONRPCStreamChunk`（id + chunk + status: "continue"|"end"）
 
@@ -524,7 +525,7 @@ class JSONRPCClient:
         """取消所有进行中的请求（发送 request.cancel 通知）。"""
 ```
 
-**异步读取循环**：后台 `asyncio.Task` 持续从子进程 stdout 读取 JSON 行，根据 `id` 分发到对应的 pending Future。
+**异步读取循环**：后台 `asyncio.Task` 持续从 socket 读取 JSON 行，根据 `id` 分发到对应的 pending Future。
 
 **流式协议**：长运行操作（如 `agent.run`）：
 ```
@@ -543,7 +544,7 @@ class JSONRPCClient:
 
 ```python
 class PluginRuntime:
-    """插件子进程入口基类。"""
+    """插件独立服务入口基类（TCP server 模式）。"""
     
     def on(method: str):
         """装饰器：注册 JSON-RPC 方法处理器。
@@ -1508,7 +1509,7 @@ FastAPI 中间件，自动记录 HTTP 请求的追踪信息和指标。
 │  Turn 1: LLM → 调用 parse_document 工具                              │
 │    │                                                                  │
 │    ├── ProxyTool.execute("parse_document")                            │
-│    │   └── JSON-RPC → parse plugin 子进程                             │
+│    │   └── JSON-RPC → parse plugin 独立服务                           │
 │    │       └── docparse 解析引擎（PDF/DOCX/扫描件）                    │
 │    │           └── 返回 ParsedDocument 结构                           │
 │    │                                                                  │
@@ -1614,8 +1615,8 @@ AgentRuntime.delegate(handle)
 启动阶段:
   PluginScanner.scan() → plugin.yaml 验证
   ProcessManager._start_one()
-  ├── uv run entry.py (子进程启动)
-  ├── 子进程发送 plugin.register 通知
+  ├── 主进程按端点拨号 TCP 连接
+  ├── 插件接受连接后发送 plugin.register 通知（携带 token）
   ├── ExtensionRegistry.on_register()
   │   ├── ProxyTool 注册到 ToolRegistry
   │   ├── ProxyChecker 注册到 CheckerRegistry
@@ -1788,7 +1789,7 @@ docaudit-agent/
 | 决策 | 理由 |
 |------|------|
 | AgentState 不可变（frozen Pydantic） | 防止并发场景下的状态腐败；每次变更创建新实例，语义清晰 |
-| 插件子进程隔离 (JSON-RPC over stdio) | 进程间崩溃隔离；语言无关性；支持热注册/热恢复 |
+| 插件独立服务 (JSON-RPC over TCP) | 进程/机器级崩溃隔离；语言无关性；断线自动重连重注册 |
 | 三层上下文预算控制 | 在 LLM 上下文窗口限制下，最大化信息利用率 |
 | $ref 数据引用传递 | 避免大型数据在上下文中的重复序列化；节省 token 消耗 |
 | 流式 JSON-RPC（agent.run） | 支持长运行子代理操作的实时事件流和心跳检测 |

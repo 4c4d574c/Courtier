@@ -48,7 +48,7 @@
 | 术语 | 含义 | 示例 |
 |------|------|------|
 | **Tool（工具）** | 单次调用的原子能力，直接注册到 `ToolRegistry` | `parse_document`、`audit_format` |
-| **Plugin（插件）** | 运行在独立子进程、通过 JSON-RPC over stdio 提供 Tool 的能力包 | `plugins/audit/format_audit/` |
+| **Plugin（插件）** | 独立运行的 TCP 服务、通过换行分隔 JSON-RPC 提供 Tool 的能力包 | `plugins/docaudit/audit/check_format/` |
 | **SubAgent（子代理）** | 执行某个 Skill 的通用 `Agent` 实例，拥有自己的 Think-Act-Observe 循环 | `AgentRuntime` 创建的 `Agent` |
 | **Skill（技能）** | 用 Markdown 文档定义的 SubAgent 配置与任务流程 | `skills/format_audit.md` |
 | **SkillConfig** | 启动时由 Skill 文档预编译出的不可变配置对象 | `SkillConfig(name="format_audit", ...)` |
@@ -98,7 +98,7 @@ ToolRegistry.register(proxy)
         ↓
 LLM → audit_format
   └── ProxyTool.execute()
-        └── JSON-RPC tool.execute → plugin 子进程 handler → ToolResult
+        └── JSON-RPC tool.execute → plugin 服务 handler → ToolResult
 ```
 
 **适用场景**：输入输出明确、无需多轮推理的任务，例如解析文档、检测文种、加载模板、查重计算。

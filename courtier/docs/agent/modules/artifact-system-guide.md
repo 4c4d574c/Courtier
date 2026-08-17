@@ -670,7 +670,7 @@ AgentRuntime.delegate(...)
 
 ### 7.5 Plugin 系统集成
 
-Plugin 以独立子进程运行，通过 JSON-RPC 与主进程通信。
+Plugin 以独立 TCP 服务运行，通过换行分隔 JSON-RPC 与主进程通信。
 
 **可用的主机服务方法（`src/plugin/manager.py:468-524`）：**
 
