@@ -2,9 +2,9 @@ import pytest
 
 from .conftest import _ensure_plugin_path
 
-_ensure_plugin_path("plagiarism")
+_ensure_plugin_path("detect_plagiarism")
 
-from plugins.docaudit.audit.plagiarism.entry import PlagiarismPlugin  # noqa: E402
+from plugins.docaudit.audit.detect_plagiarism.entry import PlagiarismPlugin  # noqa: E402
 
 
 @pytest.mark.asyncio

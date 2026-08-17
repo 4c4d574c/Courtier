@@ -1,4 +1,4 @@
-name: format_audit
+name: check_format
 version: "1.0.0"
 api: "1.0"
 description: "Document format audit — validates formatting against GB/T 9704-2012 templates"

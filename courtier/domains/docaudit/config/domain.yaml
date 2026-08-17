@@ -2,5 +2,5 @@ name: docaudit
 title: 公文智能审计
 description: 基于 GB/T 9704-2012 的公文格式与内容审查，以及文本纠错、查重检测、涉密信息判别
 locales: [zh-CN, en-US]
-requires_plugins: [parse, template, search, annotate, plagiarism, format_audit, content_audit, text_correction]
+requires_plugins: [parse, template, search, annotate, detect_plagiarism, check_format, check_content, correct_text]
 requires_services: [mysql, elasticsearch, minio]

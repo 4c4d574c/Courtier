@@ -109,7 +109,7 @@ wheels = [
 ]
 
 [[package]]
-name = "courtier-plugin-format-audit"
+name = "courtier-plugin-check-format"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

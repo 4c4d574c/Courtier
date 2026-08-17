@@ -1,4 +1,4 @@
-name: content_audit
+name: check_content
 version: "1.0.0"
 api: "1.0"
 description: "Document content compliance audit — validates document body text against content rules"

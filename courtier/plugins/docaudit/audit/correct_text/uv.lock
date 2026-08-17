@@ -48,18 +48,7 @@ wheels = [
 ]
 
 [[package]]
-name = "courtier-plugin-sdk"
-version = "0.1.0"
-source = { editable = "../../../../libs/shared/plugin_sdk" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.13.0" }]
-
-[[package]]
-name = "courtier-plugin-text-correction"
+name = "courtier-plugin-correct-text"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
@@ -72,6 +61,17 @@ requires-dist = [
     { name = "courtier-plugin-sdk", editable = "../../../../libs/shared/plugin_sdk" },
     { name = "doccorrector", editable = "../../../../libs/docaudit/doccorrector" },
 ]
+
+[[package]]
+name = "courtier-plugin-sdk"
+version = "0.1.0"
+source = { editable = "../../../../libs/shared/plugin_sdk" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.13.0" }]
 
 [[package]]
 name = "distro"

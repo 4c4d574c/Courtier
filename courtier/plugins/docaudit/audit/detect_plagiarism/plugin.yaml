@@ -1,4 +1,4 @@
-name: plagiarism
+name: detect_plagiarism
 version: "1.0.0"
 api: "1.0"
 description: "Plagiarism detection using dynamic IQR thresholding"

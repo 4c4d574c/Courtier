@@ -1,4 +1,4 @@
-name: text_correction
+name: correct_text
 version: "1.0.0"
 api: "1.0"
 description: "Chinese text correction — spelling, grammar, fullwidth/halfwidth, and punctuation errors"
