@@ -161,8 +161,8 @@
 
 ### Task 0.4: SDK 与插件测试
 
-- [ ] **Step 1:** SDK 单测：listen/多连接/auth 通过与拒绝/env 缺失 fail-fast/resolve_file 与 put_file（minio client mock）/临时目录清理。
-- [ ] **Step 2:** 插件测试改造：`tests/plugin/` 现有基于管道注入的用例适配新入口；`uv run pytest tests/plugin/ -q` 绿。
+- [x] **Step 1:** SDK 单测：listen/多连接/auth 通过与拒绝/env 缺失 fail-fast/resolve_file 与 put_file（minio client mock）/临时目录清理。
+- [x] **Step 2:** 插件测试改造：`tests/plugin/` 现有基于管道注入的用例适配新入口；`uv run pytest tests/plugin/ -q` 绿。
 
 ## Phase 1：主进程 connect 模式
 
@@ -316,3 +316,8 @@ test: full regression and session acceptance                           # 4.x（�
 1. **沙箱边界整体上移至主进程**（ProxyTool fail-closed 校验，Phase 2）：插件侧 `*_UPLOAD_DIR` allowed-root 检查删除，本地路径直通（仅测试/同机开发出现）。parse/anydoc 旧沙箱测试改写为新语义（missing file 拒绝、本地文件直通、minio:// 走下载桩），escape/优先级用例删除——其断言由 Phase 2 主进程侧测试接管。
 2. annotate 命名修复：批注输出文件名 stem 改为按"路径形态"推导（base64 输入得名 `annotated`），修复了旧代码对 base64 输入产出垃圾文件名的问题。
 3. 实测：三插件注册 caps 均带 `file_params` 且对应 property 标 `format: file-ref`；`tests/plugin/` 279 passed, 1 skipped。
+
+**Task 0.4 完成**（SDK 新增测试）。新增 `test_serve_mode.py`（register 携带 token / 未鉴权拒绝 / 错 token 断连 / 双连接独立鉴权 / 缺 token 拒启 / listen 三级解析 / 字面量 env 默认值）与 `test_sdk_files.py`（minio 下载、文件名保留与冲突序号、put_file 上传回执、env 缺失报错、请求级 workdir 用后清理）。调试与修复记录：
+1. **uv 网络挂起**：SDK pyproject 新增依赖后锁文件过期，`uv run` 访问清华镜像悬空无超时——`uv lock --offline` 重建（依赖均已在缓存）后全程用 `uv run --offline`，后续任务沿用。
+2. **信号处理器泄漏**：`serve()` 在事件循环上 `add_signal_handler` 后不清理，pytest-asyncio 每测试换循环导致会话收尾挂起——改为 try/finally `remove_signal_handler`；测试夹具 teardown 加 `wait_for` 兜底防挂。
+3. **`_prepare()` 重构**：handlers/caps 收集从 `run()` 抽为幂等的 `_prepare()`，`serve()` 直调时同样生效（此前直调 `serve()` 的用例拿到空 tool.list）。
