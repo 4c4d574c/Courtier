@@ -1,3 +1,13 @@
+# 插件服务共享环境：通道鉴权 token + 受限 MinIO 账号（仅 transfer bucket，
+# 由 scripts/minio_plugin_io.py 创建；密钥经 COURTIER_PLUGIN_MINIO_SECRET 注入）。
+x-plugin-common-env: &plugin-common-env
+  COURTIER_PLUGIN_TOKEN: ${COURTIER_PLUGIN_TOKEN}
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${COURTIER_PLUGIN_MINIO_USER:-courtier-plugins}
+  MINIO_SECRET_KEY: ${COURTIER_PLUGIN_MINIO_SECRET}
+  MINIO_SECURE: "false"
+  MINIO_BUCKET_PLUGIN_IO: ${MINIO_BUCKET_PLUGIN_IO:-courtier-plugin-io}
+
 services:
   db:
     container_name: courtier-mysql
@@ -101,6 +111,96 @@ services:
         soft: 65536
         hard: 65536
 
+  # === 插件服务（独立 TCP 服务，主进程经 COURTIER_PLUGIN_ENDPOINTS 拨号）===
+  # 共享环境：受限 MinIO 账号（仅 transfer bucket）+ 通道鉴权 token。
+  # 插件特有变量（LLM_*/ES_*/OCR 端点等）在各自 environment 里追加。
+
+  plugin-parse:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-parse }
+    container_name: courtier-plugin-parse
+    restart: unless-stopped
+    environment:
+      <<: *plugin-common-env
+      LLM_IP: ${LLM_IP}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_NAME: ${LLM_NAME}
+      DOCPARSE_OCR_API_URL: ${DOCPARSE_OCR_API_URL:-}
+      FONT_MODEL_URL: ${FONT_MODEL_URL:-}
+    networks:
+      - courtier
+
+  plugin-anydoc:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-anydoc }
+    container_name: courtier-plugin-anydoc
+    restart: unless-stopped
+    environment:
+      <<: *plugin-common-env
+      ANYDOC_OCR_API_URL: ${ANYDOC_OCR_API_URL:-}
+    networks:
+      - courtier
+
+  plugin-annotate:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-annotate }
+    container_name: courtier-plugin-annotate
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
+  plugin-template:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-template }
+    container_name: courtier-plugin-template
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
+  plugin-search:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-search }
+    container_name: courtier-plugin-search
+    restart: unless-stopped
+    environment:
+      <<: *plugin-common-env
+      ES_HOSTS: http://elasticsearch:9200
+      ES_USERNAME: ${ES_USERNAME:-elastic}
+      ES_PASSWORD: ${ES_PASSWORD}
+      ES_INDEX_CHUNKS: ${ES_INDEX_CHUNKS:-courtier_chunks}
+      LLM_IP: ${LLM_IP}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_NAME: ${LLM_NAME}
+      LLM_EMBEDDING_NAME: ${LLM_EMBEDDING_NAME:-}
+      LLM_EMBEDDING_DIM: ${LLM_EMBEDDING_DIM:-1024}
+      LLM_EMBEDDING_BATCH_SIZE: ${LLM_EMBEDDING_BATCH_SIZE:-25}
+    networks:
+      - courtier
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  plugin-check_format:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-check_format }
+    container_name: courtier-plugin-check-format
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
+  plugin-check_content:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-check_content }
+    container_name: courtier-plugin-check-content
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
+  plugin-detect_plagiarism:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-detect_plagiarism }
+    container_name: courtier-plugin-detect-plagiarism
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
   # app:
   #   image: courtier:v0.0.1
   #   container_name: courtier-app
@@ -124,9 +224,10 @@ services:
   #     - COURTIER_REPO_ROOT=/app
   #     - COURTIER_DOMAIN_PACKAGES=docaudit
   #     - MYSQL_URL=${MYSQL_URL}
-  #     - DOCPARSE_OCR_API_URL=http://ppocr:8006/ocr
   #     - MINIO_ENDPOINT=minio:9000
   #     - ES_HOSTS=http://elasticsearch:9200
+  #     - COURTIER_PLUGIN_TOKEN=${COURTIER_PLUGIN_TOKEN}
+  #     - COURTIER_PLUGIN_ENDPOINTS=parse=plugin-parse:9101,anydoc=plugin-anydoc:9102,annotate=plugin-annotate:9103,template=plugin-template:9104,search=plugin-search:9105,check_format=plugin-check_format:9106,check_content=plugin-check_content:9107,detect_plagiarism=plugin-detect_plagiarism:9108
   #     - UV_NO_SYNC=1
   #     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
   #     - OTEL_SERVICE_NAME=courtier

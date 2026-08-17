@@ -1,0 +1,95 @@
+# Standalone plugin images — one build target per plugin.
+#
+# Plugins are independent TCP servers; the app dials them via
+# COURTIER_PLUGIN_ENDPOINTS.  Each target installs the plugin's own
+# dependency set (uv sync with its lockfile) so plugin environments are
+# reproducible and isolated from the app image.
+#
+# Build all:   docker compose build
+# Build one:   docker build -f Dockerfile.plugins --target plugin-anydoc .
+#
+# Layout note: plugin pyprojects reference libs/ via relative paths
+# ([tool.uv.sources]), so the build context must keep the repo layout
+# (libs/ and plugins/ side by side) — the context is the courtier/ dir.
+
+FROM python:3.12-slim AS plugin-base
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV PYTHONUNBUFFERED=1 \
+    UV_NO_SYNC=1
+
+WORKDIR /opt/courtier
+
+# Shared by every plugin's [tool.uv.sources] relative paths.
+COPY libs/ libs/
+
+
+# ---- docaudit domain plugins --------------------------------------------
+
+FROM plugin-base AS plugin-parse
+COPY plugins/docaudit/parse/ plugins/docaudit/parse/
+WORKDIR /opt/courtier/plugins/docaudit/parse
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9101
+CMD ["/opt/courtier/plugins/docaudit/parse/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-check_format
+COPY plugins/docaudit/audit/check_format/ plugins/docaudit/audit/check_format/
+WORKDIR /opt/courtier/plugins/docaudit/audit/check_format
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9106
+CMD ["/opt/courtier/plugins/docaudit/audit/check_format/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-check_content
+COPY plugins/docaudit/audit/check_content/ plugins/docaudit/audit/check_content/
+WORKDIR /opt/courtier/plugins/docaudit/audit/check_content
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9107
+CMD ["/opt/courtier/plugins/docaudit/audit/check_content/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-detect_plagiarism
+COPY plugins/docaudit/audit/detect_plagiarism/ plugins/docaudit/audit/detect_plagiarism/
+WORKDIR /opt/courtier/plugins/docaudit/audit/detect_plagiarism
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9108
+CMD ["/opt/courtier/plugins/docaudit/audit/detect_plagiarism/.venv/bin/python", "entry.py"]
+
+
+# ---- shared plugins ------------------------------------------------------
+
+FROM plugin-base AS plugin-anydoc
+COPY plugins/shared/anydoc/ plugins/shared/anydoc/
+WORKDIR /opt/courtier/plugins/shared/anydoc
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9102
+CMD ["/opt/courtier/plugins/shared/anydoc/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-annotate
+COPY plugins/shared/annotate/ plugins/shared/annotate/
+WORKDIR /opt/courtier/plugins/shared/annotate
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9103
+CMD ["/opt/courtier/plugins/shared/annotate/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-template
+COPY plugins/shared/template/ plugins/shared/template/
+WORKDIR /opt/courtier/plugins/shared/template
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9104
+CMD ["/opt/courtier/plugins/shared/template/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-search
+COPY plugins/shared/search/ plugins/shared/search/
+WORKDIR /opt/courtier/plugins/shared/search
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9105
+CMD ["/opt/courtier/plugins/shared/search/.venv/bin/python", "entry.py"]
