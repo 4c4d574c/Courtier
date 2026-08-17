@@ -474,6 +474,20 @@ export const api = {
     const res = await authFetch(
       `${API_BASE}/admin/extensions/plugins/${name}/logs?tail=${tail}`,
     );
+    // 410 Gone: plugins are standalone services now — the host no longer
+    // tees their stderr.  Surface the explanation as pane content instead
+    // of an error.
+    if (res.status === 410) {
+      const body: { detail?: unknown } = await res.json().catch(() => ({}));
+      const detail = typeof body.detail === "string" ? body.detail : "";
+      return {
+        name,
+        lines: [detail || "插件已独立部署，日志请查看插件所在主机的进程/容器日志。"],
+        totalLines: 1,
+        sizeBytes: 0,
+        logPath: "",
+      };
+    }
     if (!res.ok) throw await parseErrorDetail(res, "GET plugin logs failed");
     return res.json();
   },

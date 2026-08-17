@@ -43,7 +43,7 @@
             </div>
             <p class="ext-card-desc">{{ p.description || "（无描述）" }}</p>
             <div class="ext-card-meta">
-              v{{ p.version }} · 重启 {{ p.restartCount }} 次
+              v{{ p.version }} · 重连 {{ p.restartCount }} 次
             </div>
             <div v-if="p.tools.length" class="ext-chips">
               <span v-for="t in p.tools" :key="t.name" class="ext-chip" :title="t.description">
@@ -505,13 +505,13 @@ const availableTools = computed(() => {
 
 const STATE_LABELS: Record<string, string> = {
   ACTIVE: "运行中",
+  CONNECTING: "连接中",
   REGISTERING: "注册中",
-  LOADING: "启动中",
-  RESTARTING: "重启中",
-  CRASHED: "已崩溃",
-  FATAL: "致命错误",
+  DISCONNECTED: "已断连",
+  BLOCKED: "配置错误",
   STOPPING: "停止中",
   STOPPED: "已停止",
+  SCANNED: "已扫描",
   NOT_STARTED: "未启动",
 };
 
@@ -525,12 +525,11 @@ function stateClass(p: PluginInfo): string {
   switch (p.state) {
     case "ACTIVE":
       return "ext-badge--ok";
-    case "CRASHED":
-    case "FATAL":
+    case "BLOCKED":
       return "ext-badge--err";
+    case "DISCONNECTED":
+    case "CONNECTING":
     case "REGISTERING":
-    case "LOADING":
-    case "RESTARTING":
     case "STOPPING":
       return "ext-badge--warn";
     default:
@@ -539,7 +538,7 @@ function stateClass(p: PluginInfo): string {
 }
 
 function isTransitional(state: string): boolean {
-  return ["REGISTERING", "LOADING", "RESTARTING", "STOPPING"].includes(state);
+  return ["CONNECTING", "REGISTERING", "DISCONNECTED", "STOPPING"].includes(state);
 }
 
 function modeLabel(s: SkillInfo): string {
