@@ -611,45 +611,16 @@ class TestPersistOversizedTask:
 
 
 class TestPluginLogs:
-    def test_returns_tail_lines(self, client, tmp_path, monkeypatch):
+    def test_known_plugin_returns_410(self, client, monkeypatch):
+        """Plugins are standalone now — the host no longer tees their logs."""
         ps = client.app.state.plugin_system
-        log_dir = tmp_path / "plugins"
-        log_dir.mkdir()
-        (log_dir / "search.log").write_text("line1\nline2\nline3\n", encoding="utf-8")
-        monkeypatch.setattr(
-            ps,
-            "get_log_path",
-            lambda name: (log_dir / f"{name}.log") if name == "search" else None,
-        )
-
-        resp = client.get("/api/admin/extensions/plugins/search/logs?tail=2")
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert data["lines"] == ["line2", "line3"]
-        assert data["totalLines"] == 3
-        assert data["sizeBytes"] > 0
-
-    def test_missing_log_file_returns_empty(self, client, tmp_path, monkeypatch):
-        ps = client.app.state.plugin_system
-        monkeypatch.setattr(ps, "get_log_path", lambda name: tmp_path / f"{name}.log")
+        monkeypatch.setattr(ps, "get_scan_results", lambda: {"search": None})
         resp = client.get("/api/admin/extensions/plugins/search/logs")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["lines"] == []
-        assert data["totalLines"] == 0
+        assert resp.status_code == 410
+        assert "独立部署" in resp.json()["detail"]
 
     def test_unknown_plugin_404(self, client, monkeypatch):
         ps = client.app.state.plugin_system
-        monkeypatch.setattr(ps, "get_log_path", lambda name: None)
+        monkeypatch.setattr(ps, "get_scan_results", lambda: {})
         resp = client.get("/api/admin/extensions/plugins/ghost/logs")
         assert resp.status_code == 404
-
-
-def test_plugin_system_get_log_path_whitelists_scan_results(tmp_path):
-    """get_log_path only resolves names present in the scan results — this is
-    the path-traversal guard behind the logs endpoint."""
-    from courtier.plugin import PluginSystem
-
-    ps = PluginSystem(plugins_dir=str(tmp_path), log_dir=str(tmp_path / "logs"))
-    assert ps.get_log_path("unknown") is None
-    assert ps.get_log_path("../../etc/passwd") is None

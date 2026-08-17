@@ -125,34 +125,15 @@ async def get_plugin_logs(
     tail: int = 200,
     _: dict = Depends(require_admin),
 ):
-    """读取插件运行日志（stderr tee 落盘文件）的最后 tail 行。"""
+    """插件日志：独立部署后日志归插件侧（docker logs / 进程日志），主进程不再 tee。"""
     plugin_system = request.app.state.plugin_system
-    log_path = plugin_system.get_log_path(name)
-    if log_path is None:
+    if name not in plugin_system.get_scan_results():
         raise HTTPException(404, f"插件不存在: {name}")
-
-    tail = max(1, min(tail, 2000))
-    if not log_path.exists():
-        return {
-            "name": name,
-            "lines": [],
-            "totalLines": 0,
-            "sizeBytes": 0,
-            "logPath": str(log_path),
-        }
-
-    try:
-        text = log_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        raise HTTPException(500, f"读取插件日志失败: {exc}")
-    lines = text.splitlines()
-    return {
-        "name": name,
-        "lines": lines[-tail:],
-        "totalLines": len(lines),
-        "sizeBytes": log_path.stat().st_size,
-        "logPath": str(log_path),
-    }
+    raise HTTPException(
+        410,
+        "插件已独立部署，日志请查看插件所在主机的进程/容器日志"
+        "（docker compose logs <插件服务名>）",
+    )
 
 
 # ---- Skills ------------------------------------------------------------------
