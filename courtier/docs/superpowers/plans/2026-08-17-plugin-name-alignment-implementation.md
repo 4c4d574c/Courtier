@@ -66,15 +66,15 @@
 
 **依赖:** 无。
 
-- [ ] **Step 1:** `git mv` 四个目录（audit/ 下，深度不变）。
-- [ ] **Step 2:** 四个 `plugin.yaml` 的 `name:` 改新名；四个 `pyproject.toml` 的 `[project] name` 改 `courtier-plugin-check-content` / `-check-format` / `-detect-plagiarism` / `-correct-text`；各目录 `uv lock` 重新生成（lock 内 root project name 随之更新；本地路径依赖无需网络）。
-- [ ] **Step 3:** `domain.yaml` `requires_plugins` 按新名更新。
-- [ ] **Step 4:** 两个测试文件的 `_ensure_plugin_path(...)` 与 dotted import 全量替换旧名 → 新名（`test_audit_wrapper_plugins.py` 含 format_audit/text_correction/content_audit 相关导入，`test_plagiarism_plugin.py` 含 plagiarism）。
-- [ ] **Step 5:** 回归：`uv run pytest tests/plugin/ -q` 全绿；`uv run courtier validate-domain domains/docaudit/` 通过（requires_plugins 对账即在此校验）。
+- [x] **Step 1:** `git mv` 四个目录（audit/ 下，深度不变）。
+- [x] **Step 2:** 四个 `plugin.yaml` 的 `name:` 改新名；四个 `pyproject.toml` 的 `[project] name` 改 `courtier-plugin-check-content` / `-check-format` / `-detect-plagiarism` / `-correct-text`；各目录 `uv lock` 重新生成（lock 内 root project name 随之更新；本地路径依赖无需网络）。
+- [x] **Step 3:** `domain.yaml` `requires_plugins` 按新名更新。
+- [x] **Step 4:** 两个测试文件的 `_ensure_plugin_path(...)` 与 dotted import 全量替换旧名 → 新名（`test_audit_wrapper_plugins.py` 含 format_audit/text_correction/content_audit 相关导入，`test_plagiarism_plugin.py` 含 plagiarism）。
+- [x] **Step 5:** 回归：`uv run pytest tests/plugin/ -q` 全绿；`uv run courtier validate-domain domains/docaudit/` 通过（requires_plugins 对账即在此校验）。
 
 ### Task 0.2: 部署侧验证（本地 localhost:8000）
 
-- [ ] **Step 1:** 后端重启后 `GET /health` 正常；`.agent_logs/plugins/` 出现 `check_content.log` 等新进程日志名；调用一次内容审核会话确认 check_content 工具仍可用（工具名未变，模型侧无感）。
+- [x] **Step 1:** 后端重启后 `GET /health` 正常；`.agent_logs/plugins/` 出现 `check_content.log` 等新进程日志名；调用一次内容审核会话确认 check_content 工具仍可用（工具名未变，模型侧无感）。
 
 ## Phase 1：parse + shared 三插件
 
@@ -131,6 +131,12 @@ chore(plugins): rebuild plugin venvs after rename                       # 2.2（
 
 ---
 
-## 实施记录
+## 实施记录（2026-08-17）
 
-（实施时逐 Task 填写：完成状态、与计划的偏差、实测数据。）
+Phase 0（Task 0.1 + 0.2）已完成（提交 `df4a3e0`、`5bfd262`）。偏差与实测：
+
+1. **domain.yaml 改法偏差**：原计划 Phase 0/1 各改一半 `requires_plugins`，实施时先一次写全 8 个新名导致 Phase 0 校验失败，回退为"Phase 0 只改 4 个 audit 名"——Phase 1 的 parse/template/annotate 三处仍待改。
+2. **额外修复**：全量回归暴露 `tests/agent/api/test_extension_admin.py` 的真实扫描断言（4 个旧插件名分组断言）未在计划清单中，已同步改名（`5bfd262`）。
+3. **部署侧验证（reload 生效，未重启）**：四插件新日志 `check_content.log`/`check_format.log`/`correct_text.log`/`detect_plagiarism.log` 全部出现；完整内容审核会话 593 秒完成，correct_text 工具连续成功（8000+ 字正文，无 400——此前 doccorrector 拆分重试修复同时生效）；$ref 编号继续接续（`content_audit:2`、`correct_text:2`）。
+4. **遗留小问题（新发现，未修）**：子代理调 `get_artifact(id=$ref:correct_text:2, max_chars=50000)` 对不可投影产物报错——这正是上一计划"上限回退"针对的场景，但本次会话中该 fallback 未生效（推断失败后走了严格报错而非 raw 返回），需回头复查该分支条件，单独修。
+5. **git mv 事故记录**：实施中相对路径操作导致 git 索引出现交叉配对显示，经逐项核对实际文件归属无误后提交；后续类似操作一律用绝对路径。
