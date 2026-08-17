@@ -170,33 +170,33 @@
 
 **Files:** `courtier/config.py`、`.env.example`、`manifest.py`、`scanner.py`
 
-- [ ] **Step 1:** Settings 两项 + endpoint 映射解析 + `MINIO_BUCKET_PLUGIN_IO`（格式错/缺 endpoint 的校验与日志）。
-- [ ] **Step 2:** manifest `runtime.port` 字段；`HOST_API_VERSION = "2.0"`。
-- [ ] **Step 3:** `.env.example`：加两项新配置、删纯插件变量（迁至 `plugins/plugin.env.example`，Phase 3 落地文件）。
+- [x] **Step 1:** Settings 两项 + endpoint 映射解析 + `MINIO_BUCKET_PLUGIN_IO`（格式错/缺 endpoint 的校验与日志）。
+- [x] **Step 2:** manifest `runtime.port` 字段；`HOST_API_VERSION = "2.0"`。（提前随 Task 0.1 落地）
+- [x] **Step 3:** `.env.example`：加两项新配置；纯插件变量保留至 Task 3.2（`plugins/plugin.env.example` 落地时迁入，避免中间态丢失文档）。
 
 ### Task 1.2: client/manager 重写（核心）
 
 **Files:** `courtier/plugin/client.py`、`manager.py`、`lifecycle.py`（删）、`protocol.py`、`registry.py`（仅状态引用）、`__init__.py`
 
-- [ ] **Step 1:** `protocol.py` 加 auth 常量；register params `token`。
-- [ ] **Step 2:** `JSONRPCClient` 支持 TCP：`asyncio.open_connection` 建立 reader/writer；保留 id 匹配/响应缓冲/`cancel_pending`/超时语义；断开回调统一走 read-loop EOF。
-- [ ] **Step 3:** `ProcessManager` 重写：每插件连接协程（connect→register token 校验→`plugin.auth`→host_services/runtime_context→ACTIVE→健康循环）；断线 → unregister+cancel → DISCONNECTED → 无限退避重连（1s×2ⁿ，30s 封顶）；`start()` 非阻塞；管理员 start/stop/restart（=reconnect）。
-- [ ] **Step 4:** 删除清单逐项落地（spawn/env 注入白名单/Settings fallback/stderr tee/SIGKILL/5s 熔断/`lifecycle.py`）；`PluginSystem` 门面方法（broadcast/notify_plugin/cancel_pending/get_log_path）适配或删除。
-- [ ] **Step 5:** 状态机枚举与 Prometheus 指标值更新；`BLOCKED` 路径（缺 endpoint、token 不符、api 不兼容）。
+- [x] **Step 1:** `protocol.py` 加 auth 常量；register params `token`。
+- [x] **Step 2:** `JSONRPCClient` 支持 TCP：`asyncio.open_connection` 建立 reader/writer；保留 id 匹配/响应缓冲/`cancel_pending`/超时语义；断开回调统一走 read-loop EOF。
+- [x] **Step 3:** `ProcessManager` 重写：每插件连接协程（connect→register token 校验→`plugin.auth`→host_services/runtime_context→ACTIVE→健康循环）；断线 → unregister+cancel → DISCONNECTED → 无限退避重连（1s×2ⁿ，30s 封顶）；`start()` 非阻塞；管理员 start/stop/restart（=reconnect）。
+- [x] **Step 4:** 删除清单逐项落地（spawn/env 注入白名单/Settings fallback/stderr tee/SIGKILL/5s 熔断/`lifecycle.py`）；`PluginSystem` 门面方法（broadcast/notify_plugin/cancel_pending 保留适配；get_log_path 删除）。
+- [x] **Step 5:** 状态机枚举与 Prometheus 指标值更新；`BLOCKED` 路径（缺 endpoint、token 不符、api 不兼容）。
 
 ### Task 1.3: admin API 与前端
 
 **Files:** `admin_extensions.py`、`webui/src/api/client.ts` + 相关组件
 
-- [ ] **Step 1:** logs 端点 410 + 说明；action 语义调整；状态文案。
-- [ ] **Step 2:** 前端 logs 调用处加 410 分支提示；`npm test` 与 `npm run build` 绿。
+- [x] **Step 1:** logs 端点 410 + 说明；action 语义调整；状态文案。
+- [x] **Step 2:** 前端 logs 调用处加 410 分支提示；`npm test` 与 `npm run build` 绿。
 
 ### Task 1.4: 主进程测试重写 + loopback 集成
 
 **Files:** `tests/courtier/`（manager/client/scanner 相关）、`tests/agent/api/test_extension_admin.py`
 
-- [ ] **Step 1:** spawn 时代用例删除/重写（env 注入、venv 探测、stderr、熔断全部下线）；新状态机/退避重连/鉴权失败路径单测。
-- [ ] **Step 2:** loopback 集成：fixture 插件 server（SDK serve 模式）+ 主进程连接 → register/auth → `tool.execute` → 反向 host service 调用 → 杀插件进程 → 断言 DISCONNECTED 与重连恢复。
+- [x] **Step 1:** spawn 时代用例删除/重写（env 注入、venv 探测、stderr、熔断全部下线）；新状态机/退避重连/鉴权失败路径单测。
+- [x] **Step 2:** loopback 集成：fixture 插件 server（SDK serve 模式）+ 主进程连接 → register/auth → `tool.execute` → 反向 host service 调用 → 杀插件进程 → 断言 DISCONNECTED 与重连恢复。
 
 ## Phase 2：MinIO 文件契约（主进程侧）
 
@@ -321,3 +321,14 @@ test: full regression and session acceptance                           # 4.x（�
 1. **uv 网络挂起**：SDK pyproject 新增依赖后锁文件过期，`uv run` 访问清华镜像悬空无超时——`uv lock --offline` 重建（依赖均已在缓存）后全程用 `uv run --offline`，后续任务沿用。
 2. **信号处理器泄漏**：`serve()` 在事件循环上 `add_signal_handler` 后不清理，pytest-asyncio 每测试换循环导致会话收尾挂起——改为 try/finally `remove_signal_handler`；测试夹具 teardown 加 `wait_for` 兜底防挂。
 3. **`_prepare()` 重构**：handlers/caps 收集从 `run()` 抽为幂等的 `_prepare()`，`serve()` 直调时同样生效（此前直调 `serve()` 的用例拿到空 tool.list）。
+
+**Task 1.1 完成**（`e673748`）：Settings 三项（endpoints 解析带严格校验、token、transfer bucket 名）；`.env.example` 加插件段。
+
+**Task 1.2 完成**（`4428219`，连接管理器重写）。偏差与实测：
+1. **`JSONRPCClient` 零改动复用**——鸭子类型 reader/writer 与 `asyncio.open_connection` 完全兼容，仅加 register token 捕获；印证协议/传输解耦的预判。
+2. **BLOCKED 语义细化**：缺 endpoint / register token 不符 / `plugin.auth` 被拒 → BLOCKED 终态（管理员 start 重入连接循环）；连接失败/握手异常/断线 → DISCONNECTED 无限退避重连。
+3. **删除面确认**：`record_plugin_lifecycle_restart` 指标保留在 telemetry（无调用方，无害）；`agent/runtime` 的 lifecycle 引用均为子代理/工件概念，与 PluginLifecycle 无关。
+4. **Task 1.4 测试重写并入本任务**以保持单提交绿：spawn 时代 4 个测试文件删除（manager/crash_diagnostics/resolve_env/lifecycle），test_health 适配"三连败关连接"语义，test_integration 重写为 loopback TCP 套件（真 SDK server + 真连接管理器：握手/工具往返/反向 cache.persist/断线重连/错 token BLOCKED）。
+5. **全量回归**：`pytest -m "not integration"` 1570 passed, 6 skipped。
+
+**Task 1.3 完成**（admin API `e8b30a9` + 前端 `19121e9`）：logs 端点 410；前端 `getPluginLogs` 把 410 渲染为说明性面板；插件状态徽章映射新状态机（CONNECTING/DISCONNECTED/BLOCKED），"重启次数"改"重连次数"；`npm test`/`npm run build` 绿。偏差：TestPluginManagerControls（假 `_start_one`/`_stop_one` 的 spawn 语义单测）整类删除，由 loopback 集成套件接管覆盖。
