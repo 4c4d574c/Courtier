@@ -202,21 +202,21 @@
 
 ### Task 2.1: transfer bucket provisioning
 
-- [ ] **Step 1:** `scripts/minio_plugin_io.sh`：建 bucket、建受限 service account、写 bucket policy（仅 transfer bucket Get/Put/Delete）、配 24h 生命周期；幂等；README 注释轮换步骤。
-- [ ] **Step 2:** 对 compose MinIO 实测：受限账号访问 docs bucket 被拒、transfer bucket 读写正常、过期规则生效。
+- [x] **Step 1:** `scripts/minio_plugin_io.py`（实施时从 .sh 改为 .py——MinioAdmin/policy 操作用 minio SDK 比 mc 更可靠且零额外安装）：建 bucket、建受限 service account、写 bucket policy（仅 transfer bucket Get/Put/Delete/List/GetBucketLocation）、配 24h 生命周期；幂等；轮换步骤写入 docstring。
+- [x] **Step 2:** 对 compose MinIO 实测：受限账号访问 docs bucket 被拒、transfer bucket 读写正常、过期规则生效。
 
 ### Task 2.2: ProxyTool 改写 + `storage.presign_get`
 
 **Files:** `proxies.py`、`manager.py`（host service 新增方法）、`protocol.py`
 
-- [ ] **Step 1:** `file-ref` 参数改写：upload dir 内 resolve 校验 fail-closed → key 约定 PUT（存在性检查当缓存）→ `minio://` 引用；非标记参数不动。
-- [ ] **Step 2:** `storage.presign_get(bucket, key, expires?)`：bucket 白名单（仅 transfer bucket）→ 签 presigned GET；权限声明沿用 host_services/permissions 体系（`storage` + `read:storage`）。
-- [ ] **Step 3:** 单测：标记参数路径→`minio://`、目录外报错、重复派发不重复 PUT、presign_get 拒绝非 transfer bucket。
+- [x] **Step 1:** `file-ref` 参数改写：upload dir 内 resolve 校验 fail-closed → key 约定 PUT（存在性检查当缓存）→ `minio://` 引用；非标记参数不动。
+- [x] **Step 2:** `storage.presign_get(bucket, key, expires?)`：bucket 白名单（仅 transfer bucket）→ 签 presigned GET；权限声明沿用 host_services/permissions 体系（`storage` + `read:storage`，manifest KNOWN_PERMISSIONS 新增后者）。
+- [x] **Step 3:** 单测：标记参数路径→`minio://`、目录外报错、重复派发不重复 PUT、presign_get 拒绝非 transfer bucket。
 
 ### Task 2.3: 端到端集成（compose MinIO，标 integration）
 
-- [ ] **Step 1:** 上传文件 → 主进程派发 `convert_document(file_path)` → 插件 `resolve_file` 从 MinIO 下载 → 返回 Markdown 全文链路。
-- [ ] **Step 2:** annotate `put_file` 输出 → 主进程收 `minio://` 引用 → `storage.presign_get` → URL 可下载且内容一致。
+- [x] **Step 1:** 上传文件 → 主进程派发 → ProxyTool 改写 `minio://` → 插件 `resolve_file` 从 MinIO 下载 → 内容一致（真实 MinIO + 真 SDK server + 真连接管理器，`test_minio_file_transfer.py`）。
+- [x] **Step 2:** 插件 `put_file` 输出 → 主进程收 `minio://` 引用 → `storage.presign_get` → presigned URL HTTP GET 字节级一致。
 
 ## Phase 3：部署制品与开发体验
 
@@ -332,3 +332,9 @@ test: full regression and session acceptance                           # 4.x（�
 5. **全量回归**：`pytest -m "not integration"` 1570 passed, 6 skipped。
 
 **Task 1.3 完成**（admin API `e8b30a9` + 前端 `19121e9`）：logs 端点 410；前端 `getPluginLogs` 把 410 渲染为说明性面板；插件状态徽章映射新状态机（CONNECTING/DISCONNECTED/BLOCKED），"重启次数"改"重连次数"；`npm test`/`npm run build` 绿。偏差：TestPluginManagerControls（假 `_start_one`/`_stop_one` 的 spawn 语义单测）整类删除，由 loopback 集成套件接管覆盖。
+
+**Task 2.2 完成**（`e4db4fb`）：ProxyTool 派发边界改写（fail-closed 沙箱 + 内容寻址 key + 存在性缓存）；`storage.presign_get` host service（bucket 白名单 + key 防穿越 + `read:storage` 新权限）；`storage.fput_object` 流式上传。偏差：annotate 的 `source` 二态参数（base64 或路径）以 base64 字符集判别直通，纯 base64 表单的"无扩展名裸文件名"边界情形会误判直通——契约要求绝对路径，可接受。
+
+**Task 2.1 完成**（`fe20057`）：provisioning 脚本落地为 `scripts/minio_plugin_io.py`（计划写的是 .sh/mc——MinioAdmin 需要 root 凭据与 policy JSON 文件，Python SDK 更可靠且宿主已带 minio 依赖）。对运行中的 compose MinIO 实测通过：transfer bucket 可写、docs bucket 被拒、24h 生命周期生效。排障记录：policy 需含 `s3:GetBucketLocation`（minio SDK 每次操作前先取 region）；`list_objects` 惰性需强制迭代才算真验证。
+
+**Task 2.3 完成**（`b5b3661`）：`test_minio_file_transfer.py`（标 integration）双用例对真实栈全绿——输入改写下载一致、输出直传 + 主进程签名 URL 字节级一致。
