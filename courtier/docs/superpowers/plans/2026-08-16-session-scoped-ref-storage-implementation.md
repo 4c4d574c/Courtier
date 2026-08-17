@@ -162,11 +162,16 @@
 
 ---
 
-## Phase 2：集成验收
+## Phase 2：集成验收（2026-08-17 本地部署 localhost:8000 实测）
 
-- [ ] **Step 1:** 集成测试（`pytest.mark.integration`，需 ES）：两个不同 session_id 的 store 各持久化同号大结果 → 各自 `read` 读回自己的数据；`_ensure_index` 后索引 mapping 含 `session_id` keyword。
-- [ ] **Step 2:** 日志烟测（部署后真实会话）：新会话首个 search_documents 结果 `result_id` 为 `$ref:search_documents:1`；同一会话第二次请求后编号从快照接续（非重启回 1）。
-- [ ] **Step 3:** 确认 ES 索引中旧文档不再被任何查询命中（无兼容要求，符合预期即可）。
+- [x] **Step 1:** ES 实测：已存在的 legacy 索引经 `put_mapping` 回填 `session_id` keyword 成功；新会话文档 `_id` 为复合键（实测 `sess_3cfae5b2ff0a#$ref:parse_document:1`、`sess_3cfae5b2ff0a#$ref:content_audit:1`，均带 `session_id` 字段）。fake-client 层面的隔离断言已在单测覆盖。
+- [x] **Step 2:** 日志烟测（真实会话 ×3 轮）：
+  - 第 1 轮（上传请示文档跑内容审核）：`parse_document:1`、`content_audit:1` —— **新会话编号从 1 开始**；磁盘缓存落 `uploads/.cache/sess_3cfae5b2ff0a/`（`parse_document_1_*.json`、`content_audit_1_*.txt`）；
+  - 第 2 轮（续接，触发 check_content，小结果未持久化，无新 ref）；
+  - 第 3 轮（续接，强制再次 content_audit）：`content_audit:2` —— **编号经 artifact 快照跨请求接续**，未回 1。
+- [x] **Step 3:** 旧文档（无 session_id 的 `_id`=ref 文档）不再被任何读取路径命中：`_get` 走复合键、`_search` 带 session_id 过滤，实测同 ref 他会话读取返回 not found（单测 `test_read_only_hits_own_session` + 实测第 3 轮读回自己的 content_audit:2）。
+
+**烟测中发现的回归（已修复，`247cdbd`）**：上一轮给 CEC 调用加的 `max_tokens=self.max_length`(16383) 在真实端点（上下文 8192）上导致 correct_text 全部 400（prompt 4225 + completion 16384 > 8192）。修复：调用不再传 `max_tokens`；截断守卫升级为**拆分重试**——批次输出截断或 prompt 超长时在段落/句读边界对半拆分重试（下限 200 字、深度 4），拆分对无分隔符拼接保证文本逐字节重组，拆不动才 identity 回退并 warning。真实端点验证：6356 字输入不再报错，拆分重试后 87 条纠错、errors/target 一致，仅 2 个 390 字小批低于下限按原文保留并披露。**注意：部署进程需重启（插件子进程随宿主常驻）后该修复才在线上生效。**
 
 ---
 
