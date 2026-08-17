@@ -55,8 +55,8 @@
 
 **依赖:** 无。
 
-- [ ] **Step 1:** `RESULT_INDEX_MAPPING` 增 `"session_id": {"type": "keyword"}`；删除 `tool`/`seq` 两个属性（新索引不再声明；已有索引遗留字段无害，不处理）。
-- [ ] **Step 2:** 构造器接收会话 id：
+- [x] **Step 1:** `RESULT_INDEX_MAPPING` 增 `"session_id": {"type": "keyword"}`；删除 `tool`/`seq` 两个属性（新索引不再声明；已有索引遗留字段无害，不处理）。
+- [x] **Step 2:** 构造器接收会话 id：
 
   ```python
   def __init__(self, index_name: str | None = None, session_id: str = "") -> None:
@@ -64,9 +64,9 @@
       self._session_id = session_id
   ```
 
-- [ ] **Step 3:** `store()` 改为会话隔离写入：`body["session_id"] = self._session_id`；`_id = f"{self._session_id}#{result_id}"`（session_id 为空时 `_id = result_id`，维持无会话场景）；删除 `tool`/`seq` 字段写入与 `_seq_seed_cache` 更新块；`op_type=create` 保留（现在约束的是会话内唯一性——同一会话并发请求撞号仍要响亮失败）。
-- [ ] **Step 4:** `_get`/`_search` 按会话过滤：`_get` 直接用复合 `_id`（session_id 为空时用原 result_id）；`_search` 的 bool 查询改为 `must: [term result_id, term session_id]`（session_id 为空时只保留 result_id 条件）。
-- [ ] **Step 5:** `_ensure_index` 对已存在索引补字段（幂等）：
+- [x] **Step 3:** `store()` 改为会话隔离写入：`body["session_id"] = self._session_id`；`_id = f"{self._session_id}#{result_id}"`（session_id 为空时 `_id = result_id`，维持无会话场景）；删除 `tool`/`seq` 字段写入与 `_seq_seed_cache` 更新块；`op_type=create` 保留（现在约束的是会话内唯一性——同一会话并发请求撞号仍要响亮失败）。
+- [x] **Step 4:** `_get`/`_search` 按会话过滤：`_get` 直接用复合 `_id`（session_id 为空时用原 result_id）；`_search` 的 bool 查询改为 `must: [term result_id, term session_id]`（session_id 为空时只保留 result_id 条件）。
+- [x] **Step 5:** `_ensure_index` 对已存在索引补字段（幂等）：
 
   ```python
   try:
@@ -84,8 +84,8 @@
           logger.warning("Could not create ES result index: %s", exc)
   ```
 
-- [ ] **Step 6:** 删除 `max_ref_sequences`、模块级 `_seq_seed_cache` 与 `_SEQ_SEED_TTL_SECONDS`、`_REF_ID_RE`（删除后 es_backend 内无使用点）。
-- [ ] **Step 7:** 重写 `test_es_ref_collision.py`（fake client 沿用现有 `_fake_es_client` 模式，去掉聚合 mock）：
+- [x] **Step 6:** 删除 `max_ref_sequences`、模块级 `_seq_seed_cache` 与 `_SEQ_SEED_TTL_SECONDS`、`_REF_ID_RE`（删除后 es_backend 内无使用点）。
+- [x] **Step 7:** 重写 `test_es_ref_collision.py`（fake client 沿用现有 `_fake_es_client` 模式，去掉聚合 mock）：
   - (a) 写入断言：`_id == f"{sid}#{ref}"`、body 含 `session_id` 且不含 `tool`/`seq`；
   - (b) 两个 backend（不同 session_id）各写 `$ref:search_documents:1` → 两个文档并存互不覆盖；
   - (c) 同一 backend 二次写同一 ref → 抛冲突（create 语义）；
@@ -100,7 +100,7 @@
 
 **依赖:** 无（与 Task 0.1 同批合入）。
 
-- [ ] **Step 1:** `_PersistenceBackend.__init__` 增 `session_id: str = ""`：
+- [x] **Step 1:** `_PersistenceBackend.__init__` 增 `session_id: str = ""`：
 
   ```python
   self._cache_dir = Path(cache_dir) / session_id if session_id else Path(cache_dir)
@@ -108,10 +108,10 @@
   ```
 
   hash dedup 索引随会话目录落盘，天然会话级去重（同内容跨会话不再共享缓存文件——语义更干净）。
-- [ ] **Step 2:** `ArtifactStore.__init__(..., session_id: str = "")` 透传 `backend_kwargs["session_id"]`；`ArtifactStore.restore(cls, snapshot, cache_dir, session_id="")` 构造时传入（快照 `ref_map` 是绝对路径，恢复不受目录变化影响；新写入落会话子目录）。
-- [ ] **Step 3:** `agent_service._build_artifact_store(settings, existing_store, session_id="")`：构造 `ElasticsearchResultBackend(index_name=settings.es_index_results, session_id=session_id)` 与 `ArtifactStore(cache_dir=..., session_id=session_id)`；`build_agent` 内 `store = _build_artifact_store(settings, None)`（line 169）改为传 `session_id=session_id`。
-- [ ] **Step 4:** `stream_service._prepare_artifact_store_for_session(..., session_id="")`：兜底 `ArtifactStore()` 改为 `ArtifactStore(session_id=session_id)`；`generate_sse_stream` 调用处传入（函数已有 `session_id` 参数）。
-- [ ] **Step 5:** 单测：带 session_id 的 store persist 后文件位于 `<cache_dir>/<session_id>/` 下且 `ref_map` 指向该目录；两个不同 session_id 的 store 各写同号 ref，文件互不覆盖；不带 session_id（默认）目录行为回归不变。
+- [x] **Step 2:** `ArtifactStore.__init__(..., session_id: str = "")` 透传 `backend_kwargs["session_id"]`；`ArtifactStore.restore(cls, snapshot, cache_dir, session_id="")` 构造时传入（快照 `ref_map` 是绝对路径，恢复不受目录变化影响；新写入落会话子目录）。
+- [x] **Step 3:** `agent_service._build_artifact_store(settings, existing_store, session_id="")`：构造 `ElasticsearchResultBackend(index_name=settings.es_index_results, session_id=session_id)` 与 `ArtifactStore(cache_dir=..., session_id=session_id)`；`build_agent` 内 `store = _build_artifact_store(settings, None)`（line 169）改为传 `session_id=session_id`。
+- [x] **Step 4:** `stream_service._prepare_artifact_store_for_session(..., session_id="")`：兜底 `ArtifactStore()` 改为 `ArtifactStore(session_id=session_id)`；`generate_sse_stream` 调用处传入（函数已有 `session_id` 参数）。
+- [x] **Step 5:** 单测：带 session_id 的 store persist 后文件位于 `<cache_dir>/<session_id>/` 下且 `ref_map` 指向该目录；两个不同 session_id 的 store 各写同号 ref，文件互不覆盖；不带 session_id（默认）目录行为回归不变。
 
 **验收:** 新增单测全绿；`tests/agent/test_cache_store.py` 现有用例（默认无 session_id）全绿。
 
@@ -125,9 +125,9 @@
 
 **依赖:** Phase 0（复合 `_id` 落地后，会话内从 1 编号才不会在 ES 撞号）。
 
-- [ ] **Step 1:** 删除模块级 `_SHARED_REF_COUNTERS`（`cache_store.py:42`）与 `_next_ref_id` 中的 floor 逻辑，只保留 per-store `self.ref_counters` 递增；删除 `seed_ref_counters` 方法。
-- [ ] **Step 2:** `ArtifactStore.__init__` 删除 seed 调用（`store.py:79-84` 整段）。
-- [ ] **Step 3:** `persist` 发号段持锁（`self._lock` 是每 store 的 asyncio.Lock，`persist` 本身 async）：
+- [x] **Step 1:** 删除模块级 `_SHARED_REF_COUNTERS`（`cache_store.py:42`）与 `_next_ref_id` 中的 floor 逻辑，只保留 per-store `self.ref_counters` 递增；删除 `seed_ref_counters` 方法。
+- [x] **Step 2:** `ArtifactStore.__init__` 删除 seed 调用（`store.py:79-84` 整段）。
+- [x] **Step 3:** `persist` 发号段持锁（`self._lock` 是每 store 的 asyncio.Lock，`persist` 本身 async）：
 
   ```python
   async with self._lock:
@@ -135,11 +135,11 @@
   ```
 
   同一会话并发请求共用同一 store（经快照恢复后共享上下文），此锁消除会话内撞号。
-- [ ] **Step 4:** 编号入快照（解决"每请求重建 store"的连续性）：
+- [x] **Step 4:** 编号入快照（解决"每请求重建 store"的连续性）：
   - `snapshot()` 返回 dict 增 `"ref_counters": dict(self.ref_counters)`；
   - `SNAPSHOT_VERSION` 1→2；
   - `load_snapshot()` 恢复：`self._backend.ref_counters.update(snapshot.get("ref_counters") or {})`（快照是会话权威状态，直接合并即可）。
-- [ ] **Step 5:** 单测（`tests/courtier/test_session_scoped_refs.py`）：
+- [x] **Step 5:** 单测（`tests/courtier/test_session_scoped_refs.py`）：
   - (a) 两个 store（session_id A/B）同一工具首次 persist 各得 `$ref:<tool>:1`；
   - (b) 快照 round-trip 后编号接续：persist 得 :1 → snapshot → 新 store load_snapshot → persist 得 :2；
   - (c) 同一 store 并发 persist（`asyncio.gather` 50 次）编号无重复；
@@ -153,10 +153,10 @@
 
 **依赖:** Task 1.1。
 
-- [ ] **Step 1:** 删除所有 `_cs._SHARED_REF_COUNTERS.clear()` fixture 与调用（已知 6 处文件：test_cache_store、test_registry、test_context_manager、test_es_ref_collision、test_get_artifact、test_get_artifact_defense；实施时以 grep 全量为准）。
-- [ ] **Step 2:** 依赖"跨 store 编号递增"语义的用例改为：显式传 session_id 的两个 store 各自独立编号断言，或快照 round-trip 接续断言。
-- [ ] **Step 3:** 涉及 `ElasticsearchResultBackend(` 构造的测试补 session_id 参数（不传时行为兼容，但按新语义补上更贴合生产路径）。
-- [ ] **Step 4:** 全量回归并修正失败用例。
+- [x] **Step 1:** 删除所有 `_cs._SHARED_REF_COUNTERS.clear()` fixture 与调用（已知 6 处文件：test_cache_store、test_registry、test_context_manager、test_es_ref_collision、test_get_artifact、test_get_artifact_defense；实施时以 grep 全量为准）。
+- [x] **Step 2:** 依赖"跨 store 编号递增"语义的用例改为：显式传 session_id 的两个 store 各自独立编号断言，或快照 round-trip 接续断言。
+- [x] **Step 3:** 涉及 `ElasticsearchResultBackend(` 构造的测试补 session_id 参数（不传时行为兼容，但按新语义补上更贴合生产路径）。
+- [x] **Step 4:** 全量回归并修正失败用例。
 
 **验收:** `uv run pytest -m "not integration"` 全绿。
 
@@ -196,6 +196,12 @@ test(storage): session-scoped ref isolation coverage                   # 1.2
 
 ---
 
-## 实施记录
+## 实施记录（2026-08-16）
 
-（实施时逐 Task 填写：完成状态、与计划的偏差、实测数据。）
+Phase 0 + Phase 1 已完成（提交 `9ef0186`、`e80ff20`，含代码与测试；提交切分偏差见下）。与原计划的偏差：
+
+1. **提交切分**：计划按 Task 0.1/0.2 分两笔提交，实际 `cache_store.py`/`store.py`/两个 service 同时承载两个 Task 的改动且文件重叠，合并为一笔功能提交（`9ef0186`，message 同时覆盖 ES 隔离与会话目录），测试单独一笔（`e80ff20`）。
+2. **Task 1.1 提前并入**：删除 `_SHARED_REF_COUNTERS` 时 `seed_ref_counters` 尚有快照恢复用途，故方法保留但语义改写为「快照恢复合并会话已发编号」（原计划是删除该方法）；发号段持锁、`SNAPSHOT_VERSION` 1→2、`ref_counters` 入快照按计划落地。Phase 1 的代码改动因此与 Phase 0 同批完成。
+3. **测试适配范围**：`_SHARED_REF_COUNTERS` fixture 清理涉及 7 个测试文件（计划列了 6 个，`tests/agent/artifacts/test_store_snapshot.py` 实际也引用）；全部脚本化删除，无语义改动。快照测试新增 `ref_counters` 字段断言（版本 2）。
+4. **回归**：`uv run pytest -m "not integration"` → 1604 passed, 6 skipped, 22 deselected；`validate-domain` 通过。新增/重写测试 11 个（ES 会话隔离 5 + 每会话编号 5 + 快照计数器 1）。
+5. **Phase 2 未执行**：集成测试（需 ES）与部署后日志烟测留待部署验证——预期新会话首个持久化结果 `result_id` 为 `$ref:<tool>:1`，同会话续接经快照接续编号。
