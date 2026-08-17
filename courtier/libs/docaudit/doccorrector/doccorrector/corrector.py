@@ -33,11 +33,31 @@ PROMPT_PREFIX: str = (
 # 合法叠词（不受配置影响）
 _DEFAULT_ALLOWED_PATTERNS: set[str] = {"看一看", "想一想", "试一试", "人人", "一一"}
 
-# 输出完整性守卫：模型输出低于输入批次的该比例视为截断/异常，该批回退为原文。
+# 输出完整性守卫：模型输出低于输入批次的该比例视为截断/异常，触发拆分重试。
 # 纠错器不应大幅缩短文本——若 diff 把未输出内容全部标为删除，会静默丢文本。
 _MIN_OUTPUT_RATIO: float = 0.5
 # 批次过短时不做守卫（几十字的输入输出比例无意义）。
 _MIN_BATCH_CHARS_FOR_GUARD: int = 50
+# 拆分重试：批次输出截断或 prompt 超长时对半拆，直到不可再拆。
+_MAX_SPLIT_DEPTH: int = 4
+_SPLIT_FLOOR_CHARS: int = 200
+
+
+def _split_batch(batch: str) -> tuple[str, str]:
+    """在批次中点附近找边界切成两半。
+
+    优先换行边界，其次句读边界（。；），都不存在时按字符中点硬切。
+    """
+    mid = len(batch) // 2
+    lower_bound = len(batch) // 4
+    newline = batch.rfind("\n", 0, mid)
+    if newline > lower_bound:
+        return batch[:newline], batch[newline + 1 :]
+    for sep in ("。", "；", "，"):
+        idx = batch.rfind(sep, 0, mid)
+        if idx > lower_bound:
+            return batch[: idx + 1], batch[idx + 1 :]
+    return batch[:mid], batch[mid:]
 
 logger = logging.getLogger(__name__)
 
@@ -597,6 +617,78 @@ class OpenAITextCorrectInfer:
 
         return batches
 
+    def _call_cec(self, batch: str) -> str:
+        """调用 CEC 模型纠错一个批次，返回原始输出文本。
+
+        不传 max_tokens：各端点上下文上限不一（有 8K 有 16K），显式传大值
+        会让 prompt+max_tokens 直接超限返回 400；输出截断由调用方的
+        比例守卫 + 拆分重试兜底。
+        """
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": PROMPT_PREFIX + batch}],
+            temperature=0.6,
+            top_p=0.95,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        text = response.choices[0].message.content
+        return text.strip() if text else ""
+
+    def _infer_batch(
+        self,
+        batch: str,
+        depth: int = 0,
+    ) -> tuple[str, list[str]]:
+        """纠错单个批次，返回 (纠错后文本, warnings)。
+
+        输出截断或 prompt 超长时对半拆分重试，拆分对原样拼接（不加
+        分隔符——批次原本就是连续文本）；拆到下限仍失败才按原文保留
+        （identity 兜底），保证任何端点上下文规模下都尽量完成纠错。
+        """
+        batch_chars = len(batch.strip())
+        splittable = depth < _MAX_SPLIT_DEPTH and batch_chars >= _SPLIT_FLOOR_CHARS * 2
+
+        try:
+            corrected = self._call_cec(batch)
+        except Exception as exc:
+            # prompt 超过端点上下文（400 maximum context length）：拆小重试
+            if "maximum context length" in str(exc) and splittable:
+                left, right = _split_batch(batch)
+                left_text, w1 = self._infer_batch(left, depth + 1)
+                right_text, w2 = self._infer_batch(right, depth + 1)
+                return left_text + right_text, w1 + w2
+            raise
+
+        # 输出完整性守卫：纠错器不应大幅缩短文本。模型输出远短于输入
+        # 批次时（输出被服务端截断），diff 会把其余内容全部标记为删除。
+        truncated = (
+            batch_chars >= _MIN_BATCH_CHARS_FOR_GUARD
+            and len(corrected) < batch_chars * _MIN_OUTPUT_RATIO
+        )
+        if truncated and splittable:
+            logger.info(
+                "CEC 模型输出疑似截断（输入 %d 字，输出 %d 字），拆分重试",
+                batch_chars,
+                len(corrected),
+            )
+            left, right = _split_batch(batch)
+            left_text, w1 = self._infer_batch(left, depth + 1)
+            right_text, w2 = self._infer_batch(right, depth + 1)
+            return left_text + right_text, w1 + w2
+        if truncated:
+            logger.warning(
+                "CEC 模型输出疑似截断：输入 %d 字，输出 %d 字，该批按原文保留",
+                batch_chars,
+                len(corrected),
+            )
+            warnings = [
+                f"纠错模型输出疑似截断（输出 {len(corrected)} 字 < 输入 "
+                f"{batch_chars} 字的 {_MIN_OUTPUT_RATIO:.0%}）且已不可再拆，"
+                "该批次已按原文保留、未做模型纠错（规则类检查仍生效）。"
+            ]
+            return batch, warnings
+        return corrected, []
+
     def infer(self, input_list: list[str]) -> list[dict]:
         """返回 [{text, warnings}]——text 为纠错后文本，warnings 为批次级异常提示。"""
         results: list[dict] = []
@@ -605,37 +697,9 @@ class OpenAITextCorrectInfer:
             batch_results: list[str] = []
             warnings: list[str] = []
             for batch in batches:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": PROMPT_PREFIX + batch}],
-                    temperature=0.6,
-                    top_p=0.95,
-                    max_tokens=self.max_length,
-                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-                )
-                text = response.choices[0].message.content
-                out = text.strip() if text else ""
-                # 输出完整性守卫：纠错器不应大幅缩短文本。模型输出远短于
-                # 输入批次时（如输出长度被服务端截断），diff 会把其余内容
-                # 全部标记为删除——宁可不纠错，也不能静默丢文本。
-                batch_chars = len(batch.strip())
-                if (
-                    batch_chars >= _MIN_BATCH_CHARS_FOR_GUARD
-                    and len(out) < batch_chars * _MIN_OUTPUT_RATIO
-                ):
-                    logger.warning(
-                        "CEC 模型输出疑似截断：输入 %d 字，输出 %d 字，该批按原文保留",
-                        batch_chars,
-                        len(out),
-                    )
-                    warnings.append(
-                        f"纠错模型输出疑似截断（输出 {len(out)} 字 < 输入 "
-                        f"{batch_chars} 字的 {_MIN_OUTPUT_RATIO:.0%}），"
-                        "该批次已按原文保留、未做模型纠错（规则类检查仍生效）。"
-                    )
-                    batch_results.append(batch)
-                else:
-                    batch_results.append(out)
+                text, batch_warnings = self._infer_batch(batch)
+                batch_results.append(text)
+                warnings.extend(batch_warnings)
             results.append({"text": "\n".join(batch_results), "warnings": warnings})
         return results
 

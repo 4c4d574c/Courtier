@@ -9,6 +9,7 @@
 from unittest.mock import MagicMock, patch
 
 from doccorrector.corrector import (
+    PROMPT_PREFIX,
     ErrorCorrect,
     OpenAITextCorrectInfer,
     _apply_errors,
@@ -227,3 +228,106 @@ def test_no_warnings_field_when_clean():
     corrector = _make_corrector(["原文"])
     [result] = corrector.infer(["原文"])
     assert "warnings" not in result
+
+
+# ── 拆分重试（2026-08-17 部署烟测发现 max_tokens 回归后升级）──
+
+
+def test_cec_call_omits_max_tokens():
+    """max_tokens 不得显式传大值：端点上下文（如 8192）小于配置的
+    max_length 时，prompt+max_tokens 直接 400（部署日志 sess_3cfae5b2ff0a）。"""
+    from doccorrector.corrector import OpenAITextCorrectInfer
+
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    captured = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return _fake_cec_response("收到")
+
+    with patch.object(
+        inferencer.client.chat.completions, "create", side_effect=fake_create
+    ):
+        inferencer.infer(["随便一句"])
+    assert "max_tokens" not in captured
+
+
+def test_truncated_batch_splits_and_retries():
+    """整批输出截断 → 对半拆分重试 → 拆后正常纠错（不回退原文）。"""
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    big = "句子内容五六七八九十。" * 54  # 594 字；对半 297 字 ≤ 截断阈值 300
+    assert len(big) >= 400
+
+    def fake_create(**kwargs):
+        content = kwargs["messages"][0]["content"]
+        batch = content[len(PROMPT_PREFIX) :]
+        if len(batch) > 300:  # 大批 → 截断输出
+            return _fake_cec_response("截断")
+        return _fake_cec_response(batch)  # 小批 → 正常返回
+
+    with patch.object(
+        inferencer.client.chat.completions, "create", side_effect=fake_create
+    ):
+        [res] = inferencer.infer([big])
+    assert res["text"] == big  # 拆分后全部纠错成功（恒等纠错）
+    assert res["warnings"] == []
+
+
+def test_prompt_too_long_400_splits():
+    """prompt 超端点上下文（400 maximum context length）→ 拆分重试成功。"""
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    big = "第一段落内容。" * 80  # ~480 字
+
+    def fake_create(**kwargs):
+        content = kwargs["messages"][0]["content"]
+        batch = content[len(PROMPT_PREFIX):]
+        if len(batch) > 300:
+            raise Exception(
+                "Error code: 400 - This model's maximum context length is 8192 tokens"
+            )
+        return _fake_cec_response(batch)
+
+    with patch.object(
+        inferencer.client.chat.completions, "create", side_effect=fake_create
+    ):
+        [res] = inferencer.infer([big])
+    assert res["text"] == big
+    assert res["warnings"] == []
+
+
+def test_split_floor_falls_back_to_identity():
+    """批次已到拆分下限仍截断 → identity 兜底 + warning。"""
+    inferencer = OpenAITextCorrectInfer(
+        api_base="http://127.0.0.1:1", api_key="k", model_name="m"
+    )
+    # _split_text_by_paragraphs 会按段落合并；构造多个短段使批次 ≥400 字
+    # 但每半 < 200 字不可再拆 → 直接拆一次后两半均 < 守卫下限?
+    # 更直接：单段 450 字（拆一次后两半 ~225 字 > 200 仍守卫，
+    # 但拆分深度内继续拆到 <200*2 停）——用恒截断输出验证最终 identity。
+    batch = "字" * 450
+    with patch.object(
+        inferencer.client.chat.completions,
+        "create",
+        return_value=_fake_cec_response("短"),
+    ):
+        [res] = inferencer.infer([batch])
+    assert res["text"] == batch  # 拆到下限仍截断 → 原文保留
+    assert len(res["warnings"]) >= 1
+    assert "不可再拆" in res["warnings"][0]
+
+
+def test_split_batch_prefers_boundaries():
+    from doccorrector.corrector import _split_batch
+
+    a, b = _split_batch("甲乙丙丁。\n戊己庚辛。\n壬癸。\n" * 10)
+    assert (a + b).count("。") == ("甲乙丙丁。\n戊己庚辛。\n壬癸。\n" * 10).count("。")
+    assert a.endswith("\n") or a.endswith("。") or a.endswith("，")
+    # 无任何边界的纯字串 → 字符中点硬切，长度守恒
+    a, b = _split_batch("字" * 101)
+    assert len(a) + len(b) == 101
