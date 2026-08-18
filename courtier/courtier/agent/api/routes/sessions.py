@@ -186,22 +186,32 @@ async def handle_sessions(
         # it must not be derived from history (compaction drops the evidence).
         active_domains = tuple(existing.active_domains or [])
 
-        # Record the new turn boundary so historical sessions render
-        # each turn with the correct user message and step grouping.
-        await session_store.add_turn(sessionId, task, file_name=edited_turn_file_name)
-
         # A file uploaded in THIS turn supersedes the session's original
         # file; without it the continuation would silently ignore the new
-        # upload (chat continuation has no file_path at all).
+        # upload (chat continuation has no file_path at all).  For
+        # edit-resend the client re-sends the edited turn's original fileId,
+        # which also rolls a later turn's supersession back to that file.
         effective_file_id = fileId or existing.file_id
-        if fileId and fileId != existing.file_id:
+        turn_file_name = edited_turn_file_name
+        if fileId:
             file_store = request.app.state.file_store
             file_info = await file_store.resolve(fileId)
-            await session_store.update(
-                sessionId,
-                file_id=fileId,
-                file_name=(file_info.original_name if file_info else ""),
-            )
+            if fileId != existing.file_id:
+                await session_store.update(
+                    sessionId,
+                    file_id=fileId,
+                    file_name=(file_info.original_name if file_info else ""),
+                )
+            if turn_file_name is None:
+                turn_file_name = file_info.original_name if file_info else None
+
+        # Record the new turn boundary so historical sessions render
+        # each turn with the correct user message and step grouping.  The
+        # turn entry carries the upload reference so restored sessions keep
+        # the file chip (and can re-send it on a later edit).
+        await session_store.add_turn(
+            sessionId, task, file_name=turn_file_name, file_id=fileId
+        )
 
         is_new = False
     else:

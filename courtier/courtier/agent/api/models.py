@@ -372,6 +372,7 @@ class SessionRecord:
                         "text": msg.get("text", ""),
                         "timestamp": msg.get("timestamp", self.created_at),
                         "fileName": msg.get("fileName"),
+                        "fileId": msg.get("fileId"),
                     },
                     "steps": [self._step_dict(s) for s in self.steps[start_idx:end_idx]],
                     "conclusion": turn_conclusion,

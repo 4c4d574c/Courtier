@@ -61,7 +61,14 @@ class SessionStore:
             status=status,  # type: ignore[arg-type]
             created_at=now,
             owner=owner,
-            turn_messages=[{"text": task, "timestamp": now, "fileName": file_name or None}],
+            turn_messages=[
+                {
+                    "text": task,
+                    "timestamp": now,
+                    "fileName": file_name or None,
+                    "fileId": file_id or None,
+                }
+            ],
             turn_step_starts=[0],
             turn_conclusions=[],
         )
@@ -260,11 +267,19 @@ class SessionStore:
         async with self._persist_lock:
             await self._persist(session)
 
-    async def add_turn(self, session_id: str, task: str, file_name: str | None = None) -> None:
+    async def add_turn(
+        self,
+        session_id: str,
+        task: str,
+        file_name: str | None = None,
+        file_id: str | None = None,
+    ) -> None:
         """Record a new turn boundary for multi-turn continuation.
 
-        ``file_name`` keeps the display chip when a turn is re-registered
-        after an edit-truncation (the original turn carried an upload).
+        ``file_name``/``file_id`` keep the upload association when a turn is
+        re-registered after an edit-truncation (the original turn carried an
+        upload), and let a restored session re-send the exact file reference
+        on a later edit.
         """
         import time as _time
 
@@ -281,7 +296,14 @@ class SessionStore:
             session = replace(
                 session,
                 turn_messages=session.turn_messages
-                + [{"text": task, "timestamp": _time.time(), "fileName": file_name}],
+                + [
+                    {
+                        "text": task,
+                        "timestamp": _time.time(),
+                        "fileName": file_name,
+                        "fileId": file_id,
+                    }
+                ],
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
                 turn_artifact_snapshots=snapshots,
             )

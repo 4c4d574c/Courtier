@@ -474,7 +474,7 @@ class TestEditTurnRoute:
 
     @pytest.mark.asyncio
     async def test_edit_keeps_original_file_chip(self, app_client):
-        _app, client = app_client
+        app, client = app_client
         upload = await client.post(
             "/api/files",
             files={"file": ("报告.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "image/png")},
@@ -484,11 +484,19 @@ class TestEditTurnRoute:
         await _run_turn(client, task="审计这份文件", fileId=file_id)
         sid = (await client.get("/api/sessions")).json()[0]["id"]
 
-        await _run_turn(client, task="重新审计", sessionId=sid, editTurn=0)
+        detail = (await client.get(f"/api/sessions/{sid}")).json()
+        assert detail["turns"][0]["message"]["fileId"] == file_id
+
+        # Edit-resend without re-uploading: the client re-sends the original
+        # fileId so the reference survives truncation.
+        await _run_turn(client, task="重新审计", sessionId=sid, editTurn=0, fileId=file_id)
 
         detail = (await client.get(f"/api/sessions/{sid}")).json()
         assert len(detail["turns"]) == 1
         assert detail["turns"][0]["message"]["fileName"] == "报告.png"
+        assert detail["turns"][0]["message"]["fileId"] == file_id
+        record = await app.state.session_store.get(sid)
+        assert record.file_id == file_id
 
     @pytest.mark.asyncio
     async def test_edit_turn_requires_session(self, app_client):
