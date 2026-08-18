@@ -248,6 +248,89 @@ async def _make_stored_session(store: SessionStore, owner: str = "admin") -> str
     return session.id
 
 
+class TestArtifactSnapshotHistory:
+    @pytest.mark.asyncio
+    async def test_add_turn_records_snapshot_at_turn_start(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        session_id = "sess_" + "c" * 12
+        await store.create(session_id, task="t0", file_id="", owner="admin")
+        # Turn 0 starts empty: create() must not record a snapshot.
+        await store.update(session_id, artifact_snapshot="snap0")
+        await store.add_turn(session_id, "t1")
+        session = await store.get(session_id)
+        assert session.turn_artifact_snapshots == ["snap0"]
+        await store.update(session_id, artifact_snapshot="snap1")
+        await store.add_turn(session_id, "t2")
+        session = await store.get(session_id)
+        assert session.turn_artifact_snapshots == ["snap0", "snap1"]
+        # Invariant: len(snapshots) == len(turn_messages) - 1.
+        assert len(session.turn_artifact_snapshots) == len(session.turn_messages) - 1
+
+    @pytest.mark.asyncio
+    async def test_snapshot_history_survives_reload(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        session_id = "sess_" + "d" * 12
+        await store.create(session_id, task="t0", file_id="", owner="admin")
+        await store.update(session_id, artifact_snapshot="snap0")
+        await store.add_turn(session_id, "t1")
+        store._sessions.clear()
+        reloaded = await store.get(session_id)
+        assert reloaded is not None
+        assert reloaded.turn_artifact_snapshots == ["snap0"]
+
+    def test_truncate_rolls_back_to_turn_start_snapshot(self):
+        session = replace(
+            _make_session(),
+            artifact_snapshot="snap2",
+            turn_artifact_snapshots=["snap0", "snap1"],
+        )
+        kwargs = compute_turn_truncation(session, 2)
+        assert kwargs["artifact_snapshot"] == "snap1"
+        assert kwargs["turn_artifact_snapshots"] == ["snap0"]
+        kwargs = compute_turn_truncation(session, 1)
+        assert kwargs["artifact_snapshot"] == "snap0"
+        assert kwargs["turn_artifact_snapshots"] == []
+
+    def test_truncate_turn_zero_empties_store(self):
+        session = replace(
+            _make_session(),
+            artifact_snapshot="snap2",
+            turn_artifact_snapshots=["snap0", "snap1"],
+        )
+        kwargs = compute_turn_truncation(session, 0)
+        assert kwargs["artifact_snapshot"] == ""
+        assert kwargs["turn_artifact_snapshots"] == []
+        # Single-turn legacy session (no history): revoking the only turn
+        # still empties the store.
+        legacy = replace(session, turn_artifact_snapshots=[])
+        kwargs = compute_turn_truncation(legacy, 0)
+        assert kwargs["artifact_snapshot"] == ""
+
+    def test_truncate_legacy_keeps_snapshot_for_surviving_turns(self):
+        # Sessions saved before per-turn snapshots existed: no rollback entry
+        # for turn N ≥ 1 → keep the cumulative snapshot so surviving $refs
+        # stay resolvable.
+        session = replace(
+            _make_session(), artifact_snapshot="latest", turn_artifact_snapshots=[]
+        )
+        kwargs = compute_turn_truncation(session, 2)
+        assert "artifact_snapshot" not in kwargs
+        assert kwargs["turn_artifact_snapshots"] == []
+
+
+class TestContextCompactedDetail:
+    def test_detail_field(self):
+        session = _make_session()
+        assert session.to_detail_dict()["contextCompacted"] is False
+        compacted = replace(
+            session,
+            context_state=json.dumps(
+                {"version": 1, "has_compacted": True, "compact_count": 1}
+            ),
+        )
+        assert compacted.to_detail_dict()["contextCompacted"] is True
+
+
 class TestTruncateSessionToTurn:
     @pytest.mark.asyncio
     async def test_happy_path_persists(self, tmp_path):

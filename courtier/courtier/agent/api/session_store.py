@@ -272,11 +272,18 @@ class SessionStore:
             session = self._sessions.get(session_id)
             if session is None:
                 return
+            snapshots = session.turn_artifact_snapshots
+            # The first turn is registered by create() (no snapshot yet);
+            # every later turn records the store state at its start, keeping
+            # len(snapshots) == len(turn_messages) - 1.
+            if len(session.turn_messages) >= 1:
+                snapshots = snapshots + [session.artifact_snapshot]
             session = replace(
                 session,
                 turn_messages=session.turn_messages
                 + [{"text": task, "timestamp": _time.time(), "fileName": file_name}],
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
+                turn_artifact_snapshots=snapshots,
             )
             self._sessions[session_id] = session
 
@@ -391,6 +398,7 @@ class SessionStore:
         data["turn_messages"] = session.turn_messages
         data["turn_step_starts"] = session.turn_step_starts
         data["turn_conclusions"] = session.turn_conclusions
+        data["turn_artifact_snapshots"] = list(session.turn_artifact_snapshots)
         data["pinned"] = session.pinned
         data["active_domains"] = list(session.active_domains)
         try:
@@ -444,6 +452,7 @@ class SessionStore:
             turn_messages=raw.get("turn_messages", []),
             turn_step_starts=raw.get("turn_step_starts", []),
             turn_conclusions=raw.get("turn_conclusions", []),
+            turn_artifact_snapshots=list(raw.get("turn_artifact_snapshots", [])),
             pinned=raw.get("pinned", False),
             active_domains=list(raw.get("active_domains", [])),
         )

@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from ...core.conversation_tree import ConversationTree
 from ...core.state import Message
-from ..models import SessionRecord
+from ..models import SessionRecord, context_state_compacted
 from .stream_service import deserialize_messages, serialize_messages
 
 logger = logging.getLogger(__name__)
@@ -172,13 +172,7 @@ def _turn_cut_index(messages: tuple[Message, ...], turn_index: int) -> int | Non
 
 def session_has_compacted(context_state: str) -> bool:
     """True when the persisted CompactState records a past compaction."""
-    if not context_state:
-        return False
-    try:
-        state = json.loads(context_state)
-    except json.JSONDecodeError:
-        return False
-    return bool(state.get("has_compacted") or state.get("compact_count"))
+    return context_state_compacted(context_state)
 
 
 def _prune_tree(
@@ -282,6 +276,21 @@ def compute_turn_truncation(session: SessionRecord, turn_index: int) -> dict[str
     # no compaction has happened and a fresh state is exact (same as a new
     # session, which stores "").
     kwargs["context_state"] = ""
+
+    # Artifact store: roll back to the snapshot captured at the start of the
+    # revoked turn (entry i = start of turn i+1).  Turn 0 edits empty the
+    # store.  Sessions saved before per-turn snapshots existed keep the
+    # current snapshot: surviving messages' $refs must stay resolvable, and
+    # leftover artifacts from revoked turns are unreachable-but-harmless.
+    history = session.turn_artifact_snapshots
+    rollback_idx = turn_index - 1
+    if turn_index == 0:
+        # Revoking every turn — the store goes back to empty regardless of
+        # whether per-turn history exists.
+        kwargs["artifact_snapshot"] = ""
+    elif 0 <= rollback_idx < len(history):
+        kwargs["artifact_snapshot"] = history[rollback_idx]
+    kwargs["turn_artifact_snapshots"] = history[: max(0, rollback_idx)]
 
     # Conversation tree (secondary format).
     if session.tree_json and session.messages_json:

@@ -252,6 +252,17 @@ class StepRecord:
         return _numeral(self.index)
 
 
+def context_state_compacted(context_state: str) -> bool:
+    """True when a persisted CompactState payload records a past compaction."""
+    if not context_state:
+        return False
+    try:
+        state = json.loads(context_state)
+    except json.JSONDecodeError:
+        return False
+    return bool(state.get("has_compacted") or state.get("compact_count"))
+
+
 @dataclass(frozen=True)
 class SessionRecord:
     """Frozen session record (updated via replace())."""
@@ -283,6 +294,13 @@ class SessionRecord:
     turn_messages: list[dict[str, Any]] = field(default_factory=list)
     turn_step_starts: list[int] = field(default_factory=list)
     turn_conclusions: list[str] = field(default_factory=list)
+    # Per-turn artifact snapshots: entry i is the store snapshot captured when
+    # turn i+1 begins (i.e. end of turn i), recorded by add_turn.  Invariant:
+    # len(turn_artifact_snapshots) == len(turn_messages) - 1.  Edit-truncation
+    # rolls the store back to entry N-1 when revoking turn N.  Sessions saved
+    # before this field existed have an empty list (rollback falls back to
+    # keeping the current snapshot).
+    turn_artifact_snapshots: list[str] = field(default_factory=list)
     pinned: bool = False  # 置顶会话排在历史列表最前（按用户隔离的展示偏好）
     active_domains: list[str] = field(default_factory=list)  # 已激活领域（域门控）
 
@@ -402,4 +420,5 @@ class SessionRecord:
             "treeJson": tree_data,
             "currentNodeId": self.current_node_id,
             "activeDomains": list(self.active_domains),
+            "contextCompacted": context_state_compacted(self.context_state),
         }
