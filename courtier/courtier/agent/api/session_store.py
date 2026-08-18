@@ -260,8 +260,12 @@ class SessionStore:
         async with self._persist_lock:
             await self._persist(session)
 
-    async def add_turn(self, session_id: str, task: str) -> None:
-        """Record a new turn boundary for multi-turn continuation."""
+    async def add_turn(self, session_id: str, task: str, file_name: str | None = None) -> None:
+        """Record a new turn boundary for multi-turn continuation.
+
+        ``file_name`` keeps the display chip when a turn is re-registered
+        after an edit-truncation (the original turn carried an upload).
+        """
         import time as _time
 
         async with self._lock:
@@ -270,7 +274,8 @@ class SessionStore:
                 return
             session = replace(
                 session,
-                turn_messages=session.turn_messages + [{"text": task, "timestamp": _time.time()}],
+                turn_messages=session.turn_messages
+                + [{"text": task, "timestamp": _time.time(), "fileName": file_name}],
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
             )
             self._sessions[session_id] = session
