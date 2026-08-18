@@ -54,7 +54,7 @@ export function useAgentSession() {
 
   // ---- connection lifecycle ----
 
-  function connect(task: string, fileId?: string, fileName?: string) {
+  function connect(task: string, fileId?: string, fileName?: string, editTurn?: number) {
     disconnect();
     const generation = ++connectGeneration;
     reconnectCount = 0;
@@ -109,6 +109,7 @@ export function useAgentSession() {
         task,
         fileId: fileId || undefined,
         sessionId: currentSessionId.value || undefined,
+        editTurn,
       })
       .then((es: EventSource) => {
         if (generation !== connectGeneration) {
@@ -234,6 +235,48 @@ export function useAgentSession() {
     disconnect();
   }
 
+  /**
+   * Edit-resend: drop turn `turnIndex` and everything after it locally (the
+   * server truncates its side via the editTurn param), then re-run the turn
+   * with the edited text.  The edited turn keeps its original upload — edit
+   * is text-only.
+   */
+  function editAndResend(turnIndex: number, text: string) {
+    if (!currentSessionId.value) return;
+    if (isRunning.value) return;
+    if (isCompacted.value) {
+      session.errorMessage = MESSAGES.CHAT_EDIT_COMPACTED_HINT;
+      return;
+    }
+    if (turnIndex < 0 || turnIndex >= session.turns.length) return;
+
+    const edited = session.turns[turnIndex];
+    const fileId = edited.message.fileId;
+    const fileName = edited.message.fileName;
+
+    session.turns = session.turns.slice(0, turnIndex);
+    // Rebuild turn-derived top-level state from the surviving turns.
+    session.steps = session.turns.flatMap((t) => t.steps);
+    session.thoughts = session.thoughts.filter(
+      (t) => (t.turnIndex ?? 0) < turnIndex,
+    );
+    const lastTurn = session.turns[session.turns.length - 1];
+    session.conclusion = lastTurn?.conclusion;
+    // Runtime/debug events belong to the revoked turns.
+    session.guardEvents = [];
+    session.hintEvents = [];
+    session.errorMessage = undefined;
+    session.stopReason = undefined;
+    if (turnIndex === 0) {
+      // The conversation title is the first turn's text.
+      session.task = text;
+    }
+
+    // connect() increments currentTurnIndex and pushes the fresh turn.
+    state.currentTurnIndex = turnIndex;
+    connect(text, fileId, fileName, turnIndex);
+  }
+
   async function forkSession(nodeId?: string, reason?: string) {
     if (!session.id) return;
     try {
@@ -332,6 +375,7 @@ export function useAgentSession() {
     forkSession,
     rewindSession,
     compactContext,
+    editAndResend,
     isRunning,
     isCompacted,
     turnVersion,

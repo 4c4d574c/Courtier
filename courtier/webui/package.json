@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc && vite build",
     "lint": "eslint src/",
-    "test": "npm run lint && node scripts/test-tool-calls.mjs && node scripts/test-subagent-tree.mjs && node scripts/test-session-event-handlers.mjs && node scripts/test-streaming-markdown.mjs && node scripts/test-tool-progress.mjs && node scripts/test-session-utils.mjs && node scripts/test-step-sync.mjs && node scripts/test-tool-result-status.mjs && node scripts/test-chat-messages.mjs && node scripts/test-chat-composables.mjs && node scripts/test-citation-mapping.mjs",
+    "test": "npm run lint && node scripts/test-tool-calls.mjs && node scripts/test-subagent-tree.mjs && node scripts/test-session-event-handlers.mjs && node scripts/test-streaming-markdown.mjs && node scripts/test-tool-progress.mjs && node scripts/test-session-utils.mjs && node scripts/test-step-sync.mjs && node scripts/test-tool-result-status.mjs && node scripts/test-chat-messages.mjs && node scripts/test-chat-composables.mjs && node scripts/test-citation-mapping.mjs && node scripts/test-edit-resend.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

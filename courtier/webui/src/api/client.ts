@@ -364,6 +364,7 @@ export const api = {
     task?: string;
     fileId?: string;
     sessionId?: string;
+    editTurn?: number;
   }): Promise<EventSource> {
     // SSE authenticates via the httpOnly access_token cookie set at login —
     // EventSource cannot set an Authorization header, and a ?token= query
@@ -372,6 +373,8 @@ export const api = {
       task: params.task,
       fileId: params.fileId,
       sessionId: params.sessionId,
+      editTurn:
+        params.editTurn !== undefined ? String(params.editTurn) : undefined,
     })}`;
     return new EventSource(url, { withCredentials: true });
   },

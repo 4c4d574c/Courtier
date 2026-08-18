@@ -27,11 +27,14 @@
     @close-preview="closePreview"
     @submit="handleSubmit"
     @stop="stop"
+    @edit-submit="handleEditSubmit"
+    :can-edit="!isRunning"
+    :edit-hint="editHint"
   />
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAgentSession } from "../composables/useAgentSession";
 import { useHistory } from "../composables/useHistory";
@@ -40,6 +43,7 @@ import { useChatMessages } from "../composables/useChatMessages";
 import { useFilePreview } from "../composables/useFilePreview";
 import { useTheme } from "../composables/useTheme";
 import { api } from "../api/client";
+import { MESSAGES } from "../constants/messages";
 import type { ChatFileRecord } from "../types/chat";
 import ChatLayout from "../components/chat/ChatLayout.vue";
 
@@ -52,7 +56,9 @@ const {
   newSession,
   restoreSession,
   stop,
+  editAndResend,
   isRunning,
+  isCompacted,
 } = useAgentSession();
 const {
   sessions: historySessions,
@@ -81,6 +87,24 @@ const uploadError = ref("");
 const uploadedFiles = ref<ChatFileRecord[]>([]);
 
 const { messages, title } = useChatMessages(session, uploadedFiles);
+
+// Compacted sessions keep the edit entry visible but disabled, with the
+// reason as tooltip (their history is a summary — not turn-addressable).
+const editHint = computed(() =>
+  isCompacted.value ? MESSAGES.CHAT_EDIT_COMPACTED_HINT : "",
+);
+
+function handleEditSubmit({ turnIndex, text }: { turnIndex: number; text: string }) {
+  if (isRunning.value || isCompacted.value) return;
+  if (turnIndex === 0) {
+    // Keep the sidebar title in sync with the edited first turn.
+    const sid = session.id;
+    historySessions.value = historySessions.value.map((s) =>
+      s.id === sid ? { ...s, task: text } : s,
+    );
+  }
+  editAndResend(turnIndex, text);
+}
 
 function revokeUploadedFiles() {
   for (const f of uploadedFiles.value) {
