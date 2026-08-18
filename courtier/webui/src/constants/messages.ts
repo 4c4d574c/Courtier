@@ -68,6 +68,13 @@ export const MESSAGES = {
   CHAT_MENU_UNPIN: "取消置顶",
   CHAT_MENU_DELETE: "删除",
   CHAT_COMPACTING: "正在压缩上下文…",
+  /** User bubble actions */
+  CHAT_COPY: "复制",
+  CHAT_COPIED: "已复制",
+  CHAT_EDIT: "编辑",
+  CHAT_EDIT_CONFIRM: "确认并发送",
+  CHAT_EDIT_CANCEL: "取消",
+  CHAT_EDIT_COMPACTED_HINT: "该会话历史已压缩，不支持编辑",
 } as const;
 
 /** Tool status to Chinese display label mapping. */

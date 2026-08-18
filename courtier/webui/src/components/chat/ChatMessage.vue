@@ -1,5 +1,12 @@
 <template>
-  <UserMessage v-if="item.type === 'user'" :content="item.content" />
+  <UserMessage
+    v-if="item.type === 'user'"
+    :content="item.content"
+    :turn-index="item.turnIndex"
+    :can-edit="canEdit"
+    :edit-hint="editHint"
+    @edit-submit="$emit('edit-submit', $event)"
+  />
   <AssistantMessage
     v-else-if="item.type === 'assistant'"
     :content="item.content"
@@ -50,12 +57,17 @@ import GuardMessage from "./GuardMessage.vue";
 interface Props {
   item: ChatMessageItem;
   isStreaming?: boolean;
+  /** User-bubble edit entry: false hides it (running session). */
+  canEdit?: boolean;
+  /** Non-empty disables editing with the reason shown as tooltip. */
+  editHint?: string;
 }
 
 defineProps<Props>();
 defineEmits<{
   preview: [file: Extract<ChatMessageItem, { type: "file" }>];
   "citation-click": [hit: import("../../types/agent").CitationHit | undefined];
+  "edit-submit": [payload: { turnIndex: number; text: string }];
 }>();
 </script>
 

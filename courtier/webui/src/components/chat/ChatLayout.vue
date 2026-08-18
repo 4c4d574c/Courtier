@@ -25,8 +25,11 @@
       <ChatArea
         :messages="messages"
         :is-running="isRunning"
+        :can-edit="canEdit"
+        :edit-hint="editHint"
         @preview="$emit('preview-file', $event)"
         @citation-click="$emit('citation-click', $event)"
+        @edit-submit="$emit('edit-submit', $event)"
       />
       <InputArea
         :model-name="session.modelName"
@@ -70,6 +73,10 @@ interface Props {
   sidebarOpen: boolean;
   username?: string;
   userRole?: string;
+  /** User-bubble edit entry: false hides it (running session). */
+  canEdit?: boolean;
+  /** Non-empty disables editing with the reason shown as tooltip. */
+  editHint?: string;
 }
 
 defineProps<Props>();
@@ -87,6 +94,7 @@ defineEmits<{
   "close-preview": [];
   submit: [task: string, file?: File];
   stop: [];
+  "edit-submit": [payload: { turnIndex: number; text: string }];
 }>();
 </script>
 

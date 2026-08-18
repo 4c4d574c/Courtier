@@ -17,8 +17,11 @@
         :key="item.id"
         :item="item"
         :is-streaming="isRunning && index === messages.length - 1"
+        :can-edit="canEdit"
+        :edit-hint="editHint"
         @preview="$emit('preview', $event)"
         @citation-click="$emit('citation-click', $event)"
+        @edit-submit="$emit('edit-submit', $event)"
       />
     </template>
   </div>
@@ -35,12 +38,17 @@ import logoUrl from "../../assets/logo.png";
 interface Props {
   messages: ChatMessageItem[];
   isRunning: boolean;
+  /** User-bubble edit entry: false hides it (running session). */
+  canEdit?: boolean;
+  /** Non-empty disables editing with the reason shown as tooltip. */
+  editHint?: string;
 }
 
 const props = defineProps<Props>();
 defineEmits<{
   preview: [file: Extract<ChatMessageItem, { type: "file" }>];
   "citation-click": [hit: import("../../types/agent").CitationHit | undefined];
+  "edit-submit": [payload: { turnIndex: number; text: string }];
 }>();
 
 const { containerRef, mount, unmount, scrollToBottom } = useAutoScroll();
