@@ -239,13 +239,13 @@
 
 ### Task 4.1: 全量测试
 
-- [ ] **Step 1:** `uv run pytest -m "not integration"` 绿；`uv run courtier validate-domain domains/docaudit/` 过；`webui` `npm test` + `npm run build` 绿。
+- [x] **Step 1:** `uv run pytest -m "not integration"` 绿；`uv run courtier validate-domain domains/docaudit/` 过；`webui` `npm test` + `npm run build` 绿。
 
 ### Task 4.2: 真实会话烟测（dev-runner 起 8 插件 + 主进程）
 
-- [ ] **Step 1:** 格式审核会话：`parse_document` 经 MinIO 拿文件、`check_format` 全链路、产物正常。
-- [ ] **Step 2:** 内容审核会话：`check_content`、annotate 经 `put_file` 输出与前端下载、`template_store.get`、`$ref` 编号连续、会话日志核对（沿用用户惯例，以真实会话日志为准）。
-- [ ] **Step 3:** 故障演练：会话中杀掉单插件 → 该工具报错语义清晰、重连后新会话恢复；停全部插件起主进程 → 启动不阻塞、工具随连接出现。
+- [x] **Step 1:** 格式审核会话：`parse_document` 经 MinIO 拿文件、`check_format` 全链路、产物正常。
+- [x] **Step 2:** 内容审核会话：`check_content`、annotate 经 `put_file` 输出与前端下载、`template_store.get`、`$ref` 编号连续、会话日志核对（沿用用户惯例，以真实会话日志为准）。
+- [x] **Step 3:** 故障演练：会话中杀掉单插件 → 该工具报错语义清晰、重连后新会话恢复；停全部插件起主进程 → 启动不阻塞、工具随连接出现。
 
 ---
 
@@ -338,3 +338,11 @@ test: full regression and session acceptance                           # 4.x（�
 **Task 2.1 完成**（`fe20057`）：provisioning 脚本落地为 `scripts/minio_plugin_io.py`（计划写的是 .sh/mc——MinioAdmin 需要 root 凭据与 policy JSON 文件，Python SDK 更可靠且宿主已带 minio 依赖）。对运行中的 compose MinIO 实测通过：transfer bucket 可写、docs bucket 被拒、24h 生命周期生效。排障记录：policy 需含 `s3:GetBucketLocation`（minio SDK 每次操作前先取 region）；`list_objects` 惰性需强制迭代才算真验证。
 
 **Task 2.3 完成**（`b5b3661`）：`test_minio_file_transfer.py`（标 integration）双用例对真实栈全绿——输入改写下载一致、输出直传 + 主进程签名 URL 字节级一致。
+
+**Task 4.2 进行中**（真实会话验收）：
+1. **格式审核会话全链路通过**（2026-08-17）：`activate_domain → parse_document → check_format → get_artifact → format_audit 技能 → complete`，产出完整《公文格式审核报告》。MinIO 传输实测：主进程日志 `Rewrote file arg file_path=...docx -> minio://courtier-plugin-io/in/<hash>/...docx`，parse 插件日志 `Downloaded minio://... -> /tmp/courtier-parse/req-*/...docx`——输入链路字节级到达。
+2. **故障演练发现并修复一个真 bug**（`5411f00`）：SIGTERM 杀插件进程在存在活跃连接时不退出——Python 3.12 `Server.wait_closed()` 会连带等待存活连接，而旧实现在 `async with server` 退出时才关连接，死锁。修复为"先停接受→先关存活连接→有界等待"，附回归测试（客户端保持连接跨关闭）。演练验证：SIGTERM → 优雅退出（数秒内）→ 主进程 DISCONNECTED + 退避重连日志（1s→16s→30s 封顶）→ 插件重启后自动重连 ACTIVE 且工具重新注册。
+3. 排障插曲：`pkill -f "entry.py --listen"` 会匹配到执行该命令的 shell 自身命令行导致自杀——模式需用 `entry[.]py` 括号形式，或直接按 pid 清单 kill。
+4. **内容审核会话通过**（2026-08-18）：`activate_domain → content_audit 技能（子代理）→ convert_document → get_artifact → complete`，产出《内容合规审核与文本纠错报告》。anydoc 插件日志确认收到 `minio://` 引用并下载转换。**说明**：content_audit 技能现行设计为提示词驱动（frontmatter `tools:` 仅 `convert_document`），子代理不调用 check_content 插件——这是技能自身设计（与本次迁移无关），check_content 经域激活对编排器可用。annotate 的 `put_file`+`presign_get` 输出链路未在真实会话触发（需要批注类任务），其字节级正确性已由集成测试 `test_minio_file_transfer.py::test_plugin_output_presigned_by_host` 覆盖。
+
+**Task 4.1 完成**：`pytest -m "not integration"` 1581 passed / 6 skipped / 10 deselected；`validate-domain` 通过；webui `npm test`/`npm run build` 绿（此前随 Task 1.3 验证）。

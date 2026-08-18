@@ -80,3 +80,6 @@ packages/domains/*/plugins/**/.venv/
 
 # WebUI test harness temp output
 .tmp/
+
+# 插件开发环境（dev-plugins.py 加载）
+plugin.env
