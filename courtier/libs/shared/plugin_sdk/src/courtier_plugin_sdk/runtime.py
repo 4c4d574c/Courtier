@@ -540,6 +540,7 @@ class PluginRuntime:
         self._token: str | None = None
         self._connections: set[_Connection] = set()
         self._server: asyncio.AbstractServer | None = None
+        self._stop: asyncio.Event | None = None
         self._prepared = False
 
     @property
@@ -795,9 +796,10 @@ class PluginRuntime:
 
         sockets = ", ".join(str(s.getsockname()) for s in (self._server.sockets or []))
         logger.info("Plugin server listening on %s", sockets)
+        # Exposed for tests: setting this event is equivalent to SIGTERM.
+        self._stop = stop
         try:
-            async with self._server:
-                await stop.wait()
+            await stop.wait()
         finally:
             # Remove our handlers before the loop closes or is reused (test
             # runners cycle event loops per test).
@@ -807,9 +809,17 @@ class PluginRuntime:
                 except (NotImplementedError, RuntimeError):
                     pass
             logger.info("Shutting down: closing %d connection(s)", len(self._connections))
+            # Order matters: stop accepting, then close live connections
+            # FIRST — Server.wait_closed() in 3.12+ also waits on open
+            # connections, so waiting before closing them would deadlock.
+            self._server.close()
             await asyncio.gather(
                 *(conn.close() for conn in list(self._connections)), return_exceptions=True
             )
+            try:
+                await asyncio.wait_for(self._server.wait_closed(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Timed out waiting for connections to close")
 
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle one inbound host connection."""

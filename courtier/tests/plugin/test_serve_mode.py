@@ -134,6 +134,24 @@ class TestAuthGate:
         writer_b.close()
 
 
+class TestGracefulShutdown:
+    @pytest.mark.asyncio
+    async def test_shutdown_with_open_connection(self, running_plugin):
+        """SIGTERM-style stop must finish even while a client stays connected.
+
+        Regression: Server.wait_closed() (3.12+) also waits on open
+        connections, so closing them must happen before waiting.
+        """
+        runtime, port = running_plugin
+        reader, writer, register = await _connect(port)
+        assert register["method"] == "plugin.register"
+        # Do NOT close the client connection; trigger shutdown server-side.
+        runtime._stop.set()
+        # The server must close our connection within the shutdown budget —
+        # the client observes EOF.
+        assert await asyncio.wait_for(reader.readline(), 5) == b""
+
+
 class TestStartupValidation:
     @pytest.mark.asyncio
     async def test_missing_token_refuses_to_start(self, monkeypatch):
