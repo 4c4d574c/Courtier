@@ -70,6 +70,7 @@ export function useAgentSession() {
       session.modelName = "";
       session.conclusion = undefined;
       session.compactions = [];
+      session.contextCompacted = false;
       session.compacting = false;
       session.pendingVerdict = "";
       session.pendingVerdictAfterStepIndex = 0;
@@ -171,6 +172,9 @@ export function useAgentSession() {
     session.conclusion = undefined;
     session.pendingVerdict = "";
     session.pendingVerdictAfterStepIndex = 0;
+    session.compactions = [];
+    session.contextCompacted = false;
+    session.compacting = false;
     session.stats = { tokensIn: 0, tokensOut: 0, elapsed: 0 };
     session.modelName = "";
     session.createdAt = Date.now();
@@ -199,6 +203,7 @@ export function useAgentSession() {
     session.stats = loaded.stats || { tokensIn: 0, tokensOut: 0, elapsed: 0 };
     session.conclusion = loaded.conclusion;
     session.compactions = [];
+    session.contextCompacted = loaded.contextCompacted ?? false;
     session.compacting = false;
     session.pendingVerdict = "";
     session.pendingVerdictAfterStepIndex = 0;
@@ -300,6 +305,15 @@ export function useAgentSession() {
 
   const isRunning = computed(() => session.status === "running");
 
+  // Edit-resend gate: the session history is no longer turn-addressable once
+  // a full compaction rewrote it into a summary — either persisted
+  // (contextCompacted, survives restore) or live this session (compactions).
+  const isCompacted = computed(
+    () =>
+      (session.contextCompacted ?? false) ||
+      (session.compactions?.length ?? 0) > 0,
+  );
+
   // Keep currentSessionId in sync so subsequent turns reuse the same session.
   watch(
     () => session.id,
@@ -319,6 +333,7 @@ export function useAgentSession() {
     rewindSession,
     compactContext,
     isRunning,
+    isCompacted,
     turnVersion,
   };
 }

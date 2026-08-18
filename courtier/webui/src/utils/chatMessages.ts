@@ -60,11 +60,16 @@ export function fileMimeType(name: string): string {
   return MIME_TYPE_MAP[ext] || "application/octet-stream";
 }
 
-function buildUserItem(turn: Turn, baseId: string): ChatUserMessageItem {
+function buildUserItem(
+  turn: Turn,
+  baseId: string,
+  turnIndex: number,
+): ChatUserMessageItem {
   return {
     type: "user",
     id: `${baseId}-user`,
     content: turn.message.text,
+    turnIndex,
   };
 }
 
@@ -299,7 +304,7 @@ export function buildChatMessages(
     const fileItem = buildFileItem(turn, baseId, fileRecords);
     if (fileItem) items.push(fileItem);
 
-    items.push(buildUserItem(turn, baseId));
+    items.push(buildUserItem(turn, baseId, turnIndex));
 
     items.push(
       ...buildProcessItems(

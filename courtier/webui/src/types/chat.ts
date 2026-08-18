@@ -4,6 +4,8 @@ export interface ChatUserMessageItem {
   type: "user";
   id: string;
   content: string;
+  /** 0-based index into session.turns — the edit-resend anchor. */
+  turnIndex: number;
 }
 
 /** [[n]] → hit resolution index for one assistant message. */

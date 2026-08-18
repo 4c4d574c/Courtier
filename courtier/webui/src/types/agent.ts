@@ -194,6 +194,12 @@ export interface Session {
   currentNodeId?: string | null
   /** Live context-compaction notices (not persisted across restore). */
   compactions?: CompactionNotice[]
+  /**
+   * 后端持久化的压缩标志（detail 接口返回）：发生过 full compaction 的会话
+   * 历史已被改写为摘要，无法按轮干净切分，编辑重发入口对其关闭。
+   * 运行中的实时压缩经 compactions 体现；两者任一成立即视为已压缩。
+   */
+  contextCompacted?: boolean
   /** 运行时标志：full compaction 正在进行（LLM 总结中），结束后清除。
    *  仅运行时存在，恢复会话不填充。 */
   compacting?: boolean

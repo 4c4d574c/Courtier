@@ -118,8 +118,25 @@ try {
   assert.equal(msgs[0].url, "blob://notice");
   assert.equal(msgs[0].mimeType, "application/pdf");
   assert.equal(msgs[1].type, "user");
+  assert.equal(msgs[1].turnIndex, 0);
   assert.equal(msgs[2].type, "assistant");
   assert.equal(msgs[2].content, "格式正确");
+
+  // User items carry their 0-based turn index (the edit-resend anchor).
+  const twoTurnSession = {
+    ...baseSession,
+    turns: [
+      { message: { role: "user", text: "第一轮", timestamp: 1 }, steps: [] },
+      { message: { role: "user", text: "第二轮", timestamp: 2 }, steps: [] },
+    ],
+  };
+  const userItems = buildChatMessages(twoTurnSession, []).filter(
+    (m) => m.type === "user",
+  );
+  assert.deepEqual(
+    userItems.map((m) => m.turnIndex),
+    [0, 1],
+  );
 
   // MIME helper
   assert.equal(fileMimeType("photo.jpg"), "image/jpeg");
