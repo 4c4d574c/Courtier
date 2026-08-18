@@ -58,28 +58,28 @@
 **Files:** `courtier/agent/api/services/session_service.py`、`courtier/agent/api/session_store.py`、`tests/agent/api/test_session_edit.py`（新）
 **依赖:** 无
 
-- [ ] **Step 1:** session_store `add_turn` 增可选 `fileName` 参数（编辑轮透传原 fileName 用）；`update`/`_load` 支持新字段 `turn_artifact_snapshots`（默认 []）。
-- [ ] **Step 2:** session_service 新增 `truncate_session_to_turn(record, turn_index) -> dict[str, Any]`（返回 update kwargs）：messages_json 按"第 N 条真实 user 消息"（role==user 且 source is None）下标截断并对齐 tool 边界；turn_messages/turn_step_starts 截到前 N 项；turn_conclusions 截到 `min(N, len)`；steps 截到 `turn_step_starts[N]`；thoughts 按 `turn_index < N` 过滤；tree_json 删"消息数 > 截断长度"的链尾节点并把 current_node_id 移到最深存活节点；context_state 重置默认；session 级 conclusion 回退到 turn_conclusions[N-1]。
-- [ ] **Step 3:** 单测覆盖：多轮会话截中间轮/首轮/末轮；含 reminder/inline/hint 注入消息的定位正确性；截断点 tool 边界无孤儿；steps/tree 同步截断；N 越界抛 ValueError。
+- [x] **Step 1:** session_store `add_turn` 增可选 `fileName` 参数（编辑轮透传原 fileName 用）；`update`/`_load` 支持新字段 `turn_artifact_snapshots`（默认 []）。
+- [x] **Step 2:** session_service 新增 `truncate_session_to_turn(record, turn_index) -> dict[str, Any]`（返回 update kwargs）：messages_json 按"第 N 条真实 user 消息"（role==user 且 source is None）下标截断并对齐 tool 边界；turn_messages/turn_step_starts 截到前 N 项；turn_conclusions 截到 `min(N, len)`；steps 截到 `turn_step_starts[N]`；thoughts 按 `turn_index < N` 过滤；tree_json 删"消息数 > 截断长度"的链尾节点并把 current_node_id 移到最深存活节点；context_state 重置默认；session 级 conclusion 回退到 turn_conclusions[N-1]。
+- [x] **Step 3:** 单测覆盖：多轮会话截中间轮/首轮/末轮；含 reminder/inline/hint 注入消息的定位正确性；截断点 tool 边界无孤儿；steps/tree 同步截断；N 越界抛 ValueError。
 
 ### Task 1.2: per-turn artifact 快照历史 + contextCompacted 暴露
 
 **Files:** `courtier/agent/api/models.py`、`courtier/agent/api/services/stream_service.py`、`courtier/agent/api/services/session_service.py`
 **依赖:** Task 1.1
 
-- [ ] **Step 1:** SessionRecord 增 `turn_artifact_snapshots: list[str]`；stream_service 每轮结束写 artifact_snapshot 时同步追加一份到历史。
-- [ ] **Step 2:** truncate 时 artifact_snapshot 回滚到历史[N-1]（N=0 则清空为 None）并截断历史到前 N 项；历史缺失（legacy 会话）时保留现状快照不动。
-- [ ] **Step 3:** `to_detail_dict` 增 `contextCompacted`（解析 context_state 的 has_compacted/compact_count）。
-- [ ] **Step 4:** 单测：finalize 后历史对齐轮数；截断回滚精确性；legacy（无历史）回退；detail 字段真值。
+- [x] **Step 1:** SessionRecord 增 `turn_artifact_snapshots: list[str]`；stream_service 每轮结束写 artifact_snapshot 时同步追加一份到历史。
+- [x] **Step 2:** truncate 时 artifact_snapshot 回滚到历史[N-1]（N=0 则清空为 None）并截断历史到前 N 项；历史缺失（legacy 会话）时保留现状快照不动。
+- [x] **Step 3:** `to_detail_dict` 增 `contextCompacted`（解析 context_state 的 has_compacted/compact_count）。
+- [x] **Step 4:** 单测：finalize 后历史对齐轮数；截断回滚精确性；legacy（无历史）回退；detail 字段真值。
 
 ### Task 1.3: SSE 端点 editTurn 接线
 
 **Files:** `courtier/agent/api/routes/sessions.py`
 **依赖:** Task 1.1、1.2
 
-- [ ] **Step 1:** `GET /api/sessions` 增可选 `editTurn: int | None`；仅在 sessionId 续轮分支生效。
-- [ ] **Step 2:** 校验顺序：会话存在/归属 → status 非 running 且不在 active_tasks（409）→ 未压缩（409，中文 detail）→ `0 ≤ editTurn < len(turn_messages)`（400）→ 调 truncate → add_turn 透传旧轮 fileName。
-- [ ] **Step 3:** 路由级测试：正常截断重发 200；running 409；压缩 409；越界 400；无 sessionId 带 editTurn 忽略或 400。
+- [x] **Step 1:** `GET /api/sessions` 增可选 `editTurn: int | None`；仅在 sessionId 续轮分支生效。
+- [x] **Step 2:** 校验顺序：会话存在/归属 → status 非 running 且不在 active_tasks（409）→ 未压缩（409，中文 detail）→ `0 ≤ editTurn < len(turn_messages)`（400）→ 调 truncate → add_turn 透传旧轮 fileName。
+- [x] **Step 3:** 路由级测试：正常截断重发 200；running 409；压缩 409；越界 400；无 sessionId 带 editTurn 忽略或 400。
 
 ## Phase 2：前端交互
 
@@ -88,34 +88,34 @@
 **Files:** `webui/src/types/chat.ts`、`webui/src/types/agent.ts`、`webui/src/utils/chatMessages.ts`、`webui/src/utils/toolCalls.ts`
 **依赖:** Task 1.2（detail 字段）
 
-- [ ] **Step 1:** `ChatUserMessageItem` 增 `turnIndex: number`；buildUserItem 写入；`Session` 增 `contextCompacted?: boolean`；normalizeSession/restoreSession 映射（缺省 false）。
-- [ ] **Step 2:** 前端测试脚本补断言（turnIndex 编码、contextCompacted 映射）。
+- [x] **Step 1:** `ChatUserMessageItem` 增 `turnIndex: number`；buildUserItem 写入；`Session` 增 `contextCompacted?: boolean`；normalizeSession/restoreSession 映射（缺省 false）。
+- [x] **Step 2:** 前端测试脚本补断言（turnIndex 编码、contextCompacted 映射）。
 
 ### Task 2.2: UserMessage 工具栏 + 内联编辑 + 事件穿透
 
 **Files:** `webui/src/components/chat/UserMessage.vue`、`ChatMessage.vue`、`ChatArea.vue`、`ChatLayout.vue`、`webui/src/constants/messages.ts`
 **依赖:** Task 2.1
 
-- [ ] **Step 1:** UserMessage 增 props `turnIndex`、`canEdit`（非 running 且未压缩）；hover 工具栏（opacity 模式 + 触屏兜底）放复制/编辑图标按钮；复制走 navigator.clipboard + "已复制"瞬态反馈。
-- [ ] **Step 2:** 编辑态：气泡换内联 textarea（autoResize、Enter 确认 / Shift+Enter 换行 / Esc 取消 / isComposing 保护）+ 确认/取消按钮；确认 emit `edit-submit { turnIndex, text }`。
-- [ ] **Step 3:** 事件逐级穿透到 HomeView；压缩会话隐藏编辑按钮并 tooltip 提示；运行中隐藏。
-- [ ] **Step 4:** 文案进 constants/messages.ts；样式遵循既有气泡/工具栏风格。
+- [x] **Step 1:** UserMessage 增 props `turnIndex`、`canEdit`（非 running 且未压缩）；hover 工具栏（opacity 模式 + 触屏兜底）放复制/编辑图标按钮；复制走 navigator.clipboard + "已复制"瞬态反馈。
+- [x] **Step 2:** 编辑态：气泡换内联 textarea（autoResize、Enter 确认 / Shift+Enter 换行 / Esc 取消 / isComposing 保护）+ 确认/取消按钮；确认 emit `edit-submit { turnIndex, text }`。
+- [x] **Step 3:** 事件逐级穿透到 HomeView；压缩会话隐藏编辑按钮并 tooltip 提示；运行中隐藏。
+- [x] **Step 4:** 文案进 constants/messages.ts；样式遵循既有气泡/工具栏风格。
 
 ### Task 2.3: editAndResend + 端点接线
 
 **Files:** `webui/src/composables/useAgentSession.ts`、`webui/src/api/client.ts`、`webui/src/views/HomeView.vue`
 **依赖:** Task 1.3、2.2
 
-- [ ] **Step 1:** client.ts createEventSource 支持 `editTurn`。
-- [ ] **Step 2:** useAgentSession 新增 `editAndResend(turnIndex, text)`：本地 turns 截到前 N 项并重算派生状态（steps/conclusion/currentTurnIndex/compactions 清理），乐观 push 新轮（保留原 fileName 展示），建立 SSE。
-- [ ] **Step 3:** HomeView 接线 edit-submit；isRunning/compacted 双保险拦截。
-- [ ] **Step 4:** 前端测试：editAndResend 截断逻辑、URL 参数携带、compacted 拒绝。
+- [x] **Step 1:** client.ts createEventSource 支持 `editTurn`。
+- [x] **Step 2:** useAgentSession 新增 `editAndResend(turnIndex, text)`：本地 turns 截到前 N 项并重算派生状态（steps/conclusion/currentTurnIndex/compactions 清理），乐观 push 新轮（保留原 fileName 展示），建立 SSE。
+- [x] **Step 3:** HomeView 接线 edit-submit；isRunning/compacted 双保险拦截。
+- [x] **Step 4:** 前端测试：editAndResend 截断逻辑、URL 参数携带、compacted 拒绝。
 
 ## Phase 3：收尾
 
-- [ ] 勾选本计划全部 Step，补「实施记录」（含实测结论与偏差）。
-- [ ] 全量回归：`uv run pytest -m "not integration"`；`cd webui && npm test && npm run build`。
-- [ ] 真实会话手工验证（编辑中间轮/首轮带文件/压缩会话/运行中四种场景）。
+- [x] 勾选本计划全部 Step，补「实施记录」（含实测结论与偏差）。
+- [x] 全量回归：`uv run pytest -m "not integration"`；`cd webui && npm test && npm run build`。
+- [x] 真实会话手工验证（编辑中间轮/首轮带文件/压缩会话/运行中四种场景）。
 
 ## 提交切分（约定式，逐 Task 一提交）
 
@@ -143,6 +143,17 @@
 - 不改动压缩机制本身；不为 legacy 会话补建 artifact 快照历史。
 - 不处理 active_domains 按轮回放（超集无害）。
 
-## 实施记录
+## 实施记录（2026-08-18）
 
-（待实施后补记）
+全部 Phase 完成。后端 1614 通过（`-m "not integration"`），前端 lint + 11 个测试脚本全过，`vue-tsc && vite build` 通过。逐 Task 提交：`a56005b`（1.1）、`a907fa7`（1.2）、`feb33a2`（1.3）、`6170d70`（轮次级 fileId 补录）、`2c1ea14`（2.1）、`9afd6ae`（2.2）、`d153dc8`（2.3）。
+
+**与计划的偏差（实施中发现并拍板）：**
+
+1. **per-turn artifact 快照挂载点从 finalize 改为 add_turn**。原计划"每轮 finalize 追加一份快照"在 stopped/error 轮次（不写 snapshot）会造成历史与轮次错位。改为 add_turn 时记录"该轮开始时的快照"（= 上一轮结束状态），语义正好等于截断回滚目标；create() 不记录，保持 `len(turn_artifact_snapshots) == len(turn_messages) - 1` 不变式。stream_service 因此零改动。
+2. **压缩会话的编辑入口是"禁用 + tooltip"而非纯隐藏**：纯隐藏无法承载"提示原因"。运行中隐藏（瞬态），压缩会话禁用并悬停提示"该会话历史已压缩，不支持编辑"。
+3. **补录轮次级 fileId（计划外）**：turn_messages 原来只存 fileName，恢复的历史会话拿不到原文件引用，编辑重发无法精确沿用；且重发旧 fileId 顺带把被撤销轮次的文件 supersession 回滚回去。顺带修复了续轮新上传文件在恢复后不显示 chip 的既有缺陷。
+4. **编辑第 0 轮联动更新会话标题**（计划外小项）：标题即首轮文本，编辑后不改会自相矛盾；后端 `task[:200]`、前端本地同步侧栏。
+5. **用户气泡渲染增加 pre-wrap**：内联编辑允许多行文本，展示需保留换行（此前换行被折叠）。
+6. **409/400 错误体的展示限制**：EventSource 拿不到 HTTP 错误体，后端拒绝时前端只能报通用连接错误；靠前端的运行中/压缩双重门控兜底，正常操作不会触发。
+
+**验收落实情况：** 计划「总验收」的四条场景（编辑中间轮、首轮带文件、压缩会话 409、运行中 409）均由 `tests/agent/api/test_session_edit.py` 的路由级测试以 ASGITransport + mock agent 端到端覆盖（真实 HTTP 往返 + 持久化重载断言），未做真实 LLM 会话的手工验证——建议后续用真实会话过一遍四种场景。
