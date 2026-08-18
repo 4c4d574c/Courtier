@@ -21,6 +21,7 @@ from ..services.session_service import (
     get_session,
     list_sessions,
     rewind_session_tree,
+    truncate_session_to_turn,
 )
 from ..services.stream_service import generate_sse_stream, reconstruct_state
 
@@ -114,6 +115,7 @@ async def handle_sessions(
     task: Optional[str] = Query(default=None),
     fileId: Optional[str] = Query(default=None),
     sessionId: Optional[str] = Query(default=None),
+    editTurn: Optional[int] = Query(default=None),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
     current_user_payload: dict = Depends(get_current_user),
@@ -123,6 +125,8 @@ async def handle_sessions(
     - No params: list all historical sessions.
     - task (+ optional fileId), no sessionId: new session (emits session SSE event).
     - task + sessionId: continue existing multi-turn session.
+    - task + sessionId + editTurn: edit-resend — revoke turn `editTurn` and
+      everything after it, then re-run the turn with the edited `task`.
     """
     settings = request.app.state.settings
     session_store = request.app.state.session_store
@@ -137,6 +141,10 @@ async def handle_sessions(
     if not task:
         raise HTTPException(400, "task 参数必须提供")
 
+    # Edit-resend only makes sense against an existing session.
+    if editTurn is not None and not sessionId:
+        raise HTTPException(400, "editTurn 仅用于续轮会话")
+
     pause_event = getattr(request.app.state, "pause_event", None)
     active_tasks = getattr(request.app.state, "active_tasks", None)
     tool_registry = getattr(request.app.state, "tool_registry", None)
@@ -147,6 +155,23 @@ async def handle_sessions(
         existing = await session_store.get_owned(sessionId, current_user, is_admin)
         if existing is None:
             raise HTTPException(404, "Session not found")
+
+        # Edit-resend: revoke turn `editTurn` (and everything after it)
+        # before the continuation registers the edited text as a fresh turn.
+        edited_turn_file_name: str | None = None
+        if editTurn is not None:
+            # The persisted status can lag the in-memory runner; check both.
+            if active_tasks is not None and sessionId in active_tasks:
+                raise HTTPException(409, "会话正在运行，请先停止再编辑")
+            if 0 <= editTurn < len(existing.turn_messages):
+                # The edited turn keeps its original upload (edit = text only).
+                edited_turn_file_name = existing.turn_messages[editTurn].get("fileName")
+            existing = await truncate_session_to_turn(
+                session_store, current_user, is_admin, sessionId, editTurn
+            )
+            if editTurn == 0:
+                # The conversation title is the first turn's text.
+                await session_store.update(sessionId, task=task[:200])
 
         session_id = sessionId
         prior_state = reconstruct_state(
@@ -163,7 +188,7 @@ async def handle_sessions(
 
         # Record the new turn boundary so historical sessions render
         # each turn with the correct user message and step grouping.
-        await session_store.add_turn(sessionId, task)
+        await session_store.add_turn(sessionId, task, file_name=edited_turn_file_name)
 
         # A file uploaded in THIS turn supersedes the session's original
         # file; without it the continuation would silently ignore the new

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 
 import pytest
@@ -392,3 +393,156 @@ class TestTruncateSessionToTurn:
         with pytest.raises(HTTPException) as exc_info:
             await truncate_session_to_turn(store, "admin", True, session_id, 5)
         assert exc_info.value.status_code == 400
+
+
+# -- Route-level tests for the editTurn SSE parameter -----------------------------
+
+_TEST_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "test-admin-password-for-pytest")
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    from courtier.agent.api.rate_limiter import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
+@pytest.fixture
+async def app_client(tmp_path):
+    from httpx import ASGITransport, AsyncClient
+
+    from courtier.agent.api.app import create_app
+
+    app = create_app(sessions_dir=str(tmp_path), start_plugins=False)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": _TEST_ADMIN_PASSWORD},
+            )
+            assert resp.status_code == 200, f"Login failed: {resp.text}"
+            client.headers["Authorization"] = f"Bearer {resp.json()['token']}"
+            yield app, client
+
+
+async def _fake_build_agent(*args, **kwargs):
+    from courtier.agent.agents.base import Agent
+    from courtier.agent.testing import MockModelClient
+
+    model = MockModelClient(tool_calls=[])
+    return Agent(name="TestChat", role="Test role", tools=[], model=model), None, "test-model"
+
+
+async def _run_turn(client, **params) -> None:
+    """Drive one SSE run to completion with a mocked agent."""
+    from unittest.mock import patch
+
+    with patch(
+        "courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent
+    ):
+        resp = await client.get("/api/sessions", params=params)
+    assert resp.status_code == 200, resp.text
+
+
+class TestEditTurnRoute:
+    @pytest.mark.asyncio
+    async def test_edit_resend_truncates_and_reruns(self, app_client):
+        app, client = app_client
+        await _run_turn(client, task="原始问题")
+        sid = (await client.get("/api/sessions")).json()[0]["id"]
+        await _run_turn(client, task="后续问题", sessionId=sid)
+        detail = (await client.get(f"/api/sessions/{sid}")).json()
+        assert [t["message"]["text"] for t in detail["turns"]] == ["原始问题", "后续问题"]
+
+        await _run_turn(client, task="编辑后的问题", sessionId=sid, editTurn=0)
+
+        detail = (await client.get(f"/api/sessions/{sid}")).json()
+        assert [t["message"]["text"] for t in detail["turns"]] == ["编辑后的问题"]
+        # Title follows the edited first turn.
+        summary = (await client.get("/api/sessions")).json()[0]
+        assert summary["task"] == "编辑后的问题"
+        # The revoked turns are gone from the LLM context as well.
+        store = app.state.session_store
+        record = await store.get(sid)
+        kept = deserialize_messages(record.messages_json)
+        real_user = [m.content for m in kept if m.role == "user" and m.source is None]
+        assert real_user == ["编辑后的问题"]
+
+    @pytest.mark.asyncio
+    async def test_edit_keeps_original_file_chip(self, app_client):
+        _app, client = app_client
+        upload = await client.post(
+            "/api/files",
+            files={"file": ("报告.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "image/png")},
+        )
+        assert upload.status_code == 200, upload.text
+        file_id = upload.json()["fileId"]
+        await _run_turn(client, task="审计这份文件", fileId=file_id)
+        sid = (await client.get("/api/sessions")).json()[0]["id"]
+
+        await _run_turn(client, task="重新审计", sessionId=sid, editTurn=0)
+
+        detail = (await client.get(f"/api/sessions/{sid}")).json()
+        assert len(detail["turns"]) == 1
+        assert detail["turns"][0]["message"]["fileName"] == "报告.png"
+
+    @pytest.mark.asyncio
+    async def test_edit_turn_requires_session(self, app_client):
+        _app, client = app_client
+        resp = await client.get("/api/sessions", params={"task": "x", "editTurn": 0})
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_edit_turn_out_of_range(self, app_client):
+        _app, client = app_client
+        await _run_turn(client, task="唯一一轮")
+        sid = (await client.get("/api/sessions")).json()[0]["id"]
+        resp = await client.get(
+            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 9}
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_edit_turn_running_rejected_by_status(self, app_client):
+        app, client = app_client
+        await _run_turn(client, task="跑过一轮")
+        sid = (await client.get("/api/sessions")).json()[0]["id"]
+        await app.state.session_store.update(sid, status="running")
+        resp = await client.get(
+            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_edit_turn_running_rejected_by_active_tasks(self, app_client):
+        app, client = app_client
+        await _run_turn(client, task="跑过一轮")
+        sid = (await client.get("/api/sessions")).json()[0]["id"]
+        app.state.active_tasks[sid] = object()  # runner handle not yet reaped
+        resp = await client.get(
+            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
+        )
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_edit_turn_compacted_rejected(self, app_client):
+        app, client = app_client
+        await _run_turn(client, task="跑过一轮")
+        sid = (await client.get("/api/sessions")).json()[0]["id"]
+        await app.state.session_store.update(
+            sid,
+            context_state=json.dumps(
+                {"version": 1, "has_compacted": True, "compact_count": 1}
+            ),
+        )
+        resp = await client.get(
+            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
+        )
+        assert resp.status_code == 409
+        # Detail payload exposes the flag for the frontend to hide the entry.
+        detail = (await client.get(f"/api/sessions/{sid}")).json()
+        assert detail["contextCompacted"] is True
