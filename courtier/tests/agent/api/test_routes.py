@@ -12,6 +12,14 @@ from fastapi.testclient import TestClient
 from courtier.agent.api.app import create_app
 from courtier.agent.api.rate_limiter import limiter
 
+
+def _first_data_line(buffer: str) -> str:
+    """First SSE data line of *buffer* (frames now carry an id: prefix)."""
+    for line in buffer.strip().split("\n"):
+        if line.startswith("data: "):
+            return line
+    raise AssertionError(f"no data line in {buffer!r}")
+
 # Test credentials — must match values set in tests/conftest.py
 _TEST_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "test-admin-password-for-pytest")
 
@@ -165,8 +173,7 @@ class TestSSEStream:
                     if "\n\n" in buffer:
                         break
 
-                first = buffer.strip().split("\n")[0]
-                assert first.startswith("data: ")
+                first = _first_data_line(buffer)
                 payload = json.loads(first[len("data: ") :])
                 assert payload["type"] == "session"
                 assert payload["sessionId"].startswith("sess_")
@@ -193,7 +200,7 @@ class TestPatchSession:
                     buffer += chunk.decode("utf-8")
                     if "\n\n" in buffer:
                         break
-                first = buffer.strip().split("\n")[0]
+                first = _first_data_line(buffer)
                 payload = json.loads(first[len("data: ") :])
                 assert payload["type"] == "session"
                 return payload["sessionId"]
@@ -256,8 +263,7 @@ class TestSessionOwnership:
                     if "\n\n" in buffer:
                         break
 
-                first = buffer.strip().split("\n")[0]
-                assert first.startswith("data: ")
+                first = _first_data_line(buffer)
                 payload = json.loads(first[len("data: ") :])
                 assert payload["type"] == "session"
                 session_id = payload["sessionId"]
@@ -453,7 +459,7 @@ class TestContinueWithNewFile:
                     buffer += chunk.decode("utf-8")
                     if "\n\n" in buffer:
                         break
-        first = buffer.strip().split("\n")[0]
+        first = _first_data_line(buffer)
         session_id = json.loads(first[len("data: ") :])["sessionId"]
 
         # Upload a document.

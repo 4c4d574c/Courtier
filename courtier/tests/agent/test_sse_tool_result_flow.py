@@ -7,11 +7,29 @@ import tempfile
 import pytest
 
 from courtier.agent.agents.base import Agent
+from courtier.agent.api.services.run_event_log import RunEventLog
 from courtier.agent.api.session_store import SessionStore
-from courtier.agent.api.sse_adapter import SSEAdapter
+from courtier.agent.api.sse_adapter import RunRecorder
 from courtier.agent.core.model import MockModelClient, ToolCall
 from courtier.agent.tools.builtin.echo import EchoTool
 from courtier.agent.tools.registry import ToolRegistry
+
+
+class _LogQueue:
+    """Queue-like facade over a RunEventLog for legacy assertion style."""
+
+    def __init__(self, log):
+        self.log = log
+        self._cursor = -1  # last seq consumed
+
+    def get_nowait(self):
+        entries = self.log.replay_after(self._cursor)
+        assert entries, "expected another SSE event"
+        self._cursor = entries[0].seq
+        return ("event", entries[0].line.split("data: ", 1)[1])
+
+    def empty(self):
+        return not self.log.replay_after(self._cursor)
 
 
 @pytest.fixture
@@ -25,14 +43,15 @@ async def test_echo_tool_result_event_sequence(store):
     """A single echo tool call should produce think, act, tool_start,
     tool_result, observe and complete events.
     """
-    q: asyncio.Queue = asyncio.Queue()
+    log_q = RunEventLog()
+    q = _LogQueue(log_q)
     session_id = "sess_7e57e57e57e5"
     await store.create(session_id, "echo hello", "")
 
     registry = ToolRegistry()
     registry.register(EchoTool())
 
-    adapter = SSEAdapter(q, store, session_id, tool_registry=registry)
+    adapter = RunRecorder(log_q, store, session_id, tool_registry=registry)
 
     tc = ToolCall(id="1", name="echo", arguments={"text": "hello"})
     model = MockModelClient(tool_calls=[tc])
@@ -91,14 +110,15 @@ async def test_same_name_parallel_calls_pair_by_tool_call_id(store):
     """Two same-name tool calls in one turn: every SSE event and stored
     ToolInfo carries the tool_call_id so the frontend can pair results to
     their cards (name-based matching reverses the pairing)."""
-    q: asyncio.Queue = asyncio.Queue()
+    log_q = RunEventLog()
+    q = _LogQueue(log_q)
     session_id = "sess_5a6e7a8e9a0e"
     await store.create(session_id, "echo twice", "")
 
     registry = ToolRegistry()
     registry.register(EchoTool())
 
-    adapter = SSEAdapter(q, store, session_id, tool_registry=registry)
+    adapter = RunRecorder(log_q, store, session_id, tool_registry=registry)
 
     model = MockModelClient(
         tool_calls=[
@@ -152,10 +172,11 @@ async def test_same_name_parallel_calls_pair_by_tool_call_id(store):
 async def test_bus_think_tool_calls_announces_ids(store):
     """The bus path (production wiring via start_listening) announces
     toolCallIds alongside toolCalls on the think event."""
-    q: asyncio.Queue = asyncio.Queue()
+    log_q = RunEventLog()
+    q = _LogQueue(log_q)
     session_id = "sess_b051d5"
     await store.create(session_id, "bus ids", "")
-    adapter = SSEAdapter(q, store, session_id)
+    adapter = RunRecorder(log_q, store, session_id)
 
     from courtier.agent.core.event_bus import EventBus
 

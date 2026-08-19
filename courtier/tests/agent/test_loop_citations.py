@@ -22,6 +22,23 @@ from courtier.agent.core.loop import (
 )
 
 
+class _LogQueue:
+    """Queue-like facade over a RunEventLog for legacy assertion style."""
+
+    def __init__(self, log):
+        self.log = log
+        self._cursor = -1  # last seq consumed
+
+    def get_nowait(self):
+        entries = self.log.replay_after(self._cursor)
+        assert entries, "expected another SSE event"
+        self._cursor = entries[0].seq
+        return ("event", entries[0].line.split("data: ", 1)[1])
+
+    def empty(self):
+        return not self.log.replay_after(self._cursor)
+
+
 def _hit(
     *,
     resource_id: int = 1,
@@ -292,8 +309,9 @@ async def test_end_to_end_event_bus_flow_with_real_loop():
     """A real agent run with a search_documents tool emits SSE tool_result
     events whose `citations` payload resolves `[[n]]` markers, both inline
     and persisted (artifact store) variants."""
+    from courtier.agent.api.services.run_event_log import RunEventLog
     from courtier.agent.api.session_store import SessionStore
-    from courtier.agent.api.sse_adapter import SSEAdapter
+    from courtier.agent.api.sse_adapter import RunRecorder
     from courtier.agent.core.event_bus import EventBus
     from courtier.agent.core.loop import agent_loop
     from courtier.agent.core.model import ToolCall
@@ -308,8 +326,9 @@ async def test_end_to_end_event_bus_flow_with_real_loop():
         await store.create(session_id, "task", None)
 
         bus = EventBus()
-        queue: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, session_id)
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, session_id)
         adapter.start_listening(bus)
 
         class _SearchTool:

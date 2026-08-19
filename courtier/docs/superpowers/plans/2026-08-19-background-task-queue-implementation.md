@@ -117,10 +117,10 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `agent/api/sse_adapter.py`、`tests/agent/api/test_sse_adapter.py`
 **依赖:** Task 1.1、1.2
 
-- [ ] **Step 1:** 类更名 `RunRecorder`,构造参数以 `run_log: RunEventLog` 取代 `queue`;`_emit_sse` 改为写日志(带 seq 的 `id:` 行);删除 `asyncio.QueueFull` 丢弃逻辑(日志自身有驱逐)。
-- [ ] **Step 2:** 带持久化的事件按"预留 seq → store 调用(带 event_seq) → 按 seq 入日志"顺序改造:`on_token`(add_thought)、`on_tool_result`(add_tool_info)、`_handle_think`/`_handle_think_tool_calls`(add_step)、`_handle_observe`(set_verdict/finalize_step);纯转发事件直接 append。SubAgent 直连回调 `on_subagent_event` 维持直连进 recorder(不回发 bus),经 `_emit_sse` 入日志。
-- [ ] **Step 3:** 新增终态方法 `emit_terminal(kind, conclusion="")`:生成 `complete`/`stopped`/`error` SSE payload(token 计数注入沿用 `_inject_token_counts` 逻辑,移入本文件),写入日志后 `seal()`。`flush_verdict`/`start_listening`/`stop_listening`/`_check_pause` 语义不变。
-- [ ] **Step 4:** 单测适配:以 RunEventLog 断言输出(含 seq 与 id 行);打点顺序(先库后日志、seq 对齐);终态事件内容。
+- [x] **Step 1:** 类更名 `RunRecorder`,构造参数以 `run_log: RunEventLog` 取代 `queue`;`_emit_sse` 改为写日志(带 seq 的 `id:` 行);删除 `asyncio.QueueFull` 丢弃逻辑(日志自身有驱逐)。
+- [x] **Step 2:** 带持久化的事件按"预留 seq → store 调用(带 event_seq) → 按 seq 入日志"顺序改造:`on_token`(add_thought)、`on_tool_result`(add_tool_info)、`_handle_think`/`_handle_think_tool_calls`(add_step)、`_handle_observe`(set_verdict/finalize_step);纯转发事件直接 append。SubAgent 直连回调 `on_subagent_event` 维持直连进 recorder(不回发 bus),经 `_emit_sse` 入日志。
+- [x] **Step 3:** 新增终态方法 `emit_terminal(kind, conclusion="")`:生成 `complete`/`stopped`/`error` SSE payload(token 计数注入沿用 `_inject_token_counts` 逻辑,移入本文件),写入日志后 `seal()`。`flush_verdict`/`start_listening`/`stop_listening`/`_check_pause` 语义不变。
+- [x] **Step 4:** 单测适配:以 RunEventLog 断言输出(含 seq 与 id 行);打点顺序(先库后日志、seq 对齐);终态事件内容。
 
 ### Task 1.4: RunManager + runner 迁移 + app 接线
 

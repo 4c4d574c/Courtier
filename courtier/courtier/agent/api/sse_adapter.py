@@ -1,4 +1,17 @@
-"""SSEAdapter — bridges agent_loop callbacks to SSE events and session recording."""
+"""RunRecorder — bridges agent_loop callbacks to the run event log and session recording.
+
+The recorder is the single writer of a run's ``RunEventLog`` (the replayable
+SSE transcript) and the only component performing per-event persistence side
+effects against the SessionStore. SSE connections are pure log readers
+(``RunEventLog.reader``) — replaying a log never re-runs this class, so side
+effects can never be duplicated by a re-attaching observer.
+
+Ordering contract (watermark invariant I2, see run_event_log.py): every
+handler that persists reserves its seq, persists *with* that seq, then
+appends the event at it (reserve → persist → append). All dispatch is
+serialized behind a lock so the bus listener and the sub-agent direct
+callback can never interleave a reserve/append pair.
+"""
 
 from __future__ import annotations
 
@@ -24,41 +37,42 @@ from .models import (
     ToolStatus,
     normalize_tool_call_classification,
 )
+from .services.run_event_log import RunEventLog
 from .session_store import SessionStore
 
 logger = logging.getLogger(__name__)
 
 
-class SSEAdapter:
-    """Converts agent_loop callbacks into SSE events and session records.
+class RunRecorder:
+    """Converts agent_loop callbacks into run-log events and session records.
 
-    Events are pushed to an asyncio.Queue consumed by the SSE StreamingResponse.
-    Session data is written to the SessionStore for historical queries.
+    Events are appended to the run's ``RunEventLog``; SSE connections stream
+    by reading that log (replay + live tail). Session data is written to the
+    SessionStore for historical queries, stamped with the event seq so
+    ``snapshot + replay`` reconstructs exactly (watermark invariant).
 
     Usage:
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, session_store, session_id, pause_event)
-        await agent.run(
-            ...,
-            on_step=adapter.on_step,
-            on_token=adapter.on_token,
-            on_tool_result=adapter.on_tool_result,
-        )
+        log = RunEventLog()
+        recorder = RunRecorder(log, session_store, session_id, pause_event)
+        await agent.run(..., on_subagent_event=recorder.on_subagent_event)
     """
 
     def __init__(
         self,
-        queue: asyncio.Queue,
+        run_log: RunEventLog,
         session_store: SessionStore,
         session_id: str,
         pause_event: asyncio.Event | None = None,
         start_step_index: int = 0,
         tool_registry: Any | None = None,
     ) -> None:
-        self._queue = queue
+        self._log = run_log
         self._store = session_store
         self._session_id = session_id
         self._pause = pause_event
+        # Serializes dispatch so the bus listener and the sub-agent direct
+        # callback never interleave a reserve → persist → append sequence.
+        self._dispatch_lock = asyncio.Lock()
 
         self._step_index = start_step_index
         self._tool_start_times: dict[str, float] = {}
@@ -172,7 +186,8 @@ class SSEAdapter:
         """Background task: read AgentEvents and dispatch to handlers."""
         try:
             async for event in subscription:
-                await self._dispatch_event(event)
+                async with self._dispatch_lock:
+                    await self._dispatch_event(event)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -344,7 +359,8 @@ class SSEAdapter:
             step_index=self._step_index if self._current_step else None,
             turn_index=turn_index,
         )
-        await self._store.add_thought(self._session_id, thought)
+        seq = self._log.reserve()
+        await self._store.add_thought(self._session_id, thought, event_seq=seq)
 
         # Log the start of each thinking phase so the streaming reasoning
         # process is traceable in structured_events.jsonl.
@@ -359,7 +375,7 @@ class SSEAdapter:
         # NOTE: This emits {"type": "token"} — parent-level reasoning tokens.
         # Sub-agent tokens use {"type": "subagent_token"} (see on_subagent_event).
         # The frontend distinguishes these in handleEvent() by event type.
-        await self._emit_sse({"type": "token", "text": token})
+        await self._emit_sse({"type": "token", "text": token}, seq=seq)
 
     async def on_content_token(self, token: str) -> None:
         await self._check_pause()
@@ -423,6 +439,7 @@ class SSEAdapter:
 
         self._tool_counter += 1
         tool_id = f"tool-{self._tool_counter}"
+        seq = self._log.reserve()
 
         tool_info = ToolInfo(
             name=tool_name,
@@ -444,7 +461,7 @@ class SSEAdapter:
             citations=citations,
             tool_call_id=tool_call_id,
         )
-        await self._store.add_tool_info(self._session_id, tool_info)
+        await self._store.add_tool_info(self._session_id, tool_info, event_seq=seq)
 
         # Keep the in-memory current step in sync with the store so later
         # decisions (e.g. whether to create a placeholder text-response step)
@@ -480,12 +497,19 @@ class SSEAdapter:
         if citations is not None:
             sse_payload["citations"] = citations
 
-        await self._emit_sse(sse_payload)
+        await self._emit_sse(sse_payload, seq=seq)
 
     async def on_subagent_event(self, event: Any) -> None:
         """Handle a SubAgentStreamEvent by emitting the corresponding SSE event
         and accumulating state for historical persistence.
+
+        Runs under the dispatch lock — sub-agent events arrive via a direct
+        callback that may interleave with the bus listener.
         """
+        async with self._dispatch_lock:
+            await self._on_subagent_event_locked(event)
+
+    async def _on_subagent_event_locked(self, event: Any) -> None:
         await self._check_pause()
 
         # Import here to avoid circular dependency
@@ -671,7 +695,14 @@ class SSEAdapter:
                 start_segment_index=self._segment_index,
             )
             self._tool_calls_pending = False
-            await self._store.add_step(self._session_id, self._current_step)
+            seq = self._log.reserve()
+            await self._store.add_step(self._session_id, self._current_step, event_seq=seq)
+            # Step starts are safe eviction boundaries for the log.
+            self._log.mark_boundary(seq)
+            await self._emit_sse(
+                {"type": "think", "detail": "text_response", "textResponse": True}, seq=seq
+            )
+            return
         await self._emit_sse({"type": "think", "detail": "text_response", "textResponse": True})
 
     async def _handle_think_tool_calls(
@@ -702,7 +733,10 @@ class SSEAdapter:
             for i, name in enumerate(names)
         }
         self._tool_calls_pending = True
-        await self._store.add_step(self._session_id, self._current_step)
+        seq = self._log.reserve()
+        await self._store.add_step(self._session_id, self._current_step, event_seq=seq)
+        # Step starts are safe eviction boundaries for the log.
+        self._log.mark_boundary(seq)
 
         think_payload: dict[str, Any] = {
             "type": "think",
@@ -715,14 +749,15 @@ class SSEAdapter:
         }
         if ids:
             think_payload["toolCallIds"] = ids
-        await self._emit_sse(think_payload)
+        await self._emit_sse(think_payload, seq=seq)
 
     async def _handle_observe(self) -> None:
         # Flush accumulated verdict text
         if self._verdict_parts:
             verdict = "".join(self._verdict_parts)
             if self._current_step:
-                await self._store.set_verdict(self._session_id, verdict)
+                verdict_seq = self._log.reserve()
+                await self._store.set_verdict(self._session_id, verdict, event_seq=verdict_seq)
                 # Tell the live stream what persistence already knows: this
                 # text is the step's intermediate verdict, not part of the
                 # final conclusion. Emitted before "observe" so the frontend
@@ -732,7 +767,8 @@ class SSEAdapter:
                         "type": "step_verdict",
                         "stepIndex": self._current_step.index,
                         "text": verdict,
-                    }
+                    },
+                    seq=verdict_seq,
                 )
             else:
                 logger.debug(
@@ -750,12 +786,14 @@ class SSEAdapter:
         # The owner may be the preceding tool step even when a text_response
         # placeholder step has been created after it.
         owner_step_index = self._subagent_owner_step_index or self._step_index
+        observe_seq = self._log.reserve()
         if self._current_step and owner_step_index > 0:
             await self._store.finalize_step(
                 self._session_id,
                 owner_step_index,
                 subagents=self._build_subagent_tree(),
                 end_segment_index=self._segment_index,
+                event_seq=observe_seq,
             )
 
         # The step's tree is now persisted — clear accumulation state so the
@@ -763,7 +801,7 @@ class SSEAdapter:
         # sub-agent events for the step may still be in flight until observe.
         self._reset_subagent_state()
 
-        await self._emit_sse({"type": "observe"})
+        await self._emit_sse({"type": "observe"}, seq=observe_seq)
 
     async def _handle_usage(self, detail: str) -> None:
         """Legacy entry point: parse the "prompt,completion" detail string."""
@@ -777,13 +815,16 @@ class SSEAdapter:
         await self._apply_usage(tokens_in, tokens_out)
 
     async def _apply_usage(self, tokens_in: int, tokens_out: int) -> None:
-        # Update session token counts
+        # Update session token counts (stamped with the usage event's seq so
+        # replay never double-counts tokens already reflected in a snapshot).
         session = await self._store.get(self._session_id)
+        seq = self._log.reserve()
         if session:
             await self._store.update(
                 self._session_id,
                 tokens_in=session.tokens_in + tokens_in,
                 tokens_out=session.tokens_out + tokens_out,
+                event_seq=seq,
             )
 
         await self._emit_sse(
@@ -791,7 +832,8 @@ class SSEAdapter:
                 "type": "usage",
                 "tokensIn": tokens_in,
                 "tokensOut": tokens_out,
-            }
+            },
+            seq=seq,
         )
 
     # -- Sub-agent tree construction ------------------------------------------
@@ -823,14 +865,56 @@ class SSEAdapter:
 
         return [nest(r) for r in roots]
 
+    # -- Terminal ---------------------------------------------------------------
+
+    async def emit_terminal(
+        self,
+        kind: str,
+        *,
+        conclusion: str = "",
+        detail: str = "",
+        trace_id: str = "",
+        seq: int | None = None,
+    ) -> str:
+        """Emit the terminal SSE event (``complete``/``stopped``/``error``)
+        into the log with persisted token counts, then seal the log.
+
+        Args:
+            kind: One of "complete", "stopped", "error".
+            conclusion: Final conclusion text (complete only).
+            detail/trace_id: Error diagnostics (error only).
+            seq: Pre-reserved seq when the caller already stamped the store
+                with the terminal seq (reserve → persist → emit order).
+
+        Returns:
+            The rendered SSE line (for transitional consumers that yield
+            directly instead of reading the log).
+        """
+        payload: dict[str, Any] = {"type": kind}
+        if conclusion:
+            payload["conclusion"] = conclusion
+        if detail:
+            payload["detail"] = detail
+        if trace_id:
+            payload["trace_id"] = trace_id
+        try:
+            session = await self._store.get(self._session_id)
+        except Exception:
+            logger.exception("Failed to read session for token counts: %s", self._session_id)
+            session = None
+        if session:
+            payload["tokensIn"] = session.tokens_in
+            payload["tokensOut"] = session.tokens_out
+        used_seq = self._log.append(payload, seq=seq)
+        self._log.seal()
+        line = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        return f"id: {used_seq}\n" + line if used_seq >= 0 else line
+
     # -- Helpers --------------------------------------------------------------
 
-    async def _emit_sse(self, data: dict[str, Any]) -> None:
-        line = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-        try:
-            self._queue.put_nowait(("event", line))
-        except asyncio.QueueFull:
-            logger.warning("SSE queue full, dropping event: %s", data.get("type", "unknown"))
+    async def _emit_sse(self, data: dict[str, Any], *, seq: int | None = None) -> int:
+        """Append one event to the run log — the only emission path."""
+        return self._log.append(data, seq=seq)
 
     #: Max top-level keys in a dict before truncation in structured detail.
     _MAX_STRUCTURED_KEYS = 30

@@ -13,30 +13,10 @@ from ...artifacts.store import ArtifactStore
 from ...core.audit_logger import AuditLogger
 from ...core.event_bus import EventBus
 from ...telemetry.metrics import set_conversation_tree_branches
-from ..sse_adapter import SSEAdapter
+from ..sse_adapter import RunRecorder
+from .run_event_log import RunEventLog
 
 logger = logging.getLogger(__name__)
-
-
-async def _inject_token_counts(
-    payload: dict[str, Any],
-    session_store: Any,
-    session_id: str,
-) -> None:
-    """Add tokensIn/tokensOut from the persisted session into *payload*."""
-    try:
-        session = await session_store.get(session_id)
-    except Exception:
-        logger.exception("Failed to read session for token counts: %s", session_id)
-        return
-    if session:
-        payload["tokensIn"] = session.tokens_in
-        payload["tokensOut"] = session.tokens_out
-
-
-def _sse_json(payload: dict[str, Any]) -> str:
-    """Serialize *payload* to a one-line JSON string for SSE."""
-    return json.dumps(payload, ensure_ascii=False)
 
 
 def _event_bus_from_settings(settings: Any) -> EventBus:
@@ -221,9 +201,13 @@ async def generate_sse_stream(
     testable without a FastAPI request context.
     """
     queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+    run_log = RunEventLog(
+        max_events=getattr(settings, "run_log_max_events", 50_000),
+        max_bytes=getattr(settings, "run_log_max_bytes", 8 * 1024 * 1024),
+    )
     event_bus = _event_bus_from_settings(settings)
-    adapter = SSEAdapter(
-        queue,
+    adapter = RunRecorder(
+        run_log,
         session_store,
         session_id,
         pause_event,
@@ -235,6 +219,25 @@ async def generate_sse_stream(
         tool_registry=getattr(agent, "tool_registry", None) or tool_registry,
     )
     adapter.start_listening(event_bus)
+
+    # Transitional pump: the run event log is the single source of truth;
+    # this connection reads it and forwards rendered lines into the queue
+    # the consumer below drains. Task 1.4 replaces this with a direct
+    # log-reader stream. Registration must be eager (before the session
+    # event / runner append anything) — a live-only reader skips anything
+    # appended before it registered.
+    log_reader = run_log.reader()
+
+    async def pump_log_to_queue() -> None:
+        try:
+            async for entry in log_reader:
+                await queue.put(("event", entry.line))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Run event log pump failed for session %s", session_id)
+
+    pump_task = asyncio.create_task(pump_log_to_queue())
 
     # Prepare audit logger so sub-agents can write per-run audit logs.
     agent_context["audit_base_dir"] = audit_base_dir
@@ -248,13 +251,14 @@ async def generate_sse_stream(
 
     # Emit session event as the very first event for new sessions and
     # atomically promote the persisted record from "initial" to "running".
+    # The event goes through the run log so replays include it.
     if is_new:
         session_payload = {
             "type": "session",
             "sessionId": session_id,
             "modelName": model_name,
         }
-        yield f"data: {json.dumps(session_payload, ensure_ascii=False)}\n\n"
+        run_log.append(session_payload)
         await session_store.update(session_id, status="running")
         # Force event-loop scheduling so the chunk is flushed to the
         # client immediately rather than sitting in buffers.
@@ -413,15 +417,24 @@ async def generate_sse_stream(
                     conclusion=conclusion,
                 )
                 await session_store.finalize_turn_conclusion(session_id, conclusion)
-                payload = {"type": "complete"}
-                if conclusion:
-                    payload["conclusion"] = conclusion
-                await _inject_token_counts(payload, session_store, session_id)
-                yield f"data: {_sse_json(payload)}\n\n"
+                await adapter.emit_terminal("complete", conclusion=conclusion)
+                # Wait for the pump to deliver the terminal line, drain the
+                # remaining events, then finish (the "done" tag may already
+                # have been consumed).
+                await pump_task
+                while not queue.empty():
+                    queued = queue.get_nowait()
+                    if queued[0] == "event":
+                        yield queued[1]
+                break
             elif tag == "stopped":
-                payload = {"type": "stopped"}
-                await _inject_token_counts(payload, session_store, session_id)
-                yield f"data: {_sse_json(payload)}\n\n"
+                await adapter.emit_terminal("stopped")
+                await pump_task
+                while not queue.empty():
+                    queued = queue.get_nowait()
+                    if queued[0] == "event":
+                        yield queued[1]
+                break
             elif tag == "error":
                 await session_store.update(
                     session_id,
@@ -429,12 +442,21 @@ async def generate_sse_stream(
                     finished_at=_time.time(),
                     error_detail=item[1].get("detail", ""),
                 )
-                payload = dict(item[1])
-                await _inject_token_counts(payload, session_store, session_id)
-                yield f"data: {_sse_json(payload)}\n\n"
+                await adapter.emit_terminal(
+                    "error",
+                    detail=item[1].get("detail", ""),
+                    trace_id=item[1].get("trace_id", ""),
+                )
+                await pump_task
+                while not queue.empty():
+                    queued = queue.get_nowait()
+                    if queued[0] == "event":
+                        yield queued[1]
+                break
     finally:
         # Cancel the runner when the SSE consumer disconnects so the agent
         # loop does not keep running and filling the queue indefinitely.
+        pump_task.cancel()
         task_ref.cancel()
         try:
             await asyncio.wait_for(task_ref, timeout=5.0)

@@ -1,4 +1,4 @@
-"""Tests for SSEAdapter."""
+"""Tests for RunRecorder."""
 
 import asyncio
 import json
@@ -6,10 +6,28 @@ import tempfile
 
 import pytest
 
+from courtier.agent.api.services.run_event_log import RunEventLog
 from courtier.agent.api.session_store import SessionStore
-from courtier.agent.api.sse_adapter import SSEAdapter
+from courtier.agent.api.sse_adapter import RunRecorder
 from courtier.agent.core.execution_result import ExecutionResult
 from courtier.agent.tools.protocol import ToolResult
+
+
+class _LogQueue:
+    """Queue-like facade over a RunEventLog for legacy assertion style."""
+
+    def __init__(self, log):
+        self.log = log
+        self._cursor = -1  # last seq consumed
+
+    def get_nowait(self):
+        entries = self.log.replay_after(self._cursor)
+        assert entries, "expected another SSE event"
+        self._cursor = entries[0].seq
+        return ("event", entries[0].line.split("data: ", 1)[1])
+
+    def empty(self):
+        return not self.log.replay_after(self._cursor)
 
 
 @pytest.fixture
@@ -40,7 +58,7 @@ class TestToolMetaFor:
 
         registry = ToolRegistry()
         registry.register(_MockTool())
-        adapter = SSEAdapter(
+        adapter = RunRecorder(
             asyncio.Queue(), session_store=None, session_id="s1", tool_registry=registry
         )
 
@@ -52,7 +70,7 @@ class TestToolMetaFor:
         from courtier.agent.tools.registry import ToolRegistry
 
         registry = ToolRegistry()
-        adapter = SSEAdapter(
+        adapter = RunRecorder(
             asyncio.Queue(), session_store=None, session_id="s1", tool_registry=registry
         )
 
@@ -60,7 +78,7 @@ class TestToolMetaFor:
         assert meta == {"skill": "", "display_name": None, "skill_description": ""}
 
     def test_returns_empty_meta_without_registry(self):
-        adapter = SSEAdapter(asyncio.Queue(), session_store=None, session_id="s1")
+        adapter = RunRecorder(RunEventLog(), session_store=None, session_id="s1")
         assert adapter._tool_meta_for("any") == {
             "skill": "",
             "display_name": None,
@@ -68,12 +86,13 @@ class TestToolMetaFor:
         }
 
 
-class TestSSEAdapter:
+class TestRunRecorder:
     @pytest.mark.asyncio
     async def test_on_step_think_with_tool_calls(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format, check_grammar")
 
@@ -81,7 +100,6 @@ class TestSSEAdapter:
         item = q.get_nowait()
         assert item[0] == "event"
         data_line = item[1]
-        assert "data:" in data_line
         parsed = json.loads(data_line.replace("data: ", "").strip())
         assert parsed["type"] == "think"
         assert "check_format" in parsed["detail"]
@@ -96,8 +114,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_step_think_text_response(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "text_response")
 
@@ -117,8 +136,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_text_response_after_tool_calls_creates_placeholder_step(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()  # consume think event
@@ -145,8 +165,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_text_response_before_first_tool_result_creates_placeholder_step(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()
@@ -168,8 +189,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_text_response_placeholder_is_reused(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "text_response")
         q.get_nowait()
@@ -191,8 +213,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_subagent_tree_attached_to_tool_step_not_placeholder(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: run_format_auditor")
         q.get_nowait()
@@ -252,8 +275,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_step_observe(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         # First create a step with think
         await adapter.on_step("think", "tool_calls: check_format")
@@ -269,8 +293,9 @@ class TestSSEAdapter:
     async def test_observe_flushes_verdict_as_step_verdict_event(self, store):
         """中间过程文本在 observe 时作为 step_verdict 事件发出（而非混入结论）。"""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()  # consume think event
@@ -297,8 +322,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_observe_without_verdict_emits_no_step_verdict(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()  # consume think event
@@ -312,8 +338,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_token(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_token("正在分析文档...")
 
@@ -326,8 +353,9 @@ class TestSSEAdapter:
     async def test_on_tool_result_success(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         # Create a step via think event first
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()  # consume think event
@@ -344,8 +372,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_tool_result_failure(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_tool_result("check_format", None, "失败: 文件不存在")
 
@@ -357,8 +386,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_default_parent_tool_classification(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -381,8 +411,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_subagent_run_classification(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: run_format_auditor")
         q.get_nowait()
@@ -411,8 +442,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_subagent_tool_classification(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: run_format_auditor")
         q.get_nowait()
@@ -442,8 +474,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_tool_result_normalizes_invalid_classification_metadata(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -465,8 +498,9 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_step_usage(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("usage", "150,80")
 
@@ -485,10 +519,10 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_pause_resume(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
+        log_q = RunEventLog()
         pause = asyncio.Event()
         pause.set()  # start paused
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5", pause_event=pause)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", pause_event=pause)
 
         # Start on_step in background (will block on pause)
         task = asyncio.create_task(adapter.on_step("think", "text_response"))
@@ -510,7 +544,7 @@ class TestSSEAdapter:
         result = ExecutionResult(
             success=True, actor_type="tool", actor_name="t", raw_data="# 标题\n\n内容"
         )
-        d = SSEAdapter._build_detail_data(result)
+        d = RunRecorder._build_detail_data(result)
         assert d is not None
         assert d["type"] == "markdown"
         assert "标题" in d["content"]
@@ -523,7 +557,7 @@ class TestSSEAdapter:
             actor_name="t",
             raw_data={"key1": "value1", "key2": 123},
         )
-        d = SSEAdapter._build_detail_data(result)
+        d = RunRecorder._build_detail_data(result)
         assert d is not None
         assert d["type"] == "structured"
         assert d["data"]["key1"] == "value1"
@@ -532,24 +566,25 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_build_detail_data_none_data(self):
         result = ExecutionResult(success=True, actor_type="tool", actor_name="t")
-        d = SSEAdapter._build_detail_data(result)
+        d = RunRecorder._build_detail_data(result)
         assert d is None
 
     @pytest.mark.asyncio
     async def test_build_detail_data_failed(self):
         result = ExecutionResult.from_error(actor_type="tool", actor_name="t", error="failure")
-        d = SSEAdapter._build_detail_data(result)
+        d = RunRecorder._build_detail_data(result)
         assert d is None
 
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_display_name_from_registry(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
         from courtier.agent.tools.registry import ToolRegistry
 
         registry = ToolRegistry()
 
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5", tool_registry=registry)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", tool_registry=registry)
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -569,7 +604,8 @@ class TestSSEAdapter:
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_display_name_when_tool_has_one(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
         from courtier.agent.tools.registry import ToolRegistry
 
         # Register a mock tool with display_name
@@ -591,7 +627,7 @@ class TestSSEAdapter:
         registry = ToolRegistry()
         registry.register(_MockTool())
 
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5", tool_registry=registry)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", tool_registry=registry)
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -610,8 +646,9 @@ class TestSSEAdapter:
     async def test_on_tool_result_emits_status_and_duration(self, store):
         """SSE event includes status and duration fields."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -627,8 +664,9 @@ class TestSSEAdapter:
     async def test_on_tool_result_emits_error_status(self, store):
         """SSE event has status=error when the ExecutionResult is a failure."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()
@@ -650,8 +688,9 @@ class TestSSEAdapter:
     async def test_on_tool_result_emits_detail_when_data_present(self, store):
         """SSE event includes detail when the ExecutionResult carries raw_data."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: audit_format")
         q.get_nowait()
@@ -674,8 +713,9 @@ class TestSSEAdapter:
     async def test_on_tool_result_no_detail_when_data_none(self, store):
         """SSE event omits detail when the ExecutionResult has no raw_data."""
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -690,15 +730,16 @@ class TestSSEAdapter:
         assert "detail_data" not in parsed
 
 
-class TestSSEAdapterSubAgentEvents:
-    """Test SSEAdapter.on_subagent_event maps to correct SSE event types."""
+class TestRunRecorderSubAgentEvents:
+    """Test RunRecorder.on_subagent_event maps to correct SSE event types."""
 
     @pytest.mark.asyncio
     async def test_start_event_emits_subagent_start_sse(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -715,8 +756,9 @@ class TestSSEAdapterSubAgentEvents:
     async def test_token_event_emits_subagent_token_sse(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -733,8 +775,9 @@ class TestSSEAdapterSubAgentEvents:
     async def test_think_event_emits_subagent_think_sse(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -759,8 +802,9 @@ class TestSSEAdapterSubAgentEvents:
     async def test_tool_result_event_emits_subagent_tool_result_sse(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -787,8 +831,9 @@ class TestSSEAdapterSubAgentEvents:
     async def test_conclusion_event_emits_subagent_conclusion_sse(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -805,8 +850,9 @@ class TestSSEAdapterSubAgentEvents:
     async def test_end_event_emits_subagent_end_sse(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -827,8 +873,9 @@ class TestSSEAdapterSubAgentEvents:
     async def test_empty_conclusion_event_is_not_emitted(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_511111111111")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_511111111111")
         await store.create("sess_511111111111", "task", "file_test1234")
 
         await adapter.on_subagent_event(
@@ -838,15 +885,16 @@ class TestSSEAdapterSubAgentEvents:
         assert queue.empty()
 
 
-class TestSSEAdapterSubAgentStateAccumulation:
+class TestRunRecorderSubAgentStateAccumulation:
     """Test that on_subagent_event accumulates state for historical persistence."""
 
     @pytest.mark.asyncio
     async def test_full_lifecycle_builds_correct_tree(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_full01")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_full01")
         await store.create("sess_full01", "audit", "/tmp/f.docx")
 
         # Simulate a step start so the adapter has a current step.
@@ -930,8 +978,9 @@ class TestSSEAdapterSubAgentStateAccumulation:
     async def test_nested_subagents_build_tree(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_nest01")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_nest01")
         await store.create("sess_nest01", "audit", "/tmp/f.docx")
 
         await adapter.on_step("think", "tool_calls:run_auditor")
@@ -1003,8 +1052,9 @@ class TestSSEAdapterSubAgentStateAccumulation:
     async def test_state_resets_on_new_step(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_rst01")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_rst01")
         await store.create("sess_rst01", "audit", "/tmp/f.docx")
 
         # Step 1
@@ -1050,8 +1100,8 @@ class TestSSEAdapterSubAgentStateAccumulation:
         step's tree is finalized, the next step starts with a clean dict."""
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_0b5e2ve00001")
+        log_queue = RunEventLog()
+        adapter = RunRecorder(log_queue, store, "sess_0b5e2ve00001")
         await store.create("sess_0b5e2ve00001", "audit", "/tmp/f.docx")
 
         await adapter.on_step("think", "tool_calls:tool_a")
@@ -1081,8 +1131,8 @@ class TestSSEAdapterSubAgentStateAccumulation:
         """
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_aaaa1111bbbb")
+        log_queue = RunEventLog()
+        adapter = RunRecorder(log_queue, store, "sess_aaaa1111bbbb")
         await store.create("sess_aaaa1111bbbb", "audit", "/tmp/f.docx")
 
         # Direct callback delivers the parent start first (production ordering
@@ -1138,14 +1188,15 @@ class TestSSEAdapterSubAgentStateAccumulation:
         assert [c["name"] for c in runs[0]["children"]] == ["format_audit"]
 
 
-class TestSSEAdapterIssueCounts:
+class TestRunRecorderIssueCounts:
     """issue_counts 从结果 metadata 到 SSE 事件与持久化记录的透传。"""
 
     @pytest.mark.asyncio
     async def test_on_tool_result_emits_issue_counts(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()
@@ -1170,8 +1221,9 @@ class TestSSEAdapterIssueCounts:
     @pytest.mark.asyncio
     async def test_on_tool_result_without_issue_counts_omits_field(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: parse_document")
         q.get_nowait()
@@ -1190,8 +1242,9 @@ class TestSSEAdapterIssueCounts:
         from courtier.agent.core.events import AgentEvent
 
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter.on_step("think", "tool_calls: check_format")
         q.get_nowait()
@@ -1227,8 +1280,9 @@ class TestSSEAdapterIssueCounts:
         from courtier.agent.core.events import AgentEvent
 
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter._dispatch_event(
             AgentEvent(
@@ -1250,8 +1304,9 @@ class TestSSEAdapterIssueCounts:
         from courtier.agent.core.events import AgentEvent
 
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
-        q: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(q, store, "sess_7e57e57e57e5")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
         await adapter._dispatch_event(
             AgentEvent(
@@ -1270,8 +1325,9 @@ class TestSSEAdapterIssueCounts:
     async def test_subagent_tool_result_emits_and_persists_issue_counts(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_c01c01c01c01")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_c01c01c01c01")
         await store.create("sess_c01c01c01c01", "audit", "/tmp/f.docx")
 
         await adapter.on_step("think", "tool_calls:run_format_auditor")
@@ -1326,8 +1382,9 @@ class TestSSEAdapterIssueCounts:
     async def test_subagent_tool_result_without_issue_counts_omits_field(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
-        queue: asyncio.Queue = asyncio.Queue()
-        adapter = SSEAdapter(queue, store, "sess_c02c02c02c02")
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_c02c02c02c02")
         await store.create("sess_c02c02c02c02", "audit", "/tmp/f.docx")
 
         await adapter.on_subagent_event(
@@ -1358,3 +1415,79 @@ class TestSSEAdapterIssueCounts:
         assert len(tool_result_events) == 1
         assert "issueCounts" not in tool_result_events[0]
         assert adapter._current_subagents["hdl_1"].tools[0].issue_counts is None
+
+
+class TestRunRecorderWatermark:
+    """reserve → persist(event_seq) → append(seq) 打点顺序与终态事件。"""
+
+    @pytest.mark.asyncio
+    async def test_persisted_events_stamp_matching_seq(self, store):
+        """每条带持久化的事件,其 store 水位 == 该事件在日志中的 seq。"""
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        log = RunEventLog()
+        recorder = RunRecorder(log, store, "sess_7e57e57e57e5")
+
+        await recorder.on_step("think", "tool_calls: check_format")
+        session = await store.get("sess_7e57e57e57e5")
+        think_entries = [e for e in log.replay_after(-1) if e.payload["type"] == "think"]
+        assert session.event_seq == think_entries[-1].seq
+
+        await recorder.on_tool_result("check_format", None, "ok")
+        session = await store.get("sess_7e57e57e57e5")
+        tool_entries = [e for e in log.replay_after(-1) if e.payload["type"] == "tool_result"]
+        assert session.event_seq == tool_entries[-1].seq
+
+    @pytest.mark.asyncio
+    async def test_log_lines_carry_id_field(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        log = RunEventLog()
+        recorder = RunRecorder(log, store, "sess_7e57e57e57e5")
+
+        await recorder.on_step("think", "text_response")
+        entry = log.replay_after(-1)[-1]
+        assert entry.line.startswith(f"id: {entry.seq}\ndata: ")
+
+    @pytest.mark.asyncio
+    async def test_step_starts_marked_as_eviction_boundaries(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        log = RunEventLog(max_events=4)
+        recorder = RunRecorder(log, store, "sess_7e57e57e57e5")
+
+        await recorder.on_step("think", "tool_calls: check_format")
+        await recorder.on_tool_start("check_format")
+        await recorder.on_tool_result("check_format", None, "ok")
+        await recorder.on_step("observe", "results_collected")
+        await recorder.on_step("think", "tool_calls: check_format")
+        await recorder.on_tool_start("check_format")
+        await recorder.on_tool_result("check_format", None, "ok")
+        # Eviction stayed boundary-aligned: no truncation, and every
+        # watermark at/after first_seq still replays cleanly.
+        assert log.truncated is False
+
+    @pytest.mark.asyncio
+    async def test_emit_terminal_seals_log_with_tokens(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        log = RunEventLog()
+        recorder = RunRecorder(log, store, "sess_7e57e57e57e5")
+
+        await recorder.on_step("usage", "150,80")
+        line = await recorder.emit_terminal("complete", conclusion="结论")
+        assert log.sealed
+        terminal = log.replay_after(-1)[-1]
+        assert terminal.payload["type"] == "complete"
+        assert terminal.payload["conclusion"] == "结论"
+        assert terminal.payload["tokensIn"] == 150
+        assert terminal.payload["tokensOut"] == 80
+        assert line.startswith(f"id: {terminal.seq}\n")
+
+    @pytest.mark.asyncio
+    async def test_emit_terminal_error_carries_detail_and_trace(self, store):
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        log = RunEventLog()
+        recorder = RunRecorder(log, store, "sess_7e57e57e57e5")
+
+        await recorder.emit_terminal("error", detail="服务器内部错误，请稍后重试", trace_id="ab12")
+        terminal = log.replay_after(-1)[-1]
+        assert terminal.payload["type"] == "error"
+        assert terminal.payload["detail"] == "服务器内部错误，请稍后重试"
+        assert terminal.payload["trace_id"] == "ab12"

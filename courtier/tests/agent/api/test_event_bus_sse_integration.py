@@ -1,4 +1,4 @@
-"""Integration tests: EventBus-driven SSEAdapter output matches legacy callbacks."""
+"""Integration tests: EventBus-driven RunRecorder output matches legacy callbacks."""
 
 from __future__ import annotations
 
@@ -8,11 +8,29 @@ import tempfile
 
 import pytest
 
+from courtier.agent.api.services.run_event_log import RunEventLog
 from courtier.agent.api.session_store import SessionStore
-from courtier.agent.api.sse_adapter import SSEAdapter
+from courtier.agent.api.sse_adapter import RunRecorder
 from courtier.agent.core.event_bus import EventBus
 from courtier.agent.core.events import AgentEvent
 from courtier.agent.core.execution_result import ExecutionResult
+
+
+class _LogQueue:
+    """Queue-like facade over a RunEventLog for legacy assertion style."""
+
+    def __init__(self, log):
+        self.log = log
+        self._cursor = -1  # last seq consumed
+
+    def get_nowait(self):
+        entries = self.log.replay_after(self._cursor)
+        assert entries, "expected another SSE event"
+        self._cursor = entries[0].seq
+        return ("event", entries[0].line.split("data: ", 1)[1])
+
+    def empty(self):
+        return not self.log.replay_after(self._cursor)
 
 
 def _parse_sse_payload(line: str) -> dict:
@@ -28,18 +46,20 @@ def store():
 
 @pytest.mark.asyncio
 async def test_event_bus_produces_same_sse_as_legacy_callbacks(store):
-    """SSEAdapter driven by EventBus emits the same SSE sequence as direct callbacks."""
+    """RunRecorder driven by EventBus emits the same SSE sequence as direct callbacks."""
     session_id = "sess_eb0000000001"
     await store.create(session_id, "task", "file_test1234")
 
     # Legacy path: call adapter callbacks directly.
-    legacy_queue: asyncio.Queue = asyncio.Queue()
-    legacy_adapter = SSEAdapter(legacy_queue, store, session_id)
+    log_legacy_queue = RunEventLog()
+    legacy_queue = _LogQueue(log_legacy_queue)
+    legacy_adapter = RunRecorder(log_legacy_queue, store, session_id)
 
     # Event-bus path: publish events to a bus and let the adapter listen.
     bus = EventBus()
-    eb_queue: asyncio.Queue = asyncio.Queue()
-    eb_adapter = SSEAdapter(eb_queue, store, session_id)
+    log_eb_queue = RunEventLog()
+    eb_queue = _LogQueue(log_eb_queue)
+    eb_adapter = RunRecorder(log_eb_queue, store, session_id)
     eb_adapter.start_listening(bus)
 
     try:
@@ -154,8 +174,9 @@ async def test_event_bus_tool_error_emits_error_status(store):
     await store.create(session_id, "task", "file_test1234")
 
     bus = EventBus()
-    queue: asyncio.Queue = asyncio.Queue()
-    adapter = SSEAdapter(queue, store, session_id)
+    log_queue = RunEventLog()
+    queue = _LogQueue(log_queue)
+    adapter = RunRecorder(log_queue, store, session_id)
     adapter.start_listening(bus)
 
     try:
@@ -203,8 +224,9 @@ async def test_event_bus_usage_event(store):
     await store.create(session_id, "task", "file_test1234")
 
     bus = EventBus()
-    queue: asyncio.Queue = asyncio.Queue()
-    adapter = SSEAdapter(queue, store, session_id)
+    log_queue = RunEventLog()
+    queue = _LogQueue(log_queue)
+    adapter = RunRecorder(log_queue, store, session_id)
     adapter.start_listening(bus)
 
     try:
@@ -256,8 +278,9 @@ async def test_agent_loop_emits_structured_think_tool_calls(store):
     await store.create(session_id, "task", None)
 
     bus = EventBus()
-    queue: asyncio.Queue = asyncio.Queue()
-    adapter = SSEAdapter(queue, store, session_id)
+    log_queue = RunEventLog()
+    queue = _LogQueue(log_queue)
+    adapter = RunRecorder(log_queue, store, session_id)
     adapter.start_listening(bus)
 
     class _EchoTool:
