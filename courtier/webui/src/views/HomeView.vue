@@ -31,10 +31,11 @@
     :can-edit="!isRunning"
     :edit-hint="editHint"
   />
+  <RunToasts ref="runToastsRef" @select="handleToastSelect" />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAgentSession } from "../composables/useAgentSession";
 import { useHistory } from "../composables/useHistory";
@@ -42,10 +43,12 @@ import { useAuth } from "../composables/useAuth";
 import { useChatMessages } from "../composables/useChatMessages";
 import { useFilePreview } from "../composables/useFilePreview";
 import { useTheme } from "../composables/useTheme";
+import { useRunEvents } from "../composables/useRunEvents";
 import { api } from "../api/client";
 import { MESSAGES } from "../constants/messages";
 import type { ChatFileRecord } from "../types/chat";
 import ChatLayout from "../components/chat/ChatLayout.vue";
+import RunToasts from "../components/chat/RunToasts.vue";
 
 const router = useRouter();
 const { user, logout } = useAuth();
@@ -87,6 +90,62 @@ const uploadError = ref("");
 const uploadedFiles = ref<ChatFileRecord[]>([]);
 
 const { messages, title } = useChatMessages(session, uploadedFiles);
+
+// --- Global run-events: live sidebar badges + completion toasts ----------
+const runEvents = useRunEvents();
+const runToastsRef = ref<InstanceType<typeof RunToasts> | null>(null);
+
+// The status dot must not lag: live run_status events override the
+// (mount-time) list snapshot per session.
+watch(
+  () => ({ ...runEvents.statuses }),
+  (live) => {
+    for (const s of historySessions.value) {
+      const entry = live[s.id];
+      if (entry) s.status = entry.status as typeof s.status;
+    }
+  },
+  { deep: true },
+);
+
+runEvents.onRunStatus((event) => {
+  // Update the sidebar entry even if it hasn't been listed yet — cheap
+  // enough to refetch when an unknown session reports in.
+  if (!historySessions.value.some((s) => s.id === event.sessionId)) {
+    void fetchSessions();
+    return;
+  }
+  // Toast only for background sessions (the open one streams its own end).
+  const isOpenSession = session.id === event.sessionId;
+  const terminal =
+    event.status === "completed" ||
+    event.status === "error" ||
+    event.status === "stopped";
+  if (terminal && !isOpenSession) {
+    const listed = historySessions.value.find((s) => s.id === event.sessionId);
+    runToastsRef.value?.push({
+      sessionId: event.sessionId,
+      kind: event.status as "completed" | "error" | "stopped",
+      title:
+        event.status === "completed"
+          ? `后台任务完成:${listed?.task ?? event.sessionId}`
+          : event.status === "error"
+            ? `后台任务出错:${listed?.task ?? event.sessionId}`
+            : `后台任务已停止:${listed?.task ?? event.sessionId}`,
+      detail: event.conclusion,
+    });
+  }
+});
+
+// The channel has no replay — after a reconnect the sidebar realigns from
+// the authoritative list.
+runEvents.onReconnect(() => {
+  void fetchSessions();
+});
+
+function handleToastSelect(sessionId: string) {
+  void handleHistorySelect(sessionId);
+}
 
 // Compacted sessions keep the edit entry visible but disabled, with the
 // reason as tooltip (their history is a summary — not turn-addressable).

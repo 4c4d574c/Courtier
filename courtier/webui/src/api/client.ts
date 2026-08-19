@@ -391,6 +391,11 @@ export const api = {
     return new EventSource(url, { withCredentials: true });
   },
 
+  /** Global run-status channel (one per app lifetime; auth via cookie). */
+  createGlobalEventsChannel(): EventSource {
+    return new EventSource(`${API_BASE}/events`, { withCredentials: true });
+  },
+
   async forkSession(
     sessionId: string,
     nodeId?: string,

@@ -192,10 +192,10 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `webui/src/composables/useRunEvents.ts`(新)、`App.vue`、`components/chat/ChatSidebar.vue`、`views/HomeView.vue`、适当的通知组件(新增轻量 toast)
 **依赖:** Task 3.1、Task 2.2
 
-- [ ] **Step 1:** useRunEvents:登录后建立 App 级单例通道,登出/401 断开;对外暴露按 sessionId 订阅状态变化的响应式源 + 当前用户活跃 run 计数。
-- [ ] **Step 2:** ChatSidebar 徽标接 useRunEvents 实时刷新(running 动画/queued 位置/completed/error),替换 mount 单次拉取的陈旧快照;通道断线重连成功后重拉一次列表。
-- [ ] **Step 3:** toast:非当前打开会话的 completed/error 弹出(标题 + 结论摘要截断 + 点击跳转);当前会话不弹(界面本身在流式)。
-- [ ] **Step 4:** 前端测试脚本:事件驱动徽标状态机、toast 触发条件。
+- [x] **Step 1:** useRunEvents:登录后建立 App 级单例通道,登出/401 断开;对外暴露按 sessionId 订阅状态变化的响应式源 + 当前用户活跃 run 计数。
+- [x] **Step 2:** ChatSidebar 徽标接 useRunEvents 实时刷新(running 动画/queued 位置/completed/error),替换 mount 单次拉取的陈旧快照;通道断线重连成功后重拉一次列表。
+- [x] **Step 3:** toast:非当前打开会话的 completed/error 弹出(标题 + 结论摘要截断 + 点击跳转);当前会话不弹(界面本身在流式)。
+- [x] **Step 4:** 前端测试脚本:事件驱动徽标状态机、toast 触发条件。
 
 ## Phase 4:每用户并发上限与排队
 
