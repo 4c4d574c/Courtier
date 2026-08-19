@@ -346,6 +346,26 @@ class Settings(BaseSettings):
         description="审计日志保存目录",
     )
 
+    # -- Background run management (task queue / reconnect replay) --
+    run_log_max_events: int = Field(
+        default=50_000,
+        alias="run_log_max_events",
+        description="单个 run 事件日志最大条数，超限按安全边界驱逐（环境变量: RUN_LOG_MAX_EVENTS）",
+    )
+    run_log_max_bytes: int = Field(
+        default=8_388_608,
+        alias="run_log_max_bytes",
+        description="单个 run 事件日志最大字节数，默认 8MB（环境变量: RUN_LOG_MAX_BYTES）",
+    )
+    run_grace_seconds: int = Field(
+        default=600,
+        alias="run_grace_seconds",
+        description=(
+            "run 终态后事件日志的保留宽限期（秒），供迟到的 attach 拿到完整重放"
+            "（环境变量: RUN_GRACE_SECONDS）"
+        ),
+    )
+
     otel_service_name: str = Field(
         default="courtier",
         alias="otel_service_name",
