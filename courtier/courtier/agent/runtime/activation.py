@@ -55,11 +55,30 @@ def build_domain_catalog(courtier_config: "CourtierConfig") -> list[dict[str, An
     return catalog
 
 
-def _cached_skill_list(skills_path: "Path") -> list[dict[str, str]]:
-    """Return [{name, description}] of enabled skills, cached by dir mtime."""
+def _skills_dir_signature(skills_path: "Path") -> float:
+    """Freshness signature for a skills dir: max mtime of dir + its *.md files.
+
+    The admin update path rewrites skill files in place (write_text on an
+    existing file), which bumps only the file's mtime, never the directory's.
+    Keying the cache on the directory mtime alone therefore kept serving a
+    stale catalog after any in-place edit or enabled toggle.
+    """
     try:
-        mtime = skills_path.stat().st_mtime
+        latest = skills_path.stat().st_mtime
     except OSError:
+        return 0.0
+    for md in skills_path.glob("*.md"):
+        try:
+            latest = max(latest, md.stat().st_mtime)
+        except OSError:
+            continue
+    return latest
+
+
+def _cached_skill_list(skills_path: "Path") -> list[dict[str, str]]:
+    """Return [{name, description}] of enabled skills, freshness-cached."""
+    mtime = _skills_dir_signature(skills_path)
+    if mtime == 0.0:
         return []
     key = str(skills_path)
     cached = _CATALOG_CACHE.get(key)

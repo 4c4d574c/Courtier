@@ -86,8 +86,10 @@ class _ScanResult:
 def _build_harness(tmp_path: Path) -> tuple[OrchestratorAgent, DomainActivator, ToolRegistry]:
     """Build a gated orchestrator + activator wired to a fake domain package."""
     skills_dir = tmp_path / "skills"
-    skills_dir.mkdir()
-    (skills_dir / "format_audit.md").write_text(SKILL_MD, encoding="utf-8")
+    skills_dir.mkdir(exist_ok=True)
+    skill_file = skills_dir / "format_audit.md"
+    if not skill_file.exists():
+        skill_file.write_text(SKILL_MD, encoding="utf-8")
 
     model = MockModelClient(tool_calls=[])
     shared = ToolRegistry()
@@ -175,6 +177,34 @@ class TestDomainActivator:
         assert second.success is True
         skill_tools = [t for t in agent.tool_registry.list_tools() if isinstance(t, SkillTool)]
         assert len(skill_tools) == 1
+
+    @pytest.mark.asyncio
+    async def test_edited_skill_fields_apply_on_next_activation(self, tmp_path):
+        """In-place edits to a skill (mode, default_mode, body) take effect
+        without a backend restart: the next request's activator re-scans
+        the skills dir and rebuilds SkillTools from the fresh config."""
+        agent, activator, _ = _build_harness(tmp_path)
+        await activator.activate("docaudit")
+        tool = agent.tool_registry.get("format_audit")
+        assert tool.default_mode == ""  # SKILL_MD declares no default_mode
+        assert "输出 JSON。" in tool._skill.system_prompt
+
+        # The admin update path: rewrite the file in place.
+        skill_file = tmp_path / "skills" / "format_audit.md"
+        edited = (
+            SKILL_MD.replace(
+                "display_name: 格式审核", "display_name: 格式审核\ndefault_mode: inline"
+            ).replace("输出 JSON。", "输出 JSON v2。")
+        )
+        skill_file.write_text(edited, encoding="utf-8")
+
+        # Next request: fresh harness (new activator instance) over the same
+        # on-disk skill — the edit is picked up.
+        agent2, activator2, _ = _build_harness(tmp_path)
+        await activator2.activate("docaudit")
+        tool2 = agent2.tool_registry.get("format_audit")
+        assert tool2.default_mode == "inline"
+        assert "输出 JSON v2。" in tool2._skill.system_prompt
 
     @pytest.mark.asyncio
     async def test_activate_unknown_domain_fails(self, tmp_path):
@@ -328,6 +358,61 @@ class TestBuildDomainCatalog:
 
         second = build_domain_catalog(cfg)
         assert {s["name"] for s in second[0]["skills"]} == {"existing_skill", "brand_new"}
+
+    def test_catalog_cache_invalidates_on_inplace_edit(self, tmp_path):
+        """The admin update path rewrites a skill file in place — only the
+        file's mtime changes, never the directory's.  The catalog must still
+        refresh (the bug this fixes: edits were invisible until restart)."""
+        import os
+
+        from courtier.agent.runtime.activation import _CATALOG_CACHE, build_domain_catalog
+
+        _CATALOG_CACHE.clear()
+        skills_dir = self._skills_dir(tmp_path, "my_skill")
+        cfg = self._config_with(skills_dir)
+        first = build_domain_catalog(cfg)
+        assert first[0]["skills"][0]["description"] == "技能0描述"
+
+        (skills_dir / "my_skill.md").write_text(
+            "---\nname: my_skill\ndescription: 改后的描述\n"
+            "type: skill\nversion: '1.0'\nenabled: true\n---\n\n正文 v2。",
+            encoding="utf-8",
+        )
+        # Pin the dir mtime in the past to prove invalidation comes from
+        # the file signature, not the directory.
+        os.utime(skills_dir, (1_000_000_000, 1_000_000_000))
+
+        second = build_domain_catalog(cfg)
+        assert second[0]["skills"][0]["description"] == "改后的描述"
+
+    def test_catalog_cache_invalidates_on_enabled_toggle(self, tmp_path):
+        """Toggling enabled in place must immediately remove/add the skill
+        from the catalog the model sees."""
+        import os
+
+        from courtier.agent.runtime.activation import _CATALOG_CACHE, build_domain_catalog
+
+        _CATALOG_CACHE.clear()
+        skills_dir = self._skills_dir(tmp_path, "my_skill")
+        cfg = self._config_with(skills_dir)
+        assert {s["name"] for s in build_domain_catalog(cfg)[0]["skills"]} == {"my_skill"}
+
+        (skills_dir / "my_skill.md").write_text(
+            "---\nname: my_skill\ndescription: 技能\n"
+            "type: skill\nversion: '1.0'\nenabled: false\n---\n\n正文。",
+            encoding="utf-8",
+        )
+        os.utime(skills_dir, (1_000_000_000, 1_000_000_000))
+        assert build_domain_catalog(cfg)[0]["skills"] == []
+
+        # Re-enable: the skill reappears.
+        (skills_dir / "my_skill.md").write_text(
+            "---\nname: my_skill\ndescription: 技能\n"
+            "type: skill\nversion: '1.0'\nenabled: true\n---\n\n正文。",
+            encoding="utf-8",
+        )
+        os.utime(skills_dir, (1_000_000_000, 1_000_000_000))
+        assert {s["name"] for s in build_domain_catalog(cfg)[0]["skills"]} == {"my_skill"}
 
 
 class TestActivateDomainToolCatalog:
