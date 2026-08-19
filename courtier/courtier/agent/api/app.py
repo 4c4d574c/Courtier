@@ -28,6 +28,7 @@ from .routes import router as api_router
 from .routes.admin_users import router as admin_router
 from .routes.auth import router as auth_router
 from .routes.profile import router as profile_router
+from .services.run_manager import RunManager
 from .session_store import SessionStore
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,10 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         if start_plugins:
             await app.state.plugin_system.start()
         init_telemetry()
+        # Runs are in-process only: any persisted "running" session died with
+        # the previous process — mark it interrupted so it never shows as
+        # perpetually running.
+        await app.state.run_manager.sweep_stale_sessions()
         from .db import bootstrap_admin_user, get_db
 
         # DB-less mode (empty MYSQL_URL) is a supported configuration for
@@ -90,6 +95,8 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         try:
             yield
         finally:
+            # Cancel any still-running background sessions before teardown.
+            await app.state.run_manager.shutdown()
             if start_plugins:
                 await app.state.plugin_system.shutdown()
 
@@ -139,7 +146,11 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     )
     app.state.file_store = FileStore(str(Path(settings.upload_dir) / ".file_registry"))
     app.state.pause_event = asyncio.Event()
-    app.state.active_tasks = {}
+    app.state.run_manager = RunManager(
+        session_store=app.state.session_store,
+        settings=settings,
+        pause_event=app.state.pause_event,
+    )
     app.state.tool_registry = ToolRegistry()
 
     # Unified artifact store — replaces the old separate CacheStore and

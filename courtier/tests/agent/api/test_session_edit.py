@@ -311,9 +311,7 @@ class TestArtifactSnapshotHistory:
         # Sessions saved before per-turn snapshots existed: no rollback entry
         # for turn N ≥ 1 → keep the cumulative snapshot so surviving $refs
         # stay resolvable.
-        session = replace(
-            _make_session(), artifact_snapshot="latest", turn_artifact_snapshots=[]
-        )
+        session = replace(_make_session(), artifact_snapshot="latest", turn_artifact_snapshots=[])
         kwargs = compute_turn_truncation(session, 2)
         assert "artifact_snapshot" not in kwargs
         assert kwargs["turn_artifact_snapshots"] == []
@@ -325,9 +323,7 @@ class TestContextCompactedDetail:
         assert session.to_detail_dict()["contextCompacted"] is False
         compacted = replace(
             session,
-            context_state=json.dumps(
-                {"version": 1, "has_compacted": True, "compact_count": 1}
-            ),
+            context_state=json.dumps({"version": 1, "has_compacted": True, "compact_count": 1}),
         )
         assert compacted.to_detail_dict()["contextCompacted"] is True
 
@@ -377,9 +373,7 @@ class TestTruncateSessionToTurn:
         session_id = await _make_stored_session(store)
         await store.update(
             session_id,
-            context_state=json.dumps(
-                {"version": 1, "has_compacted": True, "compact_count": 1}
-            ),
+            context_state=json.dumps({"version": 1, "has_compacted": True, "compact_count": 1}),
         )
         with pytest.raises(HTTPException) as exc_info:
             await truncate_session_to_turn(store, "admin", True, session_id, 1)
@@ -417,9 +411,7 @@ async def app_client(tmp_path):
 
     app = create_app(sessions_dir=str(tmp_path), start_plugins=False)
     async with app.router.lifespan_context(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/auth/login",
                 json={"username": "admin", "password": _TEST_ADMIN_PASSWORD},
@@ -441,9 +433,7 @@ async def _run_turn(client, **params) -> None:
     """Drive one SSE run to completion with a mocked agent."""
     from unittest.mock import patch
 
-    with patch(
-        "courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent
-    ):
+    with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
         resp = await client.get("/api/sessions", params=params)
     assert resp.status_code == 200, resp.text
 
@@ -526,15 +516,22 @@ class TestEditTurnRoute:
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
-    async def test_edit_turn_running_rejected_by_active_tasks(self, app_client):
+    async def test_edit_turn_running_rejected_by_active_run(self, app_client):
         app, client = app_client
         await _run_turn(client, task="跑过一轮")
         sid = (await client.get("/api/sessions")).json()[0]["id"]
-        app.state.active_tasks[sid] = object()  # runner handle not yet reaped
+        # Simulate a live run registered in the RunManager (the persisted
+        # status can lag the in-memory runner).
+        from courtier.agent.api.services.run_event_log import RunEventLog
+        from courtier.agent.api.services.run_manager import AgentRun
+        from courtier.agent.core.event_bus import EventBus
+
+        app.state.run_manager._runs[sid] = AgentRun(sid, "u", RunEventLog(), EventBus())
         resp = await client.get(
             "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
         )
         assert resp.status_code == 409
+        app.state.run_manager._runs.pop(sid, None)
 
     @pytest.mark.asyncio
     async def test_edit_turn_compacted_rejected(self, app_client):
@@ -543,9 +540,7 @@ class TestEditTurnRoute:
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         await app.state.session_store.update(
             sid,
-            context_state=json.dumps(
-                {"version": 1, "has_compacted": True, "compact_count": 1}
-            ),
+            context_state=json.dumps({"version": 1, "has_compacted": True, "compact_count": 1}),
         )
         resp = await client.get(
             "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}

@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
 from ..services.agent_service import build_agent
+from ..services.run_manager import generate_sse_stream
 from ..services.session_service import (
     delete_session,
     fork_session_tree,
@@ -23,7 +24,7 @@ from ..services.session_service import (
     rewind_session_tree,
     truncate_session_to_turn,
 )
-from ..services.stream_service import generate_sse_stream, reconstruct_state
+from ..services.stream_service import reconstruct_state
 
 logger = logging.getLogger(__name__)
 
@@ -145,9 +146,7 @@ async def handle_sessions(
     if editTurn is not None and not sessionId:
         raise HTTPException(400, "editTurn 仅用于续轮会话")
 
-    pause_event = getattr(request.app.state, "pause_event", None)
-    active_tasks = getattr(request.app.state, "active_tasks", None)
-    tool_registry = getattr(request.app.state, "tool_registry", None)
+    run_manager = getattr(request.app.state, "run_manager", None)
 
     # Determine mode: new session vs continue existing
     if sessionId:
@@ -156,13 +155,18 @@ async def handle_sessions(
         if existing is None:
             raise HTTPException(404, "Session not found")
 
+        # One run per session: a currently-executing run conflicts with a
+        # new turn / edit-resend. A terminal run kept for its grace period
+        # does NOT — the next turn may start while late observers replay.
+        if run_manager is not None and run_manager.has_running(sessionId):
+            if editTurn is not None:
+                raise HTTPException(409, "会话正在运行，请先停止再编辑")
+            raise HTTPException(409, "会话正在运行，请先停止或等待其完成")
+
         # Edit-resend: revoke turn `editTurn` (and everything after it)
         # before the continuation registers the edited text as a fresh turn.
         edited_turn_file_name: str | None = None
         if editTurn is not None:
-            # The persisted status can lag the in-memory runner; check both.
-            if active_tasks is not None and sessionId in active_tasks:
-                raise HTTPException(409, "会话正在运行，请先停止再编辑")
             if 0 <= editTurn < len(existing.turn_messages):
                 # The edited turn keeps its original upload (edit = text only).
                 edited_turn_file_name = existing.turn_messages[editTurn].get("fileName")
@@ -209,9 +213,7 @@ async def handle_sessions(
         # each turn with the correct user message and step grouping.  The
         # turn entry carries the upload reference so restored sessions keep
         # the file chip (and can re-send it on a later edit).
-        await session_store.add_turn(
-            sessionId, task, file_name=turn_file_name, file_id=fileId
-        )
+        await session_store.add_turn(sessionId, task, file_name=turn_file_name, file_id=fileId)
 
         is_new = False
     else:
@@ -280,6 +282,10 @@ async def handle_sessions(
     # records above so the user-facing display keeps the original input.
     task = await _persist_oversized_task(task, context_manager, settings)
 
+    # The run's log continues the session's event_seq watermark so attach
+    # replays stay aligned across turns (new sessions: fresh record → 0+1).
+    initial_seq = existing.event_seq + 1 if not is_new else 1
+
     return StreamingResponse(
         generate_sse_stream(
             agent=agent,
@@ -288,6 +294,8 @@ async def handle_sessions(
             agent_context=agent_context,
             session_store=session_store,
             settings=settings,
+            run_manager=run_manager,
+            user=current_user,
             prior_state=prior_state,
             artifact_snapshot=artifact_snapshot,
             context_state=context_state,
@@ -295,11 +303,7 @@ async def handle_sessions(
             start_step=start_step,
             context_manager=context_manager,
             model_name=model_name,
-            pause_event=pause_event,
-            active_tasks=active_tasks,
-            audit_base_dir=settings.audit_log_dir,
-            audit_log_enabled=settings.audit_log_enabled,
-            tool_registry=tool_registry,
+            initial_seq=initial_seq,
         ),
         media_type="text/event-stream",
         headers={

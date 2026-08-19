@@ -182,6 +182,22 @@ class RunRecorder:
             self._event_bus.unsubscribe(self._event_subscription)
         self._event_bus = None
 
+    async def drain_pending(self, timeout: float = 2.0) -> None:
+        """Best-effort: let the bus listener finish dispatching queued events.
+
+        Called before terminal emission so events published just before run
+        completion (e.g. the final usage report) still land in the log.
+        """
+        sub = getattr(self, "_event_subscription", None)
+        if sub is None:
+            return
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while not sub.queue.empty():
+            if loop.time() >= deadline:
+                return
+            await asyncio.sleep(0.01)
+
     async def _event_bus_listener(self, subscription: EventSubscription) -> None:
         """Background task: read AgentEvents and dispatch to handlers."""
         try:

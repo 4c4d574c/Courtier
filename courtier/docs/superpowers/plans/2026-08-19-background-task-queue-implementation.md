@@ -127,14 +127,14 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `agent/api/services/run_manager.py`(新)、`agent/api/services/stream_service.py`、`agent/api/app.py`、`tests/agent/api/test_run_manager.py`(新)、`tests/agent/api/test_stream_service.py`、`tests/agent/api/test_event_bus_sse_integration.py`
 **依赖:** Task 1.3
 
-- [ ] **Step 1:** `AgentRun`:session_id、user、状态(`running|completed|error|stopped`,Phase 4 前无 queued)、`asyncio.Task`、session 级 EventBus、RunRecorder、RunEventLog、created/finished 时间。
-- [ ] **Step 2:** `RunManager.start(spec) -> AgentRun`:spec 携带 `build` 闭包(执行时才 build_agent,为 4.1 排队延迟构建留位)与 task/上下文等;创建 run、`asyncio.create_task(runner)`;同 session 已有未终态 run 则抛冲突(路由转 409 或 attach)。
-- [ ] **Step 3:** runner 主体自 `generate_sse_stream` 迁移:compaction 状态恢复、artifact store 准备、model config、`agent.run(event_bus=run.bus, on_subagent_event=recorder.on_subagent_event, …)`、final_state 持久化(messages_json/artifact_snapshot/context_state/tree_json/active_domains);`is_new` 的 `session` 事件与 `initial→running` 提升移到 run 启动处(入日志,不再由连接首 chunk 驱动)。
-- [ ] **Step 4:** 终态路径全部 run 侧完成:正常结束 → recorder.emit_terminal("complete") + `status=completed/conclusion/finalize_turn_conclusion`;`CancelledError` → stopped 落盘 + emit_terminal("stopped");异常 → error 落盘(trace_id)+ emit_terminal("error");终态后按 `run_grace_seconds` 懒清理(attach/get 时检查过期即弃)。
-- [ ] **Step 5:** `attach(session_id, since)` → (run, reader) 或 None(不在运行且过宽限期);`stop(session_id)`(含 `plugin_system.cancel_pending()` 前置,行为对齐现 `control.py:63-67`)/`stop_all()`;`has_active(session_id)`(edit-resend 守卫改用)。
-- [ ] **Step 6:** `stream_service` 缩减为 `stream_run(run, since)`:建读取器、先 `session` 兜底事件(attach 场景日志无 session 事件时补发)、yield `id:/data:` 行直至 seal;删除 queue/runner/consumer/取消逻辑。
-- [ ] **Step 7:** `app.py`:`app.state.run_manager = RunManager(...)`,删除 `active_tasks`;lifespan 启动时清扫 SessionStore 中 `running`→`interrupted`(补 finished_at);关停时取消全部 run 任务。
-- [ ] **Step 8:** 单测:断开后 run 继续并完整落盘(模拟连接早退);终态落盘不再依赖消费者(修复现状问题 #2/#3);同 session 重复 start 冲突;stop 全路径;宽限期 attach 拿到含终态的完整重放;启动清扫;无消费者时收尾不阻塞。
+- [x] **Step 1:** `AgentRun`:session_id、user、状态(`running|completed|error|stopped`,Phase 4 前无 queued)、`asyncio.Task`、session 级 EventBus、RunRecorder、RunEventLog、created/finished 时间。
+- [x] **Step 2:** `RunManager.start(spec) -> AgentRun`:spec 携带 `build` 闭包(执行时才 build_agent,为 4.1 排队延迟构建留位)与 task/上下文等;创建 run、`asyncio.create_task(runner)`;同 session 已有未终态 run 则抛冲突(路由转 409 或 attach)。
+- [x] **Step 3:** runner 主体自 `generate_sse_stream` 迁移:compaction 状态恢复、artifact store 准备、model config、`agent.run(event_bus=run.bus, on_subagent_event=recorder.on_subagent_event, …)`、final_state 持久化(messages_json/artifact_snapshot/context_state/tree_json/active_domains);`is_new` 的 `session` 事件与 `initial→running` 提升移到 run 启动处(入日志,不再由连接首 chunk 驱动)。
+- [x] **Step 4:** 终态路径全部 run 侧完成:正常结束 → recorder.emit_terminal("complete") + `status=completed/conclusion/finalize_turn_conclusion`;`CancelledError` → stopped 落盘 + emit_terminal("stopped");异常 → error 落盘(trace_id)+ emit_terminal("error");终态后按 `run_grace_seconds` 懒清理(attach/get 时检查过期即弃)。
+- [x] **Step 5:** `attach(session_id, since)` → (run, reader) 或 None(不在运行且过宽限期);`stop(session_id)`(含 `plugin_system.cancel_pending()` 前置,行为对齐现 `control.py:63-67`)/`stop_all()`;`has_active(session_id)`(edit-resend 守卫改用)。
+- [x] **Step 6:** `stream_service` 缩减为 `stream_run(run, since)`:建读取器、先 `session` 兜底事件(attach 场景日志无 session 事件时补发)、yield `id:/data:` 行直至 seal;删除 queue/runner/consumer/取消逻辑。
+- [x] **Step 7:** `app.py`:`app.state.run_manager = RunManager(...)`,删除 `active_tasks`;lifespan 启动时清扫 SessionStore 中 `running`→`interrupted`(补 finished_at);关停时取消全部 run 任务。
+- [x] **Step 8:** 单测:断开后 run 继续并完整落盘(模拟连接早退);终态落盘不再依赖消费者(修复现状问题 #2/#3);同 session 重复 start 冲突;stop 全路径;宽限期 attach 拿到含终态的完整重放;启动清扫;无消费者时收尾不阻塞。
 
 ### Task 1.5: 路由接线(发起防重复 + attach 端点 + stop)
 

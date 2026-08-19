@@ -7,9 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict, cast
 
-# 状态扩展预告（task-queue 计划 Task 4.1 落地）: "queued"（每用户并发满，FIFO 等待中）
-# 与 "interrupted"（服务重启时清扫 running/queued 会话的终态标记）。
-SessionStatus = Literal["initial", "running", "paused", "completed", "error", "stopped"]
+# "queued": 每用户并发满，FIFO 等待中（task-queue 计划 Task 4.1）。
+# "interrupted": 服务重启清扫 running/queued 会话的终态标记（run 不跨进程存活）。
+SessionStatus = Literal[
+    "initial", "running", "paused", "completed", "error", "stopped", "queued", "interrupted"
+]
 ToolStatus = Literal["pending", "running", "done", "ok", "error", "warning"]
 ToolCallKind = Literal["tool", "subagent_run"]
 ToolCallScope = Literal["parent", "subagent"]

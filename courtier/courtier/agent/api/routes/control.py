@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Optional
 
@@ -50,13 +49,13 @@ async def stop_session(
     sessionId: Optional[str] = Query(default=None),
     current_user_payload: dict = Depends(get_current_user),
 ):
-    """Stop a running session by cancelling its agent task.
+    """Stop a running session (cancels its background run).
 
     If sessionId is provided, only that session is stopped and the caller
     must own the session or be an admin. If omitted, all active sessions
     are stopped (admin only).
     """
-    active_tasks: dict[str, asyncio.Task] = request.app.state.active_tasks
+    run_manager = request.app.state.run_manager
     is_admin = _is_admin(current_user_payload)
     current_user = current_user_payload["sub"]
 
@@ -68,47 +67,21 @@ async def stop_session(
 
     if sessionId:
         session_store = request.app.state.session_store
-        owned = await session_store.get_owned(
-            sessionId, current_user, is_admin
-        )
+        owned = await session_store.get_owned(sessionId, current_user, is_admin)
         if owned is None:
             raise HTTPException(404, f"会话 {sessionId} 未找到或无权限")
 
-        task = active_tasks.get(sessionId)
-        if task is None:
+        stopped = await run_manager.stop(sessionId)
+        if not stopped:
             raise HTTPException(404, f"会话 {sessionId} 未在运行")
-        task.cancel()
-        try:
-            await asyncio.wait_for(task, timeout=5.0)
-        except asyncio.CancelledError:
-            pass
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Timeout awaiting cancellation for session %s; forcing cleanup",
-                sessionId,
-            )
-            active_tasks.pop(sessionId, None)
-        except Exception:
-            logger.exception("Error awaiting cancellation for session %s", sessionId)
         return {"status": "ok", "sessionId": sessionId, "stopped": True}
 
     # Stop all active sessions (admin only)
     if not is_admin:
         raise HTTPException(403, "仅管理员可停止全部会话")
 
-    if not active_tasks:
+    stopped = await run_manager.stop_all()
+    if not stopped:
         return {"status": "ok", "stopped": 0, "message": "没有正在运行的任务"}
-
-    stopped = []
-    for sid, task in list(active_tasks.items()):
-        task.cancel()
-        try:
-            await asyncio.wait_for(task, timeout=5.0)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
-            logger.warning("Timeout awaiting cancellation for session %s; forcing cleanup", sid)
-            active_tasks.pop(sid, None)
-        except Exception:
-            logger.exception("Error awaiting cancellation for session %s", sid)
-        stopped.append(sid)
 
     return {"status": "ok", "stoppedCount": len(stopped), "sessionIds": stopped}

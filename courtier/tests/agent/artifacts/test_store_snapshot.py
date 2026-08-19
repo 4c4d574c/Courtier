@@ -145,14 +145,14 @@ def test_load_snapshot_ignores_wrong_version(tmp_path):
 
 
 def test_prepare_artifact_store_prefers_snapshot(tmp_path):
-    from courtier.agent.api.services import stream_service
+    from courtier.agent.api.services import run_manager
 
     source = ArtifactStore(cache_dir=str(tmp_path))
     _make_disk_ref_artifact(source, tmp_path, "ref-parse-1", {"pages": []})
     snapshot_json = json.dumps(source.snapshot(), ensure_ascii=False)
 
     context_manager = SimpleNamespace(_cache=ArtifactStore(cache_dir=str(tmp_path)))
-    store = stream_service._prepare_artifact_store_for_session(
+    store = run_manager._prepare_artifact_store_for_session(
         prior_state=None,
         context_manager=context_manager,
         artifact_snapshot=snapshot_json,
@@ -164,11 +164,11 @@ def test_prepare_artifact_store_prefers_snapshot(tmp_path):
 def test_prepare_artifact_store_ignores_unusable_snapshot(tmp_path):
     """An unusable snapshot leaves an empty store — restore is snapshot-only,
     there is no marker-based fallback anymore."""
-    from courtier.agent.api.services import stream_service
+    from courtier.agent.api.services import run_manager
 
     context_manager = SimpleNamespace(_cache=ArtifactStore(cache_dir=str(tmp_path)))
     prior_state = SimpleNamespace(messages=[object()])
-    store = stream_service._prepare_artifact_store_for_session(
+    store = run_manager._prepare_artifact_store_for_session(
         prior_state=prior_state,
         context_manager=context_manager,
         artifact_snapshot='{"version": 999}',  # unusable snapshot
