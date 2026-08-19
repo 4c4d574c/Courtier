@@ -154,27 +154,27 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `webui/src/api/client.ts`、`webui/src/types/agent.ts`、`webui/src/constants/messages.ts`
 **依赖:** Task 1.5(端点可用)
 
-- [ ] **Step 1:** `attachSessionEvents(sessionId, since)`:EventSource(`/api/sessions/{id}/events?since=`,withCredentials),`onmessage`/`onerror` 形态与现有 createEventSource 一致。
-- [ ] **Step 2:** `AgentEvent` 联合类型增 `{type:"queued"; position:number}`、`{type:"resync"}`;Session status 类型增 `queued`/`interrupted`。
-- [ ] **Step 3:** 新文案(排队中/已中断/续看失败回落快照等)进 constants/messages.ts。
+- [x] **Step 1:** `attachSessionEvents(sessionId, since)`:EventSource(`/api/sessions/{id}/events?since=`,withCredentials),`onmessage`/`onerror` 形态与现有 createEventSource 一致。
+- [x] **Step 2:** `AgentEvent` 联合类型增 `{type:"queued"; position:number}`、`{type:"resync"}`;Session status 类型增 `queued`/`interrupted`。
+- [x] **Step 3:** 新文案(排队中/已中断/续看失败回落快照等)进 constants/messages.ts。
 
 ### Task 2.2: restoreSession 自动续接 + 兜底
 
 **Files:** `webui/src/composables/useAgentSession.ts`、`views/HomeView.vue`
 **依赖:** Task 2.1
 
-- [ ] **Step 1:** restoreSession 后若快照 `status==="running"`(4.1 后含 queued):以快照 `eventSeq` 为 since 调 attach;事件走既有 handler 管线,零新对齐逻辑(重放即正常事件流)。
-- [ ] **Step 2:** attach 失败(404,run 刚结束/过宽限期)→ 重拉一次快照并按终态渲染;`resync` 事件 → 关连接 → 重拉快照 → 以新 eventSeq 重新 attach(一次,防循环)。
-- [ ] **Step 3:** 断线重连:沿用原生 EventSource 重连(Last-Event-ID 由浏览器自动携带,服务端续流);重连耗尽逻辑复用现有 MAX_RECONNECTS 框架。
-- [ ] **Step 4:** `queued` 事件:置会话排队态(输入区/状态条展示,复用运行态样式),收到后续事件自然切运行;`interrupted` 快照按终态渲染 + 提示可重新发起。
-- [ ] **Step 5:** 切走即 disconnect 语义保持(现在只是 detach,无需改);多标签页同看一个运行中会话随 attach 天然支持。
+- [x] **Step 1:** restoreSession 后若快照 `status==="running"`(4.1 后含 queued):以快照 `eventSeq` 为 since 调 attach;事件走既有 handler 管线,零新对齐逻辑(重放即正常事件流)。
+- [x] **Step 2:** attach 失败(404,run 刚结束/过宽限期)→ 重拉一次快照并按终态渲染;`resync` 事件 → 关连接 → 重拉快照 → 以新 eventSeq 重新 attach(一次,防循环)。
+- [x] **Step 3:** 断线重连:沿用原生 EventSource 重连(Last-Event-ID 由浏览器自动携带,服务端续流);重连耗尽逻辑复用现有 MAX_RECONNECTS 框架。
+- [x] **Step 4:** `queued` 事件:置会话排队态(输入区/状态条展示,复用运行态样式),收到后续事件自然切运行;`interrupted` 快照按终态渲染 + 提示可重新发起。
+- [x] **Step 5:** 切走即 disconnect 语义保持(现在只是 detach,无需改);多标签页同看一个运行中会话随 attach 天然支持。
 
 ### Task 2.3: 前端测试
 
 **Files:** `webui/scripts/*`(新增或扩展)
 **依赖:** Task 2.2
 
-- [ ] **Step 1:** 脚本断言:快照 eventSeq → attach URL 参数;queued/resync 事件分支;attach 404 回落重拉;重放事件序列与直接流式等价(同一 handler 管线)。
+- [x] **Step 1:** 脚本断言:快照 eventSeq → attach URL 参数;queued/resync 事件分支;attach 404 回落重拉;重放事件序列与直接流式等价(同一 handler 管线)。
 
 ## Phase 3:全局事件通道与任务可见性
 

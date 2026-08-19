@@ -3,6 +3,12 @@
 export const MESSAGES = {
   /** SSE connection dropped after exceeding retry limit */
   CONNECTION_LOST: "连接中断，请重试",
+  /** Re-attaching to a background run failed */
+  ATTACH_FAILED: "接续后台任务失败，请重新打开会话",
+  /** Background task is queued server-side (per-user concurrency limit) */
+  QUEUED_HINT: "排队中，前面还有 {n} 个任务",
+  /** Run died with a server restart */
+  INTERRUPTED_HINT: "该任务因服务重启已中断，可重新发起",
   /** Delete session confirmation dialog */
   DELETE_CONFIRM: "确定要删除该会话吗？此操作不可撤销。",
   /** Session stopped by user */

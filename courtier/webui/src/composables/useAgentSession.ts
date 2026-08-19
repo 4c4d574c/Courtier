@@ -54,6 +54,46 @@ export function useAgentSession() {
 
   // ---- connection lifecycle ----
 
+  /**
+   * Wire an EventSource's message/error handlers into the session event
+   * pipeline. Shared by the initiating stream (connect) and the re-attach
+   * stream (attachToRunningSession) — replays are the exact same event
+   * sequence the live stream would have delivered, so one handler set
+   * covers both.
+   */
+  function wireEventSource(es: EventSource, _generation: number) {
+    es.onmessage = (e) => {
+      reconnectCount = 0;
+      try {
+        const event: AgentEvent = JSON.parse(e.data);
+        if (import.meta.env.DEV) {
+          console.debug("[SSE]", event.type, event);
+        }
+        handlers.handleSessionEvent(event);
+      } catch (_err) {
+        console.warn("Failed to handle SSE data:", _err, e.data);
+        session.errorMessage = "数据解析错误，请刷新页面重试";
+      }
+    };
+
+    es.onerror = () => {
+      if (session.status === "completed" || session.status === "error") {
+        es.close();
+        return;
+      }
+      // The access cookie may have expired during a long stream — try to
+      // rotate it so the browser's automatic reconnect can re-authenticate.
+      void api.refreshToken().catch(() => {});
+      reconnectCount++;
+      if (reconnectCount >= MAX_RECONNECTS) {
+        session.status = "error";
+        session.errorMessage = MESSAGES.CONNECTION_LOST;
+        finalizeRunningOperations(session, "error", "error", "连接中断");
+        es.close();
+      }
+    };
+  }
+
   function connect(task: string, fileId?: string, fileName?: string, editTurn?: number) {
     disconnect();
     const generation = ++connectGeneration;
@@ -118,37 +158,7 @@ export function useAgentSession() {
           es.close();
           return;
         }
-        es.onmessage = (e) => {
-          reconnectCount = 0;
-          try {
-            const event: AgentEvent = JSON.parse(e.data);
-            if (import.meta.env.DEV) {
-              console.debug("[SSE]", event.type, event);
-            }
-            handlers.handleSessionEvent(event);
-          } catch (_err) {
-            console.warn("Failed to handle SSE data:", _err, e.data);
-            session.errorMessage = "数据解析错误，请刷新页面重试";
-          }
-        };
-
-        es.onerror = () => {
-          if (session.status === "completed" || session.status === "error") {
-            es.close();
-            return;
-          }
-          // The access cookie may have expired during a long stream — try to
-          // rotate it so the browser's automatic reconnect can re-authenticate.
-          void api.refreshToken().catch(() => {});
-          reconnectCount++;
-          if (reconnectCount >= MAX_RECONNECTS) {
-            session.status = "error";
-            session.errorMessage = MESSAGES.CONNECTION_LOST;
-            finalizeRunningOperations(session, "error", "error", "连接中断");
-            es.close();
-          }
-        };
-
+        wireEventSource(es, generation);
         eventSource.value = es;
       })
       .catch((err: unknown) => {
@@ -222,6 +232,111 @@ export function useAgentSession() {
     state.toolIdCounter = 0;
     state.subagentThoughtCounters = {};
     state.pendingSubagents = [];
+    session.eventSeq = loaded.eventSeq;
+    session.queuePosition = undefined;
+
+    // Still running server-side (left the page mid-run): re-attach to the
+    // live stream. The server replays events after the snapshot's watermark
+    // (eventSeq) then streams live — replay is the exact same event sequence
+    // the uninterrupted stream would have delivered, so the existing handler
+    // pipeline reconstructs the in-flight state without any new alignment
+    // logic.
+    if (session.status === "running" || session.status === "queued") {
+      attachToRunningSession(loaded.id, loaded.eventSeq ?? 0);
+    }
+  }
+
+  /**
+   * Re-attach to a session whose run is still active server-side.
+   *
+   * Fallbacks (each degrade gracefully to "reload snapshot, re-attach"):
+   *  - 404: the run just ended or its grace period expired → reload the
+   *    snapshot and render it as a finished session.
+   *  - resync event: the watermark was evicted from the bounded log → close,
+   *    reload the snapshot once, and re-attach from its fresh watermark.
+   */
+  function attachToRunningSession(sessionId: string, since: number) {
+    disconnect();
+    const generation = ++connectGeneration;
+    reconnectCount = 0;
+
+    const es = api.attachSessionEvents(sessionId, since);
+    if (generation !== connectGeneration) {
+      es.close();
+      return;
+    }
+    // Wire attach-specific handlers directly — they wrap the shared pipeline
+    // (intercepting resync / 404-open-failure) instead of composing with
+    // wireEventSource's onmessage, which it would overwrite.
+    let resynced = false;
+    es.onmessage = (e) => {
+      reconnectCount = 0;
+      let parsed: AgentEvent;
+      try {
+        parsed = JSON.parse(e.data) as AgentEvent;
+      } catch (_err) {
+        console.warn("Failed to handle SSE data:", _err, e.data);
+        session.errorMessage = "数据解析错误，请刷新页面重试";
+        return;
+      }
+      if (parsed.type === "resync") {
+        es.close();
+        if (!resynced && generation === connectGeneration) {
+          resynced = true;
+          void api
+            .loadSession(sessionId)
+            .then((fresh) => {
+              if (generation !== connectGeneration || !fresh) return;
+              restoreSession(fresh);
+            })
+            .catch(() => {
+              session.errorMessage = MESSAGES.ATTACH_FAILED;
+              finalizeRunningOperations(session, "error", "error", "接续失败");
+            });
+        }
+        return;
+      }
+      if (import.meta.env.DEV) {
+        console.debug("[SSE]", parsed.type, parsed);
+      }
+      handlers.handleSessionEvent(parsed);
+    };
+
+    es.onerror = () => {
+      if (session.status === "completed" || session.status === "error") {
+        es.close();
+        return;
+      }
+      // The run vanished (404 at open → readyState CLOSED, no HTTP status to
+      // read from EventSource): reload the snapshot and stop streaming.
+      if (es.readyState === EventSource.CLOSED) {
+        es.close();
+        if (generation !== connectGeneration) return;
+        void api
+          .loadSession(sessionId)
+          .then((fresh) => {
+            if (generation !== connectGeneration || !fresh) return;
+            restoreSession(fresh);
+          })
+          .catch(() => {
+            session.status = "error";
+            session.errorMessage = MESSAGES.ATTACH_FAILED;
+            finalizeRunningOperations(session, "error", "error", "接续失败");
+          });
+        return;
+      }
+      // Transient error: the browser retries natively (with Last-Event-ID).
+      void api.refreshToken().catch(() => {});
+      reconnectCount++;
+      if (reconnectCount >= MAX_RECONNECTS) {
+        session.status = "error";
+        session.errorMessage = MESSAGES.CONNECTION_LOST;
+        finalizeRunningOperations(session, "error", "error", "连接中断");
+        es.close();
+      }
+    };
+
+    eventSource.value = es;
   }
 
   async function stop() {

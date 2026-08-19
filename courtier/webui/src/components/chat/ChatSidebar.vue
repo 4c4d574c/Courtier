@@ -599,6 +599,12 @@ function onMenuDelete(id: string) {
 .chat-sidebar-item-dot.running {
   background: #f59e0b;
 }
+.chat-sidebar-item-dot.queued {
+  background: #60a5fa;
+}
+.chat-sidebar-item-dot.interrupted {
+  background: #94a3b8;
+}
 .chat-sidebar-item-dot.error {
   background: #ef4444;
 }

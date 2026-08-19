@@ -379,6 +379,18 @@ export const api = {
     return new EventSource(url, { withCredentials: true });
   },
 
+  /**
+   * Attach to a session's active run: the server replays events after
+   * *since* (the snapshot's eventSeq watermark) then streams live until the
+   * run terminates. Used when restoring a still-running session.
+   */
+  attachSessionEvents(sessionId: string, since: number): EventSource {
+    const url = `${API_BASE}/sessions/${sessionId}/events${qs({
+      since: String(since),
+    })}`;
+    return new EventSource(url, { withCredentials: true });
+  },
+
   async forkSession(
     sessionId: string,
     nodeId?: string,

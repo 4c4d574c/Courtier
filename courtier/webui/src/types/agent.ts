@@ -171,7 +171,7 @@ export interface Session {
   id: string
   task: string
   modelName: string
-  status: 'running' | 'paused' | 'completed' | 'error'
+  status: 'running' | 'paused' | 'completed' | 'error' | 'queued' | 'interrupted'
   errorMessage?: string
   stopReason?: 'user'
   conclusion?: string
@@ -217,6 +217,16 @@ export interface Session {
    * 与 pendingVerdict 同生命周期，仅运行时存在。
    */
   pendingVerdictAfterStepIndex?: number
+  /**
+   * 事件日志水位线（detail 接口返回）：本快照内容对应的后端事件 seq。
+   * 恢复到运行中会话时，以它为 since attach，重放恰好不重不漏。
+   */
+  eventSeq?: number
+  /**
+   * 运行时标志：本会话当前处于服务端排队（每用户并发满，FIFO 等待）。
+   * queued 事件置位、首个运行事件（think/tool_start 等）清除。
+   */
+  queuePosition?: number
 }
 
 /** History list item (lightweight) */
@@ -259,7 +269,7 @@ export interface CompactionNotice {
 
 /** SSE event from backend */
 export interface AgentEvent {
-  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting'
+  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting' | 'queued' | 'resync'
   detail?: string
   text?: string
   stepIndex?: number
@@ -323,4 +333,6 @@ export interface AgentEvent {
   textResponse?: boolean
   /** Structured act payload: tool names being executed. */
   tools?: string[]
+  /** queued 事件：在服务端 FIFO 队列中的位置（前面还有 N 个任务） */
+  position?: number
 }

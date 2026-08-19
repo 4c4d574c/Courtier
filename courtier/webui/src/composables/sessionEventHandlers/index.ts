@@ -84,9 +84,20 @@ export function createSessionEventHandlers(deps: () => HandlerDeps) {
       case "complete":
       case "stopped":
       case "error": {
+        const { session } = deps();
+        session.queuePosition = undefined;
         handleCompletionEvent(deps, event);
         break;
       }
+      case "queued": {
+        const { session } = deps();
+        session.queuePosition = event.position ?? 0;
+        break;
+      }
+      case "resync":
+        // Handled at the connection level (useAgentSession): the watermark
+        // was evicted from the bounded log → snapshot reload + re-attach.
+        break;
       case "context_compacting": {
         const { session } = deps();
         session.compacting = true;
