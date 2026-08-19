@@ -141,11 +141,11 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `agent/api/routes/sessions.py`、`agent/api/routes/control.py`、`tests/agent/api/test_session_attach.py`(新)、`test_session_edit.py`
 **依赖:** Task 1.4
 
-- [ ] **Step 1:** 发起路由:构造 spec(build 闭包 + 参数)→ `RunManager.start` → `stream_run(run, since=0)`;同 session 已有活跃 run:带相同 task 的重连(原生 EventSource 重发)转 `attach`,不同 task 则 409(修复现状问题 #6 重复轮次缺陷);edit-resend 守卫由 `active_tasks` 改 `run_manager.has_active`(扩展 queued 在 4.1)。
-- [ ] **Step 2:** 新路由 `GET /api/sessions/{session_id}/events?since=int`:归属校验(get_owned);`Last-Event-ID` 请求头优先于 query 参数;run 存在(含宽限期)→ `stream_run(run, since)`;不存在 → 404(前端退回快照);限流 30/min,响应头与主 SSE 一致。
-- [ ] **Step 3:** `control.py` stop/stop-all 改走 `RunManager`(保留 plugin cancel_pending 前置与所有权语义)。
-- [ ] **Step 4:** 会话列表响应叠加实时状态:RunManager 活跃/宽限期内的会话以内存状态覆盖 store 滞后值(queued 于 4.1 生效)。
-- [ ] **Step 5:** 路由级测试(ASGITransport + mock agent,沿用 test_session_edit 模式):发起后断开 run 继续;attach 重放与 since 对齐(水位不变式 I2 端到端);Last-Event-ID 续流;404/409 分支;重复 task 重连不产生重复轮次;stop。
+- [x] **Step 1:** 发起路由:构造 spec(build 闭包 + 参数)→ `RunManager.start` → `stream_run(run, since=0)`;同 session 已有活跃 run:带相同 task 的重连(原生 EventSource 重发)转 `attach`,不同 task 则 409(修复现状问题 #6 重复轮次缺陷);edit-resend 守卫由 `active_tasks` 改 `run_manager.has_active`(扩展 queued 在 4.1)。
+- [x] **Step 2:** 新路由 `GET /api/sessions/{session_id}/events?since=int`:归属校验(get_owned);`Last-Event-ID` 请求头优先于 query 参数;run 存在(含宽限期)→ `stream_run(run, since)`;不存在 → 404(前端退回快照);限流 30/min,响应头与主 SSE 一致。
+- [x] **Step 3:** `control.py` stop/stop-all 改走 `RunManager`(保留 plugin cancel_pending 前置与所有权语义)。
+- [x] **Step 4:** 会话列表响应叠加实时状态:RunManager 活跃/宽限期内的会话以内存状态覆盖 store 滞后值(queued 于 4.1 生效)。
+- [x] **Step 5:** 路由级测试(ASGITransport + mock agent,沿用 test_session_edit 模式):发起后断开 run 继续;attach 重放与 since 对齐(水位不变式 I2 端到端);Last-Event-ID 续流;404/409 分支;重复 task 重连不产生重复轮次;stop。
 
 ## Phase 2:前端 —— 恢复会话自动续看
 

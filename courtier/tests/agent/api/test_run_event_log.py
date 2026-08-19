@@ -223,3 +223,25 @@ class TestReaders:
         async for entry in reader:
             seen.append(entry.seq)
         assert seen == [0, 1]
+
+
+class TestPostSealAttach:
+    async def test_reader_attached_after_seal_terminates(self):
+        """run 结束后才 attach 的 reader:重放完必须自然结束(宽限期 attach 路径)。"""
+        log = RunEventLog()
+        _append(log, "a")
+        _append(log, "b")
+        log.seal()
+        reader = log.reader(since=-1)
+        seen = []
+        async for entry in reader:
+            seen.append(entry.seq)
+        assert seen == [0, 1]
+
+    async def test_live_only_reader_attached_after_seal_terminates(self):
+        log = RunEventLog()
+        _append(log, "a")
+        log.seal()
+        reader = log.reader()  # live-only, post-seal
+        with pytest.raises(StopAsyncIteration):
+            await reader.__anext__()

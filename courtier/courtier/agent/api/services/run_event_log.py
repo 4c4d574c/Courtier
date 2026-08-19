@@ -254,6 +254,11 @@ class RunEventLog:
         resync marker (seq == RESYNC_SEQ) and the stream ends there.
         """
         state = _ReaderState(self._reader_queue_size)
+        if self._sealed:
+            # Registered after seal(): no live events will ever arrive, so the
+            # reader must terminate once its replay drains (otherwise the None
+            # sentinel never arrives and the live loop waits forever).
+            state.seal()
         self._readers.append(state)
         if since is None:
             # Live-only readers skip history; use last_seq (not next_seq) so

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
 from ..services.agent_service import build_agent
-from ..services.run_manager import generate_sse_stream
+from ..services.run_manager import RunManager, generate_sse_stream, stream_run
 from ..services.session_service import (
     delete_session,
     fork_session_tree,
@@ -136,7 +136,15 @@ async def handle_sessions(
 
     # List mode: no query params
     if task is None and fileId is None and sessionId is None:
-        return await list_sessions(session_store, current_user, is_admin, skip=skip, limit=limit)
+        items = await list_sessions(session_store, current_user, is_admin, skip=skip, limit=limit)
+        run_manager = getattr(request.app.state, "run_manager", None)
+        if run_manager is not None:
+            # Overlay live run status — store writes can lag the runner.
+            for item in items:
+                live = run_manager.active_status(item["id"])
+                if live is not None:
+                    item["status"] = live
+        return items
 
     # Both modes need at least a task
     if not task:
@@ -161,6 +169,14 @@ async def handle_sessions(
         if run_manager is not None and run_manager.has_running(sessionId):
             if editTurn is not None:
                 raise HTTPException(409, "会话正在运行，请先停止再编辑")
+            # Native EventSource reconnects replay the exact same URL — a
+            # browser re-attach, not a new turn. Serve it from the live run's
+            # transcript instead of registering a duplicate turn (the old
+            # implementation re-ran the turn on every reconnect).
+            if task == existing.task and task == existing.turn_messages[-1]["text"]:
+                return await _attach_stream_or_404(
+                    request, run_manager, sessionId, existing.event_seq
+                )
             raise HTTPException(409, "会话正在运行，请先停止或等待其完成")
 
         # Edit-resend: revoke turn `editTurn` (and everything after it)
@@ -306,11 +322,69 @@ async def handle_sessions(
             initial_seq=initial_seq,
         ),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=_sse_headers(),
+    )
+
+
+def _sse_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+
+async def _attach_stream_or_404(
+    request: Request,
+    run_manager: RunManager | None,
+    session_id: str,
+    fallback_since: int,
+) -> StreamingResponse:
+    """Attach to a session's live run as a streaming observer.
+
+    ``Last-Event-ID`` (sent automatically by EventSource on reconnect) takes
+    precedence over the fallback watermark; neither applies when the run is
+    gone — the caller 404s and the client falls back to the snapshot path.
+    """
+    if run_manager is None:
+        raise HTTPException(404, "会话没有可接续的运行")
+    since: int | None = None
+    last_event_id = request.headers.get("last-event-id")
+    if last_event_id is not None and last_event_id.strip().isdigit():
+        since = int(last_event_id.strip())
+    else:
+        since = fallback_since
+    attached = run_manager.attach(session_id, since)
+    if attached is None:
+        raise HTTPException(404, "会话没有可接续的运行")
+    run, reader = attached
+    return StreamingResponse(
+        stream_run(run, reader),
+        media_type="text/event-stream",
+        headers=_sse_headers(),
+    )
+
+
+@router.get("/sessions/{session_id}/events")
+@limiter.limit("30/minute")
+async def attach_session_events(
+    session_id: str,
+    request: Request,
+    since: Optional[int] = Query(default=None),
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Attach to the session's active run: replay events after *since*, then
+    stream live until the run terminates. 404 when the run is gone — the
+    client falls back to the persisted snapshot."""
+    session_store = request.app.state.session_store
+    existing = await session_store.get_owned(
+        session_id, current_user_payload["sub"], _is_admin(current_user_payload)
+    )
+    if existing is None:
+        raise HTTPException(404, "Session not found")
+    run_manager = getattr(request.app.state, "run_manager", None)
+    return await _attach_stream_or_404(
+        request, run_manager, session_id, since if since is not None else existing.event_seq
     )
 
 
