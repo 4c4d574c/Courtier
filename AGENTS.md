@@ -236,13 +236,14 @@ npm run check
 ### 5.1 Courtier backend layers
 
 1. **API layer** (`courtier/agent/api/`)
-   - `routes/` — HTTP handlers for sessions, files, auth, users, control, profile.
-   - `sse_adapter.py` — Converts internal events to SSE chunks.
+   - `routes/` — HTTP handlers for sessions, files, auth, users, control, profile, events.
+   - `sse_adapter.py` — `RunRecorder`: single writer of a run's event log + per-event session persistence (evolved from the old SSE adapter).
    - `file_store.py`, `session_store.py` — Persistence helpers.
    - `middleware/observability.py` — OpenTelemetry/Prometheus middleware.
 
 2. **Service layer** (`courtier/agent/api/services/`)
-   - `AgentService` — unified `build_agent` (single orchestrator builder for chat / uploaded-document / continuation sessions), `StreamService`, `FileService`, `SessionService`.
+   - `AgentService` — unified `build_agent` (single orchestrator builder for chat / uploaded-document / continuation sessions), `FileService`, `SessionService`.
+   - `RunManager` (`run_manager.py`) — session runs as connection-independent background tasks with per-user FIFO queueing; `RunEventLog` (`run_event_log.py`) — bounded, boundary-evicting replayable SSE transcript per run; `NotificationHub` (`notification_hub.py`) — per-user run-status fan-out for the global events channel.
 
 3. **Core engine layer** (`courtier/agent/`)
    - `core/` — Agent loop (`loop.py`), state (`state.py`), model client (`model.py`), context manager, guard logic, streaming, and the new event bus (`event_bus.py`, `events.py`).
@@ -271,7 +272,9 @@ npm run check
 
 ### 5.3 Agent runtime
 
-The runtime follows a Think → Act → Observe loop. During execution it emits events such as `session`, `think`, `act`, `observe`, `tool_result`, `token`, `usage`, and `complete`/`error`. These events are currently produced by callbacks in `loop.py` and are being migrated to an in-process `EventBus` (`courtier/agent/core/event_bus.py`, `events.py`). The `SSEAdapter` remains the consumer that forwards events to the web frontend.
+The runtime follows a Think → Act → Observe loop. During execution it emits events such as `session`, `think`, `act`, `observe`, `tool_result`, `token`, `usage`, and `complete`/`error`. These events are currently produced by callbacks in `loop.py` and are being migrated to an in-process `EventBus` (`courtier/agent/core/event_bus.py`, `events.py`).
+
+**Background runs + re-attach (task queue):** a session run is a connection-independent background task owned by `RunManager` (`app.state.run_manager`); SSE connections are pure readers of the run's `RunEventLog` (bounded replayable transcript). Disconnecting does NOT terminate a run — only `POST /api/stop` does (or the per-user FIFO queue demotes it to `queued` when `MAX_RUNS_PER_USER` is reached). Returning to a still-running session re-attaches via `GET /api/sessions/{id}/events?since=<snapshot eventSeq>` (watermark replay + live tail); EventSource reconnects resume via `Last-Event-ID`. The `RunRecorder` (evolved `SSEAdapter`) is the single writer of the log and the only component performing per-event persistence (stamped with the event seq — the `event_seq` watermark invariant). A global events channel (`GET /api/events`, `NotificationHub`) pushes run-status transitions for live sidebar badges and completion toasts. On restart, all in-process runs are lost; the startup sweep marks persisted `running`/`queued` sessions `interrupted`.
 
 **Unified session mode + domain gating:** all sessions (chat-only, uploaded document, continuation) run the same `OrchestratorAgent` built by `build_agent`. The orchestrator starts with only the shared plugin tools (`plugins/shared/`) visible; domain tools/skills are self-activated at runtime through the `activate_domain` meta-tool (`DomainActivator`), which registers the domain's SkillTools on the agent, injects its plugin proxies, and overlays the domain's `orchestrator.workflow_rules` onto the prompt pipeline. The active-domain set is persisted in the `SessionRecord` and replayed on per-request agent rebuilds. Document data-fetching: format audit → `parse_document`; content tasks / read-and-answer → `convert_document` Markdown (scanned PDFs and images fall back to OCR), reusing existing session text when present.
 

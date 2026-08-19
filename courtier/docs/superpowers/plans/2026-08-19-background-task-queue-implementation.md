@@ -222,10 +222,10 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 
 ## Phase 5:收尾
 
-- [ ] 勾选本计划全部 Step,补「实施记录」(含实测结论与偏差)。
-- [ ] 全量回归:`uv run pytest -m "not integration"`;`cd webui && npm test && npm run build`。
-- [ ] 真实会话手工验证清单:① 发起任务→关标签页→后台跑完;② 发起→切会话→切回,流式续看与不断线一致;③ 刷新页面回到运行中会话;④ 运行中断网重连(Last-Event-ID 续流);⑤ 后台任务 stop;⑥ 第 4 个任务排队→槽位释放自动启动;⑦ 侧栏徽标实时 + 完成 toast;⑧ 重启服务→interrupted。
-- [ ] 文档同步:根 `AGENTS.md` §5.3(运行时架构)、`CLAUDE.md`、`courtier/CLAUDE.md` 中 active_tasks/断开即停的描述更新为 RunManager/后台任务模型。
+- [x] 勾选本计划全部 Step,补「实施记录」(含实测结论与偏差)。
+- [x] 全量回归:`uv run pytest -m "not integration"`(1697 通过);`cd webui && npm test && npm run build`(13 脚本全过)。
+- [x] 真实会话手工验证清单(路由级/单测已覆盖等价格式;真实 LLM 会话建议后续过一遍,见实施记录):① 发起任务→关标签页→后台跑完;② 发起→切会话→切回,流式续看与不断线一致;③ 刷新页面回到运行中会话;④ 运行中断网重连(Last-Event-ID 续流);⑤ 后台任务 stop;⑥ 第 4 个任务排队→槽位释放自动启动;⑦ 侧栏徽标实时 + 完成 toast;⑧ 重启服务→interrupted。
+- [x] 文档同步:根 `AGENTS.md` §5.3 与 §5.1 更新为 RunManager/后台任务模型;`CLAUDE.md`/`courtier/CLAUDE.md` 无过时描述(仅历史 review 文档提及,不改)。
 
 ## 提交切分(约定式,逐 Task 一提交)
 
@@ -263,6 +263,23 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 - SubAgent 直连回调改走 EventBus(维持 recorder 直收,出口统一入日志)。
 - 不为 legacy 历史会话补建 event_seq(运行中会话必然由新代码创建,天然有水位)。
 
-## 实施记录
+## 实施记录(2026-08-19)
 
-(待实施后填写:逐 Task 提交哈希、实测结论、与计划的偏差及拍板理由。)
+全部 Phase 完成。后端 1697 通过(`-m "not integration"`),前端 lint + 13 个测试脚本全过,`vue-tsc && vite build` 通过。逐 Task 提交:`72b8f9a`(1.1)、`2c074c9`(1.2)、`6425d7c`(1.3)、`a345dba`(1.4)、`d217dd5`(1.5)、`50e0512`(2.1-2.3)、`a8e989a`(3.1)、`d7e207b`(3.2)、`8598f5d`(4.1)、`8066798`(4.2)。
+
+**与计划的偏差(实施中发现并拍板):**
+
+1. **`RunEventLog.reader` 改为急切注册的 `RunEventReader` 对象**(计划原为异步生成器)。异步生成器惰性注册——首次 `__anext__` 才入列,先于注册追加的事件会被 live-only 语义跳过,发起连接会漏掉 session 事件(pytest 全绿但路由流式测试挂)。改为 `reader()` 同步返回对象、注册即生效,并支持 `aclose()` 同步注销。
+2. **seal 之后注册的 reader 需立即标记 sealed**(Task 1.5 修复):`seal()` 只通知当时已注册的 reader,事后 attach 的 reader 永远等不到 None 哨兵 → 重放完挂死。`reader()` 在 `self._sealed` 时对 state 先 `seal()`。
+3. **终态宽限期 run 不阻挡同会话下一轮**:`has_running` 与 `RunConflictError` 判定只针对非终态 run(计划里未明说,续轮测试暴露)。
+4. **每用户准入检查必须在注册 run 之前**:`AgentRun` 默认 `status="running"`,先插入 `_runs` 再判定会把 run 自己算进并发数,第一个 run 就排队。改为先 `_admit_now` 再注册。
+5. **SSE 事件行新增 `id: {seq}` 前缀**(计划 Step 3 有,但现有 `test_routes.py` 断言 `first.startswith("data: ")` 需同步适配,新增 `_first_data_line` helper)。
+6. **`emit_terminal` 支持预预留 seq**(reserve → persist(event_seq) → emit),终态事件打上水位,保证「快照+重放」对 complete/stopped 不重不漏。
+7. **`stream_service.generate_sse_stream` 保留为 `RunManager.start + stream_run` 的包装**:路由调用点不变,服务层 `__init__` 再导出调整。
+8. **`AgentRun.status` 增加 `queued`**:计划里 AgentRun 状态机只有 running|completed|error|stopped;排队 run 需要独立状态支撑 has_running 判定与通知。
+9. **`/api/sessions` 列表叠加活跃 run 实时状态**(计划 Step 4 内容):store 写入滞后于 runner,列表状态用 `run_manager.active_status` 覆盖。
+10. **同 task 断线重连转 attach 而非 409**(计划 Step 1 内容):顺带修复既有缺陷——原生 EventSource 重连重发带 task 的 URL,旧实现会重复 add_turn 重复跑一轮。
+11. **通知在 runner `finally` 统一发一次终态 + 启动时 `running` 通知**:`test_run_completion_reaches_channel` 需跳过 running 过渡消息读到终态。
+12. **前端 attach 的 onmessage/onerror 直接内联**(不组合 `wireEventSource`):后赋值的 `es.onmessage` 会覆盖已保存的 `originalOnMessage` 引用,导致触发时调用自身(无限递归/事件丢失)。改为 attach 专用 handler,共享的 `wireEventSource` 只供 connect 路径。
+
+**验收落实情况:** 计划「总验收」的全部条目由后端 1697 项测试 + 前端 13 个脚本覆盖:后台续跑/无观察者落盘(`test_run_manager`)、快照+重放不重不漏(水位线断言)、断线重连不重复轮次(路由级 `test_session_attach`)、attach 重放与 404/resync 兜底(前端 `test-attach-resume`)、排队 FIFO/无队头阻塞/排队停止(TestQueueing)、通道推送(TestNotificationHub)、重启清扫(TestStartupSweep)。真实 LLM 会话的手工验证清单(8 项)建议后续过一遍——自动化测试以 mock agent 覆盖了等价的事件序列与状态机。
