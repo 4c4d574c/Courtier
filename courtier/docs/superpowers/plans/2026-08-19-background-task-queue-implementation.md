@@ -204,12 +204,12 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `agent/api/services/run_manager.py`、`agent/api/routes/sessions.py`、`agent/api/routes/control.py`、`agent/api/models.py`、`courtier/config.py`、`tests/agent/api/test_run_manager.py`
 **依赖:** Task 1.5(建议在 Phase 2/3 验收后)
 
-- [ ] **Step 1:** config 增 `max_runs_per_user: int = 3`(0=不限)、`max_total_runs: int = 20`。
-- [ ] **Step 2:** 入队:start 时若用户运行数达上限或全局兜底满 → run 置 `queued` 入全局等待队列(入队顺序),会话 status 落 `queued`,日志首事件 `{type:"queued", position}`;spec 的 build 闭包延迟到真正启动才执行。
-- [ ] **Step 3:** 准入:任一 run 终态后按入队顺序扫描等待队列,启动第一个满足"该用户运行数 < 上限 且 全局运行数 < 兜底"的 run(不严格队头阻塞);`queued→running` 迁移经 NotificationHub 广播,日志衔接 `session`/正常事件。
-- [ ] **Step 4:** stop 扩展:queued run 直接出队置 `stopped`(从未执行,无副作用清理);stop-all 同;edit-resend 409 守卫扩展到 queued;排队位置变化广播(queuePosition 递减)。
-- [ ] **Step 5:** models/session_store:status 枚举正式增 `queued`;启动清扫覆盖 `queued`→`interrupted`;列表/详情映射。
-- [ ] **Step 6:** 单测:上限触发入队与 FIFO 准入(含跨用户穿插、队头不阻塞);build 延迟执行;排队中 stop;位置广播;重启清扫 queued。
+- [x] **Step 1:** config 增 `max_runs_per_user: int = 3`(0=不限)、`max_total_runs: int = 20`。
+- [x] **Step 2:** 入队:start 时若用户运行数达上限或全局兜底满 → run 置 `queued` 入全局等待队列(入队顺序),会话 status 落 `queued`,日志首事件 `{type:"queued", position}`;spec 的 build 闭包延迟到真正启动才执行。
+- [x] **Step 3:** 准入:任一 run 终态后按入队顺序扫描等待队列,启动第一个满足"该用户运行数 < 上限 且 全局运行数 < 兜底"的 run(不严格队头阻塞);`queued→running` 迁移经 NotificationHub 广播,日志衔接 `session`/正常事件。
+- [x] **Step 4:** stop 扩展:queued run 直接出队置 `stopped`(从未执行,无副作用清理);stop-all 同;edit-resend 409 守卫扩展到 queued;排队位置变化广播(queuePosition 递减)。
+- [x] **Step 5:** models/session_store:status 枚举正式增 `queued`;启动清扫覆盖 `queued`→`interrupted`;列表/详情映射。
+- [x] **Step 6:** 单测:上限触发入队与 FIFO 准入(含跨用户穿插、队头不阻塞);build 延迟执行;排队中 stop;位置广播;重启清扫 queued。
 
 ### Task 4.2: 前端排队体验
 

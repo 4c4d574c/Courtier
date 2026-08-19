@@ -264,3 +264,143 @@ class TestStartupSweep:
         assert stale is not None and stale.status == "interrupted"
         assert stale.finished_at is not None
         assert done is not None and done.status == "completed"
+
+
+class _QueueSettings(_Settings):
+    max_runs_per_user = 1
+    max_total_runs = 0  # unlimited backstop — these tests exercise per-user
+
+
+@pytest.fixture
+def qmanager(store):
+    return RunManager(session_store=store, settings=_QueueSettings())
+
+
+def _qspec(store, sid, user="alice", agent=None) -> RunSpec:
+    return RunSpec(
+        session_id=sid,
+        user=user,
+        task="hello",
+        agent=agent or _SlowAgent(),
+    )
+
+
+class TestQueueing:
+    async def test_per_user_limit_queues_second_run(self, qmanager, store):
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        first = await qmanager.start(_qspec(store, "sess_7e57e57e0001"))
+        second = await qmanager.start(_qspec(store, "sess_7e57e57e0002"))
+
+        assert first.status == "running"
+        assert second.status == "queued"
+        session = await store.get("sess_7e57e57e0002")
+        assert session is not None
+        assert session.status == "queued"
+        queued_events = [e for e in second.log.replay_after(-1) if e.payload["type"] == "queued"]
+        assert queued_events and queued_events[0].payload["position"] == 0
+        await qmanager.stop_all()
+
+    async def test_terminal_admits_queued_run(self, qmanager, store):
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        first = await qmanager.start(_qspec(store, "sess_7e57e57e0001"))
+        second = await qmanager.start(_qspec(store, "sess_7e57e57e0002"))
+        assert second.status == "queued"
+
+        await qmanager.stop("sess_7e57e57e0001")
+        await asyncio.sleep(0)  # admission pump runs in the runner's finally
+
+        assert first.status == "stopped"
+        assert second.status == "running"
+        session = await store.get("sess_7e57e57e0002")
+        assert session is not None
+        assert session.status == "running"
+        await qmanager.stop_all()
+
+    async def test_no_head_of_line_blocking(self, qmanager, store):
+        """满额用户的排队不阻塞其他用户立即开跑。"""
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        await _create(store, "sess_7e57e57e0003")
+        await qmanager.start(_qspec(store, "sess_7e57e57e0001", user="alice"))
+        queued = await qmanager.start(_qspec(store, "sess_7e57e57e0002", user="alice"))
+        bob = await qmanager.start(_qspec(store, "sess_7e57e57e0003", user="bob"))
+
+        assert queued.status == "queued"
+        assert bob.status == "running"
+        await qmanager.stop_all()
+
+    async def test_stop_queued_run_dequeues_without_executing(self, qmanager, store):
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        await qmanager.start(_qspec(store, "sess_7e57e57e0001"))
+        second = await qmanager.start(_qspec(store, "sess_7e57e57e0002"))
+
+        assert await qmanager.stop("sess_7e57e57e0002") is True
+        assert second.status == "stopped"
+        assert second.task is None  # never executed
+        session = await store.get("sess_7e57e57e0002")
+        assert session is not None
+        assert session.status == "stopped"
+        terminal = second.log.replay_after(-1)[-1]
+        assert terminal.payload["type"] == "stopped"
+        assert second.log.sealed
+        # The freed queue entry lets nothing else in, but the manager is clean.
+        assert qmanager._waiting == []
+        await qmanager.stop_all()
+
+    async def test_positions_broadcast_on_admission(self, qmanager, store):
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        await _create(store, "sess_7e57e57e0003")
+        await qmanager.start(_qspec(store, "sess_7e57e57e0001"))
+        second = await qmanager.start(_qspec(store, "sess_7e57e57e0002"))
+        third = await qmanager.start(_qspec(store, "sess_7e57e57e0003"))
+        assert second.status == "queued" and third.status == "queued"
+
+        await qmanager.stop("sess_7e57e57e0001")
+        await asyncio.sleep(0)
+
+        assert second.status == "running"
+        assert third.status == "queued"
+        queued_events = [e for e in third.log.replay_after(-1) if e.payload["type"] == "queued"]
+        assert queued_events[-1].payload["position"] == 0
+        await qmanager.stop_all()
+
+    async def test_has_running_covers_queued(self, qmanager, store):
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        await qmanager.start(_qspec(store, "sess_7e57e57e0001"))
+        await qmanager.start(_qspec(store, "sess_7e57e57e0002"))
+        assert qmanager.has_running("sess_7e57e57e0002") is True
+        await qmanager.stop_all()
+
+    async def test_sweep_covers_queued(self, qmanager, store):
+        await store.create("sess_7e57e57e0004", "q", "")
+        await store.update("sess_7e57e57e0004", status="queued")
+        swept = await qmanager.sweep_stale_sessions()
+        assert swept == 1
+        session = await store.get("sess_7e57e57e0004")
+        assert session is not None
+        assert session.status == "interrupted"
+
+    async def test_hub_receives_queue_transitions(self, qmanager, store):
+        from courtier.agent.api.services.notification_hub import NotificationHub
+
+        hub = NotificationHub()
+        qmanager.set_notification_hub(hub)
+        conn = hub.subscribe("alice")
+
+        await _create(store, "sess_7e57e57e0001")
+        await _create(store, "sess_7e57e57e0002")
+        await qmanager.start(_qspec(store, "sess_7e57e57e0001"))
+        await qmanager.start(_qspec(store, "sess_7e57e57e0002"))
+
+        line = await asyncio.wait_for(conn.queue.get(), timeout=2)
+        payload = json.loads(line.split("data: ", 1)[1])
+        assert payload["type"] == "run_status"
+        assert payload["sessionId"] == "sess_7e57e57e0002"
+        assert payload["status"] == "queued"
+        assert payload["queuePosition"] == 0
+        await qmanager.stop_all()

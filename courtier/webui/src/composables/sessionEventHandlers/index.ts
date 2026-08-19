@@ -27,6 +27,9 @@ export type { MutableState, HandlerDeps, DepsFn };
 
 export function createSessionEventHandlers(deps: () => HandlerDeps) {
   function handleSessionEvent(event: AgentEvent): void {
+    // Any live event means the run left the server-side queue.
+    const { session } = deps();
+    if (event.type !== "queued") session.queuePosition = undefined;
     switch (event.type) {
       case "session": {
         handleSession(deps, event);

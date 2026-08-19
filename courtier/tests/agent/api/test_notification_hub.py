@@ -117,8 +117,15 @@ class TestGlobalEventsChannel:
                 with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
                     resp = await client.get("/api/sessions", params={"task": "hello"})
                 assert resp.status_code == 200
-                line = await asyncio.wait_for(conn.queue.get(), timeout=5)
-                payload = json.loads(line.split("data: ", 1)[1])
+                # Drain transitions until the terminal one arrives
+                # (running is announced first since Task 4.1).
+                payload = None
+                for _ in range(5):
+                    line = await asyncio.wait_for(conn.queue.get(), timeout=5)
+                    payload = json.loads(line.split("data: ", 1)[1])
+                    if payload["status"] not in ("running", "queued"):
+                        break
+                assert payload is not None
                 assert payload["type"] == "run_status"
                 assert payload["status"] == "completed"
                 assert "tokensIn" in payload and "tokensOut" in payload

@@ -365,6 +365,16 @@ class Settings(BaseSettings):
             "（环境变量: RUN_GRACE_SECONDS）"
         ),
     )
+    max_runs_per_user: int = Field(
+        default=3,
+        alias="max_runs_per_user",
+        description="每用户并发运行上限，超出进入 FIFO 排队；0 = 不限（环境变量: MAX_RUNS_PER_USER）",
+    )
+    max_total_runs: int = Field(
+        default=20,
+        alias="max_total_runs",
+        description="全局并发兜底上限（所有用户合计），0 = 不限（环境变量: MAX_TOTAL_RUNS）",
+    )
 
     otel_service_name: str = Field(
         default="courtier",

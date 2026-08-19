@@ -126,14 +126,16 @@ class RunSpec:
 
 
 class AgentRun:
-    """One running (or recently finished) session turn."""
+    """One running (or queued / recently finished) session turn."""
 
     def __init__(self, session_id: str, user: str, log: RunEventLog, bus: EventBus) -> None:
         self.session_id = session_id
         self.user = user
-        self.status = "running"  # running | completed | error | stopped
+        # queued | running | completed | error | stopped
+        self.status = "running"
         self.log = log
         self.bus = bus
+        self.spec: RunSpec | None = None
         self.recorder: RunRecorder | None = None
         self.task: asyncio.Task | None = None
         self.created_at = _time.time()
@@ -141,11 +143,11 @@ class AgentRun:
 
     @property
     def terminal(self) -> bool:
-        return self.status != "running"
+        return self.status not in ("running", "queued")
 
 
 class RunManager:
-    """Registry of active runs; owns run lifecycle and admission."""
+    """Registry of active runs; owns run lifecycle, admission and queueing."""
 
     def __init__(
         self,
@@ -162,7 +164,11 @@ class RunManager:
         self._grace_seconds = getattr(settings, "run_grace_seconds", 600)
         self._log_max_events = getattr(settings, "run_log_max_events", 50_000)
         self._log_max_bytes = getattr(settings, "run_log_max_bytes", 8 * 1024 * 1024)
+        self._max_per_user = getattr(settings, "max_runs_per_user", 3)
+        self._max_total = getattr(settings, "max_total_runs", 20)
         self._notification_hub: Any | None = None
+        # FIFO of runs waiting for a slot (global order, per-user admission).
+        self._waiting: list[AgentRun] = []
 
     def set_notification_hub(self, hub: Any) -> None:
         """Wire the global-events fan-out (optional; tests may skip it)."""
@@ -175,6 +181,7 @@ class RunManager:
         *,
         conclusion: str = "",
         tokens: dict[str, int] | None = None,
+        queue_position: int | None = None,
     ) -> None:
         hub = self._notification_hub
         if hub is None:
@@ -185,6 +192,7 @@ class RunManager:
                 session_id=run.session_id,
                 status=status,
                 conclusion=conclusion,
+                queue_position=queue_position,
                 tokens_in=(tokens or {}).get("tokensIn"),
                 tokens_out=(tokens or {}).get("tokensOut"),
             )
@@ -252,6 +260,10 @@ class RunManager:
                 raise RunConflictError(
                     f"session {spec.session_id} already has an active run ({existing.status})"
                 )
+            # Admission check BEFORE registering the run — the default status
+            # is "running", so a pre-inserted run would count itself against
+            # its own user's limit.
+            admitted = self._admit_now(spec.user)
             log = RunEventLog(
                 max_events=self._log_max_events,
                 max_bytes=self._log_max_bytes,
@@ -259,15 +271,86 @@ class RunManager:
             )
             bus = _event_bus_from_settings(self._settings)
             run = AgentRun(spec.session_id, spec.user, log, bus)
+            run.spec = spec
+            run.status = "running" if admitted else "queued"
+            if not admitted:
+                # Per-user limit (or global backstop) reached: park the run in
+                # the FIFO waiting queue. The initiating connection still
+                # streams — the log's first event is the queued marker.
+                self._waiting.append(run)
             self._runs[spec.session_id] = run
-        run.task = asyncio.create_task(self._runner(run, spec), name=f"run:{spec.session_id}")
+        if run.status == "running":
+            run.task = asyncio.create_task(self._runner(run, spec), name=f"run:{spec.session_id}")
+        else:
+            position = self._waiting.index(run)
+            run.log.append({"type": "queued", "position": position})
+            await self._store.update(spec.session_id, status="queued")
+            self._notify(run, "queued", queue_position=position)
         return run
 
+    # -- Admission ----------------------------------------------------------------
+
+    def _running_count(self, user: str | None = None) -> int:
+        return sum(
+            1
+            for r in self._runs.values()
+            if r.status == "running" and (user is None or r.user == user)
+        )
+
+    def _admit_now(self, user: str) -> bool:
+        """Whether *user* may start another run right now."""
+        if self._max_total and self._running_count(None) >= self._max_total:
+            return False
+        if self._max_per_user and self._running_count(user) >= self._max_per_user:
+            return False
+        return True
+
+    def _try_admit_waiting(self) -> None:
+        """Scan the waiting queue in FIFO order and start every run whose
+        user now has capacity (no strict head-of-line blocking — an
+        at-limit user never blocks other users behind them)."""
+        if not self._waiting:
+            return
+        admitted = False
+        for run in list(self._waiting):
+            if not self._admit_now(run.user):
+                continue
+            self._waiting.remove(run)
+            run.status = "running"
+            assert run.spec is not None
+            run.task = asyncio.create_task(
+                self._runner(run, run.spec), name=f"run:{run.session_id}"
+            )
+            admitted = True
+        if admitted:
+            self._broadcast_positions()
+
+    def _broadcast_positions(self) -> None:
+        """Re-emit the queued marker with fresh positions after queue changes."""
+        for idx, run in enumerate(self._waiting):
+            run.log.append({"type": "queued", "position": idx})
+            self._notify(run, "queued", queue_position=idx)
+
     async def stop(self, session_id: str) -> bool:
-        """Cancel a running run (or dequeue a queued one in Task 4.1)."""
+        """Stop a session's run: cancel it if executing, dequeue if queued."""
         async with self._lock:
             run = self._active_run(session_id)
-        if run is None or run.terminal or run.task is None:
+        if run is None or run.terminal:
+            return False
+        if run.status == "queued":
+            # Never executed — no side effects to clean, just dequeue.
+            self._waiting.remove(run)
+            run.status = "stopped"
+            run.finished_at = _time.time()
+            seq = run.log.reserve()
+            await self._store.update(
+                session_id, status="stopped", finished_at=run.finished_at, event_seq=seq
+            )
+            await self._emit_manual_terminal_at(run, seq)
+            self._notify(run, "stopped")
+            self._broadcast_positions()
+            return True
+        if run.task is None:
             return False
         run.task.cancel()
         try:
@@ -277,6 +360,17 @@ class RunManager:
         except Exception:
             logger.exception("Error awaiting run cancellation for %s", session_id)
         return True
+
+    async def _emit_manual_terminal_at(self, run: AgentRun, seq: int) -> None:
+        """Emit the stopped terminal event for a run that never got a
+        recorder (stopped while queued), at the store-stamped seq."""
+        payload: dict[str, Any] = {"type": "stopped"}
+        record = await self._store.get(run.session_id)
+        if record:
+            payload["tokensIn"] = record.tokens_in
+            payload["tokensOut"] = record.tokens_out
+        run.log.append(payload, seq=seq)
+        run.log.seal()
 
     async def stop_all(self) -> list[str]:
         stopped: list[str] = []
@@ -326,6 +420,7 @@ class RunManager:
                     }
                 )
             await store.update(session_id, status="running", error_detail=None)
+            self._notify(run, "running")
 
             recorder = RunRecorder(
                 run.log,
@@ -513,6 +608,8 @@ class RunManager:
                     session_id,
                     exc_info=True,
                 )
+            # A slot just freed — admit waiting runs (FIFO, per-user limits).
+            self._try_admit_waiting()
 
 
 # -- Connection-side streaming ---------------------------------------------------

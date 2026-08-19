@@ -168,7 +168,7 @@ async def handle_sessions(
         # does NOT — the next turn may start while late observers replay.
         if run_manager is not None and run_manager.has_running(sessionId):
             if editTurn is not None:
-                raise HTTPException(409, "会话正在运行，请先停止再编辑")
+                raise HTTPException(409, "会话正在运行或排队，请先停止再编辑")
             # Native EventSource reconnects replay the exact same URL — a
             # browser re-attach, not a new turn. Serve it from the live run's
             # transcript instead of registering a duplicate turn (the old
@@ -177,7 +177,7 @@ async def handle_sessions(
                 return await _attach_stream_or_404(
                     request, run_manager, sessionId, existing.event_seq
                 )
-            raise HTTPException(409, "会话正在运行，请先停止或等待其完成")
+            raise HTTPException(409, "会话正在运行或排队，请先停止或等待其完成")
 
         # Edit-resend: revoke turn `editTurn` (and everything after it)
         # before the continuation registers the edited text as a fresh turn.
