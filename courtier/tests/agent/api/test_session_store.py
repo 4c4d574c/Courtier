@@ -814,3 +814,72 @@ class TestIssueCountsPersistence:
         assert tool.issue_counts == counts
         detail = loaded.to_detail_dict()
         assert detail["steps"][0]["subagents"][0]["tools"][0]["issueCounts"] == counts
+
+
+class TestEventSeqWatermark:
+    """event_seq 水位线：与内容变更同批写入、只前进不回退、可持久化重载。"""
+
+    async def test_stamp_advances_with_content(self, store):
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        step = StepRecord(index=1, label="t1", skill="s1")
+        await store.add_step("sess_000000000001", step, event_seq=7)
+        s = await store.get("sess_000000000001")
+        assert s is not None
+        assert s.event_seq == 7
+
+    async def test_stamp_never_regresses(self, store):
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        await store.update("sess_000000000001", event_seq=10)
+        await store.add_thought(
+            "sess_000000000001",
+            ThoughtRecord(id=1, text="x", turn=0, timestamp=1.0),
+            event_seq=3,  # stale stamp must not regress
+        )
+        s = await store.get("sess_000000000001")
+        assert s is not None
+        assert s.event_seq == 10
+
+    async def test_unset_stamp_keeps_watermark(self, store):
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        await store.update("sess_000000000001", event_seq=5)
+        await store.add_turn("sess_000000000001", "second turn")
+        s = await store.get("sess_000000000001")
+        assert s is not None
+        assert s.event_seq == 5
+
+    async def test_all_mutation_methods_stamp(self, store):
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        step = StepRecord(index=1, label="t1", skill="s1")
+        await store.add_step("sess_000000000001", step, event_seq=1)
+        ti = ToolInfo(name="check_format", skill="s", status="done", duration=0.1, summary="")
+        await store.add_tool_info("sess_000000000001", ti, event_seq=2)
+        await store.set_verdict("sess_000000000001", "v", event_seq=3)
+        await store.finalize_step("sess_000000000001", 1, event_seq=4)
+        await store.finalize_turn_conclusion("sess_000000000001", "c", event_seq=5)
+        await store.update("sess_000000000001", status="completed", event_seq=6)
+        s = await store.get("sess_000000000001")
+        assert s is not None
+        assert s.event_seq == 6
+
+    async def test_watermark_persists_and_reloads(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        await store.update("sess_000000000001", event_seq=42)
+        reloaded = SessionStore(str(tmp_path))
+        s = await reloaded.get("sess_000000000001")
+        assert s is not None
+        assert s.event_seq == 42
+        assert s.to_detail_dict()["eventSeq"] == 42
+
+    async def test_legacy_session_defaults_to_zero(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        await store.create("sess_000000000001", "task", "file_abc12345", owner="alice")
+        # Rewrite the file without event_seq, simulating a pre-watermark record.
+        path = tmp_path / "sess_000000000001.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        del data["event_seq"]
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        reloaded = SessionStore(str(tmp_path))
+        s = await reloaded.get("sess_000000000001")
+        assert s is not None
+        assert s.event_seq == 0

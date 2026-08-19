@@ -18,6 +18,18 @@ logger = logging.getLogger(__name__)
 _SESSION_ID_RE = re.compile(r"^sess_[a-f0-9]{12}$")
 
 
+def _advance_watermark(session: SessionRecord, event_seq: int | None) -> SessionRecord:
+    """Stamp the event-log watermark onto a record being mutated.
+
+    Called inside the same in-memory mutation as a content change so a
+    concurrent snapshot reader can never see content without its watermark
+    (or vice versa). Only ever advances — a stale stamp must not regress.
+    """
+    if event_seq is None or event_seq <= session.event_seq:
+        return session
+    return replace(session, event_seq=event_seq)
+
+
 class SessionStore:
     """Thread-safe session storage backed by JSON files.
 
@@ -207,10 +219,15 @@ class SessionStore:
         return deleted_count
 
     async def update(self, session_id: str, **kwargs: Any) -> SessionRecord | None:
-        """Update a session record's fields and persist to disk."""
+        """Update a session record's fields and persist to disk.
+
+        Accepts an optional ``event_seq`` kwarg: the event-log watermark is
+        advanced (never regressed) atomically with this mutation.
+        """
         if not _SESSION_ID_RE.match(session_id):
             logger.warning("Rejected invalid session_id in update: %s", session_id)
             return None
+        stamp = kwargs.pop("event_seq", None)
         async with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
@@ -220,38 +237,43 @@ class SessionStore:
                 self._sessions[session_id] = session
 
             session = replace(session, **{k: v for k, v in kwargs.items() if hasattr(session, k)})
+            session = _advance_watermark(session, stamp)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
             await self._persist(session)
         return session
 
-    async def add_step(self, session_id: str, step) -> None:
+    async def add_step(self, session_id: str, step, *, event_seq: int | None = None) -> None:
         """Append a step record to the session."""
         async with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
                 return
             session = replace(session, steps=session.steps + [step])
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
             await self._persist(session)
 
-    async def add_thought(self, session_id: str, thought) -> None:
+    async def add_thought(self, session_id: str, thought, *, event_seq: int | None = None) -> None:
         """Append a thought record to the session."""
         async with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
                 return
             session = replace(session, thoughts=session.thoughts + [thought])
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
         # Don't persist on every thought token — too frequent (would cause
         # excessive disk I/O during streaming).  Thought tokens are ephemeral:
         # they are lost on crash between step boundaries.  Persistence happens
         # at step boundaries and session end.
 
-    async def add_tool_info(self, session_id: str, tool_info) -> None:
+    async def add_tool_info(
+        self, session_id: str, tool_info, *, event_seq: int | None = None
+    ) -> None:
         """Append a tool info record to the current step of the session."""
         async with self._lock:
             session = self._sessions.get(session_id)
@@ -262,6 +284,7 @@ class SessionStore:
             new_steps = list(session.steps)
             new_steps[-1] = updated_step
             session = replace(session, steps=new_steps)
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
@@ -273,6 +296,8 @@ class SessionStore:
         task: str,
         file_name: str | None = None,
         file_id: str | None = None,
+        *,
+        event_seq: int | None = None,
     ) -> None:
         """Record a new turn boundary for multi-turn continuation.
 
@@ -307,13 +332,14 @@ class SessionStore:
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
                 turn_artifact_snapshots=snapshots,
             )
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
             await self._persist(session)
 
     async def finalize_turn_conclusion(
-        self, session_id: str, conclusion: str
+        self, session_id: str, conclusion: str, *, event_seq: int | None = None
     ) -> SessionRecord | None:
         """Append or update the conclusion for the current turn.
 
@@ -344,13 +370,16 @@ class SessionStore:
                 conclusions = [conclusion]
 
             session = replace(session, turn_conclusions=conclusions)
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
             await self._persist(session)
         return session
 
-    async def set_verdict(self, session_id: str, verdict: str) -> None:
+    async def set_verdict(
+        self, session_id: str, verdict: str, *, event_seq: int | None = None
+    ) -> None:
         """Set the verdict text on the current step."""
         async with self._lock:
             session = self._sessions.get(session_id)
@@ -361,6 +390,7 @@ class SessionStore:
             new_steps = list(session.steps)
             new_steps[-1] = updated_step
             session = replace(session, steps=new_steps)
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
@@ -373,6 +403,7 @@ class SessionStore:
         *,
         subagents: list | None = None,
         end_segment_index: int | None = None,
+        event_seq: int | None = None,
     ) -> None:
         """Update a step with sub-agent tree and segment boundaries after observe.
 
@@ -398,6 +429,7 @@ class SessionStore:
                 new_steps[i] = replace(step, **kwargs)
                 break
             session = replace(session, steps=new_steps)
+            session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
 
         async with self._persist_lock:
@@ -423,6 +455,7 @@ class SessionStore:
         data["turn_artifact_snapshots"] = list(session.turn_artifact_snapshots)
         data["pinned"] = session.pinned
         data["active_domains"] = list(session.active_domains)
+        data["event_seq"] = session.event_seq
         try:
             text = json.dumps(data, ensure_ascii=False, indent=2)
             tmp_path = file_path.with_suffix(".json.tmp")
@@ -477,6 +510,7 @@ class SessionStore:
             turn_artifact_snapshots=list(raw.get("turn_artifact_snapshots", [])),
             pinned=raw.get("pinned", False),
             active_domains=list(raw.get("active_domains", [])),
+            event_seq=int(raw.get("event_seq", 0) or 0),
         )
 
         for s in raw.get("steps", []):

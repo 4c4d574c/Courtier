@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict, cast
 
+# 状态扩展预告（task-queue 计划 Task 4.1 落地）: "queued"（每用户并发满，FIFO 等待中）
+# 与 "interrupted"（服务重启时清扫 running/queued 会话的终态标记）。
 SessionStatus = Literal["initial", "running", "paused", "completed", "error", "stopped"]
 ToolStatus = Literal["pending", "running", "done", "ok", "error", "warning"]
 ToolCallKind = Literal["tool", "subagent_run"]
@@ -303,6 +305,12 @@ class SessionRecord:
     turn_artifact_snapshots: list[str] = field(default_factory=list)
     pinned: bool = False  # 置顶会话排在历史列表最前（按用户隔离的展示偏好）
     active_domains: list[str] = field(default_factory=list)  # 已激活领域（域门控）
+    # 事件日志水位线：最近一次随内容变更落盘的 run 事件 seq。不变式
+    # 「快照(event_seq=W) + 日志中 seq>W 的全部事件 ≡ 完整前端状态」由
+    # SessionStore 的方法级 event_seq 打点与 RunEventLog 的 seq 分配共同保证
+    # （见 run_event_log.py 模块注释）。跨 run 单调递增：续轮 run 的日志从
+    # event_seq+1 起。legacy 会话缺省 0（运行中的会话必然由新代码创建）。
+    event_seq: int = 0
 
     def to_summary_dict(self) -> dict[str, Any]:
         tool_count = sum(len(s.tools) for s in self.steps)
@@ -422,4 +430,5 @@ class SessionRecord:
             "currentNodeId": self.current_node_id,
             "activeDomains": list(self.active_domains),
             "contextCompacted": context_state_compacted(self.context_state),
+            "eventSeq": self.event_seq,
         }

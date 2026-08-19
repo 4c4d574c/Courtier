@@ -98,19 +98,19 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `agent/api/services/run_event_log.py`(新)、`courtier/config.py`、`tests/agent/api/test_run_event_log.py`(新)
 **依赖:** 无
 
-- [ ] **Step 1:** config 增 `run_log_max_events: int = 50000`、`run_log_max_bytes: int = 8_388_608`、`run_grace_seconds: int = 600`(带 env 别名)。
-- [ ] **Step 2:** `RunEventLog` 实现:`reserve() -> seq`(单调递增预分配)与 `append(payload, seq=None)`(无 seq 则自动分配;payload 为 dict,预渲染 `data:` 行);`mark_boundary(seq)`(记录安全边界);超限驱逐——回退到最旧安全边界之前整体丢弃,维护 `first_seq` 与字节数,单步事件超限兜底保留最新并置 `truncated`;`replay_after(seq) -> list[(seq, line)]`(跳过 seq 空洞;`seq < first_seq` 时返回 `RESYNC` 哨兵);`reader(since)` 异步迭代器(先重放后 live,await 新事件,连接侧消费);`seal()`(终态封口,读取器自然结束);多读取器并发支持(每读取器独立等待队列,`put_nowait`+满则丢弃该读取器并标记需 resync)。
-- [ ] **Step 3:** SSE 行格式:`id: {seq}\ndata: {json}\n\n`(前端只读 data,向后兼容)。
-- [ ] **Step 4:** 单测:seq 连续性与空洞跳过;边界驱逐正确性(边界前内容被驱、边界后完整);超限 truncated;replay_after 各窗口;seal 后读取器收尾;并发读取器互不影响;字节数核算。
+- [x] **Step 1:** config 增 `run_log_max_events: int = 50000`、`run_log_max_bytes: int = 8_388_608`、`run_grace_seconds: int = 600`(带 env 别名)。
+- [x] **Step 2:** `RunEventLog` 实现:`reserve() -> seq`(单调递增预分配)与 `append(payload, seq=None)`(无 seq 则自动分配;payload 为 dict,预渲染 `data:` 行);`mark_boundary(seq)`(记录安全边界);超限驱逐——回退到最旧安全边界之前整体丢弃,维护 `first_seq` 与字节数,单步事件超限兜底保留最新并置 `truncated`;`replay_after(seq) -> list[(seq, line)]`(跳过 seq 空洞;`seq < first_seq` 时返回 `RESYNC` 哨兵);`reader(since)` 异步迭代器(先重放后 live,await 新事件,连接侧消费);`seal()`(终态封口,读取器自然结束);多读取器并发支持(每读取器独立等待队列,`put_nowait`+满则丢弃该读取器并标记需 resync)。
+- [x] **Step 3:** SSE 行格式:`id: {seq}\ndata: {json}\n\n`(前端只读 data,向后兼容)。
+- [x] **Step 4:** 单测:seq 连续性与空洞跳过;边界驱逐正确性(边界前内容被驱、边界后完整);超限 truncated;replay_after 各窗口;seal 后读取器收尾;并发读取器互不影响;字节数核算。
 
 ### Task 1.2: event_seq 水位线
 
 **Files:** `agent/api/models.py`、`agent/api/session_store.py`、`tests/agent/api/test_session_store.py`
 **依赖:** 无(与 1.1 并行)
 
-- [ ] **Step 1:** SessionRecord 增 `event_seq: int = 0`;`to_detail_dict` 暴露 `eventSeq`;状态注释补充 `queued`/`interrupted`(枚举扩展在 4.1 落地,此处仅注释与 detail 映射)。
-- [ ] **Step 2:** session_store 内容变更方法(`add_step`/`finalize_step`/`add_tool_info`/`add_thought`/`set_verdict`/`add_turn`/`update`)增可选 `event_seq: int | None`,在同一次内存记录变更中写入,且只前进不回退(`max(old, new)`)。
-- [ ] **Step 3:** 单测:打点与内容同变更可见(无中间态);水位不回退;legacy 记录缺省 0。
+- [x] **Step 1:** SessionRecord 增 `event_seq: int = 0`;`to_detail_dict` 暴露 `eventSeq`;状态注释补充 `queued`/`interrupted`(枚举扩展在 4.1 落地,此处仅注释与 detail 映射)。
+- [x] **Step 2:** session_store 内容变更方法(`add_step`/`finalize_step`/`add_tool_info`/`add_thought`/`set_verdict`/`add_turn`/`update`)增可选 `event_seq: int | None`,在同一次内存记录变更中写入,且只前进不回退(`max(old, new)`)。
+- [x] **Step 3:** 单测:打点与内容同变更可见(无中间态);水位不回退;legacy 记录缺省 0。
 
 ### Task 1.3: SSEAdapter → RunRecorder
 
