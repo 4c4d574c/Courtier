@@ -183,9 +183,9 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `agent/api/services/notification_hub.py`(新)、`agent/api/routes/events.py`(新)、`agent/api/app.py`、`tests/agent/api/test_notification_hub.py`(新)
 **依赖:** Task 1.4(RunManager 状态回调点)
 
-- [ ] **Step 1:** NotificationHub:每连接独立队列(满则丢最旧,状态事件低频可忽略);RunManager 在 `queued/started/completed/error/stopped` 迁移点回调广播,负载 `{type:"run_status", sessionId, status, queuePosition?, conclusion?, tokensIn/Out?}`;按 user 过滤只推本人会话。
-- [ ] **Step 2:** `GET /api/events`:cookie 鉴权 + 限流(10/min);心跳注释行防代理超时;连接断开即除名;无重放(前端重连后重拉列表对齐)。
-- [ ] **Step 3:** 单测:状态迁移广播到达;user 隔离;断连清理。
+- [x] **Step 1:** NotificationHub:每连接独立队列(满则丢最旧,状态事件低频可忽略);RunManager 在 `queued/started/completed/error/stopped` 迁移点回调广播,负载 `{type:"run_status", sessionId, status, queuePosition?, conclusion?, tokensIn/Out?}`;按 user 过滤只推本人会话。
+- [x] **Step 2:** `GET /api/events`:cookie 鉴权 + 限流(10/min);心跳注释行防代理超时;连接断开即除名;无重放(前端重连后重拉列表对齐)。
+- [x] **Step 3:** 单测:状态迁移广播到达;user 隔离;断连清理。
 
 ### Task 3.2: 前端实时徽标 + toast
 

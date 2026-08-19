@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 
 from ..middleware.auth import verify_jwt
 from .control import router as control_router
+from .events import router as events_router
 from .files import router as files_router
 from .sessions import router as sessions_router
 
@@ -16,3 +17,4 @@ router = APIRouter(prefix="/api", dependencies=[Depends(verify_jwt)])
 router.include_router(sessions_router)
 router.include_router(files_router)
 router.include_router(control_router)
+router.include_router(events_router)

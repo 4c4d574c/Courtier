@@ -162,6 +162,34 @@ class RunManager:
         self._grace_seconds = getattr(settings, "run_grace_seconds", 600)
         self._log_max_events = getattr(settings, "run_log_max_events", 50_000)
         self._log_max_bytes = getattr(settings, "run_log_max_bytes", 8 * 1024 * 1024)
+        self._notification_hub: Any | None = None
+
+    def set_notification_hub(self, hub: Any) -> None:
+        """Wire the global-events fan-out (optional; tests may skip it)."""
+        self._notification_hub = hub
+
+    def _notify(
+        self,
+        run: AgentRun,
+        status: str,
+        *,
+        conclusion: str = "",
+        tokens: dict[str, int] | None = None,
+    ) -> None:
+        hub = self._notification_hub
+        if hub is None:
+            return
+        try:
+            hub.publish(
+                run.user,
+                session_id=run.session_id,
+                status=status,
+                conclusion=conclusion,
+                tokens_in=(tokens or {}).get("tokensIn"),
+                tokens_out=(tokens or {}).get("tokensOut"),
+            )
+        except Exception:
+            logger.warning("Notification publish failed for %s", run.session_id, exc_info=True)
 
     # -- Registry ------------------------------------------------------------
 
@@ -465,6 +493,26 @@ class RunManager:
             except Exception:
                 logger.debug("Error closing model client for session %s", session_id, exc_info=True)
             run.log.seal()
+            # Fan the terminal status out to the owner's global-events
+            # connections (sidebar badge / completion toast).
+            try:
+                record = await store.get(session_id)
+                self._notify(
+                    run,
+                    run.status,
+                    conclusion=(record.conclusion if record else "") or "",
+                    tokens=(
+                        {"tokensIn": record.tokens_in, "tokensOut": record.tokens_out}
+                        if record
+                        else None
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to read terminal record for notification: %s",
+                    session_id,
+                    exc_info=True,
+                )
 
 
 # -- Connection-side streaming ---------------------------------------------------

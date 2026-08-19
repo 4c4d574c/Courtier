@@ -28,6 +28,7 @@ from .routes import router as api_router
 from .routes.admin_users import router as admin_router
 from .routes.auth import router as auth_router
 from .routes.profile import router as profile_router
+from .services.notification_hub import NotificationHub
 from .services.run_manager import RunManager
 from .session_store import SessionStore
 
@@ -146,11 +147,13 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     )
     app.state.file_store = FileStore(str(Path(settings.upload_dir) / ".file_registry"))
     app.state.pause_event = asyncio.Event()
+    app.state.notification_hub = NotificationHub()
     app.state.run_manager = RunManager(
         session_store=app.state.session_store,
         settings=settings,
         pause_event=app.state.pause_event,
     )
+    app.state.run_manager.set_notification_hub(app.state.notification_hub)
     app.state.tool_registry = ToolRegistry()
 
     # Unified artifact store — replaces the old separate CacheStore and
