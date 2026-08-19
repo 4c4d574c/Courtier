@@ -118,23 +118,33 @@ try {
     assert.equal(esInstances.length, 0);
   }
 
-  // 3. Restoring a queued session attaches as well.
+  // 3. Restoring a queued session attaches as well; positions decrement as
+  //    runs ahead finish; the first live event clears the queued state.
   {
-    const { session, restoreSession } = useAgentSession();
+    const { session, restoreSession, isRunning } = useAgentSession();
     esInstances.length = 0;
     restoreSession(makeLoadedSession({ status: "queued", eventSeq: 3 }));
     assert.equal(esInstances.length, 1);
     assert.ok(esInstances[0].url.includes("since=3"));
-    // queued event updates the position; first live event clears it.
+    // Queued sessions count as running for interaction gating (stop button).
+    assert.equal(isRunning.value, true);
     esInstances[0].emit({ type: "queued", position: 2 });
     await tick();
     assert.equal(session.queuePosition, 2);
+    esInstances[0].emit({ type: "queued", position: 1 });
+    await tick();
+    assert.equal(session.queuePosition, 1);
+    esInstances[0].emit({ type: "queued", position: 0 });
+    await tick();
+    assert.equal(session.queuePosition, 0);
     esInstances[0].emit({ type: "token", text: "x" });
     await tick();
+    assert.equal(session.queuePosition, undefined);
     esInstances[0].emit({ type: "complete", conclusion: "c" });
     await tick();
     assert.equal(session.queuePosition, undefined);
     assert.equal(session.status, "completed");
+    assert.equal(isRunning.value, false);
   }
 
   // 4. Attach 404 (run gone) falls back to reloading the snapshot.

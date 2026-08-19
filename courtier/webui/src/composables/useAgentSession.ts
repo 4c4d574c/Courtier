@@ -429,7 +429,7 @@ export function useAgentSession() {
       session.errorMessage = "暂无可压缩的上下文（新会话还没有历史）";
       return;
     }
-    if (session.status === "running") {
+    if (isRunning.value) {
       session.errorMessage = "运行中无法压缩上下文，请等待完成或停止后再试";
       return;
     }
@@ -461,7 +461,11 @@ export function useAgentSession() {
     eventSource.value = null;
   }
 
-  const isRunning = computed(() => session.status === "running");
+  // Queued counts as "running" for interaction gating: the stop button must
+  // work (it dequeues server-side) and editing stays blocked (backend 409).
+  const isRunning = computed(
+    () => session.status === "running" || session.status === "queued",
+  );
 
   // Edit-resend gate: the session history is no longer turn-addressable once
   // a full compaction rewrote it into a summary — either persisted

@@ -241,6 +241,8 @@ export interface SessionSummary {
   modelName?: string
   /** 置顶会话排在历史列表最前 */
   pinned?: boolean
+  /** 服务端排队位置（前面还有 N 个任务）；仅 status === 'queued' 时存在 */
+  queuePosition?: number
 }
 
 /** Runtime event emitted by backend for guard/model/hint/loop lifecycle */

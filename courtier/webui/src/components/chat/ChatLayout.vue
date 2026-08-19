@@ -25,6 +25,7 @@
       <ChatArea
         :messages="messages"
         :is-running="isRunning"
+        :queue-position="session.queuePosition"
         :can-edit="canEdit"
         :edit-hint="editHint"
         @preview="$emit('preview-file', $event)"

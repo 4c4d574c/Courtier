@@ -7,8 +7,16 @@
     </div>
 
     <div v-else-if="messages.length === 0 && isRunning" class="chat-loading">
-      <div class="chat-loading-dot"></div>
-      <p>{{ MESSAGES.LOADING_CONNECTING }}</p>
+      <template v-if="queuePosition !== undefined">
+        <div class="chat-loading-dot chat-loading-dot--queued"></div>
+        <p>
+          {{ queuePosition > 0 ? `排队中，前面还有 ${queuePosition} 个任务` : "排队中，即将开始" }}
+        </p>
+      </template>
+      <template v-else>
+        <div class="chat-loading-dot"></div>
+        <p>{{ MESSAGES.LOADING_CONNECTING }}</p>
+      </template>
     </div>
 
     <template v-else>
@@ -23,6 +31,9 @@
         @citation-click="$emit('citation-click', $event)"
         @edit-submit="$emit('edit-submit', $event)"
       />
+      <div v-if="isRunning && queuePosition !== undefined" class="chat-queue-banner">
+        {{ queuePosition > 0 ? `排队中，前面还有 ${queuePosition} 个任务` : "排队中，即将开始" }}
+      </div>
     </template>
   </div>
 </template>
@@ -38,6 +49,8 @@ import logoUrl from "../../assets/logo.png";
 interface Props {
   messages: ChatMessageItem[];
   isRunning: boolean;
+  /** Server-side queue position (tasks ahead); undefined = not queued. */
+  queuePosition?: number;
   /** User-bubble edit entry: false hides it (running session). */
   canEdit?: boolean;
   /** Non-empty disables editing with the reason shown as tooltip. */
@@ -141,6 +154,21 @@ watch(
   border-radius: 50%;
   background: var(--chat-accent);
   animation: pulse 1.2s ease-in-out infinite;
+}
+
+.chat-loading-dot--queued {
+  background: #60a5fa;
+}
+
+.chat-queue-banner {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--chat-border, #3a3f4b);
+  background: var(--chat-bg-elevated, #23272f);
+  color: #60a5fa;
+  font-size: 12px;
 }
 
 @keyframes pulse {

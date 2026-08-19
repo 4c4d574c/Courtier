@@ -216,9 +216,9 @@ GET /api/events ◄── NotificationHub ◄── RunManager 状态迁移回�
 **Files:** `webui/src/components/chat/InputArea.vue`、`ChatStatusMessage.vue`、`ChatSidebar.vue`、`composables/useAgentSession.ts`、`webui/scripts/*`
 **依赖:** Task 4.1、Task 3.2
 
-- [ ] **Step 1:** 发起 SSE 首事件可能为 `queued`(位置 N):主界面展示"排队中,前面还有 N 个任务"(复用运行态布局,停止按钮可停排队)。
-- [ ] **Step 2:** 侧栏 queued 徽标 + 位置;queued→running 时本地状态切换(queued 事件与通道事件双来源,以事件先到者为准)。
-- [ ] **Step 3:** 前端测试脚本:排队事件流、停止排队、位置递减。
+- [x] **Step 1:** 发起 SSE 首事件可能为 `queued`(位置 N):主界面展示"排队中,前面还有 N 个任务"(复用运行态布局,停止按钮可停排队)。
+- [x] **Step 2:** 侧栏 queued 徽标 + 位置;queued→running 时本地状态切换(queued 事件与通道事件双来源,以事件先到者为准)。
+- [x] **Step 3:** 前端测试脚本:排队事件流、停止排队、位置递减。
 
 ## Phase 5:收尾
 

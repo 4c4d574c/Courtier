@@ -149,6 +149,11 @@
               </span>
               <span class="chat-sidebar-item-right">
                 <span
+                  v-if="session.status === 'queued'"
+                  class="chat-sidebar-item-queue"
+                  >+{{ session.queuePosition ?? 0 }}</span
+                >
+                <span
                   class="chat-sidebar-item-dot"
                   :class="session.status"
                 ></span>
@@ -591,6 +596,13 @@ function onMenuDelete(id: string) {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+}
+
+.chat-sidebar-item-queue {
+  font-size: 10px;
+  color: #60a5fa;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-sidebar-item-dot.completed {

@@ -102,7 +102,10 @@ watch(
   (live) => {
     for (const s of historySessions.value) {
       const entry = live[s.id];
-      if (entry) s.status = entry.status as typeof s.status;
+      if (entry) {
+        s.status = entry.status as typeof s.status;
+        s.queuePosition = entry.queuePosition;
+      }
     }
   },
   { deep: true },
