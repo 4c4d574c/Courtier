@@ -3,16 +3,17 @@ name: plagiarism
 display_name: 查重检测
 description: 文档查重检测
 tools:
-  - convert_document
-  - search_documents
-  - detect_plagiarism
+- convert_document
+- search_documents
+- detect_plagiarism
 input_model: skills.schemas.plagiarism.PlagiarismAuditorInput
 output_artifact_type: plagiarism_result
 type: skill
-version: "1.0"
-mode: auto
+version: '1.0'
+mode: sequential
 timeout_seconds: 600
 retry_policy: on_error
+default_mode: subagent
 ---
 
 # 目标
@@ -39,7 +40,5 @@ retry_policy: on_error
 4. 返回可疑抄袭段落及相似度分数
 
 # 输出格式
-返回 markdown 形式的查重报告，包含：
-- `summary`: 总体结论与可疑段落数
-- `issues`: 可疑抄袭段落列表，每项包含 `location`、`similarity`、`source`（如有）、`suggestion`
+返回 markdown 形式的审核报告，需要用表格列举出现的问题。
 - 如未发现明显抄袭，明确给出 "未发现明显抄袭问题" 的结论。

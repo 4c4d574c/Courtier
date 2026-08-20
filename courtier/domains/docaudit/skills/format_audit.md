@@ -4,10 +4,11 @@ display_name: 格式审核
 description: 政府公文格式审核
 output_artifact_type: format_audit_result
 type: skill
-version: "1.0"
-mode: auto
+version: '1.0'
+mode: sequential
 timeout_seconds: 600
 retry_policy: on_error
+default_mode: subagent
 ---
 
 # 目标
@@ -28,7 +29,5 @@ retry_policy: on_error
 4. 汇总违规项并返回结构化结果。
 
 # 输出格式
-返回 markdown 形式的审核报告，包含：
-- `summary`: 总体结论与问题总数
-- `issues`: 格式违规列表，每项包含 `location`、`description`、`severity`、`suggestion`
+返回 markdown 形式的审核报告，需要用表格列举出现的问题。
 - 如未发现问题，明确给出 "未发现明显格式问题" 的结论。

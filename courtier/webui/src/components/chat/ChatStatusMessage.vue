@@ -30,11 +30,11 @@ defineProps<Props>();
 }
 
 .status-message--error {
-  border-left-color: #ef4444;
+  border-left-color: var(--err);
 }
 
 .status-message--stopped {
-  border-left-color: #f59e0b;
+  border-left-color: var(--warn);
 }
 
 .status-message-icon {
@@ -43,11 +43,11 @@ defineProps<Props>();
 }
 
 .status-message--error .status-message-icon {
-  color: #ef4444;
+  color: var(--err);
 }
 
 .status-message--stopped .status-message-icon {
-  color: #f59e0b;
+  color: var(--warn);
 }
 
 .status-message-title {

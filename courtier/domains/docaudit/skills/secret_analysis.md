@@ -9,6 +9,7 @@ tools:
 - convert_document
 - search_documents
 mode: auto
+default_mode: subagent
 ---
 
 # 目标

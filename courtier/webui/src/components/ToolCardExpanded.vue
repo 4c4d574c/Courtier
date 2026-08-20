@@ -19,7 +19,28 @@
         <span class="sd-key">状态:</span>
         <span class="sd-val">{{ statusLabel }}</span>
       </div>
-      <div v-if="tool.summary" class="sd-row">
+      <div v-if="tool.summary && tool.status === 'error'" class="sd-error">
+        <div
+          :class="[
+            'sd-error-text',
+            {
+              'sd-error-text--clamped': isLongError && !errorExpanded,
+              'sd-error-text--scroll': isLongError && errorExpanded,
+            },
+          ]"
+        >
+          {{ tool.summary }}
+        </div>
+        <button
+          v-if="isLongError"
+          type="button"
+          class="sd-error-toggle"
+          @click="errorExpanded = !errorExpanded"
+        >
+          {{ errorExpanded ? "收起 ▲" : "查看全文 ▼" }}
+        </button>
+      </div>
+      <div v-else-if="tool.summary" class="sd-row">
         <span class="sd-key">结果:</span>
         <span class="sd-val">{{ tool.summary }}</span>
       </div>
@@ -28,7 +49,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { ToolResult } from "../types/agent";
 import StreamingMarkdown from "./StreamingMarkdown.vue";
 import StructuredData from "./StructuredData.vue";
@@ -43,5 +64,11 @@ const props = defineProps<Props>();
 
 const statusLabel = computed(
   () => STATUS_LABELS[props.tool.status] ?? props.tool.status,
+);
+
+// Error summaries carry the full exception text; clamp long ones by default.
+const errorExpanded = ref(false);
+const isLongError = computed(
+  () => (props.tool.summary?.length ?? 0) > 160,
 );
 </script>

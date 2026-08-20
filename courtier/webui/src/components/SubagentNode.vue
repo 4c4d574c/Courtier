@@ -54,10 +54,28 @@
           </div>
         </Transition>
 
-        <!-- Error -->
+        <!-- Error: one-line preview by default, expandable to full text -->
         <Transition name="fade-slide">
           <div v-if="run.error" class="subagent-error">
-            {{ run.error }}
+            <div
+              class="subagent-error-preview"
+              :role="isLongError ? 'button' : undefined"
+              :tabindex="isLongError ? 0 : undefined"
+              :aria-expanded="isLongError ? errorExpanded : undefined"
+              @click="isLongError && (errorExpanded = !errorExpanded)"
+              @keydown.enter.prevent="isLongError && (errorExpanded = !errorExpanded)"
+              @keydown.space.prevent="isLongError && (errorExpanded = !errorExpanded)"
+            >
+              <span class="subagent-error-text">{{ errorPreview }}</span>
+              <span v-if="isLongError" class="subagent-error-toggle">
+                {{ errorExpanded ? "收起 ▲" : "展开 ▼" }}
+              </span>
+            </div>
+            <Transition name="expand">
+              <div v-if="isLongError && errorExpanded" class="subagent-error-full">
+                {{ run.error }}
+              </div>
+            </Transition>
           </div>
         </Transition>
 
@@ -241,6 +259,18 @@ const combinedThoughtText = computed(() =>
 const isStreamingThought = computed(
   () => props.run.runStatus === "running" && combinedThoughtText.value.length > 0,
 );
+
+// Error block: collapsed to a single-line preview unless toggled.
+const errorExpanded = ref(false);
+const isLongError = computed(() => {
+  const err = props.run.error ?? "";
+  return err.length > 80 || err.includes("\n");
+});
+const errorPreview = computed(() => {
+  const firstLine = (props.run.error ?? "").split("\n", 1)[0];
+  const cut = firstLine.length > 80 ? firstLine.slice(0, 80) : firstLine;
+  return isLongError.value ? `${cut} …` : cut;
+});
 
 function totalDuration(tools: ToolResult[]): number {
   return tools.reduce((sum, t) => sum + (t.duration ?? 0), 0);

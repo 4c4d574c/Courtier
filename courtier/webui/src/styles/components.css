@@ -281,6 +281,42 @@
   font-style: italic;
 }
 
+/* Tool error detail — clamped by default, expandable into a scroll box */
+.sd-error {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-left: 2px solid var(--err);
+}
+.sd-error-text {
+  color: var(--chat-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sd-error-text--clamped {
+  max-height: 67px;
+  overflow: hidden;
+}
+.sd-error-text--scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.sd-error-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.sd-error-toggle:hover {
+  color: var(--chat-text-primary);
+}
+
 /* Markdown content — base font for thought/conclusion contexts */
 .markdown-content {
   font-family: "Noto Sans SC", sans-serif;
@@ -910,12 +946,46 @@
   max-height: 240px;
   overflow-y: auto;
 }
+/* Subagent error — one-line preview, expandable into a scroll box */
 .subagent-error {
-  padding: 6px 12px 6px 20px;
-  font-size: 15px;
-  color: var(--err);
   margin-left: 9px;
   margin-bottom: 4px;
+  font-size: 15px;
+}
+.subagent-error-preview {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px 6px 20px;
+}
+.subagent-error-preview[role="button"] {
+  cursor: pointer;
+  user-select: none;
+}
+.subagent-error-text {
+  color: var(--err);
+}
+.subagent-error-toggle {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+.subagent-error-preview:hover .subagent-error-toggle {
+  color: var(--chat-text-primary);
+}
+.subagent-error-full {
+  margin: 0 12px 4px 20px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--err);
+  color: var(--chat-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 /* ── Session error / stopped cards ──────────────────────── */
