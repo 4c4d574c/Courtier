@@ -27,7 +27,14 @@ class TestPluginManifest:
         assert m.dependencies == Dependencies()
         assert m.capabilities == Capabilities()
 
-    def test_full_manifest_with_all_capabilities(self):
+    def test_full_manifest_with_legacy_capabilities(self):
+        """Legacy capabilities blocks still parse (deprecated, tolerated).
+
+        tools remain a modeled field; the never-consumed checkers/routes/
+        processors sub-blocks of old manifests are ignored rather than
+        rejected — standalone rollout must not BLOCK remote plugins that
+        still carry them.
+        """
         data = {
             "name": "full_plugin",
             "version": "1.2.3",
@@ -83,17 +90,11 @@ class TestPluginManifest:
         assert m.dependencies.permissions == ["read:documents"]
         assert len(m.capabilities.tools) == 1
         assert m.capabilities.tools[0].name == "my_tool"
-        assert len(m.capabilities.checkers) == 1
-        assert m.capabilities.checkers[0].doc_type == "通知"
-        assert len(m.capabilities.routes) == 1
-        assert len(m.capabilities.processors) == 1
 
     def test_defaults_for_empty_capabilities(self):
         m = PluginManifest.model_validate({"name": "p", "version": "0.1", "api": "1.0"})
         assert m.capabilities.tools == []
-        assert m.capabilities.checkers == []
-        assert m.capabilities.routes == []
-        assert m.capabilities.processors == []
+        assert m.capabilities.system_prompt == ""
 
     def test_license_alias_mapping(self):
         m = PluginManifest.model_validate(

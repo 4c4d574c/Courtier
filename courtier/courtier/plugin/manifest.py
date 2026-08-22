@@ -52,7 +52,13 @@ class Dependencies(BaseModel):
 
 
 class ToolCapability(BaseModel):
-    """A tool capability declaration."""
+    """A tool capability declaration.
+
+    Deprecated: manifests are runtime-only now — tool metadata is
+    registered via entry.py's register_tool() notification.  This model
+    only survives for backwards-compatible parsing of remote plugins that
+    still ship a capabilities block; nothing consumes it at runtime.
+    """
 
     name: str
     display_name: str = ""
@@ -61,36 +67,18 @@ class ToolCapability(BaseModel):
     output_contract: dict[str, Any] | None = None
 
 
-class CheckerCapability(BaseModel):
-    """A content checker capability declaration."""
-
-    name: str
-    doc_type: str
-    display_name: str = ""
-
-
-class RouteCapability(BaseModel):
-    """An API route capability declaration."""
-
-    prefix: str
-    description: str = ""
-
-
-class ProcessorCapability(BaseModel):
-    """A document processor capability declaration."""
-
-    name: str
-    type: str  # parser | corrector | builder
-    display_name: str = ""
-
-
 class Capabilities(BaseModel):
-    """All capabilities declared by a plugin."""
+    """All capabilities declared by a plugin.
+
+    Deprecated: dead config since the standalone-TCP migration — the host
+    registers tools and system_prompt exclusively from the plugin.register
+    notification (see ExtensionRegistry).  Kept so old manifests with a
+    capabilities block still parse instead of being rejected by
+    ``extra="forbid"``; drop this model once standalone deployment has
+    shipped everywhere.
+    """
 
     tools: list[ToolCapability] = Field(default_factory=list)
-    checkers: list[CheckerCapability] = Field(default_factory=list)
-    routes: list[RouteCapability] = Field(default_factory=list)
-    processors: list[ProcessorCapability] = Field(default_factory=list)
     system_prompt: str = ""
 
 
