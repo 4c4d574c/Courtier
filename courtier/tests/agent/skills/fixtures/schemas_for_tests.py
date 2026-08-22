@@ -19,3 +19,10 @@ class ConflictingInput(SubAgentInput):
     """Declares a field clashing with a built-in SkillTool parameter."""
 
     mode: str = Field(description="conflicts with the built-in mode parameter")
+
+
+class OptionalFieldsInput(SubAgentInput):
+    """Data payload with an optional field that stays unset by default."""
+
+    document: str = Field(description="doc text")
+    library_docs: list[str] | None = Field(default=None)

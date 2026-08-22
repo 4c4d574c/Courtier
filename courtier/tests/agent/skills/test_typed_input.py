@@ -140,3 +140,119 @@ class TestValidationErrorMessageTemplate:
             error_details="bad",
         )
         assert "invalid input" in out
+
+
+# --- T2: dispatch-time validation + data section assembly -------------------
+
+from types import SimpleNamespace
+
+from courtier.agent.runtime.result import ExecutionResult
+from courtier.agent.tools.protocol import ToolResult
+
+from .fixtures.schemas_for_tests import OptionalFieldsInput
+
+
+class _FakeRuntime:
+    """Records the spawn task; delegates with a canned success result."""
+
+    def __init__(self):
+        self.spawned: dict = {}
+
+    def spawn(self, *, name, task, parent_handle=None, ref_ids=None, context=None, **kw):
+        self.spawned["task"] = task
+        self.spawned["context"] = context
+        return SimpleNamespace(
+            handle_id="h-1",
+            parent_handle_id=None,
+            agent_name=name,
+            agent_type="skill",
+            budget=SimpleNamespace(agent_chain=[]),
+            ref_ids=list(ref_ids or []),
+            scope_id="scope-1",
+        )
+
+    async def delegate(self, handle, **kwargs):
+        return ExecutionResult(
+            success=True,
+            actor_type="skill",
+            actor_name=handle.agent_name,
+            raw_data={"ok": True},
+            metadata={},
+        )
+
+    async def terminate(self, handle):
+        return None
+
+
+class TestDispatchAssembly:
+    def _tool(self, input_model, prompt_engine=None):
+        return SkillTool(
+            skill=_make_config(input_model), runtime=_FakeRuntime(), prompt_engine=prompt_engine
+        )
+
+    @pytest.mark.asyncio
+    async def test_validated_fields_assemble_into_task(self):
+        tool = self._tool(DocAuditInput)
+        result = await tool.execute(
+            task="审核以下文档",
+            document="正文内容",
+            mode="subagent",
+            on_progress=lambda p: None,
+        )
+        assert isinstance(result, ExecutionResult)
+        assert result.success
+        assert "# 输入数据" in tool._runtime.spawned["task"]
+        assert "## document\n正文内容" in tool._runtime.spawned["task"]
+
+    @pytest.mark.asyncio
+    async def test_missing_required_field_fails_with_field_report(self):
+        tool = self._tool(DocAuditInput)
+        result = await tool.execute(
+            task="审核", mode="subagent", on_progress=lambda p: None
+        )
+        assert isinstance(result, ToolResult)
+        assert result.success is False
+        assert "document" in result.error
+        assert "doc_audit" in result.error
+
+    @pytest.mark.asyncio
+    async def test_wrong_type_fails_with_received_value(self):
+        tool = self._tool(DocAuditInput)
+        result = await tool.execute(
+            task="审核",
+            document={"unexpected": "dict"},
+            mode="subagent",
+            on_progress=lambda p: None,
+        )
+        assert result.success is False
+        assert "got=" in result.error
+
+    @pytest.mark.asyncio
+    async def test_optional_none_field_skipped(self):
+        tool = self._tool(OptionalFieldsInput)
+        await tool.execute(
+            task="查重", document="文本", mode="subagent", on_progress=lambda p: None
+        )
+        task = tool._runtime.spawned["task"]
+        assert "## document\n文本" in task
+        assert "library_docs" not in task
+
+    @pytest.mark.asyncio
+    async def test_inline_mode_carries_data_section(self):
+        tool = self._tool(DocAuditInput)
+        result = await tool.execute(
+            task="审核", document="全文", mode="inline", on_progress=lambda p: None
+        )
+        assert isinstance(result, ToolResult)
+        assert result.success
+        assert "# 输入数据" in result.metadata["inline_instruction"]
+        assert "## document\n全文" in result.metadata["inline_instruction"]
+
+    @pytest.mark.asyncio
+    async def test_skill_without_schema_ignores_extra_args(self):
+        tool = self._tool(None)
+        result = await tool.execute(
+            task="任务", document="多余参数", mode="subagent", on_progress=lambda p: None
+        )
+        assert result.success
+        assert tool._runtime.spawned["task"] == "任务"

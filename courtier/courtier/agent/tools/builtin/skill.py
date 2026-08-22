@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
+
+from pydantic import ValidationError
 
 from ...artifacts.models import RuntimePolicy
 from ...core.execution_result import ExecutionResult
@@ -113,6 +116,43 @@ class SkillTool:
             sub_schema.pop("title", None)
             props[name] = sub_schema
 
+    def _render_data_section(self, validated: Any) -> str:
+        """Assemble validated data fields into the task's「# 输入数据」block.
+
+        None fields are skipped entirely; strings pass through as-is (this is
+        where a resolved $ref arrives as full document text); everything else
+        is serialized as JSON.
+        """
+        from ...agents.subagent.base import data_field_names
+
+        parts: list[str] = []
+        for name in sorted(data_field_names(self._input_model)):
+            value = getattr(validated, name)
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                value = json.dumps(value, ensure_ascii=False, default=str)
+            parts.append(f"## {name}\n{value}")
+        return "\n".join(parts)
+
+    def _render_validation_error(self, exc: Any) -> str:
+        """Render a field-level validation report via errors.skill_input_validation."""
+        from ....prompts.engine import PromptEngine
+
+        engine = self._prompt_engine or PromptEngine()
+        lines = []
+        for err in exc.errors(include_url=False):
+            loc = ".".join(str(p) for p in err.get("loc", ())) or "(root)"
+            got = repr(err.get("input"))
+            if len(got) > 120:
+                got = got[:117] + "..."
+            lines.append(f"- {loc}: {err.get('msg')}; got={got}")
+        return engine.render(
+            "errors.skill_input_validation",
+            skill_name=self.name,
+            error_details="\n".join(lines),
+        )
+
     def set_callbacks(
         self,
         *,
@@ -151,10 +191,36 @@ class SkillTool:
                 error=f"Skill {self.name} requires a 'task' argument",
             )
 
+        # Typed data fields (e.g. document) — validated against the skill's
+        # input model, then assembled into a "# 输入数据" section appended to
+        # the task so the sub-agent receives the resolved values.
+        data_fields = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in ("context_manager", "artifact_store", "audit_logger")
+        }
+        data_section = ""
+        if self._input_model is not None:
+            try:
+                # The base model's task field is satisfied from the task
+                # parameter — validation covers the data payload only.
+                validated = self._input_model.model_validate({"task": task, **data_fields})
+            except ValidationError as exc:
+                return ToolResult(success=False, error=self._render_validation_error(exc))
+            data_section = self._render_data_section(validated)
+        elif data_fields:
+            # No schema declared: unknown extra arguments would silently vanish.
+            logger.warning(
+                "Skill %s received unexpected arguments (no input_model): %s",
+                self.name,
+                sorted(data_fields),
+            )
+        final_task = f"{task}\n\n# 输入数据\n{data_section}" if data_section else task
+
         # --- inline mode: return skill instructions for direct execution ---
         if mode == "inline":
             return await self._execute_inline(
-                task=task,
+                task=final_task,
                 file_path=file_path,
                 on_progress=on_progress,
             )
@@ -181,7 +247,7 @@ class SkillTool:
         try:
             handle = self._runtime.spawn(
                 name=self.name,
-                task=task,
+                task=final_task,
                 parent_handle=self._parent_handle,
                 ref_ids=ref_ids or [],
                 context=context,
