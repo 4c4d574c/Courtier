@@ -97,6 +97,27 @@ class TestCourtierConfig:
         assert isinstance(result, str)
         assert len(result) > 0
 
+    def test_build_prompt_engine_merges_discovered_domains(self, monkeypatch):
+        """With no explicit COURTIER_DOMAIN_PACKAGES, the merged engine must
+        still include domain-contributed template keys.
+
+        Regression: build_prompt_engine() read ``domain_names``, which stays
+        empty when the env var is unset even after discover() scanned the
+        filesystem — silently dropping e.g. orchestrator.workflow_rules and
+        letting renders fall through to the minimal English fallback.
+        """
+        monkeypatch.delenv("COURTIER_DOMAIN_PACKAGES", raising=False)
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        config = CourtierConfig.from_env(repo_root=repo_root)
+        assert config.domain_names == []  # scan mode: allowlist stays empty
+
+        engine = config.build_prompt_engine()
+        assert "orchestrator.workflow_rules" in engine._bundle.templates
+        rendered = engine.render("orchestrator.workflow_rules")
+        # Domain-authored zh-CN payload, not the English fallback
+        assert "工作流规则" in rendered
+        assert "Execute steps sequentially" not in rendered
+
     def test_discover_no_domains_dir(self):
         """Returns empty list when no domains directory exists."""
         config = CourtierConfig(

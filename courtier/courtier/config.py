@@ -671,8 +671,15 @@ class CourtierConfig:
 
         Domain prompt bundles are merged in order — later domains
         override template keys from earlier ones.
+
+        Reads the *discovered* domain set (``self.domains``) rather than
+        ``domain_names``: when COURTIER_DOMAIN_PACKAGES is unset,
+        ``domain_names`` stays empty even after ``discover()`` has scanned
+        the filesystem, which silently dropped every domain-contributed
+        template key (e.g. orchestrator.workflow_rules) from the merged
+        engine.
         """
-        domain_paths = [self.repo_root / "domains" / name for name in self.domain_names]
+        domain_paths = [self.repo_root / "domains" / pkg.name for pkg in self.domains]
         return PromptEngine.from_domain_directories(
             domain_paths=domain_paths,
             locale=self.locale,
