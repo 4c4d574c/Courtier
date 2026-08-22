@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from .client import JSONRPCClient, PluginCrashedError, PluginRPCError
-from .manager import PluginProcess, PluginState, ProcessManager
+from .manager import PluginBlockedError, PluginProcess, PluginState, ProcessManager
 from .manifest import Capabilities, PluginManifest
 from .protocol import JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 from .proxies import ProxyChecker, ProxyRoute, ProxyTool
@@ -47,6 +47,7 @@ __all__ = [
     "JSONRPCClient",
     "PluginRPCError",
     "PluginCrashedError",
+    "PluginBlockedError",
     "ProcessManager",
     "PluginProcess",
     "PluginState",
@@ -83,6 +84,7 @@ class PluginSystem:
             artifact_store_registry=artifact_store_registry,
             endpoints=endpoints,
             token=token,
+            scanner=self._scanner,
         )
         self._started = False
 

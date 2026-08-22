@@ -31,7 +31,7 @@ from courtier.agent.telemetry.metrics import PLUGIN_STATE
 from courtier.config import get_settings
 from courtier.storage import client as storage_client
 
-from .client import JSONRPCClient, PluginCrashedError, PluginRPCError
+from .client import JSONRPCClient, PluginRPCError
 from .manifest import PluginManifest
 from .protocol import (
     INTERNAL_ERROR,
@@ -47,12 +47,12 @@ from .protocol import (
     METHOD_NOT_FOUND,
     METHOD_PLUGIN_AUTH,
     METHOD_RUNTIME_CONTEXT,
-    METHOD_STORAGE_PUT,
     METHOD_STORAGE_PRESIGN_GET,
+    METHOD_STORAGE_PUT,
     METHOD_TEMPLATE_STORE_GET,
 )
 from .registry import ExtensionRegistry
-from .scanner import PluginScanResult
+from .scanner import PluginScanner, PluginScanResult
 
 # Presigned download URLs handed to plugins for stored outputs live this long
 # (S3 SigV4 presigned URLs are capped at 7 days).
@@ -142,6 +142,19 @@ class PluginAuthError(Exception):
     """The mutual token handshake failed (deterministic — no auto-retry)."""
 
 
+class PluginBlockedError(Exception):
+    """The plugin's last manifest scan failed; it cannot be connected.
+
+    Carries the scan error so admin surfaces can explain why restart is
+    refused (fix plugin.yaml, then retry — no host restart needed).
+    """
+
+    def __init__(self, name: str, detail: str) -> None:
+        super().__init__(f"Plugin '{name}' is blocked: {detail}")
+        self.name = name
+        self.detail = detail
+
+
 @dataclass
 class PluginProcess:
     """Handle for one plugin connection (kept across reconnects)."""
@@ -183,6 +196,10 @@ class ProcessManager:
     token : str, optional
         Shared handshake secret.  Defaults to
         ``Settings.courtier_plugin_token`` at start time.
+    scanner : PluginScanner, optional
+        Manifest scanner used at start and by restart-time re-scans.
+        Defaults to a private instance; inject to share one cache with
+        the PluginSystem.
     """
 
     def __init__(
@@ -194,6 +211,7 @@ class ProcessManager:
         artifact_store_registry: Any = None,
         endpoints: dict[str, tuple[str, int]] | None = None,
         token: str | None = None,
+        scanner: PluginScanner | None = None,
     ) -> None:
         self._plugin_dir = plugin_dir
         self._extension_registry = extension_registry
@@ -202,6 +220,7 @@ class ProcessManager:
         self._artifact_store_registry = artifact_store_registry
         self._endpoints = endpoints
         self._token = token
+        self._scanner = scanner if scanner is not None else PluginScanner()
         self._processes: dict[str, PluginProcess] = {}
         self._scan_results: dict[str, PluginScanResult] = {}
 
@@ -307,9 +326,7 @@ class ProcessManager:
                 writer=writer,
                 plugin_name=proc.name,
                 on_disconnect=_on_disconnect,
-                default_timeout=(
-                    proc.manifest.timeout_ms / 1000.0 if proc.manifest else 30.0
-                ),
+                default_timeout=(proc.manifest.timeout_ms / 1000.0 if proc.manifest else 30.0),
             )
             proc._client = client
             try:
@@ -347,9 +364,7 @@ class ProcessManager:
                 break
             proc._reconnect_count += 1
             proc.state = PluginState.DISCONNECTED
-            PLUGIN_STATE.labels(
-                plugin_name=proc.name, state=PluginState.DISCONNECTED.value
-            ).set(1)
+            PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.DISCONNECTED.value).set(1)
             logger.warning(
                 "Plugin '%s' connection lost; reconnect in %.0fs",
                 proc.name,
@@ -594,7 +609,9 @@ class ProcessManager:
                         storage_client.get_presigned_url, bucket, key, expires
                     )
                 except Exception as exc:
-                    logger.warning("storage.presign_get 签名失败: %s/%s", bucket, key, exc_info=True)
+                    logger.warning(
+                        "storage.presign_get 签名失败: %s/%s", bucket, key, exc_info=True
+                    )
                     return _deny(INTERNAL_ERROR, f"签名下载链接失败: {exc}")
                 return {
                     "bucket": bucket,
@@ -695,8 +712,12 @@ class ProcessManager:
             return proc.state
         if proc is None:
             result = self._scan_results.get(name)
-            if result is None or result.manifest is None:
+            if result is None:
                 raise KeyError(f"Unknown plugin: {name}")
+            if result.manifest is None:
+                # Last scan failed; restart_plugin re-scans first, so this
+                # means the on-disk manifest is still invalid.
+                raise PluginBlockedError(name, result.error or "manifest failed to load")
             self._resolve_connection_config()
             proc = PluginProcess(
                 name=result.name,
@@ -742,7 +763,13 @@ class ProcessManager:
         return proc.state
 
     async def restart_plugin(self, name: str) -> PluginState:
-        """Drop the current connection (if any) and redial."""
+        """Drop the current connection (if any), re-scan, and redial.
+
+        The re-scan merges fresh manifest results into the cached scan
+        results before redialling, so a fixed plugin.yaml revives the
+        plugin from admin restart without restarting the host.  Plugins
+        that vanished from disk keep their last record.
+        """
         proc = self._processes.get(name)
         if proc is not None and proc.state in (
             PluginState.ACTIVE,
@@ -751,6 +778,8 @@ class ProcessManager:
             PluginState.DISCONNECTED,
         ):
             await self.stop_plugin(name)
+        for result in self._scanner.scan(self._plugin_dir):
+            self._scan_results[result.name] = result
         return await self.start_plugin(name)
 
     async def cancel_pending(self) -> None:
@@ -786,9 +815,7 @@ class ProcessManager:
         try:
             await proc._client.notify(method, params or {})
         except Exception:
-            logger.debug(
-                "notify(%s) to plugin '%s' failed", method, plugin_name, exc_info=True
-            )
+            logger.debug("notify(%s) to plugin '%s' failed", method, plugin_name, exc_info=True)
 
     async def shutdown(self) -> None:
         """Disconnect all plugin channels (plugins themselves keep running)."""

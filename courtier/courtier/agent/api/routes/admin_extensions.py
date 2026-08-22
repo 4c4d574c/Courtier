@@ -7,6 +7,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from courtier.plugin import PluginBlockedError
+
 from ..rate_limiter import limiter
 from ..services.skill_admin_service import (
     create_skill,
@@ -108,6 +110,10 @@ async def plugin_action(
             raise HTTPException(400, "action 必须是 start / stop / restart")
     except KeyError:
         raise HTTPException(404, f"插件不存在: {name}")
+    except PluginBlockedError as exc:
+        # restart_plugin already re-scanned; the on-disk manifest is still
+        # invalid.  400 (not 404): the plugin exists, it cannot connect.
+        raise HTTPException(400, str(exc)) from exc
     return {"name": name, "state": state}
 
 
