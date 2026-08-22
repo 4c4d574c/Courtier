@@ -14,19 +14,28 @@ from .subagent.base import SubAgentInput, SubAgentOutput
 # this package, so an eager re-export here would re-enter a partially initialized
 # schema module while the agents package is still importing.
 _SKILL_INPUT_EXPORTS = {
+    "ContentAuditInput": "skills.schemas.content_audit",
     "FormatAuditorInput": "skills.schemas.format_audit",
+    "FullGovernmentAuditInput": "skills.schemas.full_government_audit",
     "PlagiarismAuditorInput": "skills.schemas.plagiarism",
+    "SecretAnalysisInput": "skills.schemas.secret_analysis",
 }
 
 if TYPE_CHECKING:
+    from skills.schemas.content_audit import ContentAuditInput
     from skills.schemas.format_audit import FormatAuditorInput
+    from skills.schemas.full_government_audit import FullGovernmentAuditInput
     from skills.schemas.plagiarism import PlagiarismAuditorInput
+    from skills.schemas.secret_analysis import SecretAnalysisInput
 
 __all__ = [
     "SubAgentInput",
     "SubAgentOutput",
+    "ContentAuditInput",
     "FormatAuditorInput",
+    "FullGovernmentAuditInput",
     "PlagiarismAuditorInput",
+    "SecretAnalysisInput",
     "FormatAuditOutput",
     "ContentAuditOutput",
     "CorrectionAuditOutput",

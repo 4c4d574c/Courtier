@@ -8,6 +8,7 @@ version: '1.0'
 mode: sequential
 timeout_seconds: 600
 retry_policy: on_error
+input_model: skills.schemas.format_audit.FormatAuditorInput
 default_mode: subagent
 ---
 
@@ -17,6 +18,11 @@ default_mode: subagent
 # 适用场景
 - 文种为通知、报告、请示、函等党政机关公文
 - 需要检查文档格式合规性
+
+# 取数
+1. 优先使用任务中「# 输入数据」段提供的 document（parse_document 的 Document 模型，含版面/字号等排版信息），不要重复解析。
+2. 若任务未提供 document 但有 file_path，调用 `parse_document(file_path)` 获取 Document 模型；解析失败时在结论中如实说明并终止。
+3. document 字段中的 doc_type 为编排方指定的文种，与实际判断不一致时以实际解析结果为准。
 
 # 审核流程
 1. 判断文档类型，如果不属于公文的15中类型，则终止格式审核，并说明原因。

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import BaseModel, Field
 
@@ -261,3 +263,75 @@ class TestDispatchAssembly:
         )
         assert result.success
         assert tool._runtime.spawned["task"] == "任务"
+
+
+class TestEndToEndRefExpansion:
+    """Real docaudit skills through a real ToolRegistry: a $ref passed in the
+    document field resolves into full text inside the spawned task."""
+
+    @pytest.mark.asyncio
+    async def test_content_audit_document_ref_expands(self, tmp_path):
+        import sys
+        from types import SimpleNamespace
+
+        from courtier.agent.artifacts.store import ArtifactStore
+        from courtier.agent.tools.registry import ToolRegistry as RealRegistry
+        from courtier.config import CourtierConfig
+
+        domain_dir = Path(__file__).resolve().parents[3] / "domains" / "docaudit"
+        if str(domain_dir) not in sys.path:
+            sys.path.insert(0, str(domain_dir))
+
+        cfg = CourtierConfig.from_env(repo_root=domain_dir.parent.parent)
+        cfg.discover()
+        registry = SkillRegistry(cfg.domains[0].skills_path)
+        registry.scan()
+        assert not registry.has_errors
+
+        class _RT:
+            def __init__(self):
+                self.spawned = {}
+
+            def spawn(self, *, name, task, **kw):
+                self.spawned["task"] = task
+                return SimpleNamespace(
+                    handle_id="h1", parent_handle_id=None, agent_name=name,
+                    agent_type="skill", parent_subagent_name=None, scope_id="s1",
+                )
+
+            async def delegate(self, handle, **kw):
+                return ExecutionResult(
+                    success=True, actor_type="skill",
+                    actor_name=handle.agent_name, raw_data={"ok": True}, metadata={},
+                )
+
+            async def terminate(self, handle):
+                return None
+
+        store = ArtifactStore(cache_dir=str(tmp_path / "artifacts"))
+        ref = await store.persist(
+            {"markdown": "海贝市人民政府：全文正文……", "format": "docx"},
+            "convert_document",
+            force=True,
+        )
+        rt = _RT()
+        tool = SkillTool(skill=registry.get("content_audit"), runtime=rt)
+        tool_registry = RealRegistry()
+        tool_registry.register(tool)
+
+        async def _noop(name, progress):
+            return None
+
+        res = await tool_registry.execute(
+            tool.name,
+            task="请审核以下文档",
+            document=ref.ref_id,
+            mode="subagent",
+            on_tool_progress=_noop,
+            artifact_store=store,
+        )
+        assert res.success
+        task = rt.spawned["task"]
+        assert "# 输入数据" in task
+        assert "## document\n海贝市人民政府：全文正文……" in task
+        assert "$ref:convert_document" not in task

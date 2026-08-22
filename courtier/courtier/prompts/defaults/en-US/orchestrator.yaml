@@ -19,7 +19,8 @@ orchestrator:
       first and confirm via the tool list.
     - Sessions without an upload (e.g. the user pastes text and asks for a
       review) must also activate the domain first, then pass the user's text
-      as part of the skill task; skills prefer text already provided.
+      as the skill's structured document field (or the task body for skills
+      without one); skills prefer text already provided.
 
     ## Document data-fetching strategy
     - When the session carries an uploaded document (file_path in context):

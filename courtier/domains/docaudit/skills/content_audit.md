@@ -11,6 +11,7 @@ retry_policy: on_error
 enabled: true
 tools:
 - convert_document
+input_model: skills.schemas.content_audit.ContentAuditInput
 default_mode: subagent
 ---
 
@@ -26,9 +27,9 @@ default_mode: subagent
 - 检查标点符号语种混用（中英文标点混用）
 
 # 取数
-1. 优先使用任务中已提供的文档文本（convert_document 的 Markdown），不要重复转换/解析。
-2. 没有上传文件时（用户直接粘贴文本），直接基于任务中提供的文本执行，不要调用 convert_document。
-3. 若没有现成文本但有上传文件，调用 `convert_document(file_path)` 获取 Markdown 作为审核文本（扫描件 PDF/图片会自动 OCR）。
+1. 优先使用任务中「# 输入数据」段提供的 document 文本，不要重复转换/解析。
+2. 没有上传文件时（用户直接粘贴文本），document 即用户粘贴的文本，直接基于该文本执行，不要调用 convert_document。
+3. 若任务未提供 document 但有 file_path，调用 `convert_document(file_path)` 获取 Markdown 作为审核文本（扫描件 PDF/图片会自动 OCR）。
 
 # 审核流程（内容合规维度）
 1. 按以下维度逐段审查文档内容：

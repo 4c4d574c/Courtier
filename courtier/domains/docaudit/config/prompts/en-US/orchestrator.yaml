@@ -12,8 +12,9 @@ orchestrator:
 
     ## Data-fetching rules
     1. **No uploaded file** (user pasted text directly) → no conversion or
-       parsing tools needed: pass the user's text as the skill task body (or
-       text input) directly; the skill works on that text.
+       parsing tools needed: pass the user's text as the skill's structured
+       document field (or the task body for skills without one); the skill
+       works on that text.
     2. **Format audit** (format_audit) → call parse_document to obtain the
        Document model (layout/font metrics). If parsing fails, stop and
        report — do not continue.
@@ -22,17 +23,19 @@ orchestrator:
        read-and-answer:
        - 【Never call parse_document】parse_document is for format audit only;
          content tasks must not call it;
-       - Prefer reusing document text already in the session (Markdown from
-         convert_document, or the text projection of an earlier parse) — do not
+       - Prefer reusing a document reference already in the session (the
+         result_id from convert_document or an earlier parse) — do not
          re-convert or re-parse;
-       - When no text is available yet, call convert_document(file_path) and
-         pass the resulting Markdown as the text input (scanned files are
-         OCR'd automatically).
-    4. Forward file_path to Skills (when present). Put the document body into
-       the task as a $ref reference (e.g. "Audit the body:
-       $ref:convert_document:1") — the system expands it into the full text at
-       the tool boundary before the sub-agent runs.
-       【Never】get_artifact-read the full text and paste it into the task.
+       - When no reference exists yet, call convert_document(file_path) to
+         get a body reference ($ref:convert_document:N); scanned files are
+         OCR'd automatically.
+    4. Forward file_path to Skills (when present). When a skill declares
+       structured data fields (document on content_audit / secret_analysis /
+       plagiarism / format_audit), pass the document $ref directly into that
+       field — the system expands it into full content before dispatch; only
+       embed the $ref in the task for skills without such a field.
+       【Never】get_artifact-read the full text and paste it into a parameter
+       or task.
 
     ## Audit workflow
     1. Once the document is ready, immediately call the most appropriate
