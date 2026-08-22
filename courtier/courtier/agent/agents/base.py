@@ -426,10 +426,7 @@ class Agent:
             # 将 Input 模型中非 None 的结构化字段注入到 context
             input_context: dict[str, str] = {}
             for field_name, field_value in input.model_dump().items():
-                if field_value is not None and field_name not in (
-                    "task",
-                    "explicit_inputs",
-                ):
+                if field_value is not None and field_name != "task":
                     if isinstance(field_value, str):
                         input_context[field_name] = field_value
                     else:

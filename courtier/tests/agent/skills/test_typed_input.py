@@ -47,7 +47,12 @@ class TestDataFieldNames:
         assert data_field_names(Sample) == {"document", "top_k"}
 
     def test_reserved_set_covers_framework_plumbing(self):
-        assert {"task", "ref_ids", "output_for", "explicit_inputs"} <= RESERVED_INPUT_FIELDS
+        assert {"task", "ref_ids", "output_for"} <= RESERVED_INPUT_FIELDS
+
+    def test_explicit_inputs_promise_is_gone(self):
+        """The unimplemented ref→field injection promise was removed — its
+        description described behavior that never existed (accident source)."""
+        assert "explicit_inputs" not in SubAgentInput.model_fields
 
     def test_real_docaudit_schema_data_fields(self):
         from skills.schemas.plagiarism import PlagiarismAuditorInput

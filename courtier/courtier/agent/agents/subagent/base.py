@@ -10,9 +10,7 @@ from pydantic import BaseModel, Field
 
 #: SubAgentInput fields that are framework plumbing, never skill data —
 #: excluded when a typed input model is projected onto SkillTool parameters.
-RESERVED_INPUT_FIELDS: frozenset[str] = frozenset(
-    {"task", "ref_ids", "output_for", "explicit_inputs"}
-)
+RESERVED_INPUT_FIELDS: frozenset[str] = frozenset({"task", "ref_ids", "output_for"})
 
 
 def data_field_names(input_model: type[BaseModel]) -> set[str]:
@@ -30,14 +28,6 @@ class SubAgentInput(BaseModel):
     """所有子代理输入的基础模型。"""
 
     task: str = Field(description="子代理需要完成的任务描述（自然语言）")
-    explicit_inputs: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "显式的 ref_id → 参数名映射。"
-            "key 为参数名，value 为 $ref:xxx 引用字符串。"
-            "系统在 dispatch 前自动将 ref 解析后的数据注入到对应字段。"
-        ),
-    )
     output_for: str | None = Field(
         default=None,
         description=(
