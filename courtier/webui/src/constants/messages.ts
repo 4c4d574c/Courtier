@@ -41,6 +41,8 @@ export const MESSAGES = {
   STATUS_ERROR: "错误",
   /** Conclusion */
   CONCLUSION_LABEL: "审核结论",
+  CHAT_CONCLUSION_SOURCES: "参考来源",
+  CITATION_UNTITLED: "未命名文档",
   /** New session */
   NEW_SESSION: "新会话",
   EXPORT: "导出",
