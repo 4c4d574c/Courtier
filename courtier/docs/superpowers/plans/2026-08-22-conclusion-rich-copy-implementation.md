@@ -49,16 +49,16 @@
 **Files:** `webui/src/utils/conclusionCopy.ts`、`webui/scripts/test-conclusion-copy.mjs`、`webui/package.json`
 **依赖:** 无
 
-- [ ] **Step 1:** `buildConclusionCopy(content: string, citations?: CitationIndex): { text: string; html: string }`：
+- [x] **Step 1:** `buildConclusionCopy(content: string, citations?: CitationIndex): { text: string; html: string }`：
   - 正文标记规范化：`[[数字]]` 全局替换为 `[数字]`；
   - citations 且 list 非空时，末尾追加空行 + 「参考来源」标题行 + 按编号升序每号一行 `[n] 标题（docType）`（缺 title 回退 documentId/resourceId，再缺则「未命名文档」；无 docType 不带括号）；
   - 无 citations / 空 list：不加附录；
   - text = 规范化后的完整 Markdown 文本；html = `renderMarkdown(同一段文本)`。
-- [ ] **Step 2:** `writeRichClipboard(payload: { html: string; text: string }): Promise<boolean>`（返回是否成功写入 html 层）：
+- [x] **Step 2:** `writeRichClipboard(payload: { html: string; text: string }): Promise<boolean>`（返回是否成功写入 html 层）：
   1. `navigator.clipboard.write([new ClipboardItem({ "text/html": Blob(html), "text/plain": Blob(text) })])`；
   2. 异常 → `navigator.clipboard.writeText(text)`；
   3. 再异常 → UserMessage 同款隐藏 textarea + `execCommand("copy")`（仅纯文本）。
-- [ ] **Step 3:** 测试覆盖：无引用时原文透传且 html 含渲染标签；`[[2]]` → `[2]`；跳号编号附录正确（如仅有 [3] 一条时不重排为 1）；缺 title 回退占位；citations 缺省/空 list 不加附录；html 无 script 注入。
+- [x] **Step 3:** 测试覆盖：无引用时原文透传且 html 含渲染标签；`[[2]]` → `[2]`；跳号编号附录正确（如仅有 [3] 一条时不重排为 1）；缺 title 回退占位；citations 缺省/空 list 不加附录；html 无 script 注入。
 
 ## Phase 2：结论区交互
 
@@ -67,11 +67,16 @@
 **Files:** `webui/src/components/chat/AssistantMessage.vue`、`webui/src/constants/messages.ts`
 **依赖:** Task 1.1
 
-- [ ] **Step 1:** messages.ts 增 `CHAT_CONCLUSION_SOURCES`，构建器改从常量取标题文案。
-- [ ] **Step 2:** AssistantMessage.vue 增动作行：结构样式复刻 `.user-message-actions`（hover 揭示 + focus-within + `@media (hover: none)` 常显，布局零位移）；按钮文案复用 CHAT_COPY/CHAT_COPIED；`isStreaming` 或 content 为空时整行不渲染。
-- [ ] **Step 3:** 点击 → `buildConclusionCopy(content, citations)` → `writeRichClipboard`；copied 态 1.5s 自动复位（含定时器清理，与 UserMessage 一致）。
-- [ ] **Step 4:** 验证：`npm test` 全绿、`npm run build` 通过；本地 dev server 用真实已完成会话人工核验 Word/记事本两侧粘贴效果。
+- [x] **Step 1:** messages.ts 增 `CHAT_CONCLUSION_SOURCES`，构建器改从常量取标题文案。（另增 `CITATION_UNTITLED` 占位文案）
+- [x] **Step 2:** AssistantMessage.vue 增动作行：结构样式复刻 `.user-message-actions`（hover 揭示 + focus-within + `@media (hover: none)` 常显，布局零位移）；按钮文案复用 CHAT_COPY/CHAT_COPIED；`isStreaming` 或 content 为空时整行不渲染。
+- [x] **Step 3:** 点击 → `buildConclusionCopy(content, citations)` → `writeRichClipboard`；copied 态 1.5s 自动复位（含定时器清理）。
+- [ ] **Step 4:** 验证：`npm test` 全绿、`npm run build` 通过 ✅；本地 dev server 用真实已完成会话人工核验 Word/记事本两侧粘贴效果（待用户执行）。
 
-## 实施记录
+## 实施记录（2026-08-22）
 
-（实施时回填）
+- Task 1.1、Task 2.1 已实施，提交 `d1d052e`（构建器 + 单测）、`5ffc515`（结论复制按钮）。
+- **偏差 1**：`webui/src/utils/markdown.ts`（计划文件职责表未列）——`sanitizeHtml` 增加非 DOM 环境容忍。Node 测试打包下 dompurify 导出的是未绑定 window 的裸工厂（实测无 `sanitize` 成员），现按运行时探测降级为直通；浏览器端行为不变。
+- **偏差 2**：`constants/messages.ts` 的常量随 Task 1.1 提交（构建器引用，保证首个提交即可构建），与计划归属 Task 2.1 Step 1 不同；另增 `CITATION_UNTITLED: "未命名文档"` 占位文案。
+- **测试调整**：「html 无 script 注入」断言在 Node 端不可测（消毒不生效，由浏览器端 DOMPurify 管线保障），改为断言渲染结构（h2/strong/li 等）。
+- **顺手加固**：AssistantMessage 复制定时器补 `onBeforeUnmount` 清理（UserMessage 先例未清理）。
+- Task 2.1 Step 4 中 `npm test` 全绿、`vue-tsc` 构建通过已完成；真实会话中 Word/记事本两侧粘贴效果的人工核验待用户执行。
