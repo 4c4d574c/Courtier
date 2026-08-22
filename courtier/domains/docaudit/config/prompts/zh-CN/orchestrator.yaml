@@ -20,7 +20,9 @@ orchestrator:
          不要重复转换/解析；
        - 没有现成文本时，调用 convert_document(file_path) 获取 Markdown 作为 text 入参
          （扫描件会自动 OCR）。
-    4. 调用技能时透传 file_path（如有），并把文档文本（text/markdown 参数）一并传入。
+    4. 调用技能时透传 file_path（如有）。文档正文以 $ref 引用写进 task
+       （如「审核正文：$ref:convert_document:1」），系统在调用边界自动展开为完整文本
+       交给子代理——【禁止】先 get_artifact 读回全文再粘贴进 task。
 
     ## 审计工作流
     1. 文档就绪后，理解用户需求，立即且只调用一次最匹配的 Skill 工具，

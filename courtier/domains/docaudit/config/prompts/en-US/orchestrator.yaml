@@ -28,8 +28,11 @@ orchestrator:
        - When no text is available yet, call convert_document(file_path) and
          pass the resulting Markdown as the text input (scanned files are
          OCR'd automatically).
-    4. Forward file_path to Skills (when present) and pass the document text
-       (text/markdown parameter) along with it.
+    4. Forward file_path to Skills (when present). Put the document body into
+       the task as a $ref reference (e.g. "Audit the body:
+       $ref:convert_document:1") — the system expands it into the full text at
+       the tool boundary before the sub-agent runs.
+       【Never】get_artifact-read the full text and paste it into the task.
 
     ## Audit workflow
     1. Once the document is ready, immediately call the most appropriate
