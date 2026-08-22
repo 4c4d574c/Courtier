@@ -104,9 +104,6 @@ class OrchestratorAgent(Agent):
                 agent_name=agent_name,
                 available_skills=skill_list,
             )
-            workflow_rules = prompt_engine.render(
-                "orchestrator.workflow_rules",
-            )
         else:
             # Fallback for tests that don't provide PromptEngine
             role = (
@@ -115,8 +112,12 @@ class OrchestratorAgent(Agent):
             )
             if skill_catalog:
                 role += f"\n\nAvailable Skills:\n{skill_catalog}"
-            workflow_rules = ""
 
+        # No construction-time workflow_rules render: orchestrator.workflow_rules
+        # is a domain-owned activation payload. DomainActivator.activate() is its
+        # sole writer — rendering it here would either bake the English fallback
+        # into every session or leak not-yet-activated domains' rules (referencing
+        # gated tools) into sessions that never activated them.
         super().__init__(
             name="OrchestratorAgent",
             role=role,
@@ -131,7 +132,6 @@ class OrchestratorAgent(Agent):
             first_required_tool=first_required_tool,
             tool_filter=tool_filter,
         )
-        self._prompt_pipeline.set_rules(workflow_rules)
 
     @staticmethod
     def _build_skill_tools(

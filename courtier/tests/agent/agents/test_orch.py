@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from courtier.agent.agents.orch import OrchestratorAgent
@@ -96,6 +98,27 @@ class TestOrchestratorSkillIntegration:
         # Core identity should be present — rendered from the display name
         # (agent_name), not the internal class name.
         assert "Courtier Orchestrator" in prompt
+
+    def test_construction_does_not_render_workflow_rules(self):
+        """orchestrator.workflow_rules is an activation payload: construction
+        must leave the rules section empty even when the merged engine defines
+        the key (post domain merge), and never seed the English fallback.
+
+        Regression for sess_f575a957e19d: the fallback text got baked into the
+        run's system message, masking the real activation payload.
+        """
+        from courtier.config import CourtierConfig
+
+        repo_root = Path(__file__).resolve().parents[3]
+        config = CourtierConfig.from_env(repo_root=repo_root)
+        agent = OrchestratorAgent(
+            model=MockModelClient(tool_calls=[]),
+            prompt_engine=config.build_prompt_engine(),
+        )
+
+        prompt = agent.build_system_prompt()
+        assert "# 规则与策略" not in prompt
+        assert "Workflow Rules" not in prompt
 
     def test_skill_tool_exposes_file_path_parameter(self, tmp_path):
         """Skill tools must accept file_path so it can be propagated to sub-agents."""

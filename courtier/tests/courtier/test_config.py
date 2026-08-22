@@ -118,6 +118,14 @@ class TestCourtierConfig:
         assert "工作流规则" in rendered
         assert "Execute steps sequentially" not in rendered
 
+    def test_build_prompt_engine_explicit_allowlist(self, monkeypatch):
+        """Explicit COURTIER_DOMAIN_PACKAGES still merges exactly those domains."""
+        monkeypatch.setenv("COURTIER_DOMAIN_PACKAGES", "docaudit")
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        config = CourtierConfig.from_env(repo_root=repo_root)
+        engine = config.build_prompt_engine()
+        assert "orchestrator.workflow_rules" in engine._bundle.templates
+
     def test_discover_no_domains_dir(self):
         """Returns empty list when no domains directory exists."""
         config = CourtierConfig(
