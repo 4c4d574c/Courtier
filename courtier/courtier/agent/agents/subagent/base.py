@@ -8,6 +8,23 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+#: SubAgentInput fields that are framework plumbing, never skill data —
+#: excluded when a typed input model is projected onto SkillTool parameters.
+RESERVED_INPUT_FIELDS: frozenset[str] = frozenset(
+    {"task", "ref_ids", "output_for", "explicit_inputs"}
+)
+
+
+def data_field_names(input_model: type[BaseModel]) -> set[str]:
+    """Field names *input_model* declares beyond the reserved base fields.
+
+    These are the skill's structured data parameters (e.g. ``document``)
+    surfaced on the SkillTool schema and assembled into the sub-agent task.
+    """
+    return {
+        name for name in input_model.model_fields if name not in RESERVED_INPUT_FIELDS
+    }
+
 
 class SubAgentInput(BaseModel):
     """所有子代理输入的基础模型。"""

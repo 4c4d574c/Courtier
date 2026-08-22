@@ -45,6 +45,7 @@ class SkillTool:
         skill: SkillConfig,
         runtime: AgentRuntime,
         output_artifact_type: str | None = None,
+        prompt_engine: Any | None = None,
     ) -> None:
         self.name = skill.name
         self.skill = skill.name
@@ -82,8 +83,35 @@ class SkillTool:
         }
         self._runtime = runtime
         self._skill = skill
+        self._input_model = skill.input_model
+        self._prompt_engine = prompt_engine
+        if self._input_model is not None:
+            # Structured data fields (e.g. document) join the tool schema so
+            # the orchestrator can pass $ref references directly into them.
+            self._merge_typed_parameters()
         self._on_subagent_event: _OnSubagentEvent | None = None
         self._parent_handle: AgentHandle | None = None
+
+    def _merge_typed_parameters(self) -> None:
+        """Project the skill's typed data fields onto the tool parameter schema.
+
+        Only subclass-declared fields participate (framework plumbing like
+        task/ref_ids stays out); Field descriptions carry the $ref usage
+        guidance to the model.
+        """
+        from ...agents.subagent.base import data_field_names
+
+        schema = self._input_model.model_json_schema()
+        props = self.parameters["properties"]
+        for name in sorted(data_field_names(self._input_model)):
+            if name in props:
+                raise ValueError(
+                    f"Skill {self.name}: input_model field {name!r} conflicts "
+                    f"with a built-in SkillTool parameter"
+                )
+            sub_schema = dict(schema.get("properties", {}).get(name, {}))
+            sub_schema.pop("title", None)
+            props[name] = sub_schema
 
     def set_callbacks(
         self,

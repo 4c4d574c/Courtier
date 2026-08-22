@@ -89,6 +89,18 @@ class SkillRegistry:
         enabled = bool(meta.get("enabled", True))
         output_artifact_type = meta.get("output_artifact_type")
         input_model = self._resolve_input_model(meta.get("input_model"))
+        if input_model is not None:
+            from ..agents.subagent.base import data_field_names
+
+            builtin_names = {"task", "mode", "file_path", "ref_ids"}
+            conflicts = sorted(data_field_names(input_model) & builtin_names)
+            if conflicts:
+                raise ValueError(
+                    f"input_model {input_model.__name__} fields {conflicts} "
+                    f"conflict with built-in SkillTool parameters "
+                    f"{sorted(builtin_names)}"
+                )
+            input_model.model_json_schema()  # fail fast on un-schema-able models
         default_mode = meta.get("default_mode", "")
         if default_mode not in ("subagent", "inline", ""):
             default_mode = ""

@@ -3,3 +3,4 @@ errors:
   permission_denied: "Permission denied: {{ action }}"
   tool_not_found: "Tool not found: {{ tool_name }}"
   internal_error: "Internal error: {{ message }}"
+  skill_input_validation: "Skill '{{ skill_name }}' received invalid input:\n{{ error_details }}\nFix the listed fields and call again."

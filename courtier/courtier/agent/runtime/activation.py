@@ -227,6 +227,7 @@ class DomainActivator:
                 skill=skill,
                 runtime=self._agent_runtime,
                 output_artifact_type=skill.output_artifact_type,
+                prompt_engine=self._prompt_engine,
             )
             # Bind the current run's sub-agent streaming callback and root
             # budget handle: activation happens mid-run, AFTER the run()-start

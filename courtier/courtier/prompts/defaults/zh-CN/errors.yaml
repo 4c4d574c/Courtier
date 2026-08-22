@@ -3,3 +3,4 @@ errors:
   permission_denied: "权限不足：{{ action }}"
   tool_not_found: "工具未找到：{{ tool_name }}"
   internal_error: "内部错误：{{ message }}"
+  skill_input_validation: "技能 {{ skill_name }} 的输入参数校验失败：\n{{ error_details }}\n请修正上述字段后重新调用。"

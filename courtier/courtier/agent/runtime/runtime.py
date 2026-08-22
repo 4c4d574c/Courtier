@@ -463,6 +463,7 @@ class AgentRuntime:
                                 skill=skill,
                                 runtime=self,
                                 output_artifact_type=skill.output_artifact_type,
+                                prompt_engine=self.prompt_engine,
                             )
                         )
                 else:
@@ -482,6 +483,7 @@ class AgentRuntime:
                             skill=skill,
                             runtime=self,
                             output_artifact_type=skill.output_artifact_type,
+                            prompt_engine=self.prompt_engine,
                         )
                     )
             else:

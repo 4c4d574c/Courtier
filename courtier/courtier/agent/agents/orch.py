@@ -83,7 +83,7 @@ class OrchestratorAgent(Agent):
                 raise ValueError(
                     "OrchestratorAgent requires an AgentRuntime when a SkillRegistry is provided."
                 )
-            skill_tools = self._build_skill_tools(skill_registry, agent_runtime)
+            skill_tools = self._build_skill_tools(skill_registry, agent_runtime, prompt_engine)
             tools.extend(skill_tools)
             skill_catalog = skill_registry.build_catalog()
 
@@ -137,10 +137,16 @@ class OrchestratorAgent(Agent):
     def _build_skill_tools(
         skill_registry: SkillRegistry,
         runtime: AgentRuntime,
+        prompt_engine: Any | None = None,
     ) -> list[SkillTool]:
         """Build a SkillTool for every enabled skill in the registry."""
         return [
-            SkillTool(skill=skill, runtime=runtime, output_artifact_type=skill.output_artifact_type)
+            SkillTool(
+                skill=skill,
+                runtime=runtime,
+                output_artifact_type=skill.output_artifact_type,
+                prompt_engine=prompt_engine,
+            )
             for skill in skill_registry.list_enabled()
         ]
 

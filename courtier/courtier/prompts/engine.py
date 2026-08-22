@@ -50,6 +50,7 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.permission_denied",
         "errors.tool_not_found",
         "errors.internal_error",
+        "errors.skill_input_validation",
         "ui.session_title",
         "ui.step_label",
         "ui.agent_name",
@@ -122,6 +123,11 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     "errors.permission_denied": ("Permission denied for tool '{{ tool_name }}'.\n"),
     "errors.tool_not_found": ("Tool '{{ tool_name }}' not found.\n"),
     "errors.internal_error": ("Internal error occurred: {{ error_message }}.\n"),
+    "errors.skill_input_validation": (
+        "Skill '{{ skill_name }}' received invalid input.\n"
+        "{{ error_details }}\n"
+        "Fix the listed fields and call the skill again."
+    ),
     "ui.session_title": "{{ title }}",
     "ui.step_label": "Step {{ index }}: {{ label }}",
     "ui.agent_name": "{{ agent_name }}",
