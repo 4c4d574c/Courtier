@@ -64,10 +64,10 @@
 **Files:** `courtier/plugin/registry.py`、`courtier/agent/api/routes/admin_extensions.py`
 **依赖:** 无
 
-- [ ] **Step 1:** `ExtensionRegistry.__init__` 增 `self._tool_meta: dict[str, dict[str, dict[str, str]]]`；`on_register` 处理 tool cap 时快照 `{display_name, description}`（cap dict 直取，与 ProxyTool 同源）；`on_unregister` 弹出对应插件条目。
-- [ ] **Step 2:** 新增 `get_plugin_tool_summaries() -> dict[str, list[dict]]`：返回 plugin → [{name, displayName, description}]（仅当前在册插件）。
-- [ ] **Step 3:** `_plugin_items` 中 tools 改为 `summaries.get(name, [])`；删除 `manifest.capabilities.tools` 推导；其余字段（description/version/state/scanError）不变。
-- [ ] **Step 4:** 测试：现有 admin/plugin 测试全绿；补一条——fake register 后列表含该插件工具元数据，unregister 后同插件 tools 为空。
+- [x] **Step 1:** `ExtensionRegistry.__init__` 增 `self._tool_meta: dict[str, dict[str, dict[str, str]]]`；`on_register` 处理 tool cap 时快照 `{display_name, description}`（cap dict 直取，与 ProxyTool 同源）；`on_unregister` 弹出对应插件条目。
+- [x] **Step 2:** 新增 `get_plugin_tool_summaries() -> dict[str, list[dict]]`：返回 plugin → [{name, displayName, description}]（仅当前在册插件）。
+- [x] **Step 3:** `_plugin_items` 中 tools 改为 `summaries.get(name, [])`；删除 `manifest.capabilities.tools` 推导；其余字段（description/version/state/scanError）不变。
+- [x] **Step 4:** 测试：现有 admin/plugin 测试全绿；补一条——fake register 后列表含该插件工具元数据，unregister 后同插件 tools 为空。
 
 ## Phase 2：清除 yaml 死配置 + entry 形态统一
 
@@ -76,24 +76,24 @@
 **Files:** 见文件职责表第 3 行
 **依赖:** Task 1.1（管理页已有新数据源，删除不影响展示）
 
-- [ ] **Step 1:** 逐个删除 `capabilities` 块；`runtime`/`timeout_ms`/`dependencies` 及注释原样保留。
-- [ ] **Step 2:** parse 特别核对：yaml 提示词中的"格式审核专用、内容任务禁用"路由限制确认由 `domains/docaudit/config/prompts/zh-CN/orchestrator.yaml`（workflow_rules 第 15/18 行区域）承载后再删；parse yaml 头部注释同步改为指向 entry.py 与 workflow_rules。
-- [ ] **Step 3:** check_format/check_content 的 yaml `input_contract` 直接随块删除（全仓无消费者，模型实看 schema 来自 tools.py `parameters`）。
+- [x] **Step 1:** 逐个删除 `capabilities` 块；`runtime`/`timeout_ms`/`dependencies` 及注释原样保留。
+- [x] **Step 2:** parse 特别核对：yaml 提示词中的"格式审核专用、内容任务禁用"路由限制确认由 `domains/docaudit/config/prompts/zh-CN/orchestrator.yaml`（workflow_rules 第 15/18 行区域）承载后再删；parse yaml 头部注释同步改为指向 entry.py 与 workflow_rules。
+- [x] **Step 3:** check_format/check_content 的 yaml `input_contract` 直接随块删除（全仓无消费者，模型实看 schema 来自 tools.py `parameters`）。
 
 ### Task 2.2: entry.py 返回形态统一
 
 **Files:** `plugins/shared/search/entry.py`、`plugins/docaudit/audit/{check_format,check_content,detect_plagiarism}/entry.py`
 **依赖:** 无（可与 2.1 同提交或紧随）
 
-- [ ] **Step 1:** 四个文件 `register_capabilities()` 统一返回 `{"capabilities": [], "system_prompt": <原文>}`；search 的 prompt 取 ""，保留其"行为规范在 behavioral.yaml"注释。
-- [ ] **Step 2:** `uv run pytest tests/plugin -k "entry or register or search"` 全绿（SDK 对两种形态均兼容，不应有破坏）。
+- [x] **Step 1:** 四个文件 `register_capabilities()` 统一返回 `{"capabilities": [], "system_prompt": <原文>}`；search 的 prompt 取 ""，保留其"行为规范在 behavioral.yaml"注释。
+- [x] **Step 2:** `uv run pytest tests/plugin -k "entry or register or search"` 全绿（SDK 对两种形态均兼容，不应有破坏）。
 
 ### Task 2.3: detect_plagiarism 显式超时
 
 **Files:** `plugins/docaudit/audit/detect_plagiarism/plugin.yaml`
 **依赖:** Task 2.1
 
-- [ ] **Step 1:** 增 `timeout_ms: 300000`（取值 c，审批可调）。
+- [x] **Step 1:** 增 `timeout_ms: 300000`（取值 c，审批可调）。
 
 ## Phase 3：守卫测试泛化
 
@@ -102,8 +102,8 @@
 **Files:** `tests/courtier/test_prompt_single_source.py`
 **依赖:** Task 2.1
 
-- [ ] **Step 1:** 原 `test_search_manifest_declares_no_capabilities_or_prompt` 泛化为 `test_no_manifest_declares_capabilities`：`rglob plugins/**/plugin.yaml` 断言无 `capabilities` 键（错误消息保留"dead config"指引文案）。
-- [ ] **Step 2:** search runtime 断言（port/env）与 behavioral zh/en 引用规则断言原样保留。
+- [x] **Step 1:** 原 `test_search_manifest_declares_no_capabilities_or_prompt` 泛化为 `test_no_manifest_declares_capabilities`：`rglob plugins/**/plugin.yaml` 断言无 `capabilities` 键（错误消息保留"dead config"指引文案）。
+- [x] **Step 2:** search runtime 断言（port/env）与 behavioral zh/en 引用规则断言原样保留。
 
 ## Phase 4：管理页运维增强
 
@@ -112,19 +112,19 @@
 **Files:** `courtier/plugin/manager.py`
 **依赖:** 无（与 Phase 1-3 无耦合）
 
-- [ ] **Step 1:** ProcessManager 注入 `PluginScanner` 实例（构造参数，默认自建），`start_all` 改用注入实例。
-- [ ] **Step 2:** `restart_plugin`：stop 后对该插件目录重扫一次，结果合并进 `_scan_results`（新结果覆盖同名；扫描消失的插件保留旧记录防列表闪空），再 `start_plugin`。效果：扫描期 BLOCKED 修复 manifest 后点 restart 即恢复。
-- [ ] **Step 3:** `start_plugin` 中 `result.manifest is None` 的 KeyError 信息改为明确指引（"plugin.yaml 无效：<scanError>；修复后重试 restart"），admin 路由将其映射为 400（携带 scanError）而非 404"插件不存在"。
-- [ ] **Step 4:** 测试：坏 manifest → BLOCKED → 磁盘修复 → restart → 连接循环重启（用 fake endpoint/monkeypatch 验证状态迁移与 scan results 更新）。
+- [x] **Step 1:** ProcessManager 注入 `PluginScanner` 实例（构造参数，默认自建），`start_all` 改用注入实例。
+- [x] **Step 2:** `restart_plugin`：stop 后对该插件目录重扫一次，结果合并进 `_scan_results`（新结果覆盖同名；扫描消失的插件保留旧记录防列表闪空），再 `start_plugin`。效果：扫描期 BLOCKED 修复 manifest 后点 restart 即恢复。
+- [x] **Step 3:** `start_plugin` 中 `result.manifest is None` 的 KeyError 信息改为明确指引（"plugin.yaml 无效：<scanError>；修复后重试 restart"），admin 路由将其映射为 400（携带 scanError）而非 404"插件不存在"。
+- [x] **Step 4:** 测试：坏 manifest → BLOCKED → 磁盘修复 → restart → 连接循环重启（用 fake endpoint/monkeypatch 验证状态迁移与 scan results 更新）。
 
 ### Task 4.2: BLOCKED 原因透出到管理页
 
 **Files:** `courtier/agent/api/routes/admin_extensions.py`、`webui/src/api/client.ts`、`webui/src/views/ExtensionManagement.vue`
 **依赖:** Task 4.1（同一文件 admin_extensions，顺序提交避免冲突）
 
-- [ ] **Step 1:** 后端 `_plugin_items` 增 `blockedReason: str = ""`：scanStatus=VALID 且 state=BLOCKED 且该插件不在 endpoints 表 → `"未在 COURTIER_PLUGIN_ENDPOINTS 配置端点，需修改 env 后重启宿主或在配置中补充端点"`。
-- [ ] **Step 2:** 前端 `PluginInfo` 加可选字段；BLOCKED 且 blockedReason 非空时在卡片错误行（复用 `.ext-card-error` 样式位）展示原因；scanStatus=BLOCKED 的既有 scanError 展示不动。
-- [ ] **Step 3:** `npm test` 全绿、`npm run build` 通过。
+- [x] **Step 1:** 后端 `_plugin_items` 增 `blockedReason: str = ""`：scanStatus=VALID 且 state=BLOCKED 且该插件不在 endpoints 表 → `"未在 COURTIER_PLUGIN_ENDPOINTS 配置端点，需修改 env 后重启宿主或在配置中补充端点"`。
+- [x] **Step 2:** 前端 `PluginInfo` 加可选字段；BLOCKED 且 blockedReason 非空时在卡片错误行（复用 `.ext-card-error` 样式位）展示原因；scanStatus=BLOCKED 的既有 scanError 展示不动。
+- [x] **Step 3:** `npm test` 全绿、`npm run build` 通过。
 
 ## Phase 5：manifest 模型收紧
 
@@ -133,10 +133,20 @@
 **Files:** `courtier/plugin/manifest.py`、`courtier/plugin/__init__.py`
 **依赖:** Task 2.1（本仓 yaml 已无 capabilities）
 
-- [ ] **Step 1:** 删除 `CheckerCapability`、`RouteCapability`、`ProcessorCapability`（全仓零引用；先 grep 复核含 tests）。
-- [ ] **Step 2:** `Capabilities`/`ToolCapability` 与 `PluginManifest.capabilities` 字段保留解析，docstring 标注 deprecated（过渡期兼容仍带旧块的远端旧 manifest；独立部署切换后整块移除，届时 `__init__.py` 导出同步清理）。
-- [ ] **Step 3:** `uv run pytest tests/plugin tests/courtier -m "not integration"` 全绿。
+- [x] **Step 1:** 删除 `CheckerCapability`、`RouteCapability`、`ProcessorCapability`（全仓零引用；先 grep 复核含 tests）。
+- [x] **Step 2:** `Capabilities`/`ToolCapability` 与 `PluginManifest.capabilities` 字段保留解析，docstring 标注 deprecated（过渡期兼容仍带旧块的远端旧 manifest；独立部署切换后整块移除，届时 `__init__.py` 导出同步清理）。
+- [x] **Step 3:** `uv run pytest tests/plugin tests/courtier -m "not integration"` 全绿。
 
-## 实施记录
+## 实施记录（2026-08-22）
 
-（待实施后回填：各 Task 提交号、与计划的偏差及原因。）
+全部 Task 已实施，提交：`0cf9dde`（Task 1.1）、`5b439e7`（Task 2.1–2.3 合并提交）、`b562f47`（Task 3.1）、`925a760`（Task 4.1）、`139c3cb`（Task 4.2）、`0b7bb20`（Task 5.1）。待拍板四项均按计划推荐值落地（a 全量 dict / b deprecated 过渡 / c timeout_ms=300000 / d 不加占位文案）。
+
+**偏差 1**：Task 2.1/2.2/2.3 合并为单个提交——detect_plagiarism 的 plugin.yaml 同时承载 capabilities 删除（2.1）与显式 timeout_ms 新增（2.3），按文件拆分会割裂同一文件的两处改动。
+
+**偏差 2**：Task 4.1 的"明确指引"实现为专用异常 `PluginBlockedError`（携带 scanError 详情）而非改写 KeyError 消息；admin 路由将其映射为 400。另：manager.py 存在三个历史遗留 lint 错误（I001/F401/E501）与 black 未规范格式化，随本提交顺手清理。
+
+**偏差 3**：Task 5.1 落地时确认 pydantic `Capabilities` 默认容忍未知键（extra=ignore），旧 manifest 的 checkers/routes/processors 子块会被忽略而非拒绝——比计划的"保留解析"更宽松，用改名后的 `test_full_manifest_with_legacy_capabilities` 固化该行为。
+
+**测试发现（未改行为）**：扫描器对"manifest 名与目录名不一致"的 BLOCKED 结果以 **manifest 内的名字**为 key（`scanner.py:142`），而非目录名；restart 按 admin 显示名查找时将找不到该插件。本次未改动该行为，Task 4.1 测试改用缺字段的坏 manifest（校验失败路径以目录名为 key）。后续如需支持此类插件的页面恢复，应让失败结果统一以目录名为 key。
+
+**回归说明**：实施期间全量 pytest 曾两次出现 `tests/agent/skills/test_typed_input.py` 的顺序相关瞬态失败。经隔离 worktree 实验（基线 + 并行会话 WIP 单独验证为绿）与单测复跑（单跑必过）定位为另一并行会话 skilltool-typed-input 特性的进行中未提交改动所致，与本计划无关；收尾时主工作区全量非 integration 套件 1721 passed 全绿，webui `npm test` 与 `npm run build` 通过。
