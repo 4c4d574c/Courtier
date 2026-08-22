@@ -972,6 +972,7 @@ async def agent_loop(
     forced_first_tool_call: ToolCall | None = None,
     pre_turn_reminder: str = "",
     periodic_reminder: str = "",
+    system_prompt_provider: Callable[[], str | None] | None = None,
 ) -> AgentState:
     """Agent 主循环 — think → gate → act → observe.
 
@@ -1187,6 +1188,27 @@ async def agent_loop(
         pending_forced_call = forced_first_tool_call
         try:
             while not current_state.is_terminal():
+                # Mid-run pipeline mutations (e.g. domain activation overlaying
+                # workflow rules) must reach the model on the next turn: the
+                # system message is materialized once per run() otherwise, so
+                # an activation at turn N would stay invisible for the rest of
+                # the run.  Provider returns None while nothing changed.
+                if system_prompt_provider is not None:
+                    refreshed = system_prompt_provider()
+                    if (
+                        refreshed
+                        and current_state.messages
+                        and current_state.messages[0].role == "system"
+                        and current_state.messages[0].content != refreshed
+                    ):
+                        current_state = current_state.model_copy(
+                            update={
+                                "messages": (
+                                    Message(role="system", content=refreshed),
+                                    *current_state.messages[1:],
+                                )
+                            }
+                        )
                 think_outcome = await _run_think_phase(
                     current_state=current_state,
                     hooks=hooks,

@@ -247,6 +247,11 @@ class DomainActivator:
         overlay = rules_engine.render("orchestrator.workflow_rules")
         if overlay:
             self._agent._prompt_pipeline.set_rules(overlay)
+            # The run's system message is materialized once per run(); flag
+            # the mutation so the loop refreshes messages[0] on the next
+            # turn — otherwise mid-run activations stay invisible until the
+            # next user message.
+            self._agent.mark_system_prompt_dirty()
 
         self.active_domains.add(domain)
         # Surface the domain's plugin proxies on the agent immediately — the

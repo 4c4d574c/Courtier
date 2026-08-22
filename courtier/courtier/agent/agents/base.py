@@ -271,6 +271,11 @@ class Agent:
         # ``courtier/prompts/defaults/`` are the single source of truth.
         # Agents without an explicit engine fall back to the default one.
         self._prompt_pipeline = PromptPipeline()
+        # Set when a mid-run mutation lands in the pipeline (e.g. domain
+        # activation overlaying workflow rules): the loop then refreshes
+        # messages[0] from build_system_prompt() on the next turn — otherwise
+        # the mutated pipeline would stay invisible until the next run().
+        self._system_prompt_dirty = False
 
         prompt_engine = prompt_engine or _default_prompt_engine()
         thinking_directive = prompt_engine.render("behavioral.thinking_directive")
@@ -371,6 +376,14 @@ class Agent:
     def build_system_prompt(self, context: dict[str, str] | None = None) -> str:
         """Build the full system prompt."""
         return self._prompt_pipeline.build(context)
+
+    def mark_system_prompt_dirty(self) -> None:
+        """Flag a mid-run pipeline mutation (e.g. domain activation overlay).
+
+        The loop's ``system_prompt_provider`` rebuilds messages[0] from
+        :meth:`build_system_prompt` on the next turn and clears the flag.
+        """
+        self._system_prompt_dirty = True
 
     async def run(
         self,
@@ -488,6 +501,9 @@ class Agent:
             self._prompt_pipeline.set_context_instructions(context_manager.get_ref_instructions())
 
         system_prompt = self.build_system_prompt(context)
+        # Activations replayed before run() start already mutated the pipeline;
+        # this initial build reflects them, so nothing is pending for the loop.
+        self._system_prompt_dirty = False
 
         if state is not None:
             messages = list(state.messages)
@@ -524,6 +540,13 @@ class Agent:
 
         forced_first_tool_call = self._maybe_forced_first_tool(context, state)
 
+        def _system_prompt_provider() -> str | None:
+            """Rebuild messages[0] once when a mid-run mutation lands."""
+            if not self._system_prompt_dirty:
+                return None
+            self._system_prompt_dirty = False
+            return self.build_system_prompt(context)
+
         start = time.time()
         try:
             final_state = await agent_loop(
@@ -547,6 +570,7 @@ class Agent:
                 forced_first_tool_call=forced_first_tool_call,
                 pre_turn_reminder=self._pre_turn_reminder,
                 periodic_reminder=self._periodic_reminder,
+                system_prompt_provider=_system_prompt_provider,
             )
         except Exception:
             record_agent_request(agent_name=self.name, status="error")

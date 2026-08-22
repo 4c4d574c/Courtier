@@ -497,3 +497,71 @@ class TestActivatedSkillToolStreaming:
         )
         assert result.success is True
         assert captured.get("on_subagent_event") is fake_callback
+
+
+class _ScriptedModelClient(MockModelClient):
+    """Records messages per generate() call so tests can assert what the
+    model actually saw on each turn of a run."""
+
+    def __init__(self, tool_calls=None):
+        super().__init__(tool_calls=tool_calls or [])
+        self.captured: list[list[dict]] = []
+
+    async def generate(self, messages, tools=None, **kwargs):
+        self.captured.append(list(messages))
+        return await super().generate(messages, tools=tools, **kwargs)
+
+
+class TestMidRunActivationPromptRefresh:
+    @pytest.mark.asyncio
+    async def test_activation_rules_reach_the_model_next_turn(self, tmp_path):
+        """Regression for sess_f575a957e19d.
+
+        A fresh session activates the domain at turn 0 (mid-run).  The
+        activation payload (workflow rules) written into the prompt pipeline
+        must be materialized into the system message from the NEXT turn on —
+        previously the run's system message was frozen at run() start, so the
+        orchestrator executed the whole task without the domain's data
+        fetching rules.
+        """
+        from courtier.agent.core.tool_call import ToolCall
+
+        agent, _activator, _shared = _build_harness(tmp_path)
+        client = _ScriptedModelClient(
+            tool_calls=[
+                ToolCall(id="call_1", name="activate_domain", arguments={"domain": "docaudit"})
+            ]
+        )
+        agent.model = client
+
+        result = await agent.run(task="审核这篇文档")
+        assert result.content
+        assert len(client.captured) >= 2
+
+        first_sys = client.captured[0][0]
+        assert first_sys["role"] == "system"
+        # Pre-activation: no domain rules, no English fallback noise.
+        assert "领域规则" not in first_sys["content"]
+        assert "Workflow Rules" not in first_sys["content"]
+
+        # From the turn after activate_domain, the payload is live.
+        second_sys = client.captured[1][0]
+        assert second_sys["role"] == "system"
+        assert "领域规则（docaudit）" in second_sys["content"]
+
+    @pytest.mark.asyncio
+    async def test_dirty_flag_lifecycle(self, tmp_path):
+        """mark_system_prompt_dirty() flags the agent; run() start consumes it."""
+        agent, activator, _ = _build_harness(tmp_path)
+        assert agent._system_prompt_dirty is False
+
+        await activator.activate("docaudit")
+        assert agent._system_prompt_dirty is True
+
+        # A run start rebuilds the prompt (which already carries the overlay)
+        # and clears the flag — no redundant refresh mid-run.
+        client = _ScriptedModelClient()
+        agent.model = client
+        await agent.run(task="直接回答")
+        assert agent._system_prompt_dirty is False
+        assert "领域规则（docaudit）" in client.captured[0][0]["content"]
