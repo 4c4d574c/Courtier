@@ -147,6 +147,45 @@ class TestExtensionRegistry:
             tool_registry.get("tool_x")
         assert checker_registry.get("请示") is None
 
+    def test_tool_summaries_track_registration_lifecycle(
+        self, ext_registry, tool_registry, checker_registry
+    ):
+        client = MockClient()
+        caps = [
+            {
+                "type": "tool",
+                "name": "tool_x",
+                "display_name": "工具X",
+                "description": "X 工具",
+            },
+            {"type": "checker", "name": "check_x", "doc_type": "请示"},
+        ]
+
+        ext_registry.on_register("plugin_x", client, caps, system_prompt="")
+        summaries = ext_registry.get_plugin_tool_summaries()
+        assert summaries == {
+            "plugin_x": [{"name": "tool_x", "displayName": "工具X", "description": "X 工具"}]
+        }
+
+        # Re-registration replaces the snapshot instead of appending.
+        ext_registry.on_register("plugin_x", client, caps[:1], system_prompt="")
+        assert len(ext_registry.get_plugin_tool_summaries()["plugin_x"]) == 1
+
+        ext_registry.on_register("plugin_y", client, [], system_prompt="")
+        assert ext_registry.get_plugin_tool_summaries()["plugin_y"] == []
+
+        ext_registry.on_unregister("plugin_x")
+        assert "plugin_x" not in ext_registry.get_plugin_tool_summaries()
+
+    def test_tool_summaries_display_name_falls_back_to_name(self, ext_registry):
+        cap = {"type": "tool", "name": "bare_tool"}
+
+        ext_registry.on_register("plugin_bare", MockClient(), [cap], system_prompt="")
+
+        (summary,) = ext_registry.get_plugin_tool_summaries()["plugin_bare"]
+        assert summary["displayName"] == "bare_tool"
+        assert summary["description"] == ""
+
     def test_register_agent_capability_is_treated_as_unknown(self, ext_registry, caplog):
         """Plugin sub-agent capabilities are no longer supported."""
         client = MockClient()

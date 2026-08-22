@@ -48,20 +48,14 @@ def _plugin_items(request: Request) -> list[dict[str, Any]]:
     plugin_system = request.app.state.plugin_system
     status = plugin_system.get_status()
     scan_results = plugin_system.get_scan_results()
+    # Tool metadata is runtime-registered (register notification snapshots);
+    # plugins that never connected list no tools.
+    tool_summaries = plugin_system.get_tool_summaries()
     items = []
     for name, result in sorted(scan_results.items()):
         manifest = result.manifest
         proc_status = status.get(name)
-        tools = []
-        if manifest is not None:
-            tools = [
-                {
-                    "name": t.name,
-                    "displayName": t.display_name or t.name,
-                    "description": t.description,
-                }
-                for t in manifest.capabilities.tools
-            ]
+        tools = tool_summaries.get(name, [])
         items.append(
             {
                 "name": name,

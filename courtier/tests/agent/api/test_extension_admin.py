@@ -219,7 +219,6 @@ class TestUpdateSkill:
         assert exc.value.status_code == 400
 
 
-
 class TestPluginItemsSourceGrouping:
     """Plugins group by domain (plugin→domain mapping), not by wrapper dir."""
 
@@ -250,3 +249,34 @@ class TestPluginItemsSourceGrouping:
         assert by_name["check_content"] == "docaudit"
         assert by_name["detect_plagiarism"] == "docaudit"
         assert "audit" not in {i["source"] for i in items}
+
+    def test_tools_listed_only_after_runtime_registration(self):
+        ps = self._real_plugin_system()
+        before = {i["name"]: i for i in _plugin_items(self._request_with(ps))}
+        # Manifests carry no capabilities — nothing lists tools pre-register.
+        assert before["anydoc"]["tools"] == []
+
+        ps._registry.on_register(
+            "anydoc",
+            SimpleNamespace(),
+            [
+                {
+                    "type": "tool",
+                    "name": "convert_document",
+                    "display_name": "转换文档",
+                    "description": "Convert office documents",
+                }
+            ],
+            system_prompt="",
+        )
+
+        after = {i["name"]: i for i in _plugin_items(self._request_with(ps))}
+        assert after["anydoc"]["tools"] == [
+            {
+                "name": "convert_document",
+                "displayName": "转换文档",
+                "description": "Convert office documents",
+            }
+        ]
+        # A never-registered sibling stays empty.
+        assert after["parse"]["tools"] == []

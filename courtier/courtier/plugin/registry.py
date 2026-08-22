@@ -46,6 +46,10 @@ class ExtensionRegistry:
         self._capability_registry = capability_registry
         # plugin_name → {cap_type: [names]}
         self._registrations: dict[str, dict[str, list[str]]] = {}
+        # plugin_name → tool_name → {display_name, description} — snapshot of
+        # the register notification for the admin listing (tool metadata is
+        # runtime-registered; manifests carry no capabilities).
+        self._tool_meta: dict[str, dict[str, dict[str, str]]] = {}
         # Internal registry for route proxies
         self._routes: dict[str, ProxyRoute] = {}
         self._system_prompts: dict[str, str] = {}
@@ -59,6 +63,7 @@ class ExtensionRegistry:
     ) -> None:
         """Process capabilities from a plugin.register notification."""
         registrations: dict[str, list[str]] = {}
+        tool_meta: dict[str, dict[str, str]] = {}
 
         for cap in capabilities:
             cap_type = cap.get("type", "")
@@ -66,6 +71,10 @@ class ExtensionRegistry:
             if cap_type == "tool":
                 self._register_tool(plugin_name, client, cap)
                 registrations.setdefault("tool", []).append(cap["name"])
+                tool_meta[cap["name"]] = {
+                    "display_name": cap.get("display_name") or "",
+                    "description": cap.get("description") or "",
+                }
                 self._register_capability("tool", cap["name"], plugin_name, cap, instance=None)
 
             elif cap_type == "checker":
@@ -88,6 +97,7 @@ class ExtensionRegistry:
                 )
 
         self._registrations[plugin_name] = registrations
+        self._tool_meta[plugin_name] = tool_meta
         if system_prompt:
             self._system_prompts[plugin_name] = system_prompt
             logger.info(
@@ -116,6 +126,7 @@ class ExtensionRegistry:
     def on_unregister(self, plugin_name: str) -> None:
         """Remove all proxy objects registered by a plugin."""
         regs = self._registrations.pop(plugin_name, {})
+        self._tool_meta.pop(plugin_name, None)
         self._system_prompts.pop(plugin_name, None)
         if self._capability_registry is not None:
             self._capability_registry.unregister_by_provider(plugin_name)
@@ -151,6 +162,27 @@ class ExtensionRegistry:
         by the agent system-prompt assembly as tool-usage guidance.
         """
         return dict(self._system_prompts)
+
+    def get_plugin_tool_summaries(self) -> dict[str, list[dict[str, str]]]:
+        """Return plugin_name → [{name, displayName, description}] for live plugins.
+
+        Sourced from register-notification snapshots: entries appear on
+        ``plugin.register`` and are dropped on unregister (crash/shutdown),
+        so only currently connected plugins are covered.  Consumed by the
+        admin extensions listing — manifests no longer carry tool
+        declarations.
+        """
+        return {
+            plugin: [
+                {
+                    "name": name,
+                    "displayName": meta.get("display_name") or name,
+                    "description": meta.get("description", ""),
+                }
+                for name, meta in sorted(tools.items())
+            ]
+            for plugin, tools in self._tool_meta.items()
+        }
 
     def _register_tool(self, plugin_name: str, client: JSONRPCClient, cap: dict) -> None:
         if self._tool_registry is None:

@@ -166,6 +166,14 @@ class PluginSystem:
         """
         return self._registry.get_system_prompts()
 
+    def get_tool_summaries(self) -> dict[str, list[dict[str, str]]]:
+        """Return plugin_name → tool summaries for all live plugins.
+
+        Delegates to ExtensionRegistry; consumed by the admin extensions
+        listing (tools are runtime-registered, not manifest-declared).
+        """
+        return self._registry.get_plugin_tool_summaries()
+
     def get_scan_results(self):
         """Return the last scan results (valid + blocked) keyed by name."""
         return self._manager.get_scan_results()
