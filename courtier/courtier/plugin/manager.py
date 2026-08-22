@@ -232,6 +232,11 @@ class ProcessManager:
         """Return the last scan results keyed by plugin name (valid + blocked)."""
         return dict(self._scan_results)
 
+    def has_endpoint(self, name: str) -> bool:
+        """Whether the connection config covers the plugin (admin diagnostics)."""
+        self._resolve_connection_config()
+        return name in (self._endpoints or {})
+
     def _resolve_connection_config(self) -> None:
         """Fill endpoints/token from Settings when not injected (tests inject)."""
         if self._endpoints is None or self._token is None:

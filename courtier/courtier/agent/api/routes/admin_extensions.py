@@ -58,6 +58,20 @@ def _plugin_items(request: Request) -> list[dict[str, Any]]:
         manifest = result.manifest
         proc_status = status.get(name)
         tools = tool_summaries.get(name, [])
+        # A valid manifest that still shows BLOCKED means the host has no
+        # dial target for it — say so instead of leaving the state
+        # unexplained (the scan error slot is empty in this case).
+        blocked_reason = ""
+        if (
+            result.status.value == "VALID"
+            and proc_status
+            and proc_status["state"] == "BLOCKED"
+            and not plugin_system.plugin_has_endpoint(name)
+        ):
+            blocked_reason = (
+                "未在 COURTIER_PLUGIN_ENDPOINTS 配置该插件的端点："
+                "请补充端点配置后重启宿主，或检查端点名称拼写"
+            )
         items.append(
             {
                 "name": name,
@@ -69,6 +83,7 @@ def _plugin_items(request: Request) -> list[dict[str, Any]]:
                 "source": plugin_system.plugin_domain(name) or "shared",
                 "scanStatus": result.status.value,
                 "scanError": result.error,
+                "blockedReason": blocked_reason,
                 "state": proc_status["state"] if proc_status else "NOT_STARTED",
                 "version": (proc_status or {}).get(
                     "version", manifest.version if manifest else "unknown"

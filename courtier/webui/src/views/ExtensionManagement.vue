@@ -51,6 +51,7 @@
               </span>
             </div>
             <p v-if="p.scanError" class="ext-card-error">{{ p.scanError }}</p>
+            <p v-if="p.blockedReason" class="ext-card-error">{{ p.blockedReason }}</p>
             <div class="ext-card-actions">
               <template v-if="isTransitional(p.state)">
                 <button class="ext-btn" disabled>处理中…</button>

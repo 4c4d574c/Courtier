@@ -597,6 +597,7 @@ export interface PluginInfo {
   source: string;
   scanStatus: string;
   scanError: string | null;
+  blockedReason?: string;
   state: string;
   version: string;
   restartCount: number;

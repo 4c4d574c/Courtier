@@ -176,6 +176,14 @@ class PluginSystem:
         """
         return self._registry.get_plugin_tool_summaries()
 
+    def plugin_has_endpoint(self, name: str) -> bool:
+        """Whether COURTIER_PLUGIN_ENDPOINTS / injected config covers the plugin.
+
+        Used by admin surfaces to explain a runtime-BLOCKED state (a valid
+        manifest that simply has no dial target).
+        """
+        return self._manager.has_endpoint(name)
+
     def get_scan_results(self):
         """Return the last scan results (valid + blocked) keyed by name."""
         return self._manager.get_scan_results()

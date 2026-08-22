@@ -280,3 +280,34 @@ class TestPluginItemsSourceGrouping:
         ]
         # A never-registered sibling stays empty.
         assert after["parse"]["tools"] == []
+
+    def _with_blocked_process(self, ps, name):
+        """Force one scanned plugin's process into the runtime BLOCKED state."""
+        from courtier.plugin.manager import PluginProcess, PluginState
+
+        result = ps.get_scan_results()[name]
+        proc = PluginProcess(name=name, manifest=result.manifest, plugin_dir=result.dir)
+        proc.state = PluginState.BLOCKED
+        ps._manager._processes[name] = proc
+        return ps
+
+    def test_blocked_reason_surfaced_when_endpoint_missing(self):
+        ps = self._real_plugin_system()
+        # Injected empty config: _resolve_connection_config keeps it.
+        ps._manager._endpoints = {}
+        ps._manager._token = "test-token"
+        ps = self._with_blocked_process(ps, "anydoc")
+
+        items = {i["name"]: i for i in _plugin_items(self._request_with(ps))}
+        assert "COURTIER_PLUGIN_ENDPOINTS" in items["anydoc"]["blockedReason"]
+        # No process → NOT_STARTED, not the unexplained-BLOCKED case.
+        assert items["parse"]["blockedReason"] == ""
+
+    def test_no_blocked_reason_when_endpoint_configured(self):
+        ps = self._real_plugin_system()
+        ps._manager._endpoints = {"anydoc": ("127.0.0.1", 9102)}
+        ps._manager._token = "test-token"
+        ps = self._with_blocked_process(ps, "anydoc")
+
+        items = {i["name"]: i for i in _plugin_items(self._request_with(ps))}
+        assert items["anydoc"]["blockedReason"] == ""
