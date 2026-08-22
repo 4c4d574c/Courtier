@@ -3,6 +3,8 @@ version: "1.0.0"
 api: "2.0"
 description: "Database-backed format template loading"
 
+# Tool declarations and usage guidance are runtime-registered from entry.py
+# (register_tool / register_capabilities) — no capabilities block here.
 runtime:
   port: 9104
 
@@ -11,13 +13,3 @@ dependencies:
     - template_store
   permissions:
     - read:templates
-
-capabilities:
-  tools:
-    - name: load_template
-      display_name: 加载模板
-      description: "Load a format template from the database by document type."
-  system_prompt: |
-    # 模板加载
-    ## 能力
-    从数据库按文种加载格式模板。

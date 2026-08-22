@@ -7,6 +7,7 @@ from tools import FormatAuditTool
 class FormatAuditPlugin(PluginRuntime):
     def register_capabilities(self):
         return {
+            "capabilities": [],
             "system_prompt": "# 格式审核\n\n检查文档格式是否符合 GB/T 9704-2012 标准。\n",
         }
 

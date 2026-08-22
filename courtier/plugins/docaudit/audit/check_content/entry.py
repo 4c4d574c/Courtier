@@ -7,6 +7,7 @@ from tools import ContentAuditTool
 class ContentAuditPlugin(PluginRuntime):
     def register_capabilities(self):
         return {
+            "capabilities": [],
             "system_prompt": "# 内容合规审核\n\n检查公文正文内容是否符合文种规范。\n",
         }
 

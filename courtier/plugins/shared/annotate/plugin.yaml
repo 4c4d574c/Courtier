@@ -3,6 +3,8 @@ version: "1.0.0"
 api: "2.0"
 description: "DOCX keyword-based annotation"
 
+# Tool declarations and usage guidance are runtime-registered from entry.py
+# (register_tool / register_capabilities) — no capabilities block here.
 runtime:
   port: 9103
 
@@ -12,13 +14,3 @@ dependencies:
   permissions:
     - read:storage
     - write:storage
-
-capabilities:
-  tools:
-    - name: annotate_document
-      display_name: 文档批注
-      description: "Add Word comments to a DOCX document at keyword occurrences."
-  system_prompt: |
-    # 文档批注
-    ## 能力
-    在 DOCX 文档中根据关键词自动添加 Word 批注（comments）。

@@ -5,21 +5,10 @@ description: "Document file parsing (PDF/DOCX/image)"
 # Scanned files go through per-page OCR + multimodal LLM and can take minutes.
 timeout_ms: 600000
 
-capabilities:
-  tools:
-    - name: parse_document
-      display_name: 解析文档
-      description: "Parse a document file from disk into the internal Document model. Supports PDF, DOCX, and scanned images. Returns the parsed Document as a dict. ONLY for format audit (format_audit) — content tasks (content_audit / plagiarism / secret_analysis / reading Q&A) must use convert_document instead."
-  system_prompt: |
-    # 文档解析（仅限格式审核）
-    ## 用途限制（必须遵守）
-    parse_document 仅用于**格式审核**（format_audit）场景，它解析版面/字号等格式信息。
-    内容类任务（内容审核与纠错 content_audit、查重 plagiarism、
-    涉密判别 secret_analysis）与阅读问答**禁止调用 parse_document**：
-    - 优先复用会话中已有的文档文本；
-    - 没有现成文本时，调用 convert_document(file_path) 获取 Markdown（扫描件会自动 OCR）。
-    ## 使用方式
-    仅在用户任务属于格式审核时调用 parse_document(file_path)。
+# Tool declarations are runtime-registered from entry.py (register_tool);
+# usage guidance lives in entry.py's register_capabilities system_prompt,
+# and the format-audit-only routing rule in the docaudit domain's
+# orchestrator.workflow_rules — no capabilities block here.
 
 # The scanned-document pipeline (OCR + multimodal LLM) reads its configuration
 # (LLM_*, DOCPARSE_*, FONT_MODEL_*) from the plugin's own process environment

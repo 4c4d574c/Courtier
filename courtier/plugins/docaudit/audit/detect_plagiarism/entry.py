@@ -7,6 +7,7 @@ from tools import DetectPlagiarismTool
 class PlagiarismPlugin(PluginRuntime):
     def register_capabilities(self):
         return {
+            "capabilities": [],
             "system_prompt": (
                 "# 查重检测\n\n## 流水线步骤\n"
                 "调用 detect_plagiarism 完成查重"

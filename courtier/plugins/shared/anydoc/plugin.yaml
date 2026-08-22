@@ -6,12 +6,8 @@ description: "Generic office document conversion to Markdown (Word/Excel/PowerPo
 # generous headroom for very large files and multi-page OCR jobs.
 timeout_ms: 300000
 
-capabilities:
-  tools:
-    - name: convert_document
-      display_name: 转换文档
-      description: "Convert an office document (doc/docx/xls/xlsx/ppt/pptx/odt/ods/odp/rtf/epub/csv/text-based PDF) into GitHub-Flavored Markdown. Scanned PDFs and images are OCR'd into Markdown when the OCR endpoint is configured."
-
+# Tool declarations and usage guidance are runtime-registered from entry.py
+# (register_tool / register_capabilities) — no capabilities block here.
 # The OCR fallback reads ANYDOC_OCR_API_URL from the plugin's own process
 # environment (see plugins/plugin.env.example).
 runtime:

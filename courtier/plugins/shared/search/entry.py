@@ -10,7 +10,7 @@ class SearchPlugin(PluginRuntime):
         # model-facing usage/citation guidance lives in the core
         # behavioral.yaml prompt bundle (single source of truth — see
         # tests/courtier/test_prompt_single_source.py).
-        return []
+        return {"capabilities": [], "system_prompt": ""}
 
     def _setup_handlers(self):
         # register_tool() makes each tool available to the built-in dispatcher.
