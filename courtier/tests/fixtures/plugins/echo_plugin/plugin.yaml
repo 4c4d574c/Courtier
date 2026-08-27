@@ -5,9 +5,3 @@ description: "Echo test plugin"
 
 runtime:
   entry: entry.py
-
-capabilities:
-  tools:
-    - name: echo
-      display_name: "Echo"
-      description: "Returns the input unchanged"

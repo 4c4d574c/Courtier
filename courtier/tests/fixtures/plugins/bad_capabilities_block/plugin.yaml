@@ -1,0 +1,11 @@
+name: bad_capabilities_block
+version: "0.1.0"
+api: "2.0"
+
+# Legacy manifest style — capabilities have been dead config since the
+# standalone-TCP migration and the model no longer declares them, so the
+# extra key must fail validation (scan-time BLOCKED).
+capabilities:
+  tools:
+    - name: echo
+      display_name: "Echo"

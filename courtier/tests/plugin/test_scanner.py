@@ -26,9 +26,23 @@ class TestPluginScanner:
         assert echo_result.manifest.name == "echo_plugin"
         assert echo_result.manifest.version == "0.1.0"
         assert echo_result.manifest.api == "2.0"
-        assert len(echo_result.manifest.capabilities.tools) == 1
-        assert echo_result.manifest.capabilities.tools[0].name == "echo"
         assert echo_result.error is None
+
+    def test_legacy_capabilities_block_is_blocked(self):
+        """A manifest with a capabilities block fails validation outright.
+
+        The manifest model no longer declares capabilities (dead config
+        since runtime registration); ``extra="forbid"`` turns any leftover
+        block into a scan-time BLOCKED instead of silently tolerated data.
+        """
+        scanner = PluginScanner()
+        results = scanner.scan(FIXTURES_DIR)
+
+        bad = next((r for r in results if r.name == "bad_capabilities_block"), None)
+        assert bad is not None
+        assert bad.status == ScanStatus.BLOCKED
+        assert bad.manifest is None
+        assert "capabilities" in bad.error
 
     def test_no_manifest_directory_is_skipped(self):
         scanner = PluginScanner()

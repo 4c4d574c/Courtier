@@ -26,7 +26,6 @@ from typing import Any
 
 from .client import JSONRPCClient, PluginCrashedError, PluginRPCError
 from .manager import PluginBlockedError, PluginProcess, PluginState, ProcessManager
-from .manifest import Capabilities, PluginManifest
 from .protocol import JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 from .proxies import ProxyChecker, ProxyRoute, ProxyTool
 from .registry import ExtensionRegistry
@@ -37,7 +36,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "PluginSystem",
     "PluginManifest",
-    "Capabilities",
     "PluginScanner",
     "PluginScanResult",
     "ScanStatus",
