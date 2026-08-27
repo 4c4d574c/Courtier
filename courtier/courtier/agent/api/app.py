@@ -183,13 +183,18 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     # Host-side tool-boundary glue: the embedding param injector fills
     # host-injected tool parameters (e.g. the hybrid-search query vector)
-    # after $ref resolution and before dispatch.  The search rerank
-    # post-processor is wired together with the plugin finalize support
-    # (plugin de-LLM phase).
+    # after $ref resolution and before dispatch; the search rerank
+    # post-processor reorders coarse search candidates with the main model
+    # and sends them back through the plugin's finalize pass (pagination +
+    # neighbor expansion) before persistence.
+    from courtier.agent.runtime.search_rerank import make_search_rerank_post_processor
     from courtier.agent.tools.param_injection import make_embedding_param_injector
 
     app.state.tool_registry.configure_param_injectors(
         {"embedding": make_embedding_param_injector()}
+    )
+    app.state.tool_registry.configure_result_post_processors(
+        [make_search_rerank_post_processor(app.state.prompt_engine, app.state.tool_registry)]
     )
 
     # PluginSystem scans the first domain's plugins dir for manifests

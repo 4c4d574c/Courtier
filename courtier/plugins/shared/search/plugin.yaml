@@ -10,18 +10,18 @@ description: "Elasticsearch document chunk search"
 # register notification sent by entry.py, so manifest-level prompt text
 # would be dead config that silently drifts from the live rules.
 #
-# The ES/LLM endpoints are read from the plugin's own process environment
-# (see plugins/plugin.env.example). Literal values below are applied as
-# environment defaults by the SDK at startup.
+# The ES endpoint is read from the plugin's own process environment (see
+# plugins/plugin.env.example). Literal values below are applied as
+# environment defaults by the SDK at startup.  The plugin holds no LLM
+# access: the query vector arrives host-injected (query_embedding) and
+# listwise rerank runs host-side (finalize pass).
 runtime:
   port: 9105
   env:
-    # Retrieval knobs (consumed by tools.py / rerank.py; literals here are
-    # the defaults — override per deployment via the plugin environment).
+    # Retrieval knobs (consumed by tools.py; literals here are the
+    # defaults — override per deployment via the plugin environment).
     SEARCH_KNN_K: "50"
     SEARCH_MAX_WINDOW: "200"
-    SEARCH_RERANK_FETCH: "100"
     SEARCH_NEIGHBOR_WINDOW: "2"
     SEARCH_CACHE_TTL_S: "120"
     SEARCH_CACHE_MAX_ENTRIES: "256"
-    SEARCH_CANDIDATE_BUDGET_CHARS: "24000"

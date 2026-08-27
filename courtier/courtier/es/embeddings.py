@@ -1,9 +1,10 @@
-"""Host-side embedding client for resource ingestion (OpenAI-compatible).
+"""Host-side embedding client (OpenAI-compatible embeddings API).
 
-Plugins cannot import the host app package, so the search plugin carries its
-own client in ``plugins/shared/search/embeddings.py``; this module serves the
-host's ingest path (resource_service / reindex script) against the same
-endpoint.  Failures degrade to lexical-only chunks (None vector entries).
+Single source for both retrieval sides: index-time chunk embedding
+(resource_service / reindex script) and query-time embedding injected into
+the search tool at the dispatch boundary (see
+courtier.agent.tools.param_injection).  Failures degrade to lexical-only
+(None vector entries / unset injected parameter).
 """
 
 from __future__ import annotations

@@ -94,9 +94,11 @@ _KNN_K = _env_int("SEARCH_KNN_K", 50)
 _KNN_NUM_CANDIDATES = 200
 _RRF_RANK_CONSTANT = 60
 
-#: How many rough-ranked hits rerank mode fetches before LLM listwise
-#: reordering (then slices to the requested limit).
-_RERANK_MAX_FETCH = _env_int("SEARCH_RERANK_FETCH", 100)
+#: How many rough-ranked hits rerank mode fetches for host-side listwise
+#: reordering (the finalize pass then slices to the requested limit).  The
+#: host's rerank fetch setting (host-side SEARCH_RERANK_FETCH) can only
+#: narrow this further, never widen it.
+_RERANK_MAX_FETCH = 100
 
 #: Hybrid/rerank pages slice an in-process fused candidate list, so both
 #: arms fetch a common window of this size; paging deeper than the window
@@ -678,13 +680,27 @@ class SearchDocumentsTool:
             "rerank": {
                 "type": "boolean",
                 "description": (
-                    "是否用 LLM 对粗排前 50 条做相关性重排后再截取返回，默认 false；"
-                    "重排失败时保持原顺序"
+                    "是否对粗排候选做 LLM 相关性重排后再截取返回（重排由平台在"
+                    "检索边界执行），默认 false；重排失败时保持原顺序"
                 ),
             },
             "use_time_decay": {
                 "type": "boolean",
                 "description": "是否按发布日期做时间衰减加权（新文档优先），默认 false",
+            },
+            # Host-injected parameters: filled at the host dispatch boundary
+            # (never seen or filled by the model).  query_embedding carries
+            # the host-computed query vector for the hybrid kNN arm; finalize
+            # carries the host-reranked coarse payload back for pagination
+            # and neighbor expansion (both need ES and stay plugin-side).
+            "query_embedding": {
+                "type": "array",
+                "items": {"type": "number"},
+                "x-host-injected": "embedding",
+            },
+            "finalize": {
+                "type": "object",
+                "x-host-injected": "rerank-finalize",
             },
         },
         "required": ["query"],
@@ -692,6 +708,13 @@ class SearchDocumentsTool:
     output_artifact_type: str | None = "docaudit.search_results"
 
     async def execute(self, **kwargs: Any) -> ToolResult:
+        # Host-driven finalize pass (rerank epilogue): the host reranker
+        # sends the coarse result back — ordered hits + rerank flags — for
+        # pagination and neighbor expansion.  No search runs here.
+        finalize = kwargs.pop("finalize", None)
+        if isinstance(finalize, dict):
+            return await self._finalize_result(finalize, kwargs)
+
         query: str = kwargs.get("query", "").strip()
         if not query:
             return ToolResult(success=False, error="查询内容不能为空")
@@ -713,6 +736,17 @@ class SearchDocumentsTool:
         rerank = bool(kwargs.pop("rerank", False))
         use_time_decay = bool(kwargs.get("use_time_decay", False))
 
+        # Host-injected query vector (x-host-injected: embedding): the host
+        # computes it with the same client used at index time, so query-time
+        # and index-time embeddings share one model and one configuration.
+        # Absent (embedding off/failed at the host) → pure lexical search.
+        injected_vector = kwargs.pop("query_embedding", None)
+        query_vector: list[float] | None = (
+            injected_vector
+            if isinstance(injected_vector, list) and injected_vector
+            else None
+        )
+
         # TTL cache: coarse results are reusable within a short window.
         # Rerank always recomputes (LLM nondeterminism); on a non-rerank
         # cache hit the stored entry already includes neighbors.
@@ -723,26 +757,11 @@ class SearchDocumentsTool:
             cleaned = copy.deepcopy(cached)
             cleaned["cached"] = True
 
-        query_vector: list[float] | None = None
-        # Set when the fetch used the window policy (embedding configured or
-        # rerank): such results are sliced in-process, including the embed-
-        # degraded fallback where query_vector is None but the lexical arm
-        # already fetched a window instead of the requested page.
-        hybrid_planned = False
+        # Set when the fetch used the window policy (query vector injected):
+        # such results are sliced in-process.
+        hybrid_planned = query_vector is not None
+
         if cleaned is None:
-            # Pure config check (no network) — decides both the fetch window
-            # policy and where time decay is applied (server-side gauss only
-            # on the pure lexical path; hybrid plans decay client-side on
-            # the fused scores so both arms decay consistently).
-            embed_planned = False
-            try:
-                from embeddings import embedding_config
-
-                embed_planned = embedding_config() is not None
-            except Exception:
-                logger.warning("embedding config check failed; lexical only", exc_info=True)
-            hybrid_planned = embed_planned
-
             try:
                 es_body = _build_es_query(
                     query=query,
@@ -765,10 +784,8 @@ class SearchDocumentsTool:
                 # fetch the whole window (skip+limit) — fetching just the
                 # first page would keep lexical hits beyond page 1 out of
                 # fusion.  Pure lexical keeps ES-native paging (exact
-                # totals, deep paging up to _MAX_SKIP).  hybrid_planned was
-                # decided above (pure config check): when embedding is
-                # configured the window fetch applies even if the embed
-                # call later fails, and the degraded result is sliced.
+                # totals, deep paging up to _MAX_SKIP).  hybrid_planned is
+                # simply "a query vector was injected".
                 window = min(max(skip + limit, _KNN_K), _MAX_WINDOW)
                 if rerank:
                     lex_skip, lex_limit = 0, min(window, _RERANK_MAX_FETCH)
@@ -777,36 +794,12 @@ class SearchDocumentsTool:
                 else:
                     lex_skip, lex_limit = skip, limit
 
-                # The lexical fetch and the query embedding (when planned)
-                # run concurrently — the kNN arm depends on the vector and
-                # is issued after both resolve.  Any embedding failure
-                # degrades to lexical-only search.
-                lex_task = asyncio.to_thread(
+                raw = await asyncio.to_thread(
                     search_chunks,
                     query_body=es_body,
                     skip=lex_skip,
                     limit=lex_limit,
                 )
-                if hybrid_planned:
-                    try:
-                        from embeddings import embed_query
-                    except Exception:
-                        logger.warning("embedding import failed; lexical only", exc_info=True)
-                        raw = await lex_task
-                    else:
-                        raw, query_vector = await asyncio.gather(
-                            lex_task, embed_query(query), return_exceptions=True
-                        )
-                        if isinstance(query_vector, Exception):
-                            logger.warning(
-                                "query embedding failed; falling back to lexical",
-                                exc_info=query_vector,
-                            )
-                            query_vector = None
-                        if isinstance(raw, BaseException):
-                            raise raw
-                else:
-                    raw = await lex_task
             except Exception as exc:
                 return ToolResult(success=False, error=str(exc))
 
@@ -882,38 +875,24 @@ class SearchDocumentsTool:
                 cleaned["mode"] = "lexical"
                 cleaned["total_mode"] = "exact"
                 if use_time_decay:
-                    # True decay on the pure lexical path (server-side gauss
-                    # in the body); False when a planned hybrid degraded and
-                    # the body was built without gauss.
-                    applied = not hybrid_planned
-                    cleaned["time_decay_applied"] = applied
-                    if not applied:
-                        logger.warning("time decay skipped: embedding failed, degraded lexical")
+                    # Pure lexical path: server-side gauss was baked into
+                    # the query body above (hybrid_planned is False here).
+                    cleaned["time_decay_applied"] = True
 
             # Coarse result (pre-rerank, pre-neighbors) is what the cache
             # stores for rerank calls.
             if rerank:
                 _cache_put(cache_key, copy.deepcopy(cleaned))
 
-        # Optional LLM listwise rerank: reorder the rough top-N, then slice.
-        # Failures keep the original order — reranking is best-effort.
-        # ``rerank_partial`` marks that reordering did not fully apply
-        # (model omitted candidates, or rerank failed outright).
         if rerank:
-            try:
-                from rerank import rerank_hits
-
-                ordered, partial = await rerank_hits(query, cleaned["hits"][:_RERANK_MAX_FETCH])
-                cleaned["hits"] = ordered[skip : skip + limit]
-                cleaned["reranked"] = True
-                cleaned["rerank_partial"] = partial
-            except Exception:
-                logger.warning("rerank failed; keeping original order", exc_info=True)
-                cleaned["hits"] = cleaned["hits"][skip : skip + limit]
-                cleaned["rerank_partial"] = True
-        elif hybrid_planned:
-            # Window fetch (hybrid planned or degraded): slice in-process.
-            # Covers both the fused result and the embed-failure fallback.
+            # Coarse result (pre-reorder, pre-pagination, pre-neighbors):
+            # the host-side reranker reorders the candidates and sends them
+            # back through the finalize pass for pagination and neighbor
+            # expansion (both need ES and stay plugin-side).  The model
+            # never sees this payload directly.
+            return ToolResult(success=True, data=cleaned)
+        if hybrid_planned:
+            # Window fetch (hybrid): slice in-process.
             cleaned["hits"] = cleaned["hits"][skip : skip + limit]
 
         # Neighbor context expansion: attach chunks adjacent to each hit so
@@ -921,38 +900,62 @@ class SearchDocumentsTool:
         # effort — failures degrade to hits without neighbors.  Skipped on
         # non-rerank cache hits (the stored entry already has them).
         from_cache = cached is not None
-        if rerank or not from_cache:
-            hits = cleaned.get("hits") or []
-            if hits:
-                try:
-                    from es_client import search_chunks
-
-                    owner_scope = kwargs.get("_owner_scope", _QUERY_UNSET)
-                    neighbor_query = _build_neighbor_query(hits, owner_scope)
-                    if neighbor_query:
-                        neighbor_raw = await asyncio.to_thread(
-                            search_chunks,
-                            query_body=neighbor_query,
-                            skip=0,
-                            limit=len(hits) * (_NEIGHBOR_WINDOW * 2 + 1) + 2,
-                        )
-                        entries = _clean_neighbor_hits(neighbor_raw)
-                        _attach_neighbors(hits, entries)
-                except Exception:
-                    logger.warning("neighbor expansion failed", exc_info=True)
+        if not from_cache:
+            await self._expand_neighbors(cleaned, kwargs)
 
         # Cache the final result (with neighbors) on the non-rerank path.
         if not rerank and not from_cache:
             _cache_put(cache_key, copy.deepcopy(cleaned))
 
         # Page-relative rank (1-based) on the final hit list — assigned after
-        # every slicing/reordering path (fused slice, rerank, cache hit) so
+        # every slicing/reordering path (fused slice, finalize, cache hit) so
         # it always matches the returned page. More reliable for the model
         # than _score, whose scale differs across retrieval modes (BM25 vs
         # RRF). Neighbors are context, not ranked hits.
         for i, hit in enumerate(cleaned.get("hits") or [], 1):
             hit["rank"] = i
 
+        return ToolResult(success=True, data=cleaned)
+
+    async def _expand_neighbors(self, cleaned: dict[str, Any], kwargs: dict[str, Any]) -> None:
+        """Attach adjacent-chunk context to each hit (in place, best effort)."""
+        hits = cleaned.get("hits") or []
+        if not hits:
+            return
+        try:
+            from es_client import search_chunks
+
+            owner_scope = kwargs.get("_owner_scope", _QUERY_UNSET)
+            neighbor_query = _build_neighbor_query(hits, owner_scope)
+            if neighbor_query:
+                neighbor_raw = await asyncio.to_thread(
+                    search_chunks,
+                    query_body=neighbor_query,
+                    skip=0,
+                    limit=len(hits) * (_NEIGHBOR_WINDOW * 2 + 1) + 2,
+                )
+                entries = _clean_neighbor_hits(neighbor_raw)
+                _attach_neighbors(hits, entries)
+        except Exception:
+            logger.warning("neighbor expansion failed", exc_info=True)
+
+    async def _finalize_result(
+        self, finalize: dict[str, Any], kwargs: dict[str, Any]
+    ) -> ToolResult:
+        """Host-driven finalize pass: paginate + neighbor-expand the
+        host-reranked coarse payload.  ``reranked`` / ``rerank_partial``
+        flags were computed by the host and pass through unchanged."""
+        skip = kwargs.get("skip", 0)
+        limit = kwargs.get("limit", 10)
+        if not isinstance(skip, int) or skip < 0:
+            skip = 0
+        if not isinstance(limit, int) or limit < 1:
+            limit = 10
+        cleaned = dict(finalize)
+        cleaned["hits"] = (cleaned.get("hits") or [])[skip : skip + limit]
+        await self._expand_neighbors(cleaned, kwargs)
+        for i, hit in enumerate(cleaned.get("hits") or [], 1):
+            hit["rank"] = i
         return ToolResult(success=True, data=cleaned)
 
 

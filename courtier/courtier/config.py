@@ -172,8 +172,9 @@ class Settings(BaseSettings):
         default="",
         alias="llm_embedding_model",
         description=(
-            "Embedding 模型名（环境变量: LLM_EMBEDDING_NAME）。"
-            "空 = 向量检索关闭，搜索与入库均退化为纯词法。"
+            "Embedding 模型名（环境变量: LLM_EMBEDDING_MODEL）。"
+            "空 = 向量检索关闭，搜索与入库均退化为纯词法；"
+            "host 同时用它计算检索时的查询向量（注入 search 工具）。"
         ),
     )
     llm_embedding_dim: int = Field(
