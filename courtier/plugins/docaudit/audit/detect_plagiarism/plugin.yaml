@@ -2,9 +2,11 @@ name: detect_plagiarism
 version: "1.0.0"
 api: "2.0"
 description: "Plagiarism detection using dynamic IQR thresholding"
-# Full pipeline over a large reference library (per-segment similarity +
-# dynamic IQR thresholding) can exceed the default; align with the other
-# audit plugins' generous budgets.
+# Calibrated 2026-08-27 against build_library_distribution's full pairwise
+# SequenceMatcher pass (measured: 120 docs x 10k chars = 27s; ~300 x 10k
+# extrapolates to ~170s).  Realistic retrieved-library sizes sit far below;
+# approaching the core.py caps (500 docs x 100k chars) no reasonable RPC
+# timeout holds — those limits bound memory, not latency.
 timeout_ms: 300000
 
 # Tool declarations and usage guidance are runtime-registered from entry.py
