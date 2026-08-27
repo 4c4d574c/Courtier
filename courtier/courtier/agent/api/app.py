@@ -154,6 +154,15 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         pause_event=app.state.pause_event,
     )
     app.state.run_manager.set_notification_hub(app.state.notification_hub)
+    # Run-limit knobs (and later per-run reads) follow configuration
+    # changes: Phase 0 wiring — the env-only ConfigService never fires,
+    # the DB-backed phases drive it.  Keep the unsubscribe handle so a
+    # future shutdown path can detach cleanly.
+    from courtier.config import get_config_service
+
+    app.state._config_unsubscribe = get_config_service().subscribe(
+        lambda new_settings, _version: app.state.run_manager.apply_settings(new_settings)
+    )
     app.state.tool_registry = ToolRegistry()
 
     # Unified artifact store — replaces the old separate CacheStore and

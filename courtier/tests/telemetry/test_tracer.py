@@ -26,6 +26,31 @@ class TestInitTelemetry:
         t = get_tracer("test-tracer")
         assert t is not None
 
+    def test_provider_reads_settings_snapshot(self, monkeypatch):
+        """OTel knobs come from the ConfigService snapshot, not env reads."""
+        from types import SimpleNamespace
+
+        import courtier.agent.telemetry.tracer as tracer_mod
+
+        monkeypatch.setattr(tracer_mod, "_provider", None)
+        fake = SimpleNamespace(
+            otel_service_name="courtier-test",
+            deployment_env="development",
+            otel_exporter_otlp_endpoint="http://collector:4317",
+            otel_log_level="INFO",
+        )
+        monkeypatch.setattr(
+            "courtier.config.get_settings", lambda: fake, raising=True
+        )
+
+        tracer_mod.init_telemetry()
+
+        provider = tracer_mod._provider
+        assert provider is not None
+        attrs = provider.resource.attributes
+        assert attrs["service.name"] == "courtier-test"
+        assert attrs["deployment.environment"] == "development"
+
 
 class TestAgentSpan:
     def test_agent_span_success(self):

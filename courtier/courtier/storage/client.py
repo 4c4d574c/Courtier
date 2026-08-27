@@ -42,6 +42,15 @@ def get_minio_client() -> Minio:
     return _client
 
 
+def invalidate_minio_client() -> None:
+    """Drop the singleton so the next get_minio_client() rebuilds from the
+    current settings snapshot (connection hot-reload seam).  The minio SDK
+    client holds no open resources — dropping the reference is enough."""
+    global _client
+    with _lock:
+        _client = None
+
+
 def ensure_bucket(bucket: str) -> None:
     """确保 Bucket 存在（不存在则创建）。"""
     client = get_minio_client()

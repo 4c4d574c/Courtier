@@ -50,6 +50,11 @@ def _default_project_root() -> Path:
     return Path(env_root) if env_root else _PROJECT_ROOT
 
 
+def get_config_service() -> "ConfigService":
+    """Return the process-wide ConfigService (snapshot owner)."""
+    return _config_service
+
+
 def get_settings() -> "Settings":
     """Return the effective Settings snapshot owned by the ConfigService.
 

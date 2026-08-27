@@ -92,6 +92,24 @@ def get_es_client() -> Elasticsearch:
     return _es_client
 
 
+def invalidate_es_client() -> None:
+    """Drop the singleton so the next get_es_client() rebuilds from the
+    current settings snapshot (connection hot-reload seam).
+
+    Also clears the write-index cache: a swapped endpoint may serve a
+    different alias resolution."""
+    global _es_client
+    with _es_lock:
+        client = _es_client
+        _es_client = None
+    _invalidate_write_index_cache()
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            logger.warning("failed to close invalidated ES client", exc_info=True)
+
+
 def _real_index_name(version: int) -> str:
     """Versioned physical index backing the alias, e.g. ``courtier_chunks_v2``."""
     return f"{_es_index_name()}_v{version}"

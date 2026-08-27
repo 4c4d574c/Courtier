@@ -8,7 +8,6 @@ with no intermediate framework dependency.
 
 from __future__ import annotations
 
-import os
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -21,12 +20,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import SpanKind, Status, StatusCode
 
-_RESOURCE = Resource.create({
-    "service.name": os.getenv("OTEL_SERVICE_NAME", "courtier"),
-    "service.version": "0.1.0",
-    "deployment.environment": os.getenv("DEPLOYMENT_ENVIRONMENT", "production"),
-})
-
 _provider: Optional[TracerProvider] = None
 
 
@@ -35,16 +28,27 @@ def init_telemetry() -> None:
 
     Idempotent — safe to call multiple times (e.g. in tests).
     Must be called once at application startup before any tracing occurs.
+
+    Configuration comes from the shared Settings snapshot (ConfigService),
+    not direct env reads, so the telemetry knobs are part of the unified
+    configuration surface.
     """
     global _provider
     if _provider is not None:
         return
 
-    _provider = TracerProvider(resource=_RESOURCE)
+    from courtier.config import get_settings
 
-    otlp_endpoint = os.getenv(
-        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
-    )
+    settings = get_settings()
+    resource = Resource.create({
+        "service.name": settings.otel_service_name,
+        "service.version": "0.1.0",
+        "deployment.environment": settings.deployment_env,
+    })
+
+    _provider = TracerProvider(resource=resource)
+
+    otlp_endpoint = settings.otel_exporter_otlp_endpoint
     otlp_exporter = OTLPSpanExporter(
         endpoint=otlp_endpoint,
         insecure=not otlp_endpoint.startswith("https"),
@@ -59,7 +63,7 @@ def init_telemetry() -> None:
         )
     )
 
-    if os.getenv("OTEL_LOG_LEVEL", "").upper() == "DEBUG":
+    if settings.otel_log_level.upper() == "DEBUG":
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter
         _provider.add_span_processor(
             BatchSpanProcessor(ConsoleSpanExporter())

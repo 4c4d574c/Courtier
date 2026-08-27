@@ -183,9 +183,9 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 - [x] 回归：`uv run pytest -m "not integration"` 全绿，行为零变化
 
 ### Task 0.2: OTel 收编 + 可失效钩子
-- [ ] `tracer.py` 的 `os.getenv` 全部改读快照；`_RESOURCE` 移入 `init_telemetry()`
-- [ ] ES/MinIO client 加 invalidate（本阶段无触发方，仅挂钩子 + 单测）；RunManager 加 `refresh_limits()`（订阅 `config.changed`）
-- [ ] 回归全绿
+- [x] `tracer.py` 的 `os.getenv` 全部改读快照；`_RESOURCE` 移入 `init_telemetry()`
+- [x] ES/MinIO client 加 invalidate（本阶段无触发方，仅挂钩子 + 单测）；RunManager 加 `refresh_limits()`（订阅 `config.changed`）
+- [x] 回归全绿
 
 ## Phase 1：存储与管理面（热生效组）
 
@@ -288,5 +288,11 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 4. 测试坑：`tests/courtier/test_config.py` 会 `importlib.reload` config 模块，跨模块缓存的 `Settings` 类引用会过期——新测试 `test_config_service.py` 在调用点实时 `import courtier.config` 做 isinstance 断言。`replace()`/`subscribe()` 的契约（顺序通知、异常隔离、自退订安全）已先行单测固化。
 5. `db/_utils.py` 的 `_DEFAULT_DB_URL`（import 时读 env）保留——save_doc 直连路径的 Tier-0 语义，Phase 1 ConfigService DB 集成时一并处理。
 6. 实测：`pytest -m "not integration"` 1757 passed / 6 skipped；ruff 绿。
+
+**Task 0.2 完成**（OTel 收编 + 热重建钩子）。偏差与实测：
+1. RunManager 的刷新方法落地为 **`apply_settings(settings)`**（计划名 `refresh_limits`）：除重拷限流字段外还把 `self._settings` 指向新快照——后续每次 run 的审计开关/模型配置等 getattr 读到新值，热生效面更大且无额外成本；app 工厂经 `get_config_service().subscribe(...)` 接线（新增公开访问器 `get_config_service()`，订阅句柄存 `app.state._config_unsubscribe`）。
+2. `invalidate_es_client()` 顺带清 `_write_index_cache`（别名解析缓存）——换端点后别名解析不应残留；MinIO 客户端无打开资源，仅置空引用。
+3. tracer 收编后 OTel 四个旋钮（service.name/环境/endpoint/log_level）全部来自快照；新增测试断言 provider resource 来自 settings 而非 env。
+4. 实测：`pytest -m "not integration"` 1764 passed / 6 skipped；ruff 绿。**Phase 0 完成——配置读取单一化，为 Phase 1 的 DB 快照替换铺平。**
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）

@@ -170,6 +170,19 @@ class RunManager:
         # FIFO of runs waiting for a slot (global order, per-user admission).
         self._waiting: list[AgentRun] = []
 
+    def apply_settings(self, settings: Any) -> None:
+        """Adopt a new settings snapshot (ConfigService change listener).
+
+        Re-points ``self._settings`` (later reads — audit logging, per-run
+        model config — see the new values) and re-copies the limit knobs
+        that were snapshotted at construction."""
+        self._settings = settings
+        self._grace_seconds = getattr(settings, "run_grace_seconds", 600)
+        self._log_max_events = getattr(settings, "run_log_max_events", 50_000)
+        self._log_max_bytes = getattr(settings, "run_log_max_bytes", 8 * 1024 * 1024)
+        self._max_per_user = getattr(settings, "max_runs_per_user", 3)
+        self._max_total = getattr(settings, "max_total_runs", 20)
+
     def set_notification_hub(self, hub: Any) -> None:
         """Wire the global-events fan-out (optional; tests may skip it)."""
         self._notification_hub = hub
