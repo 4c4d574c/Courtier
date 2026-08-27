@@ -136,6 +136,16 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "1. Minimize tool calls.\n"
         "2. Call tools directly, don't describe plans in text.\n"
     ),
+    "search.rerank.system": ("You are a search-result reranker. Output only a JSON array.\n"),
+    "search.rerank.user": (
+        "Rank the candidate chunks for the query by relevance and output the "
+        "candidate numbers as a JSON array (most relevant first, numbering "
+        "from 1, including every number).\n"
+        "Query: {{ query }}\n"
+        "Candidate chunks:\n"
+        "{{ candidates }}\n"
+        "Output only the JSON array, e.g. [3, 1, 2].\n"
+    ),
     "context.compact_prompt": (
         "You are a context compaction assistant. Compress the conversation "
         "history below into a compact summary. You MUST preserve:\n"

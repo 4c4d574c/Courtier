@@ -1,0 +1,14 @@
+search:
+  rerank:
+    system: |
+      You are a search-result reranker. Output only a JSON array.
+    user: |
+      Given the query and candidate document chunks, output the candidate numbers
+      as a ranked list (JSON array, most relevant first, numbering from 1, must
+      include every number).
+      Candidates are excerpts from the source text; ellipses mark truncation,
+      and each excerpt is centered on the passage most relevant to the query.
+      Query: {{ query }}
+      Candidate chunks:
+      {{ candidates }}
+      Output only the JSON array, e.g. [3, 1, 2].

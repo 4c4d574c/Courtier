@@ -368,12 +368,32 @@ class Settings(BaseSettings):
     max_runs_per_user: int = Field(
         default=3,
         alias="max_runs_per_user",
-        description="每用户并发运行上限，超出进入 FIFO 排队；0 = 不限（环境变量: MAX_RUNS_PER_USER）",
+        description=(
+            "每用户并发运行上限，超出进入 FIFO 排队；0 = 不限（环境变量: MAX_RUNS_PER_USER）"
+        ),
     )
     max_total_runs: int = Field(
         default=20,
         alias="max_total_runs",
         description="全局并发兜底上限（所有用户合计），0 = 不限（环境变量: MAX_TOTAL_RUNS）",
+    )
+
+    # -- Host-side search rerank (listwise rerank of search tool hits) --
+    search_rerank_fetch: int = Field(
+        default=100,
+        alias="search_rerank_fetch",
+        description=(
+            "search_documents 且 rerank=true 时，取前 N 个候选做 listwise 重排"
+            "（环境变量: SEARCH_RERANK_FETCH）"
+        ),
+    )
+    search_rerank_candidate_budget_chars: int = Field(
+        default=24_000,
+        alias="search_rerank_candidate_budget_chars",
+        description=(
+            "重排提示词中候选正文的总字符预算，按候选数均分并钳制在 240-800/条"
+            "（环境变量: SEARCH_CANDIDATE_BUDGET_CHARS）"
+        ),
     )
 
     otel_service_name: str = Field(
