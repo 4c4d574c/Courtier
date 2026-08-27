@@ -149,4 +149,6 @@
 
 **测试发现（未改行为）**：扫描器对"manifest 名与目录名不一致"的 BLOCKED 结果以 **manifest 内的名字**为 key（`scanner.py:142`），而非目录名；restart 按 admin 显示名查找时将找不到该插件。本次未改动该行为，Task 4.1 测试改用缺字段的坏 manifest（校验失败路径以目录名为 key）。后续如需支持此类插件的页面恢复，应让失败结果统一以目录名为 key。
 
+> **跟进（2026-08-22，用户批准后实施）**：上条观察已修复——提交 `d1bc613` 将名字不匹配与 API 不兼容两条失败路径统一为目录名作 key（与其余四条失败路径一致），配套断言"结果名 == 目录名"身份不变式与"修复 → restart 同名复活、无幽灵条目"端到端测试（`test_restart_rescan.py::test_name_mismatch_plugin_revives_under_directory_name`）。全量非 integration 回归 1723 passed。
+
 **回归说明**：实施期间全量 pytest 曾两次出现 `tests/agent/skills/test_typed_input.py` 的顺序相关瞬态失败。经隔离 worktree 实验（基线 + 并行会话 WIP 单独验证为绿）与单测复跑（单跑必过）定位为另一并行会话 skilltool-typed-input 特性的进行中未提交改动所致，与本计划无关；收尾时主工作区全量非 integration 套件 1721 passed 全绿，webui `npm test` 与 `npm run build` 通过。
