@@ -73,6 +73,28 @@ class TestRestartRescan:
 
         assert manager.get_scan_results()["demo"].manifest.version == "0.2.0"
 
+    async def test_name_mismatch_plugin_revives_under_directory_name(self, tmp_path):
+        """A mismatched manifest name must not fork the plugin's identity.
+
+        Scan failures are keyed by the directory name, so the admin entry
+        keeps its name across fix → restart and no ghost record survives
+        under the previously declared (wrong) name.
+        """
+        _write_manifest(tmp_path, 'name: demo2\nversion: "0.1.0"\napi: "2.0"\n')
+        manager = _make_manager(tmp_path)
+
+        with pytest.raises(PluginBlockedError):
+            await manager.restart_plugin("demo")
+        assert manager.get_scan_results()["demo"].manifest is None
+
+        _write_manifest(tmp_path, VALID_MANIFEST)
+        state = await manager.restart_plugin("demo")
+
+        assert state == PluginState.BLOCKED  # endpoint-missing only
+        results = manager.get_scan_results()
+        assert set(results) == {"demo"}  # no ghost under "demo2"
+        assert results["demo"].status.value == "VALID"
+
     async def test_vanished_plugin_keeps_last_scan_record(self, tmp_path):
         _write_manifest(tmp_path, VALID_MANIFEST)
         manager = _make_manager(tmp_path)

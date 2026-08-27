@@ -41,11 +41,13 @@ class TestPluginScanner:
         scanner = PluginScanner()
         results = scanner.scan(FIXTURES_DIR)
 
-        bad = next((r for r in results if r.name == "wrong_name"), None)
+        bad = next((r for r in results if r.dir.name == "bad_name_mismatch"), None)
         assert bad is not None
-        assert bad.dir.name == "bad_name_mismatch"
         assert bad.status == ScanStatus.BLOCKED
         assert "directory name" in bad.error.lower()
+        # Directory is the stable identity even when validation fails:
+        # admin restart keeps addressing the plugin by its directory name.
+        assert bad.name == bad.dir.name == "bad_name_mismatch"
 
     def test_api_mismatch_is_blocked(self):
         scanner = PluginScanner()
@@ -55,6 +57,7 @@ class TestPluginScanner:
         assert bad is not None
         assert bad.status == ScanStatus.BLOCKED
         assert "API version incompatible" in bad.error
+        assert bad.name == "bad_api_mismatch"
 
     def test_invalid_yaml_is_blocked(self):
         scanner = PluginScanner()

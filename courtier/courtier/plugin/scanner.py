@@ -138,8 +138,13 @@ class PluginScanner:
 
         # Validate: name matches directory
         if manifest.name != name:
+            # Key failures by the directory name: directories are the
+            # stable plugin identity (the manifest name must equal it
+            # anyway), so a fixed manifest revives under the same admin
+            # entry instead of leaving a ghost record under the old
+            # declared name.
             return PluginScanResult(
-                name=manifest.name,
+                name=name,
                 dir=plugin_dir,
                 status=ScanStatus.BLOCKED,
                 error=f"Manifest name '{manifest.name}' does not match directory name '{name}'",
@@ -148,7 +153,7 @@ class PluginScanner:
         # Validate: API version compatible
         if not self._is_api_compatible(manifest.api, self.HOST_API_VERSION):
             return PluginScanResult(
-                name=manifest.name,
+                name=name,
                 dir=plugin_dir,
                 status=ScanStatus.BLOCKED,
                 error=(
