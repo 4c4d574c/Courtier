@@ -8,7 +8,7 @@
 
 **Tech Stack:** pydantic-settings（沿用）、SQLAlchemy 2 async + Alembic、cryptography（Fernet）、FastAPI、Vue 3。
 
-**关联文档:** `2026-08-17-plugin-standalone-deployment-implementation.md`——本计划"插件 env 不纳入"的边界来自该计划锁定的决策 6（插件自持 env、host 不注入）。
+**关联文档:** `2026-08-17-plugin-standalone-deployment-implementation.md`（"插件 env 不纳入"边界来源）与 `2026-08-27-plugin-de-llm-implementation.md`（**已实施**：插件侧 `LLM_*` 全部移除，检索向量/重排收归 host——本计划 B 类清单据此缩小，LLM 配置成为 host 单点）。
 
 ---
 
@@ -62,9 +62,9 @@
 | 安全凭据 | `jwt_secret` | 不暴露编辑框：首启自动生成 + "轮换"按钮（全员掉线重登，确认对话框） |
 | 平台 | `courtier_locale`、`courtier_domain_packages` | 重启档（PromptEngine/领域发现启动时构建；领域启停已有 `setDomainEnabled` 通道） |
 | 部署层只读展示 | `mysql_url`、`upload_dir`、`cache_dir`、`audit_log_dir`、`deployment_env`、`repo_root` | 前端只读展示"部署层配置"，不可编辑（路径运行中迁移危险） |
-| 删除 | `cec_*` 四字段（探索确认无任何消费者）；`llm_embedding_model` 的 description 写的 `LLM_EMBEDDING_NAME` 与实际 alias `LLM_EMBEDDING_MODEL` 不符，一并修正 | — |
+| 删除 | `cec_*` 四字段（探索确认无任何消费者）。~~embedding env 名 description 修正~~（已随去 LLM 化完成） | — |
 
-不迁入 host 前端的插件变量（B 类，从 host `.env.example` 删除、保留在 `plugins/plugin.env.example`）：`DOCPARSE_*`、`ANYDOC_OCR_API_URL`、`FONT_MODEL_*`、search 插件的 `ES_*`/`LLM_EMBEDDING_NAME`、插件受限 `MINIO_*`、`COURTIER_PLUGIN_LISTEN/WORKDIR`、`SEARCH_*`。注意：`LLM_EMBEDDING_*` 两侧都有（host 管入库/索引，search 插件管检索），现状本就可能不一致，维持各管各的。
+不迁入 host 前端的插件变量（B 类，从 host `.env.example` 删除、保留在 `plugins/plugin.env.example`）：`DOCPARSE_OCR_*`、`ANYDOC_OCR_API_URL`、`FONT_MODEL_*`、search 插件的 `ES_*` 与检索行为 `SEARCH_*`（KNN_K/MAX_WINDOW/NEIGHBOR_WINDOW/CACHE_*）、插件受限 `MINIO_*`、`COURTIER_PLUGIN_LISTEN/WORKDIR`。**修订（去 LLM 化已实施）**：插件 `LLM_*`/`LLM_EMBEDDING_*`/`SEARCH_RERANK_FETCH`/`SEARCH_CANDIDATE_BUDGET_CHARS` 已不存在——后两者成为 host settings（`search_rerank_fetch`/`search_rerank_candidate_budget_chars`，热生效组），embedding 索引/查询两侧已统一 host 单点。
 
 **infra（C 类）compose 改造**：`MYSQL_ROOT_PASSWORD`、`MINIO_ROOT_*`、`ES_PASSWORD`、`LANGFUSE_*`、`GRAFANA_PASSWORD` 全部加开发默认值（`${VAR:-courtier-dev-...}`）；生产推荐 docker secrets 注入，写入运维文档。app 服务 env 缩减为 Tier 0。
 

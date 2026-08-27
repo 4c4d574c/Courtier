@@ -91,6 +91,13 @@
 
 ### 5. 环境变量归属
 
+> **修订（2026-08-27，插件去 LLM 化计划落地）**：本节所述插件 env 中的 `LLM_*` 与
+> `LLM_EMBEDDING_*` 已随去 LLM 化整体移除——parse 结构识别改纯规则引擎、字体只走
+> ResNet；search 查询向量由 host 注入（`query_embedding` host-injected 契约）、重排
+> 在 host 侧执行（finalize 回传分页/邻块）。`plugin.env.example` 与 compose 插件服务
+> env 已同步；本节其余内容（token/MinIO transfer/端口）不变。见
+> `2026-08-27-plugin-de-llm-implementation.md`。
+
 - 主进程删除一切插件 env 注入。插件读自己的环境（现状本就是 `os.environ` 直读）。
 - manifest `runtime.env` 块语义转换：从"主进程解析注入"变为"**插件必需环境变量声明**"——SDK 启动时校验各 key 在插件环境中存在，缺失即拒绝启动并列出缺失项（fail-fast）。`${ENV:VAR}` 写法废弃，只保留 key 列表。含文件参数的插件必须声明 `MINIO_*` 五个变量与 `COURTIER_PLUGIN_TOKEN`。
 - 新增 `plugins/plugin.env.example`：汇总 8 个插件消费的全部环境变量（`LLM_*`/`DOCPARSE_*`/`ES_*`/`CEC_*`/`ANYDOC_OCR_API_URL`/`MINIO_*`（受限账号）/`COURTIER_PLUGIN_TOKEN`/`COURTIER_PLUGIN_LISTEN`/`COURTIER_PLUGIN_WORKDIR` 等）。主进程 `.env.example` 删去纯插件变量，加两个新配置项（endpoints/token）。

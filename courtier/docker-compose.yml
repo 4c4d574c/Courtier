@@ -113,7 +113,7 @@ services:
 
   # === 插件服务（独立 TCP 服务，主进程经 COURTIER_PLUGIN_ENDPOINTS 拨号）===
   # 共享环境：受限 MinIO 账号（仅 transfer bucket）+ 通道鉴权 token。
-  # 插件特有变量（LLM_*/ES_*/OCR 端点等）在各自 environment 里追加。
+  # 插件特有变量（ES_*/OCR 端点等）在各自 environment 里追加；插件不持 LLM 配置。
 
   plugin-parse:
     build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-parse }
@@ -121,9 +121,6 @@ services:
     restart: unless-stopped
     environment:
       <<: *plugin-common-env
-      LLM_IP: ${LLM_IP}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_NAME: ${LLM_NAME}
       DOCPARSE_OCR_API_URL: ${DOCPARSE_OCR_API_URL:-}
       FONT_MODEL_URL: ${FONT_MODEL_URL:-}
     networks:
@@ -165,12 +162,6 @@ services:
       ES_USERNAME: ${ES_USERNAME:-elastic}
       ES_PASSWORD: ${ES_PASSWORD}
       ES_INDEX_CHUNKS: ${ES_INDEX_CHUNKS:-courtier_chunks}
-      LLM_IP: ${LLM_IP}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_NAME: ${LLM_NAME}
-      LLM_EMBEDDING_NAME: ${LLM_EMBEDDING_NAME:-}
-      LLM_EMBEDDING_DIM: ${LLM_EMBEDDING_DIM:-1024}
-      LLM_EMBEDDING_BATCH_SIZE: ${LLM_EMBEDDING_BATCH_SIZE:-25}
     networks:
       - courtier
     depends_on:
