@@ -596,43 +596,14 @@ def _write_png(path, size=(400, 600)):
     PILImage.new("RGB", size, 255).save(str(path))
 
 
-class _FakeLLMClient:
-    """LLM client stub returning a minimal valid structure."""
-
-    def __init__(self, config):
-        pass
-
-    def recognize_structure(self, lines, image_path):
-        return {
-            "header": None,
-            "body": {
-                "main_text": [
-                    {
-                        "text": "".join(line["text"] for line in lines),
-                        "line_indices": list(range(len(lines))),
-                        "outline_level": "body_text",
-                    }
-                ]
-            },
-            "footer": None,
-        }
-
-    def recognize_fonts_from_crops(self, page_image_path, lines):
-        return {}
-
-
-def _patch_pipeline(monkeypatch, image_files, ocr_engine, llm_cls=_FakeLLMClient):
+def _patch_pipeline(monkeypatch, image_files, ocr_engine):
     monkeypatch.setattr(scanned_mod, "prepare_images", lambda *_a, **_k: image_files)
     monkeypatch.setattr(scanned_mod, "resize_images_for_ocr", lambda paths, _max: paths)
     monkeypatch.setattr(scanned_mod, "create_ocr_engine", lambda *_a: ocr_engine)
-    monkeypatch.setattr(scanned_mod, "LLMClient", llm_cls)
 
 
 def _make_config(**overrides) -> ParserConfig:
     base = {
-        "llm_api_key": "test-key",
-        "llm_base_url": "http://localhost:1/v1",
-        "llm_model": "test-model",
         "ocr_api_url": "http://localhost:1/ocr",
     }
     base.update(overrides)
@@ -640,7 +611,7 @@ def _make_config(**overrides) -> ParserConfig:
 
 
 class TestScannedParserPipeline:
-    """End-to-end parse() behavior with mocked OCR/LLM backends."""
+    """End-to-end parse() behavior with a mocked OCR backend."""
 
     def test_all_pages_ocr_failure_raises(self, monkeypatch, tmp_path):
         pages = []
@@ -739,34 +710,6 @@ class TestScannedParserPipeline:
         assert any("第 5 页 OCR 识别失败" in w for w in warnings)
         assert not any("第 2 页 OCR 识别失败" in w for w in warnings)
 
-    def test_font_recognition_receives_all_lines(self, monkeypatch, tmp_path):
-        """裁剪字体识别接收每个有行页面的全部行（不再按 font_family 预过滤）。"""
-        pages = []
-        for i in range(2):
-            p = tmp_path / f"page_{i}.png"
-            _write_png(p)
-            pages.append(str(p))
-
-        engine = _StubOcrEngine({p: _ok_result() for p in pages})
-
-        received: dict[str, list] = {}
-
-        class _TrackingLLMClient(_FakeLLMClient):
-            def recognize_fonts_from_crops(self, page_image_path, lines):
-                received[page_image_path] = list(lines)
-                return {}
-
-        _patch_pipeline(monkeypatch, pages, engine, llm_cls=_TrackingLLMClient)
-
-        ScannedParser().parse(pages[0], _make_config())
-
-        # 每个有行的页面都被调用，且收到该页的全部 OCR 行
-        assert set(received) == set(pages)
-        for path in pages:
-            assert len(received[path]) == 1
-            assert received[path][0]["text"] == "正文内容行"
-
-
 def _two_line_result() -> OCRPageResult:
     return OCRPageResult(
         width=400,
@@ -811,9 +754,18 @@ class _StubFontModelClient:
 
 
 class TestFontModelIntegration:
-    """Font-model-first Phase 2.5 wiring with mocked model/LLM backends."""
+    """Font-model-only Phase 2.5 wiring with a mocked model backend."""
 
-    def test_model_result_merged_and_llm_gets_only_unrecognized(self, monkeypatch, tmp_path):
+    def _page_fonts(self, doc):
+        from docparse.parsers.scanned.structure import collect_all_paragraphs
+
+        return {
+            elem.font.line_no: elem.font.font_family
+            for para in collect_all_paragraphs(doc.pages[0].page_content)
+            for elem in para.elements
+        }
+
+    def test_model_result_merged_unrecognized_keep_no_font(self, monkeypatch, tmp_path):
         p = tmp_path / "page.png"
         _write_png(p)
         page = str(p)
@@ -823,31 +775,15 @@ class TestFontModelIntegration:
         }
         monkeypatch.setattr(scanned_mod, "FontModelClient", _StubFontModelClient)
 
-        received: dict[str, list] = {}
-
-        class _TrackingLLMClient(_FakeLLMClient):
-            def recognize_fonts_from_crops(self, page_image_path, lines):
-                received[page_image_path] = list(lines)
-                return {1: {"font_family": "仿宋", "font_weight": False, "font_style": False}}
-
         engine = _StubOcrEngine({page: _two_line_result()})
-        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_TrackingLLMClient)
+        _patch_pipeline(monkeypatch, [page], engine)
 
         doc = ScannedParser().parse(page, _make_config(font_model_url="http://font:5000"))
 
-        # LLM 兜底只收到模型未识别的行（line_no == 1）
-        assert [line["line_no"] for line in received[page]] == [1]
-        # 两级字体识别（模型 + LLM 兜底）均已合并进最终段落
-        from docparse.parsers.scanned.structure import collect_all_paragraphs
+        # 模型识别的行带字体族；未识别行保留文本但无字体信息
+        assert self._page_fonts(doc) == {0: "黑体", 1: ""}
 
-        fonts = {
-            elem.font.line_no: elem.font.font_family
-            for para in collect_all_paragraphs(doc.pages[0].page_content)
-            for elem in para.elements
-        }
-        assert fonts == {0: "黑体", 1: "仿宋"}
-
-    def test_model_failure_falls_back_to_full_llm(self, monkeypatch, tmp_path):
+    def test_model_failure_keeps_lines_without_fonts(self, monkeypatch, tmp_path):
         p = tmp_path / "page.png"
         _write_png(p)
         page = str(p)
@@ -855,18 +791,23 @@ class TestFontModelIntegration:
         _StubFontModelClient.outcomes = {page: RuntimeError("model down")}
         monkeypatch.setattr(scanned_mod, "FontModelClient", _StubFontModelClient)
 
-        received: dict[str, list] = {}
-
-        class _TrackingLLMClient(_FakeLLMClient):
-            def recognize_fonts_from_crops(self, page_image_path, lines):
-                received[page_image_path] = list(lines)
-                return {}
-
         engine = _StubOcrEngine({page: _two_line_result()})
-        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_TrackingLLMClient)
+        _patch_pipeline(monkeypatch, [page], engine)
 
         doc = ScannedParser().parse(page, _make_config(font_model_url="http://font:5000"))
 
-        # 整页回退：LLM 收到全部行；警告记录模型失败
-        assert [line["line_no"] for line in received[page]] == [0, 1]
+        # 模型失败：行保留、无字体信息，警告记录失败（不再有任何兜底）
         assert any("字体模型识别失败" in w for w in doc.warnings)
+        assert self._page_fonts(doc) == {0: "", 1: ""}
+
+    def test_no_font_model_config_warns(self, monkeypatch, tmp_path):
+        p = tmp_path / "page.png"
+        _write_png(p)
+        page = str(p)
+
+        engine = _StubOcrEngine({page: _two_line_result()})
+        _patch_pipeline(monkeypatch, [page], engine)
+
+        doc = ScannedParser().parse(page, _make_config())
+
+        assert any("未配置字体识别模型" in w for w in doc.warnings)

@@ -2,7 +2,7 @@ name: parse
 version: "1.0.0"
 api: "2.0"
 description: "Document file parsing (PDF/DOCX/image)"
-# Scanned files go through per-page OCR + multimodal LLM and can take minutes.
+# Scanned files go through per-page OCR + rule engine and can take minutes.
 timeout_ms: 600000
 
 # Tool declarations are runtime-registered from entry.py (register_tool);
@@ -10,8 +10,9 @@ timeout_ms: 600000
 # and the format-audit-only routing rule in the docaudit domain's
 # orchestrator.workflow_rules — no capabilities block here.
 
-# The scanned-document pipeline (OCR + multimodal LLM) reads its configuration
-# (LLM_*, DOCPARSE_*, FONT_MODEL_*) from the plugin's own process environment
-# via ParserConfig.from_env(); see plugins/plugin.env.example.
+# The scanned-document pipeline (OCR + rule engine + optional ResNet font
+# model) reads its configuration (DOCPARSE_*, FONT_MODEL_*) from the plugin's
+# own process environment via ParserConfig.from_env(); see
+# plugins/plugin.env.example.
 runtime:
   port: 9101

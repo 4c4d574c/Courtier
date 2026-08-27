@@ -16,21 +16,17 @@ class TestParserConfig:
 
     def test_default_config(self):
         config = ParserConfig()
-        assert config.llm_base_url == ""
-        assert config.llm_api_key == ""
-        assert config.llm_model == ""
         assert config.ocr_lang == "ch"
         assert config.ocr_api_url == ""
+        assert config.font_model_url == ""
 
     def test_custom_config(self):
         config = ParserConfig(
-            llm_base_url="http://localhost:8000/v1",
-            llm_api_key="test-key",
-            llm_model="gpt-4",
+            ocr_api_url="http://localhost:8000/ocr",
+            font_model_url="http://localhost:5000",
         )
-        assert config.llm_base_url == "http://localhost:8000/v1"
-        assert config.llm_api_key == "test-key"
-        assert config.llm_model == "gpt-4"
+        assert config.ocr_api_url == "http://localhost:8000/ocr"
+        assert config.font_model_url == "http://localhost:5000"
 
     def test_deskew_default_disabled(self, monkeypatch):
         monkeypatch.delenv("DOCPARSE_OCR_DESKEW", raising=False)

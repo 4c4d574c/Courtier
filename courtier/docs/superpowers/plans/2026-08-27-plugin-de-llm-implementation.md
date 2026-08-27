@@ -129,9 +129,9 @@
 - [x] docparse 单测改写（classify_mode 用例改规则路径固定；LLM mock 用例删除）
 
 ### Task 0.2: 字体链 ResNet 唯一化 + env 清理
-- [ ] 删字体 LLM 兜底（`llm_client.py` 字体部分、拼图逻辑、模型失败回退）；未配置/未识别行无字体信息 + warning
-- [ ] `base.py` env 删除；`plugins/docaudit/parse/plugin.yaml` runtime.env 去 LLM_*；`plugin.env.example` 对应段删除
-- [ ] 字体链测试改 ResNet-only 语义；全量回归
+- [x] 删字体 LLM 兜底（`llm_client.py` 字体部分、拼图逻辑、模型失败回退）；未配置/未识别行无字体信息 + warning
+- [x] `base.py` env 删除；`plugins/docaudit/parse/plugin.yaml` runtime.env 去 LLM_*；`plugin.env.example` 对应段删除
+- [x] 字体链测试改 ResNet-only 语义；全量回归
 
 ## Phase 1：host 侧 glue 能力
 
@@ -202,5 +202,12 @@
 2. `structure_recognizer.py` 保留面的划分依据：`_validate_header_slots`（版头槽位正则纠偏）与 `_build_paragraph`/`_merge_body_text_into_paragraphs` 为规则路径共用，保留并中性化 docstring 措辞。
 3. 测试改写：`test_pdf_parser.py` 的 `TestRegistryDispatch`（计划遗漏的测试组）——`_pdf_dispatch` 去 `ocr_available` 参数、删"无 LLM 走 PdfParser"用例、`get_parser` 混合断言改无条件。管线测试的 `main_text==1` 断言依赖旧 LLM fake 行为，规则引擎把该短行归入 `issuing_signature`（置信 0.3），改为"内容保留在页面段落"断言（`collect_all_paragraphs`）。
 4. 实测：`uv run pytest -m "not integration"` 1723 passed / 6 skipped；ruff 全绿。
+
+**Task 0.2 完成**（字体链 ResNet 唯一化）。偏差与实测：
+1. **`_retry.py` 保留**——计划写"删前确认无其它消费者"，确认结果是 `scanned/ocr_engine.py` 的 OCR 重试在用（`parallel_ocr` 的 `recognize_with_retry`），仅删了 `llm_client.py` 与 `font_image.py`（后者仅被 llm_client 消费）。
+2. `FONT_MODEL_URL` 未配置时新增一条文档级告警"未配置字体识别模型（FONT_MODEL_URL），扫描页行将不带字体信息"（有 OCR 行时才发）；模型失败从"整页回退 LLM"改为"该页无字体信息 + 告警"；ResNet 未接受的行不再有任何兜底。
+3. `plugin.env.example`：parse 段删 `LLM_*`/`DOCPARSE_CLASSIFY_MODE`/`DOCPARSE_MAX_LLM_CONCURRENT`/`DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE`；`LLM_IP/LLM_API_KEY/LLM_NAME` 临时移入 search 段（search 重排仍在用，Phase 2 随重排迁移一并删除）。`ParserConfig` 删 6 个 LLM 字段；parse `plugin.yaml` 注释同步。
+4. 顺手修复：ruff 发现 `plugins/docaudit/parse/tools.py` 有一个本就未使用的 `logging` 导入（--fix 清理）。
+5. 实测：docparse + parse 插件 482 passed；全量 `pytest -m "not integration"` 1723 passed / 6 skipped；ruff 绿。**parse 插件至此零 LLM**（结构=规则引擎、字体=ResNet、无 LLM env）。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）

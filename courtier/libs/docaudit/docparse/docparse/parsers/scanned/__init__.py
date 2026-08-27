@@ -19,7 +19,6 @@ from docmodels import (
 from PIL import Image as PILImage
 
 from ..base import ParserConfig
-from ..llm_client import LLMClient
 from ..ocr import create_ocr_engine
 from ..rules import StructureRuleEngine
 from ..spacing import (
@@ -58,7 +57,7 @@ class ScannedParser:
     Flow:
     1. Call PPStructureV3 API for OCR + layout detection
     2. Compute margins and spacing from bounding boxes
-    2.5. Crop-based font recognition for all lines
+    2.5. ResNet font recognition for all lines (optional)
     3. Rule-engine structure recognition for all pages
     4. Build Document model
     """
@@ -146,8 +145,6 @@ class ScannedParser:
         effective_config = config or ParserConfig.from_env()
 
         max_ocr = getattr(effective_config, "max_ocr_concurrent", 10)
-        # Font LLM fallback concurrency (removed with the LLM font path).
-        max_llm = max(1, getattr(effective_config, "max_llm_concurrent", 4))
 
         warnings: list[str] = []
         image_paths: list[str] = []
@@ -266,18 +263,13 @@ class ScannedParser:
             # Phase 2.2: Document-level body line spacing normalization
             normalize_body_line_spacing(page_metrics)
 
-            llm_client = LLMClient(effective_config)
-
             # Phase 2.5: Font recognition for every page with lines —
             # fonts are measured from the rendered image, not stamped
-            # from the GB/T element mapping.  When font_model_url is
-            # configured, the self-trained ResNet model recognizes lines
-            # first (concurrency bounded by max_ocr_concurrent) and only
-            # unrecognized lines fall back to the crop-based LLM;
-            # otherwise every line goes through the LLM (bounded by
-            # max_llm_concurrent).  A failed page keeps its lines without
-            # font info and is recorded in warnings.
-            llm_font_tasks: list[tuple[int, int, list[dict[str, Any]]]] = []
+            # from the GB/T element mapping.  The self-trained ResNet
+            # model (font_model_url) is the only font recognizer: lines
+            # it does not accept keep no font info.  A failed page keeps
+            # its lines without font info and is recorded in warnings.
+            # Without font_model_url no font recognition runs at all.
             if effective_config.font_model_url:
                 font_model = FontModelClient(
                     effective_config.font_model_url,
@@ -287,35 +279,32 @@ class ScannedParser:
 
                 def _recognize_fonts_by_model(
                     task: tuple[int, int, list[dict[str, Any]]],
-                ) -> tuple[int, dict[int, dict[str, Any]] | None, list[dict[str, Any]], str | None]:
+                ) -> tuple[int, dict[int, dict[str, Any]] | None, str | None]:
                     local_idx, page_no, lines = task
                     try:
-                        font_info, unrecognized_nos = font_model.recognize_lines(
+                        font_info, _unrecognized_nos = font_model.recognize_lines(
                             image_paths[local_idx],
                             lines,
                         )
                     except Exception as exc:
                         logger.warning(
                             "Scanned page %d: font model recognition failed"
-                            " (%s); falling back to LLM for all lines",
+                            " (%s); lines keep no font info",
                             page_no,
                             exc,
                         )
                         return (
                             local_idx,
                             None,
-                            lines,
-                            f"第 {page_no + 1} 页字体模型识别失败，" f"已回退为 LLM 识别：{exc}",
+                            f"第 {page_no + 1} 页字体模型识别失败，该页无字体信息：{exc}",
                         )
-                    unrecognized_set = set(unrecognized_nos)
-                    missing = [line for line in lines if line.get("line_no", 0) in unrecognized_set]
                     logger.info(
                         "Scanned page %d: font model recognized %d/%d lines",
                         page_no,
                         len(font_info),
                         len(lines),
                     )
-                    return local_idx, font_info, missing, None
+                    return local_idx, font_info, None
 
                 model_tasks: list[tuple[int, int, list[dict[str, Any]]]] = [
                     (local_idx, pm["page_no"], pm["lines"])
@@ -325,56 +314,13 @@ class ScannedParser:
                 if model_tasks:
                     with ThreadPoolExecutor(max_workers=min(max_ocr, len(model_tasks))) as executor:
                         model_outcomes = list(executor.map(_recognize_fonts_by_model, model_tasks))
-                    for local_idx, font_info, missing, warning in model_outcomes:
+                    for local_idx, font_info, warning in model_outcomes:
                         if warning is not None:
                             warnings.append(warning)
                         if font_info:
                             merge_font_info(page_metrics[local_idx]["lines"], font_info)
-                        if missing:
-                            pm = page_metrics[local_idx]
-                            llm_font_tasks.append((local_idx, pm["page_no"], missing))
-            else:
-                llm_font_tasks = [
-                    (local_idx, pm["page_no"], pm["lines"])
-                    for local_idx, pm in enumerate(page_metrics)
-                    if pm["lines"]
-                ]
-
-            def _recognize_fonts(
-                task: tuple[int, int, list[dict[str, Any]]],
-            ) -> tuple[int, dict[int, dict[str, Any]] | None, str | None]:
-                local_idx, page_no, lines = task
-                try:
-                    font_info = llm_client.recognize_fonts_from_crops(
-                        image_paths[local_idx],
-                        lines,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Scanned page %d: crop-based LLM font fallback failed: %s",
-                        page_no,
-                        exc,
-                    )
-                    return (
-                        local_idx,
-                        None,
-                        f"第 {page_no + 1} 页字体 LLM 识别失败：{exc}",
-                    )
-                logger.info(
-                    "Scanned page %d: crop-based LLM font fallback completed" " (%d lines)",
-                    page_no,
-                    len(font_info),
-                )
-                return local_idx, font_info, None
-
-            if llm_font_tasks:
-                with ThreadPoolExecutor(max_workers=min(max_llm, len(llm_font_tasks))) as executor:
-                    font_outcomes = list(executor.map(_recognize_fonts, llm_font_tasks))
-                for local_idx, font_info, warning in font_outcomes:
-                    if warning is not None:
-                        warnings.append(warning)
-                    if font_info:
-                        merge_font_info(page_metrics[local_idx]["lines"], font_info)
+            elif any(pm["lines"] for pm in page_metrics):
+                warnings.append("未配置字体识别模型（FONT_MODEL_URL），扫描页行将不带字体信息")
 
             # Phase 3: Structure recognition via the rule engine.  Pages
             # without OCR lines degrade to empty PageContent; lines the

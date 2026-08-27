@@ -22,8 +22,7 @@ from PIL import Image as PILImage
 logger = logging.getLogger(__name__)
 
 # Model label → pipeline-standard family name.  The model was trained
-# with GB/T printing font names; the pipeline uses the shorter forms
-# (see FONT_RECOGNITION_SYSTEM_PROMPT in ..llm_client).
+# with GB/T printing font names; the pipeline uses the shorter forms.
 LABEL_TO_FAMILY: dict[str, str] = {
     "仿宋": "仿宋",
     "黑体": "黑体",
