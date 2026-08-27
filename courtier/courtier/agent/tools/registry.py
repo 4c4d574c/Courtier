@@ -19,6 +19,7 @@ from courtier.agent.artifacts.resolver import emit_event
 from courtier.agent.artifacts.store import ArtifactStore
 from courtier.agent.core.execution_result import ExecutionResult
 
+from .param_injection import HOST_INJECTED_MARKER
 from .protocol import (
     ToolInfo,
     ToolProgress,
@@ -28,6 +29,34 @@ from .protocol import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Result post-processor signature: async (tool_name, kwargs, tool_result)
+#: -> tool_result | None.  Runs after tool.execute and BEFORE persistence
+#: so the stored artifact, the summarizer view, and the model observation
+#: all see the same final payload.
+ResultPostProcessor = Callable[[str, dict[str, Any], Any], Any]
+
+
+def _strip_host_injected_params(parameters: dict[str, Any]) -> dict[str, Any]:
+    """Drop host-injected parameters from the model-visible tool schema.
+
+    These are filled at the dispatch boundary (param_injection), so the
+    model must neither see nor fill them.  Returns the original mapping
+    when nothing is hidden; never mutates the tool's own schema.
+    """
+    props = parameters.get("properties") or {}
+    hidden = {
+        key
+        for key, prop in props.items()
+        if isinstance(prop, dict) and prop.get(HOST_INJECTED_MARKER)
+    }
+    if not hidden:
+        return parameters
+    filtered = {key: value for key, value in props.items() if key not in hidden}
+    exposed: dict[str, Any] = {**parameters, "properties": filtered}
+    if "required" in parameters:
+        exposed["required"] = [r for r in (parameters.get("required") or []) if r not in hidden]
+    return exposed
 
 
 class ToolRegistry:
@@ -54,6 +83,8 @@ class ToolRegistry:
         self._producer_cache: dict[str, list[str]] | None = None
         self._result_store = result_store
         self._summarizer = summarizer
+        self._param_injectors: dict[str, Any] = {}
+        self._result_post_processors: list[ResultPostProcessor] = []
         self._policy_lock = asyncio.Lock()
 
     @property
@@ -87,6 +118,8 @@ class ToolRegistry:
         )
         for tool in self._tools.values():
             clone.register(tool, force=True)
+        clone._param_injectors = dict(self._param_injectors)
+        clone._result_post_processors = list(self._result_post_processors)
         return clone
 
     def register(self, tool: ToolProtocol, force: bool = False) -> None:
@@ -270,7 +303,7 @@ class ToolRegistry:
                     "function": {
                         "name": tool.name,
                         "description": description,
-                        "parameters": tool.parameters,
+                        "parameters": _strip_host_injected_params(tool.parameters),
                     },
                 }
             )
@@ -358,6 +391,11 @@ class ToolRegistry:
         elif context_manager is not None and not skip_resolve:
             kwargs = context_manager.resolve_refs(kwargs)
 
+        # Host-injected parameters (e.g. the query embedding for hybrid
+        # search): computed at the boundary, never seen or filled by the
+        # model.  Runs after ref resolution so injectors see final values.
+        kwargs = await self._apply_param_injectors(tool, name, kwargs)
+
         def on_progress(progress: ToolProgress) -> None:
             if on_tool_progress is not None:
                 result = on_tool_progress(name, progress)
@@ -372,6 +410,22 @@ class ToolRegistry:
             audit_logger=audit_logger,
             **kwargs,
         )
+
+        # Result post-processors run before persistence/summarization so
+        # the stored artifact and the model observation see the same final
+        # payload (e.g. host-side search rerank).
+        for post_processor in self._result_post_processors:
+            try:
+                processed = post_processor(name, kwargs, raw_result)
+                if asyncio.iscoroutine(processed):
+                    processed = await processed
+            except Exception:
+                logger.warning(
+                    "result post-processor failed for %s", name, exc_info=True
+                )
+            else:
+                if processed is not None:
+                    raw_result = processed
 
         # Preserve the original data before persist replaces it with a $ref marker.
         original_data = (
@@ -665,6 +719,60 @@ class ToolRegistry:
         """Attach result-store/summarizer used to wrap ToolResults into ExecutionResults."""
         self._result_store = result_store
         self._summarizer = summarizer
+
+    def configure_param_injectors(self, injectors: dict[str, Any]) -> None:
+        """Register host-side parameter injectors by injector name.
+
+        Keys match the ``x-host-injected`` marker value on tool schema
+        properties (see courtier.agent.tools.param_injection)."""
+        self._param_injectors = dict(injectors)
+
+    def configure_result_post_processors(self, processors: list[ResultPostProcessor]) -> None:
+        """Register result post-processors run between tool.execute and persistence."""
+        self._result_post_processors = list(processors)
+
+    async def _apply_param_injectors(
+        self, tool: ToolProtocol, name: str, kwargs: dict[str, Any]
+    ) -> Any:
+        """Await all host-injected parameters the tool contract declares.
+
+        Returns the kwargs mapping to execute with (a new dict when
+        anything was injected, else the original).  A failing injector
+        only skips its own parameter.
+        """
+        if not self._param_injectors:
+            return kwargs
+        properties = tool.parameters.get("properties", {})
+        updates: dict[str, Any] = {}
+        for param_name, prop in properties.items():
+            injector_name = (
+                prop.get(HOST_INJECTED_MARKER) if isinstance(prop, dict) else None
+            )
+            if not injector_name:
+                continue
+            if param_name in kwargs:
+                continue
+            injector = self._param_injectors.get(injector_name)
+            if injector is None:
+                continue
+            try:
+                injected = injector(tool, kwargs, param_name)
+                if asyncio.iscoroutine(injected):
+                    injected = await injected
+            except Exception:
+                logger.warning(
+                    "param injector %r failed for %s.%s",
+                    injector_name,
+                    name,
+                    param_name,
+                    exc_info=True,
+                )
+                continue
+            if injected is not None:
+                updates[param_name] = injected
+        if not updates:
+            return kwargs
+        return {**kwargs, **updates}
 
     def _get_producers(self) -> dict[str, list[str]]:
         """返回缓存的 producers 映射，延迟计算."""

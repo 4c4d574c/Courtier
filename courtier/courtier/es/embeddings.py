@@ -65,3 +65,15 @@ async def embed_chunks(settings: Any, texts: list[str]) -> list[list[float] | No
                     exc_info=True,
                 )
     return vectors
+
+
+async def embed_query(settings: Any, text: str) -> list[float] | None:
+    """Embed a single query text; None when disabled or the call failed.
+
+    Used by the tool-dispatch boundary to inject the query vector into the
+    search tool (host-injected parameter), so query-time and index-time
+    embeddings share one client and one configuration."""
+    if not text.strip():
+        return None
+    vectors = await embed_chunks(settings, [text])
+    return vectors[0] if vectors else None

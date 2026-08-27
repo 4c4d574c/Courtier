@@ -181,6 +181,17 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     app.state.courtier_config = courtier_config
     app.state.prompt_engine = courtier_config.build_prompt_engine()
 
+    # Host-side tool-boundary glue: the embedding param injector fills
+    # host-injected tool parameters (e.g. the hybrid-search query vector)
+    # after $ref resolution and before dispatch.  The search rerank
+    # post-processor is wired together with the plugin finalize support
+    # (plugin de-LLM phase).
+    from courtier.agent.tools.param_injection import make_embedding_param_injector
+
+    app.state.tool_registry.configure_param_injectors(
+        {"embedding": make_embedding_param_injector()}
+    )
+
     # PluginSystem scans the first domain's plugins dir for manifests
     # (multi-domain plugin merging is a future enhancement) and dials the
     # standalone plugin servers listed in COURTIER_PLUGIN_ENDPOINTS.
