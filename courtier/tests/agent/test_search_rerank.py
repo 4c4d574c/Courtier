@@ -284,6 +284,17 @@ class TestTemplates:
             assert "search.rerank.system" in bundle.templates, locale
             assert "search.rerank.user" in bundle.templates, locale
 
+    def test_rerank_templates_render_via_engine(self):
+        from courtier.prompts.engine import PromptEngine
+
+        engine = PromptEngine.from_domain_directories([], locale="zh-CN")
+        system = engine.render("search.rerank.system")
+        user = engine.render("search.rerank.user", query="通知", candidates="1. 《文档》 内容")
+        # RESERVED_TEMPLATE_KEYS must include the keys, or the engine
+        # silently drops the yaml bundle and falls back to English.
+        assert "重排器" in system
+        assert "通知" in user and "《文档》" in user
+
     def test_settings_defaults(self):
         from courtier.config import Settings
 

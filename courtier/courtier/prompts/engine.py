@@ -55,6 +55,8 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "ui.step_label",
         "ui.agent_name",
         "tools.invocation_rules",
+        "search.rerank.system",
+        "search.rerank.user",
         "context.compact_prompt",
         "context.compact_merge_prompt",
     }

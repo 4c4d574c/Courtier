@@ -157,12 +157,12 @@
 ## Phase 3：边界与文档同步 + 验收
 
 ### Task 3.1: env/文档同步
-- [ ] `plugin.env.example` 终态、`.env.example` 注释修正、`AGENTS.md` §7.1/§10、两份关联计划文档修订、FONT_MODEL 运维注意
-- [ ] `uv run courtier validate-domain domains/docaudit/`
+- [x] `plugin.env.example` 终态、`.env.example` 注释修正、`AGENTS.md` §7.1/§10、两份关联计划文档修订、FONT_MODEL 运维注意
+- [x] `uv run courtier validate-domain domains/docaudit/`
 
 ### Task 3.2: 全量回归与真实会话验收
-- [ ] `uv run pytest -m "not integration"` 全绿；webui `npm test`/`npm run build` 绿
-- [ ] 真实验收对照总验收清单（含重排质量主模型 vs 旧插件模型对比）
+- [x] `uv run pytest -m "not integration"` 全绿；webui `npm test`/`npm run build` 绿
+- [ ] 真实验收对照总验收清单（含重排质量主模型 vs 旧插件模型对比）——部分完成，见实施记录
 
 ---
 
@@ -223,4 +223,12 @@
 3. 删除面：`embeddings.py`/`rerank.py` 整文件、`LLM_EMBEDDING_DIM` 校验、manifest `SEARCH_RERANK_FETCH`/`SEARCH_CANDIDATE_BUDGET_CHARS`；`plugin.env.example` search 段缩为纯 ES 四项。
 4. loopback 集成（`test_search_glue_loopback.py`）：真 SDK server + 真连接管理器 + 真 ToolRegistry 全链路——注入向量经 TCP 到达（hybrid 生效 + schema 剔除）、重排→finalize 往返（顺序/flags/分页一致）、双降级路径（未配置纯词法、重排失败保序+partial）。`pytest -m "not integration"` 全量 1744 passed。
 
-（其余 Task 待实施；按 Task 记录偏差、实测与排障。）
+**Task 3.1/3.2 完成**（env 终态 + 验收，`badee57` + 后续修复提交）。偏差与实测：
+1. **真实验证抓到一个真 bug 并已修复**：`PromptEngine` 有 `RESERVED_TEMPLATE_KEYS` 白名单，`search.rerank.*` 未注册导致 zh-CN 模板被引擎忽略、live 重排静默用了英文 FALLBACK——已加入白名单并补"经引擎渲染"回归测试（仅查 bundle 成员测不出此类缺口）。
+2. **现场验收（本地栈：ES/MinIO/Langfuse 在跑，9105 起 search 插件）**：
+   - 词法基线全链路 ✓：新契约插件 + 真 ES，`mode=lexical`，命中《煤矿安全生产条例》；
+   - **降级链路现场验证 4 次** ✓：host LLM 端点（OpenRouter 免费档）持续 429 → 保序 + `reranked=False/rerank_partial=True` + finalize 照常执行（分页 + 3/3 命中带邻块）；
+   - **成功路径现场验证未完成（环境限制，非代码问题）**：host `.env` 的 OpenRouter 端点限流，旧插件端点（192.168.100.31:8008 DeepSeek）当前不可达。成功路径由单测（fake backend 全语义）+ loopback 集成（真 TCP 全链路，monkeypatch 重排模型）覆盖；**待环境可用后补**：真模型重排成功路径 + 主模型 vs DeepSeek-V4-Flash 质量对比（总验收 #6）。
+   - 本地索引（courtier_chunks，132 chunks）无向量字段、全环境无 embedding 配置——**向量注入路径的现场验证同样待环境**（loopback 已覆盖传输链路）。
+3. 代码级验收 #1 ✓：`plugins/` 代码 grep 零 LLM 端点调用；plugin.env.example 与 compose 插件服务零 `LLM_*`。注意：本地 gitignored `plugins/plugin.env` 仍残留 `LLM_IP/LLM_NAME` 死行（插件已忽略，无害），可择机手清。
+4. 最终回归：`pytest -m "not integration"` 1745 passed / 6 skipped；webui `npm test`/`npm run build` 绿；validate-domain 通过。
