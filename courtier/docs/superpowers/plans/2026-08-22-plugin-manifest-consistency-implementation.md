@@ -151,4 +151,13 @@
 
 > **跟进（2026-08-22，用户批准后实施）**：上条观察已修复——提交 `d1bc613` 将名字不匹配与 API 不兼容两条失败路径统一为目录名作 key（与其余四条失败路径一致），配套断言"结果名 == 目录名"身份不变式与"修复 → restart 同名复活、无幽灵条目"端到端测试（`test_restart_rescan.py::test_name_mismatch_plugin_revives_under_directory_name`）。全量非 integration 回归 1723 passed。
 
+**偏差 4（审计补充认定）**：Task 4.1 Step 2 计划表述为"对该插件目录重扫一次"，实际实现为整树重扫后合并 `_scan_results`——与启动扫描语义一致、免去嵌套目录定位分支，代价是每次 restart 多扫其余约 7 份 yaml（亚毫秒级）。
+
+## 跟进二（2026-08-27 审计与用户拍板后的批量处理）
+
+- **Capabilities 模型提前整体移除**（`67c23dd`）：用户拍板无需旧 manifest 兼容，Phase 5 的"deprecated 过渡至独立部署上线"安排作废；`ToolCapability`/`Capabilities`/`PluginManifest.capabilities` 全删，`extra="forbid"` 下任何残留 capabilities 块在扫描期即 BLOCKED。新增 `bad_capabilities_block` 夹具与模型层拒绝测试固化该契约；echo 夹具同步去除遗留块。
+- **集成测试裸名导入隔离**（`2855a80`）：search→read_chunks 回环测试在批量执行时因 `sys.modules["tools"]` 被兄弟插件缓存污染而 ImportError（生产不受影响：插件独立进程运行）；导入前 pop 陈旧缓存修复，`-m integration` 批量首次全绿。
+- **es_client 弃用告警清除**（`fba1faa`）：`body` 与 `from_`/`size` 混用按 elasticsearch-py 弃用策略改为分页入 body 副本，真实 ES 往返验证告警消失。
+- **查重超时实测校准**（`8dfa8b5`）：实测 `build_library_distribution` 全对比耗时（120 篇×1 万字符=27s），外推 300 篇×1 万字符≈170s 在 300s 预算内；逼近 core.py 上限（500 篇×10 万字符）时超出任何合理 RPC 超时——该上限只约束内存不约束时延，若未来需支撑近上限规模应做分布计算的预筛优化，已记为后续可选项。
+
 **回归说明**：实施期间全量 pytest 曾两次出现 `tests/agent/skills/test_typed_input.py` 的顺序相关瞬态失败。经隔离 worktree 实验（基线 + 并行会话 WIP 单独验证为绿）与单测复跑（单跑必过）定位为另一并行会话 skilltool-typed-input 特性的进行中未提交改动所致，与本计划无关；收尾时主工作区全量非 integration 套件 1721 passed 全绿，webui `npm test` 与 `npm run build` 通过。
