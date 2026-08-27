@@ -46,6 +46,27 @@ class _SlowAgent:
         await asyncio.sleep(60)
 
 
+class _ErrorAgent:
+    """Agent stub whose run returns an error final state (model call failed)."""
+
+    tool_registry = None
+
+    def __init__(self) -> None:
+        self.model = SimpleNamespace(close=_noop_close)
+
+    async def run(self, **kwargs):
+        return SimpleNamespace(
+            content="",
+            final_state=SimpleNamespace(
+                status="error",
+                termination_reason="model call failed",
+                messages=(),
+                tree=None,
+                current_node_id=None,
+            ),
+        )
+
+
 async def _noop_close() -> None:
     return
 
@@ -163,6 +184,48 @@ class TestStop:
         # Cancelled before the recorder was created → log sealed without a
         # terminal event (cancelled runs emit no transcript tail here).
         assert run.log.sealed
+
+    async def test_error_turn_finalizes_own_conclusion_slot(self, manager, store):
+        """失败的轮次也占用 turn_conclusions 自己的槽位（空/部分文本）：
+        上一轮结论不漏进失败轮，下一轮结论也不发生一位错位。"""
+        await _create(store)
+        sid = "sess_7e57e57e57e5"
+        run = await manager.start(_spec(store, sid, is_new=True))
+        await run.task
+        assert run.status == "completed"
+
+        await store.add_turn(sid, "第二轮")
+        run2 = await manager.start(_spec(store, sid, agent=_ErrorAgent()))
+        await run2.task
+        assert run2.status == "error"
+
+        session = await store.get(sid)
+        assert session is not None
+        assert session.status == "error"
+        assert session.turn_conclusions == ["Done.", ""]
+        turns = session.to_detail_dict()["turns"]
+        assert turns[0]["conclusion"] == "Done."
+        assert turns[1]["conclusion"] == ""
+
+    async def test_stopped_turn_finalizes_own_conclusion_slot(self, manager, store):
+        await _create(store)
+        sid = "sess_7e57e57e57e5"
+        run = await manager.start(_spec(store, sid, is_new=True))
+        await run.task
+
+        await store.add_turn(sid, "第二轮")
+        run2 = await manager.start(_spec(store, sid, agent=_SlowAgent()))
+        await asyncio.sleep(0)  # let the runner promote the session to running
+        assert await manager.stop(sid) is True
+        await run2.task
+
+        session = await store.get(sid)
+        assert session is not None
+        assert session.status == "stopped"
+        assert session.turn_conclusions == ["Done.", ""]
+        turns = session.to_detail_dict()["turns"]
+        assert turns[0]["conclusion"] == "Done."
+        assert turns[1]["conclusion"] == ""
 
     async def test_stop_absent_session_returns_false(self, manager, store):
         assert await manager.stop("sess_7e57e57e57e5") is False

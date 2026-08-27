@@ -472,6 +472,32 @@ class TestTurnConclusions:
         assert turns[0]["conclusion"] == "结论一"
         assert turns[1]["conclusion"] == "结论二"
 
+    def test_build_turns_no_session_fallback_when_last_turn_lacks_conclusion(self):
+        """A turn that never completed (error/stopped) has no conclusion of
+        its own — it must render empty, not the previous turn's conclusion
+        via the session-level legacy fallback."""
+        s = SessionRecord(
+            id="sess_abc",
+            task="audit",
+            file_id="/tmp/f.docx",
+            status="error",
+            created_at=100.0,
+            conclusion="结论一",
+            turn_messages=[
+                {"text": "turn 1", "timestamp": 100.0},
+                {"text": "turn 2", "timestamp": 200.0},
+            ],
+            turn_step_starts=[0, 1],
+            turn_conclusions=["结论一"],
+        )
+        s.steps.append(StepRecord(index=1, label="step1", skill="s1"))
+        s.steps.append(StepRecord(index=2, label="step2", skill="s2"))
+
+        detail = s.to_detail_dict()
+        turns = detail["turns"]
+        assert turns[0]["conclusion"] == "结论一"
+        assert turns[1]["conclusion"] == ""
+
     def test_build_turns_falls_back_to_session_conclusion_for_last_turn(self):
         """Legacy sessions without turn_conclusions still show the final conclusion."""
         s = SessionRecord(

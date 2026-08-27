@@ -225,25 +225,22 @@ function citationsForTurn(turn: Turn): CitationIndex | undefined {
 function buildAssistantItem(
   turn: Turn,
   baseId: string,
-  sessionConclusion: string | undefined,
   isRunning: boolean,
   isLastTurn: boolean,
 ): ChatAssistantMessageItem | null {
-  // The session-level fallback exists for completed/legacy turns whose own
-  // conclusion was never recorded.  It must NOT apply to the turn that is
-  // currently running: there it would leak the previous turn's conclusion
-  // below the new turn's user message until the new conclusion starts
-  // streaming.
-  const conclusion =
-    isRunning && isLastTurn
-      ? turn.conclusion
-      : (turn.conclusion ?? sessionConclusion);
+  // Only the turn's own conclusion — no session-level fallback.  Restored
+  // turns always carry a string ("" = none) from the backend; a live turn
+  // without one either is still streaming (empty placeholder block, filled
+  // via the pending-verdict item) or terminated without producing text
+  // (error/stopped).  Falling back to session.conclusion there would render
+  // the PREVIOUS turn's conclusion as this turn's.
+  const conclusion = turn.conclusion ?? "";
   if (!conclusion && !(isRunning && isLastTurn)) return null;
   const citations = citationsForTurn(turn);
   return {
     type: "assistant",
     id: `${baseId}-assistant`,
-    content: conclusion ?? "",
+    content: conclusion,
     ...(citations ? { citations } : {}),
   };
 }
@@ -343,7 +340,6 @@ export function buildChatMessages(
     const assistantItem = buildAssistantItem(
       turn,
       baseId,
-      session.conclusion,
       isRunning,
       isLastTurn,
     );

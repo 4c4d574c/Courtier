@@ -354,8 +354,9 @@ class SessionRecord:
         """Build turns from turn_messages + turn_step_starts + steps.
 
         Each turn has: message (user text), steps (the steps in that turn),
-        and conclusion (per turn, with a legacy fallback to the session-level
-        conclusion for the last turn when turn_conclusions is absent).
+        and conclusion (per turn; only legacy sessions with no per-turn list
+        at all fall back to the session-level conclusion on the last turn —
+        a turn that errored/was stopped has an empty conclusion).
         """
         starts = self.turn_step_starts if self.turn_step_starts else [0]
         messages = (
@@ -371,7 +372,13 @@ class SessionRecord:
             msg = messages[i] if i < len(messages) else {"text": "", "timestamp": self.created_at}
             if i < len(conclusions):
                 turn_conclusion = conclusions[i]
-            elif i == num_turns - 1:
+            elif not conclusions and i == num_turns - 1:
+                # Legacy sessions predate per-turn conclusions and recorded
+                # only a session-level one, so the fallback applies when the
+                # list is entirely absent.  A missing entry in an otherwise
+                # populated list means the turn never completed (error/
+                # stopped): its conclusion is empty, not the previous
+                # turn's.
                 turn_conclusion = self.conclusion
             else:
                 turn_conclusion = ""

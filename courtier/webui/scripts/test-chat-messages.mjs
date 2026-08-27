@@ -388,6 +388,34 @@ try {
   assert.equal(multiMsgs[1].content, "上一轮结论");
   assert.equal(multiMsgs[3].content, "");
 
+  // Regression: an ERRORED last turn without its own conclusion must not
+  // fall back to the session-level (previous round's) conclusion either —
+  // the same leak as above once the status flips from running to error.
+  const errorMultiSession = {
+    ...baseSession,
+    status: "error",
+    errorMessage: "模型调用失败，请稍后重试",
+    conclusion: "上一轮结论",
+    turns: [
+      {
+        message: { role: "user", text: "第一轮", timestamp: 1 },
+        steps: [],
+        conclusion: "上一轮结论",
+      },
+      {
+        message: { role: "user", text: "第二轮", timestamp: 2 },
+        steps: [],
+      },
+    ],
+  };
+  const errorMultiMsgs = buildChatMessages(errorMultiSession, []);
+  assert.deepEqual(
+    errorMultiMsgs.map((m) => m.type),
+    ["user", "assistant", "user", "error"],
+  );
+  assert.equal(errorMultiMsgs[1].content, "上一轮结论");
+  assert.equal(errorMultiMsgs[3].detail, "模型调用失败，请稍后重试");
+
   // Compaction notices render after the matching turn's process block
   const compactedSession = {
     ...baseSession,

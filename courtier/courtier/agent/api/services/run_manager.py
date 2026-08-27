@@ -510,6 +510,10 @@ class RunManager:
                 await store.update(session_id, **update_kwargs)
 
             # Terminal: reserve seq → persist (stamped) → emit terminal event.
+            # Every terminal path finalizes this turn's conclusion slot —
+            # error/stopped turns keep the turn_conclusions index alignment
+            # (a gap would shift the NEXT turn's conclusion into this turn's
+            # slot) and preserve whatever partial text already streamed.
             if result.final_state is not None and result.final_state.status == "error":
                 logger.warning(
                     "Agent run ended in error state for session %s: %s",
@@ -524,6 +528,7 @@ class RunManager:
                     error_detail="模型调用失败，请稍后重试",
                     event_seq=seq,
                 )
+                await store.finalize_turn_conclusion(session_id, conclusion, event_seq=seq)
                 await recorder.emit_terminal("error", detail="模型调用失败，请稍后重试", seq=seq)
                 run.status = "error"
             else:
@@ -545,6 +550,8 @@ class RunManager:
                 await store.update(
                     session_id, status="stopped", finished_at=_time.time(), event_seq=seq
                 )
+                partial = run.recorder.flush_verdict() if run.recorder is not None else ""
+                await store.finalize_turn_conclusion(session_id, partial, event_seq=seq)
                 if run.recorder is not None:
                     await run.recorder.emit_terminal("stopped", seq=seq)
                 else:
@@ -566,6 +573,8 @@ class RunManager:
                     error_detail=detail,
                     event_seq=seq,
                 )
+                partial = run.recorder.flush_verdict() if run.recorder is not None else ""
+                await store.finalize_turn_conclusion(session_id, partial, event_seq=seq)
                 if run.recorder is not None:
                     await run.recorder.emit_terminal(
                         "error", detail=detail, trace_id=trace_id, seq=seq
@@ -592,10 +601,17 @@ class RunManager:
             # connections (sidebar badge / completion toast).
             try:
                 record = await store.get(session_id)
+                # Only a completed run has a fresh session-level conclusion;
+                # on error/stopped the field still holds the previous turn's
+                # and must not leak into toasts.
                 self._notify(
                     run,
                     run.status,
-                    conclusion=(record.conclusion if record else "") or "",
+                    conclusion=(
+                        (record.conclusion if record else "")
+                        if run.status == "completed"
+                        else ""
+                    ),
                     tokens=(
                         {"tokensIn": record.tokens_in, "tokensOut": record.tokens_out}
                         if record
