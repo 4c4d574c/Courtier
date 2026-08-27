@@ -136,23 +136,23 @@
 ## Phase 1：host 侧 glue 能力
 
 ### Task 1.1: embedding 注入机制
-- [ ] `es/embeddings.py` 加 `embed_query`；`ToolRegistry.execute` host 注入参数机制（契约标记 `x-host-injected` 识别、注入器注册表、LLM 可见 schema 剔除）
-- [ ] 单测：注入触发/未配置跳过/旧契约兼容/失败不注入
+- [x] `es/embeddings.py` 加 `embed_query`；`ToolRegistry.execute` host 注入参数机制（契约标记 `x-host-injected` 识别、注入器注册表、LLM 可见 schema 剔除）
+- [x] 单测：注入触发/未配置跳过/旧契约兼容/失败不注入
 
 ### Task 1.2: 重排模块与挂点
-- [ ] `search_rerank.py`（预算裁剪 + `_parse_order` 容错迁移）+ `search.rerank` 模板 + Settings 两字段
-- [ ] 挂点：`tool.execute` 后 persist 前，rerank=true 触发，模型调用经 loop 注入；失败保持原序 + `rerank_partial`
-- [ ] 单测：重排成功/解析失败/模型失败/未触发四路径 + usage 记录
+- [x] `search_rerank.py`（预算裁剪 + `_parse_order` 容错迁移）+ `search.rerank` 模板 + Settings 两字段
+- [x] 挂点：`tool.execute` 后 persist 前，rerank=true 触发，模型调用经 loop 注入；失败保持原序 + `rerank_partial`
+- [x] 单测：重排成功/解析失败/模型失败/未触发四路径 + usage 记录
 
 ## Phase 2：search 插件改造
 
 ### Task 2.1: 契约与检索臂
-- [ ] `plugin.yaml` 契约加 `query_embedding`（host-injected 标记）；`tools.py` kNN 臂改用注入向量，删 `embeddings.py` 与 DIM 校验
-- [ ] rerank 透传语义：`rerank=true` 时返回 top-`rerank_fetch` 候选不自行重排；删 `rerank.py`
+- [x] `plugin.yaml` 契约加 `query_embedding`（host-injected 标记）；`tools.py` kNN 臂改用注入向量，删 `embeddings.py` 与 DIM 校验
+- [x] rerank 透传语义：`rerank=true` 时返回 top-`rerank_fetch` 候选不自行重排；删 `rerank.py`
 
 ### Task 2.2: 集成验证
-- [ ] loopback 集成（现有 `test_integration` 模式）：注入向量端到端（host 注入 → 插件 kNN 生效）、重排端到端（rerank=true → host 重排 → artifact 顺序一致）
-- [ ] 降级路径集成：embedding 未配置纯词法；重排失败原序
+- [x] loopback 集成（现有 `test_integration` 模式）：注入向量端到端（host 注入 → 插件 kNN 生效）、重排端到端（rerank=true → host 重排 → artifact 顺序一致）
+- [x] 降级路径集成：embedding 未配置纯词法；重排失败原序
 
 ## Phase 3：边界与文档同步 + 验收
 
@@ -209,5 +209,18 @@
 3. `plugin.env.example`：parse 段删 `LLM_*`/`DOCPARSE_CLASSIFY_MODE`/`DOCPARSE_MAX_LLM_CONCURRENT`/`DOCPARSE_LLM_IMAGE_MAX_LONG_SIDE`；`LLM_IP/LLM_API_KEY/LLM_NAME` 临时移入 search 段（search 重排仍在用，Phase 2 随重排迁移一并删除）。`ParserConfig` 删 6 个 LLM 字段；parse `plugin.yaml` 注释同步。
 4. 顺手修复：ruff 发现 `plugins/docaudit/parse/tools.py` 有一个本就未使用的 `logging` 导入（--fix 清理）。
 5. 实测：docparse + parse 插件 482 passed；全量 `pytest -m "not integration"` 1723 passed / 6 skipped；ruff 绿。**parse 插件至此零 LLM**（结构=规则引擎、字体=ResNet、无 LLM env）。
+
+**Task 1.1/1.2 完成**（host 侧 glue，`d70f45c`/`ada0662`）。偏差与实测：
+1. **模型调用不经 loop 注入，改在 app 工厂闭包接线**——post-processor 配置在 `ToolRegistry` 上（`configure_result_post_processors`），loop 零改动；重排经独立的 `OpenAIModelBackend` 单次调用（temperature=0 + `response_format=json_object`）。
+2. **重排发现插件管线的隐藏顺序约束**：旧插件重排发生在分页（skip/limit）与邻块扩展**之前**，而这两步需要 ES 访问（插件侧）。因此 post-processor 增加 **finalize 回传**：host 重排后直接调 `tool.execute(finalize={有序hits+flags}, skip, limit)` 让插件完成分页+邻块（绕过 registry.execute 无递归），失败时回退返回带 flags 的粗排列表。计划原文"插件多返回候选"不足以保住分页/邻块语义，此为设计补强。
+3. 新增核心模板 `search.rerank.system/user`（zh-CN + en-US defaults + FALLBACK_TEMPLATES），遵循 core 无硬编码 NL 规则；`Settings` 增 `search_rerank_fetch=100`、`search_rerank_candidate_budget_chars=24000`（原插件 env 迁移，默认值不变）。
+4. 插件侧粗排候选窗口 = min(window, 100)（原 `SEARCH_RERANK_FETCH` 变 host 常量上限）；host 的 `search_rerank_fetch` 只能收窄。重排接线（app.py post-processor）延迟到 Task 2.1 与插件契约同提交，避免旧插件双重重排窗口。
+5. 顺手修复存量 E501（config.py `max_runs_per_user` description）与 embedding env 名 description 错写（实际 env 名为 `LLM_EMBEDDING_MODEL`，原描述写 `LLM_EMBEDDING_NAME`——即计划所列"命名陷阱"条目）。
+
+**Task 2.1/2.2 完成**（search 插件去 LLM，`bd78a88` + loopback）。偏差与实测：
+1. **embedding 降级语义简化**：旧版"配置了 embedding 但调用失败"会回退为窗口切片的词法结果；新版无注入向量即纯词法（ES 原生分页 + 服务端 gauss 衰减、精确 total）——更干净的降级，`test_degraded_hybrid_loses_decay_and_flags_it` 随语义删除。
+2. 插件 `rerank=true` 现返回粗排候选（未分页/无邻块/无 flags），host 重排后 finalize 回传分页+邻块；粗排结果 TTL 缓存语义保留（`cached=True`）。
+3. 删除面：`embeddings.py`/`rerank.py` 整文件、`LLM_EMBEDDING_DIM` 校验、manifest `SEARCH_RERANK_FETCH`/`SEARCH_CANDIDATE_BUDGET_CHARS`；`plugin.env.example` search 段缩为纯 ES 四项。
+4. loopback 集成（`test_search_glue_loopback.py`）：真 SDK server + 真连接管理器 + 真 ToolRegistry 全链路——注入向量经 TCP 到达（hybrid 生效 + schema 剔除）、重排→finalize 往返（顺序/flags/分页一致）、双降级路径（未配置纯词法、重排失败保序+partial）。`pytest -m "not integration"` 全量 1744 passed。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）
