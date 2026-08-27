@@ -124,9 +124,9 @@
 ## Phase 0：docparse / parse 去 LLM
 
 ### Task 0.1: 结构识别 LLM 路径删除
-- [ ] 删 `llm_client.py`（结构部分）、`_retry.py`；`scanned/__init__.py` 固化规则引擎路径，删 classify_mode 分支/`_rules_acceptable`/逐页 LLM 回退
-- [ ] `registry.py` 混合分发去 `llm_api_key` 键控；`ScannedParser` fail-fast 删除
-- [ ] docparse 单测改写（classify_mode 用例改规则路径固定；LLM mock 用例删除）
+- [x] 删 `llm_client.py`（结构部分）、`_retry.py`；`scanned/__init__.py` 固化规则引擎路径，删 classify_mode 分支/`_rules_acceptable`/逐页 LLM 回退
+- [x] `registry.py` 混合分发去 `llm_api_key` 键控；`ScannedParser` fail-fast 删除
+- [x] docparse 单测改写（classify_mode 用例改规则路径固定；LLM mock 用例删除）
 
 ### Task 0.2: 字体链 ResNet 唯一化 + env 清理
 - [ ] 删字体 LLM 兜底（`llm_client.py` 字体部分、拼图逻辑、模型失败回退）；未配置/未识别行无字体信息 + warning
@@ -197,4 +197,10 @@
 
 ## 实施记录
 
-（待实施；按 Task 记录偏差、实测与排障。）
+**Task 0.1 完成**（结构识别 LLM 路径删除）。偏差与实测：
+1. **`llm_client.py`/`_retry.py` 整文件留到 Task 0.2 删除**——字体识别的 LLM 兜底（同文件后半）在 0.1 仍在消费它，按"每提交绿"原则拆开；0.1 只删了 `structure_recognizer.py` 中全部 LLM 专属代码（`recognize_page_structure`、`_parse_header/_parse_body/_parse_footer`、合成线构建、附件断行拆分，950→597 行）。
+2. `structure_recognizer.py` 保留面的划分依据：`_validate_header_slots`（版头槽位正则纠偏）与 `_build_paragraph`/`_merge_body_text_into_paragraphs` 为规则路径共用，保留并中性化 docstring 措辞。
+3. 测试改写：`test_pdf_parser.py` 的 `TestRegistryDispatch`（计划遗漏的测试组）——`_pdf_dispatch` 去 `ocr_available` 参数、删"无 LLM 走 PdfParser"用例、`get_parser` 混合断言改无条件。管线测试的 `main_text==1` 断言依赖旧 LLM fake 行为，规则引擎把该短行归入 `issuing_signature`（置信 0.3），改为"内容保留在页面段落"断言（`collect_all_paragraphs`）。
+4. 实测：`uv run pytest -m "not integration"` 1723 passed / 6 skipped；ruff 全绿。
+
+（其余 Task 待实施；按 Task 记录偏差、实测与排障。）

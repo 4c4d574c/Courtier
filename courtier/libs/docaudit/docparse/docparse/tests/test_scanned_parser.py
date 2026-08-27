@@ -1,12 +1,9 @@
 """Tests for scanned parser with integrated OCR, font detection, and spacing."""
 
-import threading
-import time
 from types import SimpleNamespace
 
 import docparse.parsers.scanned as scanned_mod
 import pytest
-from docmodels import PageContent
 from docparse.parsers.base import ParserConfig
 from docparse.parsers.ocr.base import OCRBlock, OCRLineResult, OCRPageResult
 from docparse.parsers.scanned import ScannedParser
@@ -645,29 +642,6 @@ def _make_config(**overrides) -> ParserConfig:
 class TestScannedParserPipeline:
     """End-to-end parse() behavior with mocked OCR/LLM backends."""
 
-    def test_fail_fast_without_llm_api_key(self, monkeypatch, tmp_path):
-        """No LLM key -> ValueError before any image prep or OCR call."""
-        src = tmp_path / "doc.png"
-        _write_png(src)
-
-        calls = {"prepare": 0, "ocr_factory": 0}
-
-        def _prepare(_p):
-            calls["prepare"] += 1
-            return [str(src)]
-
-        def _factory(*_a):
-            calls["ocr_factory"] += 1
-            raise AssertionError("OCR engine must not be created")
-
-        monkeypatch.setattr(scanned_mod, "prepare_images", _prepare)
-        monkeypatch.setattr(scanned_mod, "create_ocr_engine", _factory)
-
-        with pytest.raises(ValueError, match="LLM_API_KEY"):
-            ScannedParser().parse(str(src), _make_config(llm_api_key=""))
-
-        assert calls == {"prepare": 0, "ocr_factory": 0}
-
     def test_all_pages_ocr_failure_raises(self, monkeypatch, tmp_path):
         pages = []
         for i in range(2):
@@ -699,12 +673,21 @@ class TestScannedParserPipeline:
 
         doc = ScannedParser().parse(pages[0], _make_config())
 
+        from docparse.parsers.scanned.structure import collect_all_paragraphs
+
+        def _page_text(page) -> str:
+            return "".join(
+                elem.font.text
+                for para in collect_all_paragraphs(page.page_content)
+                for elem in para.elements
+            )
+
         assert doc.total_page_num == 3
         assert [p.page_no for p in doc.pages] == [0, 1, 2]
         # Failed page is empty but present; other pages keep their content.
         assert doc.pages[1].page_content.body.main_text == []
-        assert len(doc.pages[0].page_content.body.main_text) == 1
-        assert len(doc.pages[2].page_content.body.main_text) == 1
+        assert _page_text(doc.pages[0]) == "正文内容行"
+        assert _page_text(doc.pages[2]) == "正文内容行"
         assert any("第 2 页 OCR 识别失败" in w for w in doc.warnings)
         # Page model no longer carries raw bytes / per-page save_path
         from docmodels import Page
@@ -742,77 +725,19 @@ class TestScannedParserPipeline:
 
         result_pages, warnings = ScannedParser().parse_pages(str(pages[0]), [2, 4], _make_config())
 
+        from docparse.parsers.scanned.structure import collect_all_paragraphs
+
         assert [p.page_no for p in result_pages] == [2, 4]
-        assert len(result_pages[0].page_content.body.main_text) == 1
+        healthy_text = "".join(
+            elem.font.text
+            for para in collect_all_paragraphs(result_pages[0].page_content)
+            for elem in para.elements
+        )
+        assert healthy_text == "正文内容行"
         # 失败页降级为空页；OCR 失败告警引用原始页码（第 5 页，非子集序号）
         assert result_pages[1].page_content.body.main_text == []
         assert any("第 5 页 OCR 识别失败" in w for w in warnings)
         assert not any("第 2 页 OCR 识别失败" in w for w in warnings)
-
-    def test_llm_structure_failure_falls_back_to_rules(self, monkeypatch, tmp_path):
-        """A page whose LLM call fails is classified by the rule engine."""
-        pages = []
-        for i in range(2):
-            p = tmp_path / f"page_{i}.png"
-            _write_png(p)
-            pages.append(str(p))
-
-        engine = _StubOcrEngine({p: _ok_result() for p in pages})
-
-        class _FlakyLLMClient(_FakeLLMClient):
-            def recognize_structure(self, lines, image_path):
-                if "page_1" in image_path:
-                    raise RuntimeError("LLM boom")
-                return super().recognize_structure(lines, image_path)
-
-        _patch_pipeline(monkeypatch, pages, engine, llm_cls=_FlakyLLMClient)
-
-        doc = ScannedParser().parse(pages[0], _make_config())
-
-        assert doc.total_page_num == 2
-        assert any("第 2 页 LLM 结构识别失败" in w and "规则引擎" in w for w in doc.warnings)
-        # Fallback keeps the page's text content instead of dropping it.
-        from docparse.parsers.scanned.structure import collect_all_paragraphs
-
-        fallback_text = "".join(
-            elem.font.text
-            for para in collect_all_paragraphs(doc.pages[1].page_content)
-            for elem in para.elements
-        )
-        assert "正文内容行" in fallback_text
-
-    def test_llm_calls_respect_max_concurrency(self, monkeypatch, tmp_path):
-        """Structure recognition runs concurrently, bounded by config."""
-        pages = []
-        for i in range(4):
-            p = tmp_path / f"page_{i}.png"
-            _write_png(p)
-            pages.append(str(p))
-
-        engine = _StubOcrEngine({p: _ok_result() for p in pages})
-        _patch_pipeline(monkeypatch, pages, engine)
-
-        lock = threading.Lock()
-        stats = {"current": 0, "max_seen": 0}
-
-        def _tracked_recognize(lines, margin, llm_client, image_path, config=None, img_width=0.0):
-            with lock:
-                stats["current"] += 1
-                stats["max_seen"] = max(stats["max_seen"], stats["current"])
-            try:
-                time.sleep(0.05)
-            finally:
-                with lock:
-                    stats["current"] -= 1
-            return PageContent(margin=margin)
-
-        monkeypatch.setattr(scanned_mod, "recognize_page_structure", _tracked_recognize)
-
-        doc = ScannedParser().parse(pages[0], _make_config(max_llm_concurrent=2))
-
-        assert stats["max_seen"] == 2
-        assert [p.page_no for p in doc.pages] == [0, 1, 2, 3]
-        assert doc.total_page_num == 4
 
     def test_font_recognition_receives_all_lines(self, monkeypatch, tmp_path):
         """裁剪字体识别接收每个有行页面的全部行（不再按 font_family 预过滤）。"""
@@ -899,26 +824,27 @@ class TestFontModelIntegration:
         monkeypatch.setattr(scanned_mod, "FontModelClient", _StubFontModelClient)
 
         received: dict[str, list] = {}
-        structure_lines: list[list] = []
 
         class _TrackingLLMClient(_FakeLLMClient):
             def recognize_fonts_from_crops(self, page_image_path, lines):
                 received[page_image_path] = list(lines)
                 return {1: {"font_family": "仿宋", "font_weight": False, "font_style": False}}
 
-            def recognize_structure(self, lines, image_path):
-                structure_lines.append(list(lines))
-                return super().recognize_structure(lines, image_path)
-
         engine = _StubOcrEngine({page: _two_line_result()})
         _patch_pipeline(monkeypatch, [page], engine, llm_cls=_TrackingLLMClient)
 
-        ScannedParser().parse(page, _make_config(font_model_url="http://font:5000"))
+        doc = ScannedParser().parse(page, _make_config(font_model_url="http://font:5000"))
 
         # LLM 兜底只收到模型未识别的行（line_no == 1）
         assert [line["line_no"] for line in received[page]] == [1]
-        # 模型识别结果已合并进行数据（结构 LLM 看到的行带字体族）
-        fonts = {line["line_no"]: line["font_family"] for line in structure_lines[0]}
+        # 两级字体识别（模型 + LLM 兜底）均已合并进最终段落
+        from docparse.parsers.scanned.structure import collect_all_paragraphs
+
+        fonts = {
+            elem.font.line_no: elem.font.font_family
+            for para in collect_all_paragraphs(doc.pages[0].page_content)
+            for elem in para.elements
+        }
         assert fonts == {0: "黑体", 1: "仿宋"}
 
     def test_model_failure_falls_back_to_full_llm(self, monkeypatch, tmp_path):
@@ -944,100 +870,3 @@ class TestFontModelIntegration:
         # 整页回退：LLM 收到全部行；警告记录模型失败
         assert [line["line_no"] for line in received[page]] == [0, 1]
         assert any("字体模型识别失败" in w for w in doc.warnings)
-
-
-class TestClassifyMode:
-    """classify_mode wiring for Phase 4 structure recognition."""
-
-    def test_rule_only_skips_llm(self, monkeypatch, tmp_path):
-        p = tmp_path / "page.png"
-        _write_png(p)
-        page = str(p)
-
-        calls = {"structure": 0}
-
-        class _CountingLLMClient(_FakeLLMClient):
-            def recognize_structure(self, lines, image_path):
-                calls["structure"] += 1
-                return super().recognize_structure(lines, image_path)
-
-        engine = _StubOcrEngine({page: _ok_result()})
-        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_CountingLLMClient)
-
-        doc = ScannedParser().parse(page, _make_config(classify_mode="rule_only"))
-
-        assert calls["structure"] == 0
-        assert len(doc.pages) == 1
-
-    def test_rule_first_low_confidence_uses_llm(self, monkeypatch, tmp_path):
-        p = tmp_path / "page.png"
-        _write_png(p)
-        page = str(p)
-
-        monkeypatch.setattr(scanned_mod, "_rules_acceptable", lambda *_a, **_k: False)
-
-        calls = {"structure": 0}
-
-        class _CountingLLMClient(_FakeLLMClient):
-            def recognize_structure(self, lines, image_path):
-                calls["structure"] += 1
-                return super().recognize_structure(lines, image_path)
-
-        engine = _StubOcrEngine({page: _ok_result()})
-        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_CountingLLMClient)
-
-        ScannedParser().parse(page, _make_config(classify_mode="rule_first"))
-
-        assert calls["structure"] == 1
-
-    def test_rule_first_confident_skips_llm(self, monkeypatch, tmp_path):
-        p = tmp_path / "page.png"
-        _write_png(p)
-        page = str(p)
-
-        # 启发式本身由 TestRulesAcceptable 覆盖，这里只验证接线：
-        # 规则结果被接受时不调用 LLM。
-        monkeypatch.setattr(scanned_mod, "_rules_acceptable", lambda *_a, **_k: True)
-
-        calls = {"structure": 0}
-
-        class _CountingLLMClient(_FakeLLMClient):
-            def recognize_structure(self, lines, image_path):
-                calls["structure"] += 1
-                return super().recognize_structure(lines, image_path)
-
-        engine = _StubOcrEngine({page: _ok_result()})
-        _patch_pipeline(monkeypatch, [page], engine, llm_cls=_CountingLLMClient)
-
-        ScannedParser().parse(page, _make_config(classify_mode="rule_first"))
-
-        assert calls["structure"] == 0
-
-
-class TestRulesAcceptable:
-    """Unit tests for the rule_first acceptance heuristic."""
-
-    def _classified(self, confidences: list[float]):
-        from docparse.parsers.rules import ClassifiedLine, ClassifyResult
-
-        return ClassifyResult(
-            lines=[
-                ClassifiedLine(line_no=i, text="x", field="body_text", confidence=c)
-                for i, c in enumerate(confidences)
-            ]
-        )
-
-    def test_all_confident_accepted(self):
-        assert scanned_mod._rules_acceptable(self._classified([0.5, 0.9, 0.7])) is True
-
-    def test_empty_rejected(self):
-        assert scanned_mod._rules_acceptable(self._classified([])) is False
-
-    def test_low_confidence_above_ratio_rejected(self):
-        # 1/5 = 0.2 > 0.1 → reject
-        assert scanned_mod._rules_acceptable(self._classified([0.3, 0.5, 0.5, 0.5, 0.5])) is False
-
-    def test_boundary_ratio_accepted(self):
-        # 1/10 = 0.1 ≤ 0.1 → accept
-        confidences = [0.3] + [0.5] * 9
-        assert scanned_mod._rules_acceptable(self._classified(confidences)) is True

@@ -5,8 +5,8 @@ Two layers:
 - Offline error-path tests (run by default): verify the pipeline fails
   honestly when the OCR service is unreachable — no silent empty documents.
 - End-to-end tests (``pytest.mark.integration``): require a live
-  PPStructureV3 OCR service and, for the full pipeline, a multimodal LLM.
-  See the class docstring for the required environment variables.
+  PPStructureV3 OCR service.  See the class docstring for the required
+  environment variables.
 """
 
 from __future__ import annotations
@@ -49,20 +49,9 @@ class TestOcrUnreachableOffline:
         fails for every page."""
         img = _write_png(tmp_path / "page.png")
         config = ParserConfig(
-            llm_api_key="offline-test-key",
             ocr_api_url=f"http://127.0.0.1:{_unused_port()}/ocr",
         )
         with pytest.raises(RuntimeError, match="OCR 识别均失败"):
-            ScannedParser().parse(img, config)
-
-    def test_scanned_parser_rejects_missing_llm_key(self, tmp_path):
-        """Without an LLM key the parser fails fast, before any OCR call."""
-        img = _write_png(tmp_path / "page.png")
-        config = ParserConfig(
-            llm_api_key="",
-            ocr_api_url=f"http://127.0.0.1:{_unused_port()}/ocr",
-        )
-        with pytest.raises(ValueError, match="LLM_API_KEY"):
             ScannedParser().parse(img, config)
 
 
@@ -73,8 +62,6 @@ class TestPPStructureLiveIntegration:
     Required environment:
     - ``DOCPARSE_OCR_API_URL``: endpoint of a running PPStructureV3
       service (e.g. ``http://localhost:8006/ocr``).
-    - ``LLM_IP``, ``LLM_API_KEY``, ``LLM_NAME``: multimodal LLM endpoint,
-      key, and model — only needed for the full-pipeline test.
 
     Run with: ``uv run pytest tests/domains/docaudit/docparse -m integration``
     """
@@ -90,14 +77,10 @@ class TestPPStructureLiveIntegration:
         assert isinstance(result, OCRPageResult)
 
     def test_full_scanned_pipeline(self, tmp_path):
-        """Full image → Document pipeline with live OCR + LLM services."""
+        """Full image → Document pipeline (OCR + rule engine) with a live OCR service."""
         api_url = os.getenv("DOCPARSE_OCR_API_URL")
-        llm_key = os.getenv("LLM_API_KEY")
-        if not api_url or not llm_key:
-            pytest.skip(
-                "Requires DOCPARSE_OCR_API_URL and LLM_API_KEY (plus "
-                "LLM_IP/LLM_NAME) pointing at live services"
-            )
+        if not api_url:
+            pytest.skip("Requires DOCPARSE_OCR_API_URL pointing at a live OCR service")
 
         img = _write_png(tmp_path / "page.png")
         doc = ScannedParser().parse(img, ParserConfig.from_env())

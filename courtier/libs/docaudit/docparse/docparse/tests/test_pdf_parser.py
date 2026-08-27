@@ -267,7 +267,7 @@ class TestRegistryDispatch:
         assert result.source == "pdf"
 
     def test_mixed_with_ocr_splits_pages(self, monkeypatch, pdf_file):
-        """混合 + OCR 可用 → 按页分流：文本页走规则引擎（不进 OCR），
+        """混合 PDF → 按页分流：文本页走规则引擎（不进 OCR），
         仅无文本层页走 ScannedParser.parse_pages；source="mixed"。"""
         import docparse.parsers.scanned as scanned_mod
 
@@ -278,7 +278,7 @@ class TestRegistryDispatch:
         )
         monkeypatch.setattr(scanned_mod, "ScannedParser", _FakeScannedParser)
 
-        result = registry.parse(pdf_file, ParserConfig(llm_api_key="test-key"))
+        result = registry.parse(pdf_file, ParserConfig())
 
         assert result.source == "mixed"
         # 总页数为全文页数，页码按原始顺序合并
@@ -325,7 +325,7 @@ class TestRegistryDispatch:
         monkeypatch.setattr(pdf_parser_mod, "extract_pdf_pages", lambda _p: extraction)
         monkeypatch.setattr(scanned_mod, "ScannedParser", _FakeScannedParser)
 
-        result = registry.parse(pdf_file, ParserConfig(llm_api_key="test-key"))
+        result = registry.parse(pdf_file, ParserConfig())
 
         assert result.source == "mixed"
         assert "第 2 页内容提取失败：boom" in result.warnings
@@ -334,27 +334,9 @@ class TestRegistryDispatch:
     def test_pdf_dispatch_kinds(self):
         from docparse.parsers.registry import _pdf_dispatch
 
-        assert _pdf_dispatch(0, 3, ocr_available=True) == "pdf"
-        assert _pdf_dispatch(3, 3, ocr_available=True) == "scanned"
-        assert _pdf_dispatch(1, 3, ocr_available=True) == "mixed"
-        assert _pdf_dispatch(1, 3, ocr_available=False) == "pdf"
-
-    def test_mixed_without_ocr_uses_pdf_and_lists_pages(self, monkeypatch, pdf_file):
-        import docparse.parsers.scanned as scanned_mod
-
-        monkeypatch.setattr(
-            pdf_parser_mod,
-            "extract_pdf_pages",
-            lambda _p: _extraction([True, False, True]),
-        )
-        monkeypatch.setattr(scanned_mod, "ScannedParser", _FakeScannedParser)
-
-        result = registry.parse(pdf_file, ParserConfig())
-
-        assert _FakeScannedParser.instances == []
-        assert result.total_page_num == 3
-        assert any("第 2 页无文本层" in w for w in result.warnings)
-        assert result.source == "pdf"
+        assert _pdf_dispatch(0, 3) == "pdf"
+        assert _pdf_dispatch(3, 3) == "scanned"
+        assert _pdf_dispatch(1, 3) == "mixed"
 
     def test_all_scanned_goes_scanned(self, monkeypatch, pdf_file):
         import docparse.parsers.scanned as scanned_mod
@@ -380,13 +362,11 @@ class TestRegistryDispatch:
             pdf_parser_mod, "extract_pdf_pages", lambda _p: _extraction([True, False])
         )
 
-        with_ocr = registry.get_parser(str(f), ParserConfig(llm_api_key="test-key"))
-        without_ocr = registry.get_parser(str(f), ParserConfig())
+        parser = registry.get_parser(str(f), ParserConfig())
 
-        # 混合 + OCR 可用 → 按页分流适配器（整册 ScannedParser 仅用于全扫描件）
-        assert isinstance(with_ocr, _MixedPdfParser)
-        assert not isinstance(with_ocr, ScannedParser)
-        assert isinstance(without_ocr, PdfParser)
+        # 混合 → 按页分流适配器（整册 ScannedParser 仅用于全扫描件）
+        assert isinstance(parser, _MixedPdfParser)
+        assert not isinstance(parser, ScannedParser)
 
     def test_get_parser_mixed_parser_delegates(self, monkeypatch, tmp_path):
         """get_parser 返回的混合适配器 parse() 走 _parse_mixed_pdf 且复用探测 extraction。"""
@@ -403,8 +383,8 @@ class TestRegistryDispatch:
         monkeypatch.setattr(pdf_parser_mod, "extract_pdf_pages", fake_extract)
         monkeypatch.setattr(scanned_mod, "ScannedParser", _FakeScannedParser)
 
-        parser = registry.get_parser(str(f), ParserConfig(llm_api_key="test-key"))
-        result = parser.parse(str(f), ParserConfig(llm_api_key="test-key"))
+        parser = registry.get_parser(str(f), ParserConfig())
+        result = parser.parse(str(f), ParserConfig())
 
         assert result.source == "mixed"
         assert [p.page_no for p in result.pages] == [0, 1]

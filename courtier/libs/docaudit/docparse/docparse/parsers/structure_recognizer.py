@@ -1,14 +1,15 @@
-"""Structure recognizer: LLM-based page structure classification for scanned documents.
+"""Structure recognizer: rule-engine classification → PageContent conversion.
 
-Provides the main `recognize_page_structure()` entry point that uses
-multimodal LLM to classify lines into header/body/footer structure.
+Converts ``StructureRuleEngine`` classification results into the
+header/body/footer PageContent model, merges consecutive body lines into
+paragraphs, and estimates paragraph spacing from element positions.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from docmodels import (
     Body,
@@ -22,20 +23,9 @@ from docmodels import (
     Position,
 )
 
-from .llm_client import LLMClient
 from .rules import ClassifiedLine
 
-if TYPE_CHECKING:
-    from .base import ParserConfig
-
 logger = logging.getLogger(__name__)
-
-# Reference geometry for _build_attachment_note break detection: the
-# thresholds below were tuned on ~1280px-wide page images (85px ≈ 40pt
-# at A4 width) and are scaled by actual image width at call time.
-_ATTACHMENT_REF_IMG_WIDTH_PX = 1280.0
-_ATTACHMENT_Y_GAP_REF_PX = 30.0
-_ATTACHMENT_X0_BREAK_REF_PX = 85.0
 
 # Paragraph-level spacing/indent keys carried on extracted line dicts.
 # Only the DOCX parser populates them (direct python-docx reads); PDF
@@ -50,30 +40,10 @@ _PARA_SPACING_KEYS = (
     "right_indent",
 )
 
-# GB/T 9704 各级标题的期望字体族：一级黑体、二级楷体、三级仿宋。
-# 用于对 LLM 判出的标题做字体族矛盾校验（见 _parse_body）。
-_HEADING_EXPECTED_FAMILY: dict[str, set[str]] = {
-    "heading1": {"黑体"},
-    "heading2": {"楷体"},
-    "heading3": {"仿宋"},
-}
-
 # 版头槽位后校验（见 _validate_header_slots）：密级槽的文本特征（密级/绝密/
 # 机密/秘密/▲/★）与发文字号槽的文本特征（括号年份，如 〔2025〕/[2026】）。
 _SECRECY_TEXT_RE = re.compile(r"密级|绝密|机密|秘密|▲|★")
 _ISSUING_NUMBER_TEXT_RE = re.compile(r"[〔\[【(（][^〕\]】)）]{0,6}(?:19|20)\d{2}")
-
-
-def _safe_get(data: dict[str, Any] | None, key: str, default: Any = None) -> Any:
-    """Safely get a value from a dict that may contain None values.
-
-    Unlike dict.get(), this also handles the case where the key exists
-    but its value is None — returning the default instead.
-    """
-    if data is None:
-        return default
-    value = data.get(key, default)
-    return default if value is None else value
 
 
 def _build_paragraph(
@@ -82,11 +52,11 @@ def _build_paragraph(
     extracted_lines: list[dict[str, Any]],
     outline_level: str = "others",
 ) -> Paragraph:
-    """Build a Paragraph from LLM classification and extracted line data.
+    """Build a Paragraph from classification results and extracted line data.
 
     Args:
-        text: The text content from LLM classification.
-        line_indices: Line indices from LLM classification.
+        text: The text content of the paragraph.
+        line_indices: Line indices into extracted_lines.
         extracted_lines: Original extracted line data with position/font info.
         outline_level: Outline level for this paragraph.
 
@@ -141,121 +111,11 @@ def _build_paragraph(
     )
 
 
-def _build_line_paragraph(
-    reference_line_index: int,
-    extracted_lines: list[dict[str, Any]],
-    position: str,
-) -> Paragraph:
-    """Build a Paragraph for a visual line (ruling_line / closing_line).
-
-    Since these are graphic lines (not text), OCR does not detect them.  We
-    derive their position from the adjacent text line that the LLM points to
-    via *reference_line_index*.
-
-    Args:
-        reference_line_index: Index of the adjacent text line.
-        extracted_lines: Original extracted line data.
-        position: "after" — the line sits just below the reference line
-                  (red ruling line after the last header element).
-                  "before" — the line sits just above the reference line
-                  (black closing line before the first footer element).
-    """
-    if reference_line_index < 0 or reference_line_index >= len(extracted_lines):
-        return Paragraph()
-
-    ref = extracted_lines[reference_line_index]
-    ref_y0 = ref.get("y0", 0.0)
-    ref_y1 = ref.get("y1", 0.0)
-    ref_x0 = ref.get("x0", 0.0)
-    ref_x1 = ref.get("x1", 0.0)
-    line_height = max(ref_y1 - ref_y0, 1.0)
-    gap = line_height * 0.6
-
-    if position == "after":
-        y0 = ref_y1 + gap
-    else:
-        y0 = ref_y0 - gap - line_height
-
-    y1 = y0 + line_height
-
-    pos = Position(x0=ref_x0, y0=y0, x1=ref_x1, y1=y1)
-    # line_no=-1 marks the synthetic element as "no source line": it must not
-    # join the spacing/indent lookup in merge_spacing_into_page_content (the
-    # default 0 would silently inherit line 0's — typically 密级行's — spacing).
-    return Paragraph(elements=[LineElement(position=pos, font=Font(line_no=-1))])
-
-
-def _build_ruling_line(
-    data: dict[str, Any] | None,
-    extracted_lines: list[dict[str, Any]],
-) -> Paragraph | None:
-    """Build ruling_line_pos paragraph, preferring reference_line_index."""
-    if data is None:
-        return None
-    ref_idx = data.get("reference_line_index")
-    if isinstance(ref_idx, (int, float)) and not isinstance(ref_idx, bool):
-        ref_idx = int(ref_idx)
-        if 0 <= ref_idx < len(extracted_lines):
-            return _build_line_paragraph(ref_idx, extracted_lines, "after")
-    return _build_optional_paragraph(
-        {"text": _safe_get(data, "text", ""), "line_indices": _safe_get(data, "line_indices", [])},
-        extracted_lines,
-    )
-
-
-def _build_closing_line(
-    data: dict[str, Any] | None,
-    extracted_lines: list[dict[str, Any]],
-) -> Paragraph | None:
-    """Build closing_line paragraph, preferring reference_line_index."""
-    if data is None:
-        return None
-    ref_idx = data.get("reference_line_index")
-    if isinstance(ref_idx, (int, float)) and not isinstance(ref_idx, bool):
-        ref_idx = int(ref_idx)
-        if 0 <= ref_idx < len(extracted_lines):
-            return _build_line_paragraph(ref_idx, extracted_lines, "before")
-    return _build_optional_paragraph(
-        {"text": _safe_get(data, "text", ""), "line_indices": _safe_get(data, "line_indices", [])},
-        extracted_lines,
-    )
-
-
-def _parse_header(
-    header_data: dict[str, Any] | None,
-    extracted_lines: list[dict[str, Any]],
-) -> Header:
-    """Parse LLM header classification into Header model.
-
-    Slots the LLM did not identify stay None (无此要素), not empty
-    Paragraph skeletons.
-    """
-    if not header_data:
-        return Header()
-
-    return Header(
-        copy_number=_build_optional_paragraph(header_data.get("copy_number"), extracted_lines),
-        classification_duration=_build_optional_paragraph(
-            header_data.get("classification_duration"), extracted_lines
-        ),
-        urgency_level=_build_optional_paragraph(header_data.get("urgency_level"), extracted_lines),
-        issuing_logo=_build_optional_paragraph(header_data.get("issuing_logo"), extracted_lines),
-        issuing_number=_build_optional_paragraph(
-            header_data.get("issuing_number"), extracted_lines
-        ),
-        signatory=_build_optional_paragraph(header_data.get("signatory"), extracted_lines),
-        ruling_line_pos=_build_ruling_line(
-            header_data.get("ruling_line_pos"),
-            extracted_lines,
-        ),
-    )
-
-
 def _validate_header_slots(header: Header) -> None:
     """Swap classification_duration / issuing_number when they are misplaced.
 
-    The LLM occasionally slots the header lines backwards (e.g. the secrecy
-    line "密级▲长期" lands in issuing_number and the document number
+    The classifier occasionally slots the header lines backwards (e.g. the
+    secrecy line "密级▲长期" lands in issuing_number and the document number
     "X办〔2026〕号" in classification_duration).  Text features are
     unambiguous for these two slots, so a regex cross-check can safely swap
     them back.  Ambiguous cases (no clear feature on either side) are left
@@ -283,177 +143,6 @@ def _validate_header_slots(header: Header) -> None:
     if misplaced:
         logger.info("Header slot validation swapped classification_duration <-> issuing_number")
         header.classification_duration, header.issuing_number = issuing, classification
-
-
-def _parse_body(
-    body_data: dict[str, Any] | None,
-    extracted_lines: list[dict[str, Any]],
-    img_width: float = 0.0,
-) -> Body:
-    """Parse LLM body classification into Body model."""
-    if not body_data:
-        return Body()
-
-    main_text_data = body_data.get("main_text", [])
-    main_text: list[Paragraph] = []
-    if isinstance(main_text_data, list):
-        for para_data in main_text_data:
-            if isinstance(para_data, dict):
-                outline = para_data.get("outline_level", "body_text")
-                if outline not in (
-                    "heading1",
-                    "heading2",
-                    "heading3",
-                    "heading4",
-                    "heading5",
-                    "body_text",
-                    "others",
-                ):
-                    outline = "body_text"
-
-                line_indices = para_data.get("line_indices", [])
-                # 字体族矛盾校验：LLM 判出的 heading1/2/3，若命中行的实测
-                # 字体族与期望族全部冲突，降为 body_text；有匹配则保留。
-                # 无实测字体（如字体 LLM 识别失败）时信任 LLM 分类。
-                # 注意：加粗不再作为标题判定依据——黑体/楷体的"粗"来自
-                # 字形本身，GB/T 9704 并无加粗要求。heading4/5 不校验。
-                if outline in _HEADING_EXPECTED_FAMILY:
-                    measured = {
-                        extracted_lines[idx].get("font_family") or ""
-                        for idx in line_indices
-                        if isinstance(idx, int) and 0 <= idx < len(extracted_lines)
-                    }
-                    measured.discard("")
-                    if measured and not measured & _HEADING_EXPECTED_FAMILY[outline]:
-                        outline = "body_text"
-
-                para = _build_paragraph(
-                    para_data.get("text", ""),
-                    line_indices,
-                    extracted_lines,
-                    outline_level=outline,
-                )
-                main_text.append(para)
-
-    return Body(
-        title=_build_optional_paragraph(
-            body_data.get("title"), extracted_lines, outline_level="heading1"
-        ),
-        addressee=_build_optional_paragraph(body_data.get("addressee"), extracted_lines),
-        main_text=main_text,
-        attachment_note=_build_attachment_note(
-            body_data.get("attachment_note"), extracted_lines, img_width
-        ),
-        issuing_signature=_build_optional_paragraph(
-            body_data.get("issuing_signature"), extracted_lines
-        ),
-        issue_date=_build_optional_paragraph(body_data.get("issue_date"), extracted_lines),
-        stamp=_build_optional_paragraph(body_data.get("stamp"), extracted_lines),
-        note=_build_optional_paragraph(body_data.get("note"), extracted_lines),
-        attachments=_build_optional_paragraph(body_data.get("attachments"), extracted_lines),
-    )
-
-
-def _parse_footer(
-    footer_data: dict[str, Any] | None,
-    extracted_lines: list[dict[str, Any]],
-) -> Footer:
-    """Parse LLM footer classification into Footer model."""
-    if not footer_data:
-        return Footer()
-
-    return Footer(
-        closing_line=_build_closing_line(
-            footer_data.get("closing_line"),
-            extracted_lines,
-        ),
-        carbon_copy=_build_optional_paragraph(footer_data.get("carbon_copy"), extracted_lines),
-        issuing_office=_build_optional_paragraph(
-            footer_data.get("issuing_office"), extracted_lines
-        ),
-        distribution_date=_build_optional_paragraph(
-            footer_data.get("distribution_date"), extracted_lines
-        ),
-        page_number=_build_optional_paragraph(footer_data.get("page_number"), extracted_lines),
-    )
-
-
-def _build_optional_paragraph(
-    data: dict[str, Any] | list[Any] | None,
-    extracted_lines: list[dict[str, Any]],
-    outline_level: str = "others",
-) -> Paragraph | None:
-    """Build an optional Paragraph (returns None if data is None or empty).
-
-    Handles both dict (single item) and list (multiple items from LLM).
-    """
-    if data is None:
-        return None
-    # LLM sometimes returns a list of items for fields like "attachments"
-    if isinstance(data, list):
-        combined_text = ""
-        combined_indices: list[int] = []
-        for item in data:
-            if isinstance(item, dict):
-                combined_text += item.get("text", "")
-                combined_indices.extend(item.get("line_indices", []))
-        if not combined_text and not combined_indices:
-            return None
-        return _build_paragraph(combined_text, combined_indices, extracted_lines, outline_level)
-    if isinstance(data, dict):
-        text = data.get("text", "")
-        line_indices = data.get("line_indices", [])
-        if not text and not line_indices:
-            return None
-        return _build_paragraph(text, line_indices, extracted_lines, outline_level)
-    return None
-
-
-def _build_attachment_note(
-    data: dict[str, Any] | None,
-    extracted_lines: list[dict[str, Any]],
-    img_width: float = 0.0,
-) -> Paragraph | None:
-    """Build attachment_note paragraph, splitting items by paragraph breaks.
-
-    When multiple attachment items appear on separate lines with different
-    formatting (e.g. x0 positions), this inserts line-break separation
-    so they render as distinct items in the output document.
-
-    Break-detection thresholds were tuned on ~1280px-wide page images
-    (85px ≈ 40pt at A4 width) and are scaled proportionally to the
-    actual image width, so high-DPI scans (e.g. 2480px at 300 DPI)
-    behave the same as lower-resolution ones.
-    """
-    para = _build_optional_paragraph(data, extracted_lines)
-    if para is None or len(para.elements) < 2:
-        return para
-
-    scale = img_width / _ATTACHMENT_REF_IMG_WIDTH_PX if img_width > 0 else 1.0
-    y_gap_threshold = _ATTACHMENT_Y_GAP_REF_PX * scale
-    x0_break_threshold = _ATTACHMENT_X0_BREAK_REF_PX * scale
-
-    # Detect paragraph breaks between consecutive elements using Y-gap
-    # and x0-position changes.  When a break is found, prefix the second
-    # element's text with a newline so it renders as a separate line.
-    for i in range(len(para.elements) - 1):
-        curr = para.elements[i]
-        nxt = para.elements[i + 1]
-
-        # Y-gap between bottom of current and top of next
-        y_gap_px = nxt.position.y0 - curr.position.y1
-
-        # x0 position change
-        x0_diff_px = abs(nxt.position.x0 - curr.position.x0)
-
-        # Use the same 40pt threshold as spacing.py for x0-based breaks,
-        # scaled from the reference image width to the actual width.
-        is_break = y_gap_px > y_gap_threshold or x0_diff_px > x0_break_threshold
-
-        if is_break:
-            nxt.font = nxt.font.model_copy(update={"text": "\n" + nxt.font.text})
-
-    return para
 
 
 def _get_alignment_from_indices(
@@ -906,45 +595,3 @@ def _text_from_indices_safe(
         if 0 <= i < len(extracted_lines):
             parts.append(extracted_lines[i].get("text", ""))
     return "".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-
-def recognize_page_structure(
-    extracted_lines: list[dict[str, Any]],
-    margin: Margin,
-    llm_client: LLMClient,
-    image_path: str,
-    config: ParserConfig | None = None,
-    img_width: float = 0.0,
-) -> PageContent:
-    """Classify page structure using LLM.
-
-    Args:
-        extracted_lines: Lines extracted from the document with
-            position/font info.
-        margin: Page margin information.
-        llm_client: Multimodal LLM client for structure recognition.
-        image_path: Path to the document page image.
-        config: Parser configuration.
-        img_width: Page image width in pixels, used to scale
-            geometry thresholds (e.g. attachment_note break detection).
-            0 means unknown — reference-width thresholds are used as-is.
-
-    Returns:
-        PageContent with header, body, footer populated.
-    """
-    if not extracted_lines:
-        return PageContent(margin=margin)
-
-    structure = llm_client.recognize_structure(extracted_lines, image_path)
-
-    header = _parse_header(structure.get("header"), extracted_lines)
-    _validate_header_slots(header)
-    body = _parse_body(structure.get("body"), extracted_lines, img_width)
-    footer = _parse_footer(structure.get("footer"), extracted_lines)
-
-    return PageContent(header=header, body=body, footer=footer, margin=margin)

@@ -1,6 +1,6 @@
-"""Scanned document parser — seven-stage pipeline for image/PDF-to-Document.
+"""Scanned document parser — pipeline for image/PDF-to-Document.
 
-Stages: preprocess → OCR → spacing → font → normalize → LLM → structure.
+Stages: preprocess → OCR → spacing → font → normalize → structure (rule engine).
 """
 
 from __future__ import annotations
@@ -21,17 +21,14 @@ from PIL import Image as PILImage
 from ..base import ParserConfig
 from ..llm_client import LLMClient
 from ..ocr import create_ocr_engine
-from ..rules import ClassifyResult, StructureRuleEngine
+from ..rules import StructureRuleEngine
 from ..spacing import (
     compute_first_indent,
     compute_left_right_indent,
     compute_margins,
     compute_paragraph_spacing,
 )
-from ..structure_recognizer import (
-    _classified_lines_to_page_content,
-    recognize_page_structure,
-)
+from ..structure_recognizer import _classified_lines_to_page_content
 from .font_detector import merge_font_info, refine_font_size_by_chars_per_line
 from .font_model import FontModelClient
 from .ocr_engine import (
@@ -55,34 +52,14 @@ from .spacing import (
 logger = logging.getLogger(__name__)
 
 
-def _rules_acceptable(
-    classified: ClassifyResult,
-    min_confidence: float = 0.5,
-    max_low_ratio: float = 0.1,
-) -> bool:
-    """Decide whether rule-engine classification is confident enough.
-
-    Used by ``classify_mode="rule_first"``: when the fraction of
-    low-confidence lines (below ``min_confidence``) stays under
-    ``max_low_ratio`` the rule result is accepted and the LLM call is
-    skipped.  Plain body_text lines score exactly 0.5 by default, so
-    only genuinely ambiguous lines (conflicting heading signals) fall
-    below the bar.
-    """
-    if not classified.lines:
-        return False
-    low = sum(1 for line in classified.lines if line.confidence < min_confidence)
-    return low / len(classified.lines) <= max_low_ratio
-
-
 class ScannedParser:
-    """Parser for scanned documents using PPStructureV3 API + LLM.
+    """Parser for scanned documents using PPStructureV3 API + rule engine.
 
     Flow:
     1. Call PPStructureV3 API for OCR + layout detection
     2. Compute margins and spacing from bounding boxes
-    2.5. Crop-based LLM font recognition for all lines
-    3. LLM structure recognition for all pages
+    2.5. Crop-based font recognition for all lines
+    3. Rule-engine structure recognition for all pages
     4. Build Document model
     """
 
@@ -95,9 +72,9 @@ class ScannedParser:
         """Parse a scanned document into the Document model.
 
         Thin wrapper over parse_pages() covering every page; see
-        parse_pages() for the pipeline stages.  Pages whose OCR or LLM
-        calls failed are degraded (empty page / rule-engine fallback)
-        and reported in ``Document.warnings``.
+        parse_pages() for the pipeline stages.  Pages whose OCR calls
+        failed are degraded (empty page) and reported in
+        ``Document.warnings``.
 
         Args:
             file_path: Path to the image or scanned PDF file.
@@ -108,8 +85,6 @@ class ScannedParser:
 
         Raises:
             FileNotFoundError: If file_path does not exist.
-            ValueError: If no LLM API key is configured (checked before
-                any OCR call is made).
             RuntimeError: If OCR fails for every page.
         """
         path = Path(file_path)
@@ -137,12 +112,12 @@ class ScannedParser:
         page_indices: list[int] | None,
         config: ParserConfig | None = None,
     ) -> tuple[list[Page], list[str]]:
-        """Parse selected pages of a scanned document via OCR + LLM.
+        """Parse selected pages of a scanned document via OCR + rule engine.
 
         Optimized flow:
         1. Parallel OCR for the selected pages via pluggable OCR engine
-        2. Crop-based LLM font recognition for all lines
-        3. LLM structure recognition for the selected pages
+        2. Crop-based font recognition for all lines
+        3. Rule-engine structure recognition for the selected pages
         4. Assemble Page models mapped back to the original page numbers
 
         ``Page.page_no`` and the page numbers inside warnings always
@@ -162,8 +137,6 @@ class ScannedParser:
 
         Raises:
             FileNotFoundError: If file_path does not exist.
-            ValueError: If no LLM API key is configured (checked before
-                any OCR call is made).
             RuntimeError: If OCR fails for every selected page.
         """
         path = Path(file_path)
@@ -172,12 +145,8 @@ class ScannedParser:
 
         effective_config = config or ParserConfig.from_env()
 
-        # Fail fast — the pipeline cannot produce structure without the
-        # LLM, so check before burning any OCR quota.
-        if not effective_config.llm_api_key:
-            raise ValueError("LLM_API_KEY not configured; scanned document parsing requires an LLM")
-
         max_ocr = getattr(effective_config, "max_ocr_concurrent", 10)
+        # Font LLM fallback concurrency (removed with the LLM font path).
         max_llm = max(1, getattr(effective_config, "max_llm_concurrent", 4))
 
         warnings: list[str] = []
@@ -407,115 +376,41 @@ class ScannedParser:
                     if font_info:
                         merge_font_info(page_metrics[local_idx]["lines"], font_info)
 
-            # Phase 3: Collect pages for LLM classification
+            # Phase 3: Structure recognition via the rule engine.  Pages
+            # without OCR lines degrade to empty PageContent; lines the
+            # rule engine cannot classify are kept as body text (see
+            # _classified_lines_to_page_content).
             pages_result: list[tuple[int, PageContent]] = []
-            llm_needed: list[tuple[int, dict[str, Any]]] = []
+            rule_engine = StructureRuleEngine()
 
-            for local_idx, pm in enumerate(page_metrics):
+            for pm in page_metrics:
                 lines = pm["lines"]
-                margin = pm["margin"]
-
                 if not lines:
-                    pages_result.append((pm["page_no"], PageContent(margin=margin)))
+                    pages_result.append((pm["page_no"], PageContent(margin=pm["margin"])))
                     continue
 
-                llm_needed.append((local_idx, pm))
-
-            # Phase 4: Structure recognition.  classify_mode selects the
-            # strategy per page: "llm" (default) always calls the LLM;
-            # "rule_first" runs the rule engine first and only calls the
-            # LLM when rule confidence is too low; "rule_only" never
-            # calls the LLM.  LLM calls run concurrently (bounded by
-            # max_llm_concurrent) with results assembled in page order.
-            # A page whose LLM call fails falls back to rule-engine
-            # classification (unclassified lines are kept as body text)
-            # instead of breaking the whole document.
-            classify_mode = getattr(effective_config, "classify_mode", "llm")
-
-            def _recognize_structure(
-                task: tuple[int, dict[str, Any]],
-            ) -> tuple[int, PageContent, list[str]]:
-                local_idx, pm = task
-                page_no = pm["page_no"]
-                lines = pm["lines"]
-                margin = pm["margin"]
                 page_warnings: list[str] = []
-
-                if classify_mode in ("rule_first", "rule_only"):
-                    first_warnings: list[str] = []
-                    classified = StructureRuleEngine().classify_lines(
-                        lines,
-                        has_position=True,
-                        page_height=effective_config.a4_height_pt,
-                    )
-                    if classify_mode == "rule_only" or _rules_acceptable(classified):
-                        page_content = _classified_lines_to_page_content(
-                            classified.lines,
-                            lines,
-                            margin,
-                            warnings=first_warnings,
-                        )
-                        page_warnings.extend(f"第 {page_no + 1} 页：{w}" for w in first_warnings)
-                        merge_spacing_into_page_content(
-                            page_content,
-                            pm["spacing_map"],
-                            pm["indent_map"],
-                            pm.get("left_right_indent_map"),
-                        )
-                        return page_no, page_content, page_warnings
-                    logger.info(
-                        "Scanned page %d: rule engine confidence too low, using LLM",
-                        page_no,
-                    )
-
-                try:
-                    page_content = recognize_page_structure(
-                        lines,
-                        margin,
-                        llm_client,
-                        image_paths[local_idx],
-                        effective_config,
-                        img_width=pm["img_width"],
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Scanned page %d: LLM structure recognition failed"
-                        " (%s); falling back to rule engine",
-                        page_no,
-                        exc,
-                    )
-                    page_warnings.append(
-                        f"第 {page_no + 1} 页 LLM 结构识别失败，" f"已回退为规则引擎分类：{exc}"
-                    )
-                    rule_warnings: list[str] = []
-                    classified = StructureRuleEngine().classify_lines(
-                        lines,
-                        has_position=True,
-                        page_height=effective_config.a4_height_pt,
-                    )
-                    page_content = _classified_lines_to_page_content(
-                        classified.lines,
-                        lines,
-                        margin,
-                        warnings=rule_warnings,
-                    )
-                    page_warnings.extend(f"第 {page_no + 1} 页：{w}" for w in rule_warnings)
+                classified = rule_engine.classify_lines(
+                    lines,
+                    has_position=True,
+                    page_height=effective_config.a4_height_pt,
+                )
+                page_content = _classified_lines_to_page_content(
+                    classified.lines,
+                    lines,
+                    pm["margin"],
+                    warnings=page_warnings,
+                )
                 merge_spacing_into_page_content(
                     page_content,
                     pm["spacing_map"],
                     pm["indent_map"],
                     pm.get("left_right_indent_map"),
                 )
-                return page_no, page_content, page_warnings
+                warnings.extend(f"第 {pm['page_no'] + 1} 页：{w}" for w in page_warnings)
+                pages_result.append((pm["page_no"], page_content))
 
-            if llm_needed:
-                with ThreadPoolExecutor(max_workers=min(max_llm, len(llm_needed))) as executor:
-                    structure_outcomes = list(executor.map(_recognize_structure, llm_needed))
-                for page_no, page_content, page_warnings in structure_outcomes:
-                    warnings.extend(page_warnings)
-                    pages_result.append((page_no, page_content))
-
-            # Phase 5: Assemble pages sorted by original page number.
+            # Phase 4: Assemble pages sorted by original page number.
             pages_result.sort(key=lambda x: x[0])
             pages = []
             for page_no, page_content in pages_result:

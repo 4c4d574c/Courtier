@@ -31,22 +31,20 @@ def _textless_pages(extraction: PdfPageExtraction) -> list[int]:
     return [i for i, pd in enumerate(extraction.pages) if not pd["lines"]]
 
 
-def _pdf_dispatch(textless_count: int, total: int, ocr_available: bool) -> str:
+def _pdf_dispatch(textless_count: int, total: int) -> str:
     """Pick the parser kind for a PDF from per-page text detection.
 
     - All pages have text → "pdf" (PdfParser).
     - No page has text → "scanned" (ScannedParser, legacy behavior).
-    - Mixed text/scanned pages with OCR available (llm_api_key
-      configured) → "mixed": text pages stay on the rule-engine path
-      and only the textless pages go through OCR (_parse_mixed_pdf).
-    - Mixed without OCR → "pdf", with the textless pages reported via
-      Document.warnings instead of silently producing empty content.
+    - Mixed text/scanned pages → "mixed": text pages stay on the
+      rule-engine path and only the textless pages go through OCR
+      (_parse_mixed_pdf).
     """
     if textless_count == 0:
         return "pdf"
     if textless_count == total:
         return "scanned"
-    return "mixed" if ocr_available else "pdf"
+    return "mixed"
 
 
 class _MixedPdfParser:
@@ -80,8 +78,7 @@ def get_parser(file_path: str, config: ParserConfig | None = None) -> Parser:
 
     Args:
         file_path: Path to the document file.
-        config: Parser configuration; only used to decide mixed-PDF
-            dispatch (whether OCR is available). Uses env defaults if None.
+        config: Parser configuration. Uses env defaults if None.
 
     Returns:
         A Parser instance suitable for the file type.
@@ -112,11 +109,7 @@ def get_parser(file_path: str, config: ParserConfig | None = None) -> Parser:
             logger.warning("Cannot probe PDF pages: %s", file_path, exc_info=True)
             return PdfParser()
         textless = _textless_pages(extraction)
-        kind = _pdf_dispatch(
-            len(textless),
-            len(extraction.pages),
-            ocr_available=bool((config or ParserConfig.from_env()).llm_api_key),
-        )
+        kind = _pdf_dispatch(len(textless), len(extraction.pages))
         if kind == "scanned":
             from .scanned import ScannedParser
 
@@ -170,21 +163,16 @@ def parse(file_path: str, config: ParserConfig | None = None) -> Document:
 def _parse_pdf(file_path: str, config: ParserConfig) -> Document:
     """Parse a PDF with per-page scanned detection and mixed-document dispatch.
 
-    Textless pages (scanned or blank) are detected page by page. Mixed
-    documents are split per page via _parse_mixed_pdf when OCR is
-    available; otherwise they stay with PdfParser and the unrecognized
-    pages are listed in Document.warnings. ``Document.source`` records
-    the pipeline actually used ("pdf" / "scanned" / "mixed").
+    Textless pages (scanned or blank) are detected page by page; mixed
+    documents are split per page via _parse_mixed_pdf (textless pages go
+    through the OCR pipeline).  ``Document.source`` records the pipeline
+    actually used ("pdf" / "scanned" / "mixed").
     """
     from .pdf_parser import PdfParser, extract_pdf_pages
 
     extraction = extract_pdf_pages(file_path)
     textless = _textless_pages(extraction)
-    kind = _pdf_dispatch(
-        len(textless),
-        len(extraction.pages),
-        ocr_available=bool(config.llm_api_key),
-    )
+    kind = _pdf_dispatch(len(textless), len(extraction.pages))
     if kind == "scanned":
         from .scanned import ScannedParser
 
