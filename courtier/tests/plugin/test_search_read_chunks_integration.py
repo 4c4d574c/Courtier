@@ -21,14 +21,26 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
 def _load_env() -> None:
-    env_file = _REPO_ROOT / ".env"
-    if not env_file.exists():
-        pytest.skip("no .env — integration environment unavailable")
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
+    """Mirror .env then plugins/plugin.env into os.environ.
+
+    Plugin-owned knobs (ES_HOSTS etc.) live in plugins/plugin.env since
+    the standalone-plugin migration; the host .env only keeps host-side
+    variables.
+    """
+    sources = [
+        _REPO_ROOT / ".env",
+        _REPO_ROOT / "plugins" / "plugin.env",
+    ]
+    if not any(s.exists() for s in sources):
+        pytest.skip("no .env / plugins/plugin.env — integration environment unavailable")
+    for env_file in sources:
+        if not env_file.exists():
+            continue
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip())
 
 
 async def test_search_then_read_chunks_roundtrip():

@@ -46,15 +46,20 @@ _SCOPE_RECALL_TOLERANCE = 0.1
 
 
 def _load_env() -> None:
-    """Mirror .env into os.environ (the plugin reads process env only)."""
-    env_file = _REPO_ROOT / ".env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
+    """Mirror .env then plugins/plugin.env into os.environ.
+
+    Plugin-owned knobs (ES_HOSTS etc.) live in plugins/plugin.env since
+    the standalone-plugin migration; the host .env only keeps host-side
+    variables.
+    """
+    for env_file in (_REPO_ROOT / ".env", _REPO_ROOT / "plugins" / "plugin.env"):
+        if not env_file.exists():
+            continue
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip())
 
 
 def _relevant(hit: dict, expected_ids: set[int], substrings: list[str]) -> bool:
