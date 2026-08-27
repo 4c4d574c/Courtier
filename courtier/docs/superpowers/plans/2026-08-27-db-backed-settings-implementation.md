@@ -177,10 +177,10 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 ## Phase 0：配置源统一（纯重构，零行为变化）
 
 ### Task 0.1: ConfigService env-only 版 + 消灭散装 Settings()
-- [ ] 新建 ConfigService（快照 + 版本 + 订阅口，本阶段数据源仅 env/.env），`get_settings()` 委托
-- [ ] 改 8 处临时 `Settings()` 调用点（`app.py`、`db.py`、`es/client.py`、`storage/client.py`、`loop_guards`、`guardrails`、`plugin/manager.py`、`middleware/auth.py` 的单例读取）统一走 ConfigService
-- [ ] 删 `cec_*` 字段（删前全仓 grep 复核无消费者）；修 embedding env 名 description
-- [ ] 回归：`uv run pytest -m "not integration"` 全绿，行为零变化
+- [x] 新建 ConfigService（快照 + 版本 + 订阅口，本阶段数据源仅 env/.env），`get_settings()` 委托
+- [x] 改 8 处临时 `Settings()` 调用点（`app.py`、`db.py`、`es/client.py`、`storage/client.py`、`loop_guards`、`guardrails`、`plugin/manager.py`、`middleware/auth.py` 的单例读取）统一走 ConfigService
+- [x] 删 `cec_*` 字段（删前全仓 grep 复核无消费者）；修 embedding env 名 description
+- [x] 回归：`uv run pytest -m "not integration"` 全绿，行为零变化
 
 ### Task 0.2: OTel 收编 + 可失效钩子
 - [ ] `tracer.py` 的 `os.getenv` 全部改读快照；`_RESOURCE` 移入 `init_telemetry()`
@@ -281,4 +281,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 
 ## 实施记录
 
-（待实施；按 Task 记录偏差、实测与排障。）
+**Task 0.1 完成**（ConfigService env-only + 散装 Settings() 清零）。偏差与实测：
+1. **ConfigService 落在 `courtier/config.py` 本模块**，不是计划写的 `courtier/agent/api/services/config_service.py`——config 是 core 层，services 反向 import config，放 services 会层次倒置且有循环导入风险；服务实例 `_config_service` 模块级 + import 时急切构建（保持旧单例"导入即校验"语义），`get_settings()` 委托。
+2. 调用点归一实测：散装 `Settings()` 构造 8 处（config 单例、es/storage 惰性 helper、app 工厂、db 引擎/admin bootstrap、alembic、reindex 脚本）全部改读共享快照；`loop_guards`/`guardrails`/`plugin/manager`/`auth` 本就走 `get_settings()`，委托后自动获得未来热替换能力。
+3. `cec_*` 五个字段删除前全仓 grep 确认零消费者（含 libs/plugins 的 CEC_ env 直读）。
+4. 测试坑：`tests/courtier/test_config.py` 会 `importlib.reload` config 模块，跨模块缓存的 `Settings` 类引用会过期——新测试 `test_config_service.py` 在调用点实时 `import courtier.config` 做 isinstance 断言。`replace()`/`subscribe()` 的契约（顺序通知、异常隔离、自退订安全）已先行单测固化。
+5. `db/_utils.py` 的 `_DEFAULT_DB_URL`（import 时读 env）保留——save_doc 直连路径的 Tier-0 语义，Phase 1 ConfigService DB 集成时一并处理。
+6. 实测：`pytest -m "not integration"` 1757 passed / 6 skipped；ruff 绿。
+
+（其余 Task 待实施；按 Task 记录偏差、实测与排障。）

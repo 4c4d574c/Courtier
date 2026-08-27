@@ -34,7 +34,7 @@ from courtier.agent.api.services.resource_service import (
     _split_chunks,
     build_chunk_actions,
 )
-from courtier.config import Settings
+from courtier.config import Settings, get_settings
 from courtier.db.db_manager import AsyncDatabase
 from courtier.db.tables.resource import ResourceTable
 from courtier.db.tables.user import UserTable
@@ -289,7 +289,7 @@ async def main() -> int:
     parser.add_argument("--keep-old", action="store_true", help="keep old indices after swap")
     args = parser.parse_args()
 
-    settings = Settings()
+    settings = get_settings()
     if not settings.es_hosts:
         print("error: ES_HOSTS is not configured", file=sys.stderr)
         return 1

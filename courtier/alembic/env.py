@@ -29,9 +29,10 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Read the database URL from the application settings."""
-    from courtier.config import Settings  # noqa: E402
-    return Settings().mysql_url
+    """Read the database URL from the application settings snapshot."""
+    from courtier.config import get_settings  # noqa: E402
+
+    return get_settings().mysql_url
 
 
 def run_migrations_offline() -> None:

@@ -22,8 +22,9 @@ _db: AsyncDatabase | None = None
 def get_db() -> AsyncDatabase:
     global _db
     if _db is None:
-        from courtier.config import Settings
-        _db = AsyncDatabase(Settings().mysql_url)
+        from courtier.config import get_settings
+
+        _db = AsyncDatabase(get_settings().mysql_url)
     return _db
 
 
@@ -46,9 +47,9 @@ async def bootstrap_admin_user() -> None:
     need to be created manually or by a subsequent successful startup.
     """
     from courtier.agent.api.middleware.auth import hash_password
-    from courtier.config import Settings
+    from courtier.config import get_settings
 
-    settings = Settings()
+    settings = get_settings()
     if not settings.admin_user or not settings.admin_password:
         logger.info("ADMIN_USER/ADMIN_PASSWORD not set, skipping bootstrap")
         return

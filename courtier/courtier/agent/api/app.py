@@ -43,9 +43,9 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         start_plugins: If False, skip PluginSystem.start() at startup.
                        Set to False in test suites that don't need plugins.
     """
-    from courtier.config import Settings
+    from courtier.config import get_settings
 
-    settings = Settings()
+    settings = get_settings()
 
     # Configure structured logging before anything else so all subsequent
     # imports and module-level log statements are captured.

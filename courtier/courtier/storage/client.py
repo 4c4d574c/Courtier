@@ -20,10 +20,10 @@ _lock = threading.Lock()
 
 
 def _get_settings():
-    """延迟导入 Settings，避免循环导入。"""
-    from courtier.config import Settings
+    """延迟导入，避免循环导入；读共享快照而非重建 Settings。"""
+    from courtier.config import get_settings
 
-    return Settings()
+    return get_settings()
 
 
 def get_minio_client() -> Minio:

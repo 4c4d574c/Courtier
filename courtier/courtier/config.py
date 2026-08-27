@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -49,8 +51,12 @@ def _default_project_root() -> Path:
 
 
 def get_settings() -> "Settings":
-    """Return the module-level Settings singleton, initialized eagerly at import time."""
-    return _settings
+    """Return the effective Settings snapshot owned by the ConfigService.
+
+    The snapshot is built eagerly at import (same semantics as the old
+    module-level singleton); later phases replace it as a whole on
+    configuration changes, so every consumer sees one consistent view."""
+    return _config_service.get()
 
 
 class EventBusConfig(BaseModel):
@@ -269,14 +275,6 @@ class Settings(BaseSettings):
     font_model_url: str = Field(default="", alias="font_model_url")
     font_model_conf_threshold: float = Field(default=0.6, alias="font_model_conf_threshold")
     font_model_margin_threshold: float = Field(default=0.15, alias="font_model_margin_threshold")
-
-    cec_api_base: str = ""
-    cec_api_key: str = ""
-    cec_model_name: str = "ChineseErrorCorrector3-4B"
-    cec_max_length: int = Field(default=16383, alias="cec_max_length")
-    cec_allowed_patterns: str = Field(
-        default="看一看,想一想,试一试,人人,一一", alias="cec_allowed_patterns"
-    )
 
     minio_endpoint: str = Field(default="", description="MinIO 服务端点，如 localhost:9000")
     minio_access_key: str = Field(default="", description="MinIO access key")
@@ -707,5 +705,69 @@ class CourtierConfig:
         )
 
 
-# Eagerly initialize the singleton at import time to avoid races.
-_settings = Settings()
+class ConfigService:
+    """Single owner of the effective Settings snapshot.
+
+    Phase 0 (env-only): the snapshot is built eagerly at import — exactly
+    the old module-level singleton semantics — and never changes, so
+    get_settings(), ``app.state.settings`` and the lazy client helpers all
+    read one consistent view.  Later phases (DB-backed settings) swap the
+    snapshot as a whole via :meth:`replace`, bump *version*, and notify
+    subscribers, which is how hot-reload groups propagate without any
+    consumer holding a stale reference forever.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._settings: "Settings | None" = None
+        self._version: int = 0
+        self._listeners: list[Callable[["Settings", int], None]] = []
+
+    def get(self) -> "Settings":
+        """Return the effective snapshot, building it on first access."""
+        with self._lock:
+            if self._settings is None:
+                self._settings = Settings()
+                self._version = 1
+            return self._settings
+
+    @property
+    def version(self) -> int:
+        """Snapshot version; starts at 1 once built, +1 per replace()."""
+        with self._lock:
+            return self._version
+
+    def replace(self, settings: "Settings") -> int:
+        """Swap in a new snapshot and notify subscribers (returns version).
+
+        Listeners run synchronously outside the lock, in subscription order;
+        a failing listener is logged and does not block the others."""
+        with self._lock:
+            self._settings = settings
+            self._version += 1
+            version = self._version
+            listeners = list(self._listeners)
+        for listener in listeners:
+            try:
+                listener(settings, version)
+            except Exception:
+                logger.warning("config change listener failed", exc_info=True)
+        return version
+
+    def subscribe(self, listener: Callable[["Settings", int], None]) -> Callable[[], None]:
+        """Register a change listener; returns an unsubscribe callable."""
+
+        def _unsubscribe() -> None:
+            with self._lock:
+                if listener in self._listeners:
+                    self._listeners.remove(listener)
+
+        with self._lock:
+            self._listeners.append(listener)
+        return _unsubscribe
+
+
+_config_service = ConfigService()
+# Eager init at import keeps the old singleton behavior: Settings
+# validation runs once at import time, avoiding first-call races.
+_config_service.get()
