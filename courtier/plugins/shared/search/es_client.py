@@ -43,12 +43,11 @@ def _index_name() -> str:
 def search_chunks(query_body: dict, skip: int = 0, limit: int = 20) -> dict:
     """Run a search query. *limit* is clamped to ``_MAX_ES_SIZE`` (10 000)."""
     client = _get_es_client()
-    resp = client.search(
-        index=_index_name(),
-        body=query_body,
-        from_=skip,
-        size=min(limit, _MAX_ES_SIZE),
-    )
+    # Pagination rides inside the body copy: mixing ``body`` with the
+    # ``from_``/``size`` shortcut params is deprecated in elasticsearch-py
+    # and becomes a hard error in future versions.
+    body = {**query_body, "from": skip, "size": min(limit, _MAX_ES_SIZE)}
+    resp = client.search(index=_index_name(), body=body)
     # elasticsearch-py returns ObjectApiResponse; convert to plain dict for
     # JSON serialization across the JSON-RPC boundary.
     return dict(resp)
