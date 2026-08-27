@@ -36,6 +36,11 @@ async def test_search_then_read_chunks_roundtrip():
     if not os.environ.get("ES_HOSTS"):
         pytest.skip("ES_HOSTS not configured")
     sys.path.insert(0, str(_SEARCH_PLUGIN_DIR))
+    # Test collection caches every plugin's bare ``tools`` module (they all
+    # share the top-level name); drop the stale entry so this import binds
+    # to the search plugin's tools.py and not a sibling's.  Production is
+    # immune: each plugin runs in its own process + venv.
+    sys.modules.pop("tools", None)
     from tools import ReadChunksTool, SearchDocumentsTool
 
     search = SearchDocumentsTool()
