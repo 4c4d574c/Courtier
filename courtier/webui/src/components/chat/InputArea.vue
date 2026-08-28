@@ -248,6 +248,7 @@ function clearFile() {
 
 .input-area-attach {
   background: transparent;
+  border-radius: var(--chat-radius-sm);
   color: var(--chat-text-secondary);
 }
 

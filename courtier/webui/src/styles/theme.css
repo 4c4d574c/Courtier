@@ -13,6 +13,7 @@
   --chat-accent-soft: rgba(181, 67, 66, 0.08);
   --chat-border: #e8e3d9;
   --chat-shadow: 0 1px 3px rgba(60, 50, 40, 0.08);
+  --chat-radius-xs: 4px;
   --chat-radius-sm: 8px;
   --chat-radius-md: 12px;
   --chat-radius-lg: 18px;

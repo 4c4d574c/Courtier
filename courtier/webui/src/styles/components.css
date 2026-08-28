@@ -79,6 +79,7 @@
   color: var(--chat-text-tertiary);
   /* Keep the row icon clear of the timeline line behind it */
   background: var(--chat-bg-card);
+  border-radius: var(--chat-radius-xs);
   position: relative;
   z-index: 1;
 }
@@ -365,7 +366,9 @@
 }
 .markdown-body table {
   width: 100%;
-  border-collapse: collapse;
+  /* separate (not collapse) so the corner cells can carry a border-radius */
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 8px 0;
   font-size: 14px;
 }
@@ -377,6 +380,18 @@
   text-align: left;
   border-bottom: 1px solid var(--chat-border);
   font-weight: 500;
+}
+.markdown-body th:first-child {
+  border-top-left-radius: var(--chat-radius-xs);
+}
+.markdown-body th:last-child {
+  border-top-right-radius: var(--chat-radius-xs);
+}
+.markdown-body tr:last-child td:first-child {
+  border-bottom-left-radius: var(--chat-radius-xs);
+}
+.markdown-body tr:last-child td:last-child {
+  border-bottom-right-radius: var(--chat-radius-xs);
 }
 .markdown-body td {
   padding: 5px 10px;
@@ -397,7 +412,7 @@
 .markdown-body pre {
   background: var(--chat-bg-hover);
   padding: 10px;
-  border-radius: 2px;
+  border-radius: var(--chat-radius-xs);
   overflow-x: auto;
   margin: 8px 0;
 }
@@ -490,6 +505,7 @@
   font-weight: 700;
   color: var(--chat-text-secondary);
   background: var(--chat-bg-body);
+  border-radius: var(--chat-radius-xs);
   padding: 0 5px;
 }
 .verdict-text {
@@ -573,7 +589,7 @@
   padding: 20px 24px;
   margin: 3px;
   border: 1px solid var(--chat-border);
-  border-radius: 3px;
+  border-radius: var(--chat-radius-xs);
   background: var(--chat-bg-body);
 }
 .conclusion-label {
