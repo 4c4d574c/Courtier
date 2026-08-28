@@ -6,6 +6,7 @@
       :list-error="listError"
       :is-open="sidebarOpen"
       :user-role="userRole"
+      :username="username"
       @new-session="$emit('new-session')"
       @select="$emit('history-select', $event)"
       @delete="$emit('history-delete', $event)"
@@ -16,12 +17,9 @@
     <div class="chat-layout-main">
       <ChatHeader
         :title="title"
-        :username="username"
-        :user-role="userRole"
         :model-events="session.modelEvents"
         @toggle-sidebar="$emit('toggle-sidebar')"
         @toggle-theme="$emit('toggle-theme')"
-        @logout="$emit('logout')"
       />
       <div class="chat-layout-chat">
         <ChatArea

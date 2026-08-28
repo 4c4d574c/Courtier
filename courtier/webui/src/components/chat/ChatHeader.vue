@@ -47,43 +47,27 @@
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       </button>
-      <div class="chat-header-user" @click="menuOpen = !menuOpen">
-        <span class="chat-header-user-name">{{ username || "用户" }}</span>
-        <span class="chat-header-user-arrow">▾</span>
-        <div v-if="menuOpen" class="chat-header-dropdown">
-          <router-link to="/profile" class="chat-header-dropdown-item" @click.stop>
-            {{ MESSAGES.CHAT_SETTINGS }}
-          </router-link>
-          <button class="chat-header-dropdown-item" type="button" @click.stop="logout">
-            {{ MESSAGES.CHAT_LOGOUT }}
-          </button>
-        </div>
-      </div>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed } from "vue";
 import { MESSAGES } from "../../constants/messages";
 import { useTheme } from "../../composables/useTheme";
 import type { RuntimeEvent } from "../../types/agent";
 
 interface Props {
   title: string;
-  username?: string;
-  userRole?: string;
   modelEvents?: RuntimeEvent[];
 }
 
 const props = defineProps<Props>();
-const emit = defineEmits<{
+defineEmits<{
   "toggle-sidebar": [];
   "toggle-theme": [];
-  logout: [];
 }>();
 
-const menuOpen = ref(false);
 const { theme } = useTheme();
 
 const latestFallback = computed(() => {
@@ -95,11 +79,6 @@ const latestFallback = computed(() => {
   }
   return null;
 });
-
-function logout() {
-  menuOpen.value = false;
-  emit("logout");
-}
 </script>
 
 <style scoped>
@@ -186,60 +165,5 @@ function logout() {
 .chat-header-icon svg {
   width: 18px;
   height: 18px;
-}
-
-.chat-header-user {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border-radius: var(--chat-radius-md);
-  cursor: pointer;
-  color: var(--chat-text-secondary);
-}
-
-.chat-header-user:hover {
-  background: var(--chat-bg-hover);
-}
-
-.chat-header-user-name {
-  font-size: 15px;
-  color: var(--chat-text-primary);
-}
-
-.chat-header-user-arrow {
-  font-size: 11px;
-}
-
-.chat-header-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  min-width: 140px;
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  box-shadow: var(--chat-shadow);
-  overflow: hidden;
-  z-index: 100;
-}
-
-.chat-header-dropdown-item {
-  display: block;
-  padding: 10px 14px;
-  font-size: 15px;
-  color: var(--chat-text-primary);
-  text-decoration: none;
-  text-align: left;
-  background: transparent;
-  border: none;
-  width: 100%;
-  cursor: pointer;
-}
-
-.chat-header-dropdown-item:hover {
-  background: var(--chat-bg-hover);
 }
 </style>

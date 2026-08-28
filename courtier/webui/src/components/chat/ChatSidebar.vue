@@ -245,11 +245,30 @@
         </Transition>
       </div>
 
-      <!-- Non-admins have no 管理 section; keep their resource library entry. -->
-      <div v-if="!isAdmin" class="chat-sidebar-footer">
-        <router-link to="/resources" class="chat-sidebar-footer-item">
+      <!-- Sidebar footer: resource-library entry (non-admins only — admins
+           have it under 管理) and the user menu moved here from the header
+           (bottom-left corner). -->
+      <div class="chat-sidebar-footer">
+        <router-link v-if="!isAdmin" to="/resources" class="chat-sidebar-footer-item">
           资源库
         </router-link>
+        <div class="chat-sidebar-user" @click="userMenuOpen = !userMenuOpen">
+          <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
+          <span class="chat-sidebar-user-arrow">▾</span>
+          <div v-if="userMenuOpen" class="chat-sidebar-user-menu">
+            <router-link to="/profile" class="chat-sidebar-user-menu-item" @click.stop>
+              {{ MESSAGES.CHAT_SETTINGS }}
+            </router-link>
+            <button class="chat-sidebar-user-menu-item" type="button" @click.stop="logout">
+              {{ MESSAGES.CHAT_LOGOUT }}
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="userMenuOpen"
+          class="chat-sidebar-menu-overlay"
+          @click="userMenuOpen = false"
+        ></div>
       </div>
     </div>
   </aside>
@@ -268,6 +287,8 @@ interface Props {
   listError?: string | null;
   isOpen: boolean;
   userRole?: string;
+  /** Display name for the bottom-left user menu. */
+  username?: string;
 }
 
 const props = defineProps<Props>();
@@ -281,6 +302,15 @@ const emit = defineEmits<{
 }>();
 
 const isAdmin = computed(() => props.userRole === "admin");
+
+// Bottom-left user menu (moved from the header). The invisible overlay
+// closes it on any outside click — same pattern as the meatballs menu.
+const userMenuOpen = ref(false);
+
+function logout() {
+  userMenuOpen.value = false;
+  emit("logout");
+}
 
 // Long history lists render the first batch with a show-more expander
 // instead of mounting every session row (GET /sessions returns them all).
@@ -927,6 +957,62 @@ function onMenuDelete(id: string) {
 }
 
 .chat-sidebar-footer-item:hover {
+  background: var(--chat-bg-hover);
+}
+
+.chat-sidebar-user {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--chat-radius-md);
+  cursor: pointer;
+}
+
+.chat-sidebar-user:hover {
+  background: var(--chat-bg-hover);
+}
+
+.chat-sidebar-user-name {
+  font-size: 15px;
+  color: var(--chat-text-primary);
+}
+
+.chat-sidebar-user-arrow {
+  font-size: 11px;
+  color: var(--chat-text-secondary);
+}
+
+/* Opens upward — the menu sits at the very bottom of the viewport. */
+.chat-sidebar-user-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 140px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
+  overflow: hidden;
+  z-index: 100;
+}
+
+.chat-sidebar-user-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 15px;
+  color: var(--chat-text-primary);
+  text-decoration: none;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.chat-sidebar-user-menu-item:hover {
   background: var(--chat-bg-hover);
 }
 
