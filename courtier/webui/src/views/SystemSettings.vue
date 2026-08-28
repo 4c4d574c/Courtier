@@ -78,7 +78,11 @@
               v-for="field in group.fields"
               :key="field.name"
               class="field-row"
-              :class="{ dirty: isFieldDirty(field.name), error: formErrors[field.name] }"
+              :class="{
+                stacked: field.name === ENDPOINTS_FIELD,
+                dirty: isFieldDirty(field.name),
+                error: formErrors[field.name],
+              }"
             >
               <div class="field-info">
                 <div class="field-title">
@@ -94,21 +98,27 @@
                 <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
               </div>
               <div class="field-control">
-                <div v-if="field.name === 'courtier_plugin_endpoints'" class="endpoint-editor">
+                <div v-if="field.name === ENDPOINTS_FIELD" class="endpoint-editor">
+                  <div class="endpoint-head" aria-hidden="true">
+                    <span>插件名称</span>
+                    <span>端点地址</span>
+                    <span />
+                  </div>
                   <div v-for="(row, i) in endpointRows" :key="i" class="endpoint-row">
                     <input
                       v-model="row.name"
-                      class="field-input endpoint-name"
+                      class="endpoint-input"
                       :disabled="!editable"
                       placeholder="插件名"
+                      spellcheck="false"
                       @input="writeEndpoints"
                     />
-                    <span class="endpoint-eq">=</span>
                     <input
                       v-model="row.addr"
-                      class="field-input endpoint-addr"
+                      class="endpoint-input endpoint-input--addr"
                       :disabled="!editable"
                       placeholder="host:port"
+                      spellcheck="false"
                       @input="writeEndpoints"
                     />
                     <button
@@ -122,7 +132,7 @@
                     </button>
                   </div>
                   <button class="endpoint-add" type="button" :disabled="!editable" @click="addEndpointRow">
-                    + 添加端点
+                    ＋ 添加端点
                   </button>
                 </div>
                 <div v-else-if="field.is_secret" class="secret-wrap">
@@ -1299,19 +1309,65 @@ onMounted(load);
   gap: 10px;
 }
 
-/* ---- Plugin endpoint mapping editor ---- */
-.endpoint-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* ---- Plugin endpoint mapping editor ----
+   A bordered table-like list spanning the full row (the field row switches
+   to .stacked): column headers, borderless row inputs with hover tint,
+   and a full-width dashed add-row footer. */
+.field-row.stacked {
+  grid-template-columns: 1fr;
+  row-gap: 10px;
 }
+.endpoint-editor {
+  max-width: 640px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  overflow: hidden;
+}
+.endpoint-head,
 .endpoint-row {
   display: grid;
-  grid-template-columns: 150px auto 1fr auto;
-  gap: 6px;
+  grid-template-columns: 200px 1fr 28px;
+  gap: 8px;
   align-items: center;
 }
-.endpoint-eq {
+.endpoint-head {
+  padding: 7px 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--chat-text-tertiary);
+  background: var(--chat-bg-hover);
+}
+.endpoint-row {
+  padding: 0 12px;
+}
+.endpoint-row + .endpoint-row {
+  border-top: 1px solid var(--chat-border);
+}
+.endpoint-row:hover {
+  background: var(--chat-bg-hover);
+}
+.endpoint-input {
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--chat-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 150ms;
+}
+.endpoint-input:focus {
+  border-bottom-color: var(--chat-accent);
+}
+.endpoint-input:disabled {
+  opacity: 0.55;
+}
+.endpoint-input::placeholder {
+  font-family: "Noto Sans SC", sans-serif;
   color: var(--chat-text-tertiary);
 }
 .endpoint-remove {
@@ -1327,38 +1383,53 @@ onMounted(load);
   line-height: 1;
   border-radius: var(--chat-radius-sm);
   cursor: pointer;
+  opacity: 0;
   transition:
+    opacity 150ms,
     background 150ms,
     color 150ms;
+}
+.endpoint-row:hover .endpoint-remove,
+.endpoint-remove:focus-visible {
+  opacity: 1;
 }
 .endpoint-remove:hover:not(:disabled) {
   background: color-mix(in srgb, var(--err) 12%, transparent);
   color: var(--err);
 }
 .endpoint-remove:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
 }
 .endpoint-add {
-  align-self: flex-start;
-  padding: 5px 12px;
-  border: 1px dashed var(--chat-border);
-  border-radius: var(--chat-radius-sm);
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-top: 1px dashed var(--chat-border);
   background: transparent;
-  color: var(--chat-text-secondary);
-  font-size: 12px;
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
+  text-align: left;
   cursor: pointer;
   transition:
-    border-color 150ms,
+    background 150ms,
     color 150ms;
 }
 .endpoint-add:hover:not(:disabled) {
-  border-color: var(--chat-accent);
+  background: var(--chat-bg-hover);
   color: var(--chat-accent);
 }
 .endpoint-add:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+@media (max-width: 768px) {
+  .endpoint-head {
+    display: none;
+  }
+  .endpoint-row {
+    grid-template-columns: 1fr 1fr 28px;
+  }
 }
 
 /* ---- Confirm modal ---- */
