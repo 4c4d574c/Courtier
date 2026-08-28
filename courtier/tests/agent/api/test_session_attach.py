@@ -238,6 +238,13 @@ class TestReconnectSemantics:
                     sid = sessions[0]["id"]
                 else:
                     await asyncio.sleep(0.05)
+            # The session record is created before RunManager registers the
+            # run task — poll until the run is actually live, or the 409
+            # precondition races under load.
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while app.state.run_manager.active_status(sid) is None:
+                assert asyncio.get_running_loop().time() < deadline, "run never started"
+                await asyncio.sleep(0.02)
             resp = await client.get("/api/sessions", params={"task": "different", "sessionId": sid})
             assert resp.status_code == 409
             await stream

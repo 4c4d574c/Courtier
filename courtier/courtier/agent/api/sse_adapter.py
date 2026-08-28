@@ -108,6 +108,14 @@ class RunRecorder:
         # step is finalized), treat the current step as "has tools" when
         # deciding whether text_response needs a placeholder step.
         self._tool_calls_pending: bool = False
+        # Sub-agent events that raced ahead of their dispatch announcement.
+        # think.tool_calls rides the bus queue while on_subagent_event is a
+        # direct callback, so a skill can start its sub-agent before the
+        # listener records the dispatch step — processing those events early
+        # anchors the tree (and their SSE order) to the PREVIOUS tool step,
+        # which renders as a duplicate sub-agent after a mid-run re-attach.
+        self._pre_announce_subagent_events: list[Any] = []
+        self._flushing_pre_announce: bool = False
         # Turn tracking — incremented per user turn, persisted on steps and thoughts.
         self._current_turn_index: int = 0
 
@@ -135,6 +143,29 @@ class RunRecorder:
         """
         self._current_subagents = {}
         self._subagent_parent_map = {}
+        self._pre_announce_subagent_events = []
+
+    def _bus_events_pending(self) -> bool:
+        """Whether bus events (e.g. the dispatch announcement) are still
+        queued unprocessed.  While they are, a direct sub-agent callback has
+        raced ahead of the bus listener and must not record yet."""
+        sub = getattr(self, "_event_subscription", None)
+        return sub is not None and not sub.queue.empty()
+
+    async def _flush_pre_announce_subagent_events(self) -> None:
+        """Process sub-agent events buffered ahead of the bus, in arrival
+        order.  Called after think.tool_calls is recorded (and as a fallback
+        at observe, so nothing is lost when a run ends mid-window)."""
+        if not self._pre_announce_subagent_events:
+            return
+        buffered = self._pre_announce_subagent_events
+        self._pre_announce_subagent_events = []
+        self._flushing_pre_announce = True
+        try:
+            for event in buffered:
+                await self._on_subagent_event_locked(event)
+        finally:
+            self._flushing_pre_announce = False
 
     def _tool_meta_for(self, tool_name: str) -> dict[str, Any]:
         """Resolve skill and display_name for *tool_name* from the tool registry."""
@@ -566,6 +597,15 @@ class RunRecorder:
         handle_id = event.handle_id if event.handle_id is not None else event.subagent_name
         parent_handle_id = event.parent_handle_id
 
+        # Ordering barrier — see _pre_announce_subagent_events.  Once one
+        # event buffers, everything after it buffers too, so arrival order
+        # survives until the bus drains and the queue flushes them.
+        if not self._flushing_pre_announce and (
+            self._pre_announce_subagent_events or self._bus_events_pending()
+        ):
+            self._pre_announce_subagent_events.append(event)
+            return
+
         # -- State capture for historical rendering --
         tree_changed = False
         if kind == "start" and handle_id:
@@ -847,8 +887,16 @@ class RunRecorder:
         if ids:
             think_payload["toolCallIds"] = ids
         await self._emit_sse(think_payload, seq=seq)
+        # The dispatch step now exists — process any sub-agent events that
+        # raced ahead of this announcement, in arrival order.
+        await self._flush_pre_announce_subagent_events()
 
     async def _handle_observe(self) -> None:
+        # Fallback flush: sub-agent events whose announcement never matched
+        # (name drift, missing step) must still be recorded before the tree
+        # is finalized into the step.
+        await self._flush_pre_announce_subagent_events()
+
         # Flush accumulated verdict text
         if self._verdict_parts:
             verdict = "".join(self._verdict_parts)

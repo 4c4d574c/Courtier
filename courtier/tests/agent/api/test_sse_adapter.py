@@ -3,6 +3,7 @@
 import asyncio
 import json
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -1033,6 +1034,79 @@ class TestRunRecorderSubAgentStateAccumulation:
         # Nothing precedes the watermark unrecorded: replay after it starts
         # empty until genuinely new events arrive.
         assert log_queue.replay_after(session.event_seq) == []
+
+    @pytest.mark.asyncio
+    async def test_subagent_events_before_announcement_buffer_to_dispatch_step(self, store):
+        """Regression: a skill can start its sub-agent before the bus listener
+        records the think.tool_calls step (direct callback vs bus queue).
+        Early events must not anchor the tree to the previous tool step —
+        that stale copy rendered as a duplicate sub-agent after re-attach."""
+        from queue import Queue
+
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_abc123def456")
+        await store.create("sess_abc123def456", "audit", "/tmp/f.docx")
+
+        # Previous tool step — the leak target.
+        await adapter.on_step("think", "tool_calls: convert_document")
+        q.get_nowait()
+        await adapter.on_tool_result("convert_document", ToolResult(success=True), "ok")
+        q.get_nowait()
+        await adapter.on_step("observe", "")
+        q.get_nowait()
+
+        # RACE: the bus still holds unprocessed events (the dispatch
+        # announcement among them) when the sub-agent starts via the direct
+        # callback.
+        adapter._event_subscription = SimpleNamespace(queue=Queue())
+        adapter._event_subscription.queue.put("think.tool_calls")
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start", subagent_name="content_audit", handle_id="hdl_2", task="审核"
+            )
+        )
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="token", subagent_name="content_audit", handle_id="hdl_2", text="早期思考"
+            )
+        )
+        # Buffered, not recorded: no leak into the convert step, no SSE yet.
+        session = await store.get("sess_abc123def456")
+        assert session is not None
+        assert session.steps[0].subagents == []
+        assert q.empty()
+
+        # The listener catches up: records the dispatch step, drains the bus,
+        # and flushes the buffered events in arrival order.
+        await adapter.on_step("think", "tool_calls: content_audit")
+        q.get_nowait()  # think
+        adapter._event_subscription = SimpleNamespace(queue=Queue())
+
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="end",
+                subagent_name="content_audit",
+                handle_id="hdl_2",
+                result={"status": "completed"},
+            )
+        )
+        q.get_nowait()  # subagent_end (start/token flushed behind the think)
+
+        session = await store.get("sess_abc123def456")
+        assert session is not None
+        assert session.steps[0].subagents == []  # no stale copy
+        dispatch = session.steps[1]
+        assert len(dispatch.subagents) == 1
+        assert dispatch.subagents[0].status == "completed"
+        assert dispatch.subagents[0].thoughts[0].text == "早期思考"
+
+        # Log order: the dispatch think precedes the sub-agent start, so a
+        # re-attached client anchors the node to the right step.
+        types = [entry.payload["type"] for entry in log_q.replay_after(-1)]
+        assert max(i for i, t in enumerate(types) if t == "think") < types.index("subagent_start")
 
     @pytest.mark.asyncio
     async def test_nested_subagents_build_tree(self, store):
