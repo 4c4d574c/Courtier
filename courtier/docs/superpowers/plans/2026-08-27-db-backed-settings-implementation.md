@@ -193,9 +193,9 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 - [x] Alembic 迁移（settings/settings_changes）；Fernet 编解码 + 密钥缺失 fail-closed 单测；审计写入单测
 
 ### Task 1.2: ConfigService DB 集成
-- [ ] 快照合成三级优先级 + CORS env 覆盖例外；env-only 降级路径单测
-- [ ] `.env` 种子导入 + 来源标记；JWT secret 自举（DB 模式）
-- [ ] `config.changed` 发布与订阅者刷新（RunManager）单测
+- [x] 快照合成三级优先级 + CORS env 覆盖例外；env-only 降级路径单测
+- [x] `.env` 种子导入 + 来源标记；JWT secret 自举（DB 模式）
+- [x] `config.changed` 发布与订阅者刷新（RunManager）单测
 
 ### Task 1.3: 管理 API（热生效组）
 - [ ] `GET`（脱敏 + schema + 来源 + 档位）、`PUT`（partial + 整模型校验 + 审计）、`test/llm`、`audit`；`require_admin`
@@ -301,5 +301,13 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 3. **SETTINGS_META 从 `Settings.model_fields` 规则派生**（前缀→分组 + 显式 secret/rebuild/restart 集合），不逐字段手写表；Tier-0 字段与 `agent_runtime` 嵌套块排除。实测：65 个可编辑字段（model 19/retrieval 16/guards 16/web 7/observability 5/plugins 2），6 个 secret，hot 44/rebuild 16/restart 5。
 4. 迁移守卫测试改为**版本无关的单 head 断言**（原测试硬编码当时的 head，新增迁移必红）。dev 依赖加 `aiosqlite`（store 单测用文件型 sqlite）。
 5. 真实验证：迁移 `e5c90b1a7d42` 已对本地 dev MySQL 应用（两表建成）；store 真库冒烟（明文保存/读取/版本=2/清理）通过。回归 `pytest -m "not integration"` 1778 passed。
+
+**Task 1.2 完成**（ConfigService DB 集成）。偏差与实测：
+1. **种子导入修复一个实现期 bug**：secret 字段最初被无条件跳过，正确语义为"有加密密钥则一并种子导入、无密钥才跳过（整批不因它 fail-closed）"——单测抓出后修正。
+2. 快照合成实现在 `settings_store.py`（`compose_snapshot`/`seed_from_env`/`refresh_settings_snapshot`），不在 config.py——合成需要异步 DB 访问，config.py 保持纯同步核心；`ConfigService` 增加 `source`（env|db）标记。`Settings.model_config` 增加 `populate_by_name`（model_dump 按字段名合成验证所需）。
+3. 种子导入的"非默认值检测"用**环境名掩蔽上下文**构造纯默认实例对比（`.env` 文件也掩蔽），只导入真实差异项；本地实测 dev .env 会导入 ~7 项（LOGGER_LEVEL 等）——行为符合预期（.env 固化进 DB）。单测用 `_env_file=None` 基线隔离本地 .env。
+4. JWT 自举：DB 模式 + 空 jwt_secret + 有加密密钥 → 生成 token_urlsafe(48) 加密落库；无密钥 → 告警跳过（env 值继续生效）。测试坑：本地 .env 有 JWT_SECRET，单测须显式 `JWT_SECRET=""` 才走自举分支。
+5. lifespan 接线：mysql_url 非空 → 建 `app.state.settings_store` + `refresh_settings_snapshot`；为空 → `settings_store=None`（env-only）。降级（DB 不可达）不换快照只告警。
+6. 实测：新增 15 个合成/种子/自举/降级单测；全量 1793 passed。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）

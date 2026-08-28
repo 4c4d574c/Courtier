@@ -493,6 +493,9 @@ class Settings(BaseSettings):
         "env_file": _ENV_FILE,
         "extra": "ignore",
         "env_nested_delimiter": "__",
+        # snapshot composition merges by field name (model_dump keys);
+        # init by field name must be accepted alongside env aliases.
+        "populate_by_name": True,
     }
 
 
@@ -706,6 +709,8 @@ class ConfigService:
         self._settings: "Settings | None" = None
         self._version: int = 0
         self._listeners: list[Callable[["Settings", int], None]] = []
+        #: "env" until a DB snapshot composition succeeds, then "db".
+        self.source: str = "env"
 
     def get(self) -> "Settings":
         """Return the effective snapshot, building it on first access."""

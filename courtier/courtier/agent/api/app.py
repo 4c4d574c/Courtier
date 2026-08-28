@@ -78,6 +78,31 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
             db = get_db()
             await db.ensure_database()
         await bootstrap_admin_user()
+        # DB-backed settings: compose env base + DB overrides into the
+        # effective snapshot (first-run .env seeding, JWT bootstrap and
+        # env-only degradation handled inside).  app.state.settings_store
+        # backs the admin settings API.
+        if settings.mysql_url:
+            from courtier.config import get_config_service
+            from courtier.settings_store import (
+                FernetCodec,
+                SettingsStore,
+                refresh_settings_snapshot,
+            )
+
+            app.state.settings_store = SettingsStore(get_db(), FernetCodec.from_env())
+            info = await refresh_settings_snapshot(
+                get_config_service(), app.state.settings_store
+            )
+            logger.info(
+                "settings snapshot: mode=%s version=%s seeded=%d unreadable=%d",
+                info["mode"],
+                info["version"],
+                len(info["seeded"]),
+                len(info["unreadable"]),
+            )
+        else:
+            app.state.settings_store = None
         # Ensure the ES chunks index exists (init_index is a no-op when it
         # does).  ES-less mode (empty es_hosts) skips this, and an
         # unreachable cluster only logs a warning instead of aborting

@@ -14,6 +14,8 @@ import base64
 import hashlib
 import logging
 import os
+import secrets as _py_secrets
+from contextlib import contextmanager
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -238,3 +240,165 @@ class SettingsStore:
                 }
                 for row in rows
             ]
+
+
+# ---------------------------------------------------------------------------
+# Snapshot composition (ConfigService DB integration)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _masked_settings_env():
+    """Temporarily mask every env name Settings reads (alias or field
+    name, upper-cased) so a defaults-only instance can be constructed."""
+    from courtier.config import Settings
+
+    names: set[str] = set()
+    for name, field in Settings.model_fields.items():
+        names.add((field.alias or name).upper())
+        names.add(name.upper())
+    saved = {k: os.environ.pop(k) for k in list(os.environ) if k in names}
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
+def _defaults_settings() -> Any:
+    """A Settings instance with no env/.env values — pure model defaults."""
+    from courtier.config import Settings
+
+    with _masked_settings_env():
+        return Settings(_env_file=None)
+
+
+def _cors_env_escape_active() -> bool:
+    """True when CORS_ORIGINS is explicitly set in the environment — the
+    admin lockout rescue: the env value always overrides the DB value."""
+    return bool(os.getenv("CORS_ORIGINS", "").strip())
+
+
+def compose_snapshot(base: Any, overrides: dict[str, Any]) -> Any:
+    """Merge DB *overrides* onto the env-effective *base* snapshot.
+
+    Precedence: model defaults < env/.env (base) < DB.  Tier-0 fields are
+    stripped defensively (the store already rejects writing them), and an
+    explicitly set CORS_ORIGINS env wins over any DB value.  Re-validates
+    the merged whole so bad values fail loudly instead of half-applying."""
+    from courtier.config import TIER0_SETTING_FIELDS, Settings
+
+    filtered = {k: v for k, v in overrides.items() if k not in TIER0_SETTING_FIELDS}
+    if _cors_env_escape_active():
+        filtered.pop("cors_origins", None)
+        filtered.pop("cors_allow_credentials", None)
+    merged = {**base.model_dump(), **filtered}
+    return Settings.model_validate(merged)
+
+
+async def seed_from_env(
+    store: "SettingsStore", base: Any, *, actor: str = "system-seed"
+) -> list[str]:
+    """One-shot import of non-default env/.env values into the DB store.
+
+    Only fields whose env-effective value differs from the pure model
+    default are imported (no 60-row default noise).  Secret fields are
+    skipped with a warning when no encryption key is configured — the
+    import never fails closed on the whole batch because of them."""
+    from courtier.config import SETTINGS_META
+
+    defaults = _defaults_settings()
+    changed = {
+        k: getattr(base, k)
+        for k in SETTINGS_META
+        if getattr(base, k) != getattr(defaults, k)
+    }
+    if not changed:
+        return []
+
+    # Secrets seed alongside the rest when an encryption key exists;
+    # without one they are skipped (fail-closed) instead of failing the
+    # whole import batch.
+    seedable = {
+        k: v
+        for k, v in changed.items()
+        if not SETTINGS_META[k].is_secret or store.codec is not None
+    }
+    skipped_secrets = sorted(set(changed) - set(seedable))
+    if skipped_secrets:
+        logger.warning(
+            "seed import skipped secret fields (COURTIER_SETTINGS_KEY unset): %s",
+            skipped_secrets,
+        )
+    if not seedable:
+        return []
+    return await store.save(seedable, actor=actor)
+
+
+async def refresh_settings_snapshot(
+    service: Any,
+    store: "SettingsStore | None",
+    *,
+    base: Any = None,
+) -> dict[str, Any]:
+    """Compose env base + DB overrides and swap the snapshot in-place.
+
+    Runs at startup and after admin settings saves.  Degrades to the
+    env-only snapshot (mode="env") when *store* is None or the DB is
+    unreachable.  Includes one-shot .env seeding (first start, empty
+    audit trail) and JWT-secret bootstrap (generate + encrypt + save when
+    empty and an encryption key exists)."""
+    from courtier.config import get_settings
+
+    info: dict[str, Any] = {
+        "mode": "env",
+        "version": service.version,
+        "unreadable": [],
+        "seeded": [],
+        "jwt_generated": False,
+    }
+    base = base if base is not None else get_settings()
+    if store is None:
+        return info
+
+    try:
+        overrides, unreadable = await store.load_overrides()
+    except Exception:
+        logger.warning("settings store unavailable; staying env-only", exc_info=True)
+        return info
+
+    seeded: list[str] = []
+    if await store.current_version() == 0:
+        try:
+            seeded = await seed_from_env(store, base)
+            if seeded:
+                overrides, unreadable = await store.load_overrides()
+                logger.info(
+                    "seeded %d setting(s) from env into DB: %s", len(seeded), sorted(seeded)
+                )
+        except Exception:
+            logger.warning(
+                "settings seed import failed; continuing with stored overrides only",
+                exc_info=True,
+            )
+
+    jwt_generated = False
+    if not overrides.get("jwt_secret") and not base.jwt_secret:
+        if store.codec is not None:
+            new_secret = _py_secrets.token_urlsafe(48)
+            await store.save({"jwt_secret": new_secret}, actor="system-jwt-bootstrap")
+            overrides["jwt_secret"] = new_secret
+            jwt_generated = True
+        else:
+            logger.warning(
+                "jwt_secret is empty and COURTIER_SETTINGS_KEY is unset; "
+                "JWT bootstrap skipped (configure the key or set JWT_SECRET)"
+            )
+
+    snapshot = compose_snapshot(base, overrides)
+    version = service.replace(snapshot)
+    service.source = "db"
+    info.update(
+        mode="db", version=version, unreadable=unreadable, seeded=seeded,
+        jwt_generated=jwt_generated,
+    )
+    return info
