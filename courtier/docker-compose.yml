@@ -14,7 +14,7 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?Required}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-courtier-dev-root}
       - TZ=Asia/Shanghai
     command:
       --max_connections=1000
@@ -29,7 +29,7 @@ services:
     networks:
       - courtier
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-courtier-dev-root}"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -69,8 +69,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?Required}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?Required}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-courtier-dev-root}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-courtier-dev-root-secret}
     volumes:
       - ${DATA_DIR:-./data}/minio:/data
     ports:
@@ -86,7 +86,7 @@ services:
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
-      - ELASTIC_PASSWORD=${ES_PASSWORD:?Required}
+      - ELASTIC_PASSWORD=${ES_PASSWORD:-courtier-dev-es-secret}
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
       - TZ=Asia/Shanghai
       - cluster.routing.allocation.disk.watermark.low=85%
@@ -99,7 +99,7 @@ services:
     networks:
       - courtier
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf -u elastic:${ES_PASSWORD} http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf -u elastic:${ES_PASSWORD:-courtier-dev-es-secret} http://localhost:9200/_cluster/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30

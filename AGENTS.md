@@ -117,7 +117,10 @@ uv sync
 
 # Configure environment
 cp .env.example .env
-# Edit .env with real credentials for MySQL, MinIO, Elasticsearch, and LLM.
+# Edit .env — Tier 0 only (MYSQL_URL, COURTIER_SETTINGS_KEY,
+# DEPLOYMENT_ENVIRONMENT) plus optional first-run seed values. All other
+# application settings live in the database and are edited in the admin
+# UI (管理后台 → 系统设置); see docs/operations/settings-and-secrets.md.
 
 # Run database migrations
 uv run alembic upgrade head
@@ -383,6 +386,7 @@ pi/
 - **Commits:** Conventional commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`).
 - **Domain isolation:** Core must never import domain code. Domains are discovered at startup via `CourtierConfig`.
 - **No hardcoded NL text in core:** All natural language is rendered by the Jinja2 PromptEngine from YAML templates. Domain-agnostic text (errors, context compaction, behavioral rules, tool invocation, subagent, welcome message) ships with core as full localized defaults in `courtier/prompts/defaults/{locale}/`; domain packages carry only domain-specific templates (`orchestrator.*`, `chat.system_prompt`) in `domains/<domain>/config/prompts/{locale}/` and may override any core default per key. Minimal English `FALLBACK_TEMPLATES` in `engine.py` are the last resort when a key is missing everywhere.
+- **DB-backed settings (Tier 0 + settings page):** container startup depends only on the Tier-0 env set (`MYSQL_URL`, `COURTIER_SETTINGS_KEY`, `DEPLOYMENT_ENVIRONMENT`). All other application settings live in the `settings` table behind `ConfigService` (`courtier/config.py`) — one snapshot per process, hot groups take effect on the next request, connection groups are probed before saving and hot-rebuilt after, restart groups are labeled in the UI. Secrets are Fernet-encrypted at rest; the admin API is `/api/admin/settings`. First run: no admin → setup wizard (`/api/setup/*`, production gated by `COURTIER_SETUP_KEY` or a private-network source); the seed import copies non-default `.env` values into the DB once.
 - **Plugins are standalone TCP servers:** Each plugin has its own `pyproject.toml`, virtual environment, and `plugin.yaml` manifest, and runs as an independent process (docker-compose service / systemd unit / `scripts/dev-plugins.py` locally). The host never spawns plugins; it dials `name=host:port` endpoints from `COURTIER_PLUGIN_ENDPOINTS` and both sides authenticate with `COURTIER_PLUGIN_TOKEN` (plugin's `plugin.register` carries it, host answers `plugin.auth`). Plugin state is managed as connections (`CONNECTING/ACTIVE/DISCONNECTED/BLOCKED/…`) with infinite exponential-backoff reconnect.
 - **Libraries are installable packages:** Every lib under `libs/shared/` and `libs/<domain>/` has its own `pyproject.toml` and is installed editable via `[tool.uv.sources]`. Plugins depend only on `courtier-plugin-sdk` + the libs they use — never on the `courtier` application package. The plugin SDK lives at `libs/shared/plugin_sdk/` (import name `courtier_plugin_sdk`).
 - **Plugin data access via host services:** Plugins never hold DB credentials. Data owned by the host (format templates, artifacts, cache) is accessed through declared host services (`plugin.yaml` `dependencies.host_services` + `permissions`) over reverse JSON-RPC on the same channel. Plugins own their environment (`plugins/plugin.env.example`); the manifest `runtime.env` block only carries literal defaults applied by the SDK (`os.environ.setdefault`). Plugins hold **no LLM endpoints or keys** (2026-08-27 de-LLM): structure recognition is rule-engine, fonts use the ResNet model, and the search plugin receives the query vector host-injected (`x-host-injected` schema marker) with listwise rerank executed host-side at the tool boundary (pre-persist finalize pass).
@@ -428,7 +432,7 @@ See `pi/AGENTS.md` for the full rule set. Key points:
 - **Entry point:** `uv run python -m uvicorn courtier.agent.api.app:create_app --factory --host 0.0.0.0 --port 8000`.
 - **Docker Compose:** `docker-compose.yml` provides MySQL, MinIO, Elasticsearch, Langfuse (web + worker), Prometheus, Grafana, and an OTLP collector. The `app` service is commented out by default. Tracing flows: app → OTLP collector (`:4317`) → Langfuse (`/api/public/otel`, authenticated via `LANGFUSE_AUTH_HEADER` in `.env`); Langfuse stores raw trace payloads in MinIO (`langfuse-events` bucket) and the ingestion queue in Redis (password-protected via `LANGFUSE_REDIS_PASSWORD`). Third-party images use the Huawei Cloud mirror (`swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/...`) where Docker Hub is slow.
 - **Migrations:** Alembic runs automatically when starting via `main.py`.
-- **Environment:** Key variables include `COURTIER_REPO_ROOT`, `COURTIER_DOMAIN_PACKAGES`, `COURTIER_LOCALE`, `COURTIER_UPLOAD_DIR`, `MYSQL_URL`, `ES_HOSTS`, `MINIO_ENDPOINT`, LLM endpoints, and OpenTelemetry settings.
+- **Environment:** Tier-0 bootstrap vars only — `MYSQL_URL`, `COURTIER_SETTINGS_KEY` (encrypts DB-stored secrets; losing it makes stored secrets unreadable), `DEPLOYMENT_ENVIRONMENT`; optional `CORS_ORIGINS` (lockout rescue, always overrides the DB value) and `COURTIER_SETUP_KEY` (one-time setup wizard token). Everything else is DB-backed and managed from the admin settings page; `.env` values seed the DB on first start. Infra container passwords stay at the compose/deployment layer (dev defaults built in).
 - **Health check:** `GET /health`.
 - **Metrics:** `GET /metrics` (Prometheus).
 
@@ -448,7 +452,7 @@ See `pi/AGENTS.md` for the full rule set. Key points:
 - **Authentication:** JWT-based auth with bcrypt password hashing. Default admin user is bootstrapped from `ADMIN_USER` / `ADMIN_PASSWORD` in `.env`.
 - **Rate limiting:** `slowapi` rate limiter is installed on API routes.
 - **CORS:** Configurable via `CORS_ORIGINS`; defaults are permissive for local development only.
-- **Secrets:** `.env` contains credentials and API keys. It is gitignored; use `.env.example` as a template.
+- **Secrets:** Tier-0 `.env` (gitignored; see `.env.example`) holds the DB URL and the settings encryption key only. API keys and service credentials live in the `settings` table, Fernet-encrypted under `COURTIER_SETTINGS_KEY` — back that key up; losing it makes every stored secret unreadable. Audit trail (`settings_changes`) records sha256 hashes only.
 - **File uploads:** Stored under `COURTIER_UPLOAD_DIR` (default `./uploads`). Plugins access uploads through the configured upload path.
 - **Plugin channel auth:** The host↔plugin TCP channel is authenticated by the shared `COURTIER_PLUGIN_TOKEN` on both sides (mutual: register carries the plugin's token, host proves itself via `plugin.auth`). There is no TLS yet — across untrusted networks put the channel behind WireGuard/stunnel or an overlay network. Plugins hold a restricted MinIO account scoped to the transfer bucket only (see §7.1); DB and full-permission MinIO credentials stay host-side.
 - **Domain gating:** domain tools are visibility-filtered per session (see §5.3); activation state is persisted in `SessionRecord.active_domains`.

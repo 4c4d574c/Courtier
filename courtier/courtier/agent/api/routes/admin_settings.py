@@ -147,11 +147,34 @@ async def get_settings_view(request: Request, user: dict = Depends(require_admin
             )
         if fields:
             categories.append({"key": cat_key, "label": label, "fields": fields})
+    # Deployment-layer (Tier 0) fields: read-only display — values stay in
+    # the container env and never round-trip through the DB.
+    from courtier.config import TIER0_SETTING_FIELDS
+
+    deployment = []
+    for name in sorted(TIER0_SETTING_FIELDS):
+        field = Settings.model_fields.get(name)
+        raw = getattr(settings, name, "")
+        if name in ("admin_password", "mysql_url"):
+            value: Any = {"set": bool(raw)}
+        elif name == "admin_user":
+            value = raw
+        else:
+            value = str(raw) if raw != "" else "(未设置)"
+        deployment.append(
+            {
+                "name": name,
+                "env_name": _env_name(name) if field else name.upper(),
+                "value": value,
+                "description": (field.description or "") if field else "",
+            }
+        )
     return {
         "mode": mode,
         "version": version,
         "unreadable": unreadable,
         "categories": categories,
+        "deployment": deployment,
     }
 
 

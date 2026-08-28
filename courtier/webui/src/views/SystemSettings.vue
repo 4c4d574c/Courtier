@@ -20,6 +20,16 @@
       当前为 env-only 降级模式：设置不可编辑，需配置 MYSQL_URL 并重启后使用。
     </p>
 
+    <details v-if="view.deployment?.length" class="deployment-box">
+      <summary>部署层配置（Tier 0，只读 — 容器环境变量）</summary>
+      <div v-for="item in view.deployment" :key="item.name" class="deployment-item">
+        <span class="field-name">{{ item.name }}</span>
+        <code class="deployment-value">{{
+          typeof item.value === "string" ? item.value : item.value.set ? "已设置" : "未设置"
+        }}</code>
+      </div>
+    </details>
+
     <nav class="settings-tabs">
       <button
         v-for="cat in view.categories"
@@ -375,6 +385,21 @@ onMounted(load);
 }
 .settings-notice {
   color: #d08770;
+}
+.deployment-box {
+  border: 1px dashed rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.deployment-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+.deployment-value {
+  opacity: 0.85;
 }
 .settings-tabs {
   display: flex;
