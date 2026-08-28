@@ -22,35 +22,33 @@
         @toggle-theme="$emit('toggle-theme')"
         @logout="$emit('logout')"
       />
-      <div class="chat-layout-body">
-        <div class="chat-layout-chat">
-          <ChatArea
-            :messages="messages"
-            :is-running="isRunning"
-            :queue-position="session.queuePosition"
-            :can-edit="canEdit"
-            :edit-hint="editHint"
-            @preview="$emit('preview-file', $event)"
-            @citation-click="$emit('citation-click', $event)"
-            @edit-submit="$emit('edit-submit', $event)"
-          />
-          <InputArea
-            :model-name="session.modelName"
-            :uploading="uploading"
-            :error="uploadError"
-            :is-running="isRunning"
-            @submit="(task, file) => $emit('submit', task, file)"
-            @stop="$emit('stop')"
-          />
-        </div>
-        <FilePreviewPanel
-          :is-open="drawerOpen"
-          :file="currentFile"
-          :citation="currentCitation"
-          @close="$emit('close-preview')"
+      <div class="chat-layout-chat">
+        <ChatArea
+          :messages="messages"
+          :is-running="isRunning"
+          :queue-position="session.queuePosition"
+          :can-edit="canEdit"
+          :edit-hint="editHint"
+          @preview="$emit('preview-file', $event)"
+          @citation-click="$emit('citation-click', $event)"
+          @edit-submit="$emit('edit-submit', $event)"
+        />
+        <InputArea
+          :model-name="session.modelName"
+          :uploading="uploading"
+          :error="uploadError"
+          :is-running="isRunning"
+          @submit="(task, file) => $emit('submit', task, file)"
+          @stop="$emit('stop')"
         />
       </div>
     </div>
+    <FilePreviewPanel
+      :is-open="drawerOpen"
+      :file="currentFile"
+      :citation="currentCitation"
+      @close="$emit('close-preview')"
+    />
   </div>
 </template>
 
@@ -120,16 +118,13 @@ defineEmits<{
 }
 
 /* Messages + input live in one column so the input stays aligned with the
-   chat when the preview panel docks beside them. */
-.chat-layout-body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-
+   chat when the preview panel docks beside them. The panel is a third flex
+   child of the layout, spanning the full height — header and chat narrow
+   together to make room for it. */
 .chat-layout-chat {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
