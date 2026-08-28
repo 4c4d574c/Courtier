@@ -116,6 +116,13 @@ class RunRecorder:
         # which renders as a duplicate sub-agent after a mid-run re-attach.
         self._pre_announce_subagent_events: list[Any] = []
         self._flushing_pre_announce: bool = False
+        # Latched once the listener records a think.tool_calls announcement:
+        # the ordering barrier only guards events racing AHEAD of that point.
+        # Without the latch, any busy-queue moment during the sub-agent run
+        # (SkillTool progress events, loop contention with other runs) would
+        # re-buffer and hold every subsequent sub-agent event until the next
+        # think/observe — stalling the live stream for the whole run.
+        self._dispatch_announced: bool = False
         # Turn tracking — incremented per user turn, persisted on steps and thoughts.
         self._current_turn_index: int = 0
 
@@ -144,6 +151,7 @@ class RunRecorder:
         self._current_subagents = {}
         self._subagent_parent_map = {}
         self._pre_announce_subagent_events = []
+        self._dispatch_announced = False
 
     def _bus_events_pending(self) -> bool:
         """Whether bus events (e.g. the dispatch announcement) are still
@@ -597,11 +605,14 @@ class RunRecorder:
         handle_id = event.handle_id if event.handle_id is not None else event.subagent_name
         parent_handle_id = event.parent_handle_id
 
-        # Ordering barrier — see _pre_announce_subagent_events.  Once one
-        # event buffers, everything after it buffers too, so arrival order
-        # survives until the bus drains and the queue flushes them.
-        if not self._flushing_pre_announce and (
-            self._pre_announce_subagent_events or self._bus_events_pending()
+        # Ordering barrier — see _pre_announce_subagent_events.  Only events
+        # racing AHEAD of the dispatch announcement buffer; once that is
+        # recorded (_dispatch_announced) later events flow immediately even
+        # when the queue is busy again.
+        if (
+            not self._flushing_pre_announce
+            and not self._dispatch_announced
+            and (self._pre_announce_subagent_events or self._bus_events_pending())
         ):
             self._pre_announce_subagent_events.append(event)
             return
@@ -888,7 +899,9 @@ class RunRecorder:
             think_payload["toolCallIds"] = ids
         await self._emit_sse(think_payload, seq=seq)
         # The dispatch step now exists — process any sub-agent events that
-        # raced ahead of this announcement, in arrival order.
+        # raced ahead of this announcement, in arrival order, and let later
+        # events flow without the barrier for the rest of this dispatch.
+        self._dispatch_announced = True
         await self._flush_pre_announce_subagent_events()
 
     async def _handle_observe(self) -> None:

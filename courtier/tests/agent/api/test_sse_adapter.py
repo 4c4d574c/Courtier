@@ -1109,6 +1109,56 @@ class TestRunRecorderSubAgentStateAccumulation:
         assert max(i for i, t in enumerate(types) if t == "think") < types.index("subagent_start")
 
     @pytest.mark.asyncio
+    async def test_busy_bus_does_not_stall_post_announce_events(self, store):
+        """Once the dispatch announcement is recorded, sub-agent events must
+        flow immediately even while the bus queue backs up again (SkillTool
+        progress events, loop contention with other runs).  A sticky barrier
+        would hold every event until the next think/observe — stalling the
+        live stream for the whole sub-agent run."""
+        from queue import Queue
+        from types import SimpleNamespace
+
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_abc123def456")
+        await store.create("sess_abc123def456", "audit", "/tmp/f.docx")
+
+        # Announcement processed with an idle bus, as usual.
+        await adapter.on_step("think", "tool_calls: content_audit")
+        q.get_nowait()
+
+        # The bus backs up while the sub-agent streams via the direct callback.
+        adapter._event_subscription = SimpleNamespace(queue=Queue())
+        adapter._event_subscription.queue.put("tool.progress")
+
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start", subagent_name="content_audit", handle_id="hdl_1", task="审核"
+            )
+        )
+        first = q.get_nowait()[1]
+        assert json.loads(first.strip().removeprefix("data: ").rstrip("\n"))["type"] == (
+            "subagent_start"
+        )
+
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="token", subagent_name="content_audit", handle_id="hdl_1", text="流式"
+            )
+        )
+        second = q.get_nowait()[1]
+        assert json.loads(second.strip().removeprefix("data: ").rstrip("\n"))["type"] == (
+            "subagent_token"
+        )
+
+        # And the snapshot keeps up with the stream (watermark stamped).
+        session = await store.get("sess_abc123def456")
+        assert session is not None
+        assert session.steps[0].subagents[0].thoughts[0].text == "流式"
+
+    @pytest.mark.asyncio
     async def test_nested_subagents_build_tree(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 
