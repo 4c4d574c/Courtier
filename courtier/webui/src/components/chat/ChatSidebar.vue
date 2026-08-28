@@ -164,8 +164,8 @@
                     'chat-sidebar-item-menu-btn--open': openMenuId === session.id,
                   }"
                   type="button"
-                  :aria-label="MESSAGES.CHAT_MENU_MORE"
-                  @click.stop="toggleMenu(session.id)"
+                :aria-label="MESSAGES.CHAT_MENU_MORE"
+                @click.stop="toggleMenu(session.id, $event)"
                 >
                   ⋯
                 </button>
@@ -174,6 +174,7 @@
             <div
               v-if="openMenuId === session.id"
               class="chat-sidebar-item-menu"
+              :class="{ 'chat-sidebar-item-menu--up': menuUp }"
               @click.stop
             >
               <button
@@ -291,9 +292,24 @@ function showMoreSessions() {
 // Meatballs menu: only one open at a time; an invisible overlay closes it
 // on any outside click (no global listeners needed).
 const openMenuId = ref<string | null>(null);
+// Menus anchored near the bottom of the scrollable list would be clipped
+// away by its overflow — flip those upward instead.
+const menuUp = ref(false);
 
-function toggleMenu(id: string) {
-  openMenuId.value = openMenuId.value === id ? null : id;
+function toggleMenu(id: string, event: Event) {
+  if (openMenuId.value === id) {
+    closeMenu();
+    return;
+  }
+  const item = (event.currentTarget as HTMLElement).closest(
+    ".chat-sidebar-item",
+  ) as HTMLElement | null;
+  const list = listEl.value;
+  menuUp.value =
+    !!item &&
+    !!list &&
+    list.getBoundingClientRect().bottom - item.getBoundingClientRect().bottom < 120;
+  openMenuId.value = id;
 }
 
 function closeMenu() {
@@ -767,6 +783,11 @@ function onMenuDelete(id: string) {
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.chat-sidebar-item-menu--up {
+  top: auto;
+  bottom: 34px;
 }
 
 .chat-sidebar-item-menu-item {
