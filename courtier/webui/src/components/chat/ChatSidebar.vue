@@ -153,10 +153,6 @@
                   class="chat-sidebar-item-queue"
                   >+{{ session.queuePosition ?? 0 }}</span
                 >
-                <span
-                  class="chat-sidebar-item-dot"
-                  :class="session.status"
-                ></span>
                 <button
                   class="chat-sidebar-item-menu-btn"
                   :class="{
@@ -592,33 +588,11 @@ function onMenuDelete(id: string) {
   flex-shrink: 0;
 }
 
-.chat-sidebar-item-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
 .chat-sidebar-item-queue {
   font-size: 10px;
   color: #60a5fa;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-}
-
-.chat-sidebar-item-dot.completed {
-  background: #22c55e;
-}
-.chat-sidebar-item-dot.running {
-  background: #f59e0b;
-}
-.chat-sidebar-item-dot.queued {
-  background: #60a5fa;
-}
-.chat-sidebar-item-dot.interrupted {
-  background: #94a3b8;
-}
-.chat-sidebar-item-dot.error {
-  background: #ef4444;
 }
 
 .chat-sidebar-item-menu-btn {
