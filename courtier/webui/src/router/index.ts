@@ -7,6 +7,11 @@ const routes: RouteRecordRaw[] = [
     name: "Login",
     component: () => import("../views/LoginView.vue"),
     meta: { guest: true },
+  },  {
+    path: "/setup",
+    name: "Setup",
+    component: () => import("../views/SetupView.vue"),
+    meta: { guest: true },
   },
   {
     path: "/register",
@@ -74,6 +79,18 @@ router.beforeEach(async (to, _from, next) => {
 
   if (!user.value) {
     await initAuth();
+  }
+
+  // First-run wizard: unauthenticated visits land on /setup while the
+  // backend reports that no admin exists yet (checked once per session).
+  if (!user.value && to.name !== "Setup") {
+    const { api } = await import("../api/client");
+    try {
+      const status = await api.setupStatus();
+      if (status.setup_required) return next({ name: "Setup" });
+    } catch {
+      /* status endpoint unavailable — proceed with normal auth flow */
+    }
   }
 
   if (to.meta.requiresAuth && !user.value) {

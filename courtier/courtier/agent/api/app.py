@@ -69,17 +69,15 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         # the previous process — mark it interrupted so it never shows as
         # perpetually running.
         await app.state.run_manager.sweep_stale_sessions()
-        from .db import bootstrap_admin_user, get_db
+        from .db import get_db
 
         # DB-less mode (empty MYSQL_URL) is a supported configuration for
-        # tests and local dev — skip engine creation just like
-        # bootstrap_admin_user skips its own DB work in that mode.
+        # tests and local dev — skip engine creation in that mode.
         if settings.mysql_url:
             db = get_db()
             await db.ensure_database()
-        await bootstrap_admin_user()
-        # Setup gate flag: an admin existing anywhere (env bootstrap or a
-        # previous setup wizard run) opens the production API surface.
+        # Setup gate flag: an admin existing anywhere (a previous setup
+        # wizard run) opens the production API surface.
         if settings.mysql_url:
             from .setup_gate import admin_exists
 
@@ -292,7 +290,18 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     # Health check — no auth, used by Docker HEALTHCHECK and load balancers
     @app.get("/health")
     async def health():
-        return {"status": "ok"}
+        from courtier.config import get_config_service
+
+        service = get_config_service()
+        has_admin = getattr(app.state, "_has_admin", None)
+        return {
+            "status": "ok",
+            "config": {
+                "mode": service.source,
+                "version": service.version,
+                "setup_required": bool(settings.mysql_url) and has_admin is False,
+            },
+        }
 
     # API routes — JWT-protected via Depends in the router
     app.include_router(api_router)
@@ -304,6 +313,12 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     from .routes.admin_settings import router as admin_settings_router
 
     app.include_router(admin_settings_router)
+
+    # First-run setup wizard (public; the production setup gate only
+    # allows /health, /api/setup* and the static SPA until an admin exists)
+    from .routes.setup import router as setup_router
+
+    app.include_router(setup_router)
 
     # Profile routes — JWT-protected
     app.include_router(profile_router)

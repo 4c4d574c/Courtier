@@ -166,11 +166,19 @@ function qs(params: Record<string, string | undefined>): string {
   return "?" + new URLSearchParams(filtered).toString();
 }
 
+export interface DeploymentField {
+  name: string;
+  env_name: string;
+  value: string | { set: boolean };
+  description: string;
+}
+
 export interface SettingsView {
   mode: "db" | "env";
   version: number | null;
   unreadable: string[];
   categories: import("../utils/settingsForm").SettingsCategory[];
+  deployment?: DeploymentField[];
 }
 
 export interface SettingsUpdateResult {
@@ -193,6 +201,27 @@ export const api = {
       body: JSON.stringify({ username, password }),
     });
     if (!res.ok) throw await parseErrorDetail(res, "Login failed");
+    return res.json();
+  },
+
+  async setupStatus(): Promise<{ setup_required: boolean }> {
+    const res = await fetch(`${API_BASE}/setup/status`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /api/setup/status failed");
+    return res.json();
+  },
+
+  async createAdmin(body: {
+    username: string;
+    password: string;
+    email?: string;
+    setup_key?: string;
+  }): Promise<{ ok: boolean }> {
+    const res = await fetch(`${API_BASE}/setup/admin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "创建管理员失败");
     return res.json();
   },
 
