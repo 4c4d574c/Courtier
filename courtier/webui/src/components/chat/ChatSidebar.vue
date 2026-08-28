@@ -195,14 +195,23 @@
             </div>
           </li>
         </ul>
-        <button
-          v-if="hiddenCount > 0"
-          type="button"
-          class="chat-sidebar-more"
-          @click="showMoreSessions"
-        >
-          {{ MESSAGES.CHAT_SHOW_MORE }}（还有 {{ hiddenCount }} 个）
-        </button>
+        <div v-if="hiddenCount > 0" class="chat-sidebar-more">
+          <div class="chat-sidebar-more-fade" aria-hidden="true"></div>
+          <button type="button" class="chat-sidebar-more-btn" @click="showMoreSessions">
+            <svg
+              class="chat-sidebar-more-chevron"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+            {{ MESSAGES.CHAT_SHOW_MORE }}
+            <span class="chat-sidebar-more-count">{{ hiddenCount }}</span>
+          </button>
+        </div>
         <div
           v-if="openMenuId"
           class="chat-sidebar-menu-overlay"
@@ -635,25 +644,67 @@ function onMenuDelete(id: string) {
     background 0.15s;
 }
 
+/* Show-more: the list dissolves into a fade gradient and a centered pill
+   button sits below it. The negative margin pulls the fade over the list's
+   bottom edge; the fade ignores pointer events so items stay clickable. */
 .chat-sidebar-more {
+  position: relative;
   flex-shrink: 0;
-  width: 100%;
-  margin-top: 4px;
-  padding: 7px 10px;
-  border: none;
-  background: transparent;
-  color: var(--chat-text-tertiary);
-  font-size: 13px;
+  display: flex;
+  justify-content: center;
+  margin-top: -22px;
+  padding-top: 22px;
+}
+
+.chat-sidebar-more-fade {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 22px;
+  background: linear-gradient(to bottom, transparent, var(--chat-bg-card));
+  pointer-events: none;
+}
+
+.chat-sidebar-more-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  background: var(--chat-bg-card);
+  color: var(--chat-text-secondary);
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
-  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
   transition:
     background 0.15s,
+    border-color 0.15s,
     color 0.15s;
 }
 
-.chat-sidebar-more:hover {
+.chat-sidebar-more-btn:hover {
   background: var(--chat-bg-hover);
-  color: var(--chat-text-secondary);
+  border-color: var(--chat-text-tertiary);
+  color: var(--chat-text-primary);
+}
+
+.chat-sidebar-more-chevron {
+  width: 12px;
+  height: 12px;
+}
+
+.chat-sidebar-more-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-sidebar-item:hover .chat-sidebar-item-menu-btn,
