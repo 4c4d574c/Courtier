@@ -1,5 +1,8 @@
 <template>
-  <div ref="containerRef" class="chat-area" aria-live="polite">
+  <div ref="containerRef" class="chat-area">
+    <!-- Status-level announcements only: the old container-wide aria-live
+         re-evaluated the whole transcript on every streaming DOM swap. -->
+    <span class="sr-only" role="status" aria-live="polite">{{ announcement }}</span>
     <div v-if="messages.length === 0 && !isRunning" class="chat-welcome">
       <div class="chat-welcome-mark"><img :src="logoUrl" alt="审衡" /></div>
       <h2 class="chat-welcome-title">{{ MESSAGES.WELCOME_TITLE }}</h2>
@@ -39,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch, nextTick } from "vue";
+import { onMounted, onUnmounted, ref, watch, nextTick } from "vue";
 import type { ChatMessageItem } from "../../types/chat";
 import { MESSAGES } from "../../constants/messages";
 import { useAutoScroll } from "../../composables/useAutoScroll";
@@ -68,6 +71,20 @@ const { containerRef, mount, unmount, scrollToBottom } = useAutoScroll();
 
 onMounted(() => mount());
 onUnmounted(() => unmount());
+
+// Screen-reader announcement on run-status transitions only (not per token).
+const announcement = ref("");
+watch(
+  () => props.isRunning,
+  (running, prev) => {
+    if (running && !prev) {
+      announcement.value = "开始生成回复";
+    } else if (!running && prev) {
+      const last = props.messages[props.messages.length - 1];
+      announcement.value = last?.type === "error" ? "生成出错" : "回复已生成";
+    }
+  },
+);
 
 watch(
   // Lightweight trigger: deep-watching the whole array would re-traverse
@@ -179,5 +196,19 @@ watch(
   50% {
     opacity: 0.3;
   }
+}
+
+/* Screen-reader-only status announcer (visually hidden, not display:none —
+   live regions must stay rendered to be announced). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
