@@ -220,7 +220,26 @@ export function createStreamingRenderer() {
     return html;
   }
 
-  return { renderStreamingHtml };
+  /**
+   * Try the trailing-span fast path WITHOUT producing HTML: when `text` only
+   * appended non-structural characters to the last fully rendered source, the
+   * live DOM's `.streaming-trailing` span can be updated via textContent
+   * directly — no new HTML string, no innerHTML re-parse, no sanitize pass.
+   * Returns the new trailing (plain, unescaped) text, or null when the caller
+   * must fall back to a full `renderStreamingHtml` pass.
+   */
+  function tryPatchTrailingText(text: string): string | null {
+    if (!cache || text === cache.text || !text.startsWith(cache.text)) {
+      return null;
+    }
+    const newChars = text.slice(cache.text.length);
+    if (STRUCTURAL_RE.test(newChars)) return null;
+    if (!cache.html.includes(TRAILING_OPEN)) return null;
+    cache = { text, html: cache.html, trailingStart: cache.trailingStart };
+    return text.slice(cache.trailingStart);
+  }
+
+  return { renderStreamingHtml, tryPatchTrailingText };
 }
 
 // ---------------------------------------------------------------------------
