@@ -115,7 +115,12 @@
         <div v-else-if="sessions.length === 0" class="chat-sidebar-empty">
           {{ MESSAGES.CHAT_NO_HISTORY }}
         </div>
-        <ul v-else class="chat-sidebar-list">
+        <ul
+          v-else
+          ref="listEl"
+          class="chat-sidebar-list"
+          @scroll="updateAtBottom"
+        >
           <li
             v-for="session in visibleSessions"
             :key="session.id"
@@ -195,23 +200,25 @@
             </div>
           </li>
         </ul>
-        <div v-if="hiddenCount > 0" class="chat-sidebar-more">
-          <div class="chat-sidebar-more-fade" aria-hidden="true"></div>
-          <button type="button" class="chat-sidebar-more-btn" @click="showMoreSessions">
-            <svg
-              class="chat-sidebar-more-chevron"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              aria-hidden="true"
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-            {{ MESSAGES.CHAT_SHOW_MORE }}
-            <span class="chat-sidebar-more-count">{{ hiddenCount }}</span>
-          </button>
-        </div>
+        <Transition name="more-reveal">
+          <div v-if="hiddenCount > 0 && atBottom" class="chat-sidebar-more">
+            <div class="chat-sidebar-more-fade" aria-hidden="true"></div>
+            <button type="button" class="chat-sidebar-more-btn" @click="showMoreSessions">
+              <svg
+                class="chat-sidebar-more-chevron"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+              {{ MESSAGES.CHAT_SHOW_MORE }}
+              <span class="chat-sidebar-more-count">{{ hiddenCount }}</span>
+            </button>
+          </div>
+        </Transition>
         <div
           v-if="openMenuId"
           class="chat-sidebar-menu-overlay"
@@ -232,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { SessionSummary } from "../../types/agent";
 import { MESSAGES } from "../../constants/messages";
 import logoUrl from "../../assets/logo.png";
@@ -263,6 +270,19 @@ const SESSIONS_BATCH = 20;
 const visibleCount = ref(INITIAL_VISIBLE_SESSIONS);
 const visibleSessions = computed(() => props.sessions.slice(0, visibleCount.value));
 const hiddenCount = computed(() => Math.max(0, props.sessions.length - visibleCount.value));
+
+// The expander stays out of the way until the user scrolls the current
+// batch to its end; scrolling back up hides it again.
+const listEl = ref<HTMLElement | null>(null);
+const atBottom = ref(false);
+
+function updateAtBottom() {
+  const el = listEl.value;
+  // A batch that fits without scrolling counts as "at the bottom".
+  atBottom.value = !el || el.scrollHeight - el.scrollTop - el.clientHeight <= 4;
+}
+
+watch([listEl, visibleSessions, () => props.loading], () => nextTick(updateAtBottom));
 
 function showMoreSessions() {
   visibleCount.value += SESSIONS_BATCH;
@@ -705,6 +725,19 @@ function onMenuDelete(id: string) {
   line-height: 16px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.more-reveal-enter-active,
+.more-reveal-leave-active {
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.more-reveal-enter-from,
+.more-reveal-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .chat-sidebar-item:hover .chat-sidebar-item-menu-btn,
