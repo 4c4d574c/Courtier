@@ -13,6 +13,7 @@ from types import ModuleType
 
 _VERSIONS_DIR = Path(__file__).resolve().parents[2] / "alembic" / "versions"
 
+# The migration this file's upgrade/downgrade tests describe.
 _NEW_REVISION = "43e68af4536c"
 _PREV_REVISION = "b71c4f0e9d23"
 
@@ -60,8 +61,9 @@ class TestRevisionChain:
         assert new.down_revision == _PREV_REVISION
         assert prev.revision == _PREV_REVISION
 
-    def test_new_revision_is_single_head(self):
-        """加载全部迁移构建版本链：新版本是唯一的 head。"""
+    def test_migration_chain_has_single_head(self):
+        """加载全部迁移构建版本链：链上必须恰好一个 head（不绑定特定版本，
+        新增迁移天然通过）。"""
         revisions: dict[str, str | None] = {}
         for path in sorted(_VERSIONS_DIR.glob("*.py")):
             module = _load_migration(path.name.split("_")[0])
@@ -70,7 +72,7 @@ class TestRevisionChain:
             )
         referenced_as_parent = {d for d in revisions.values() if d is not None}
         heads = set(revisions) - referenced_as_parent
-        assert heads == {_NEW_REVISION}, f"expected single head, got {sorted(heads)}"
+        assert len(heads) == 1, f"expected a single head, got {sorted(heads)}"
 
 
 class TestDropResidualColumnsUpgrade:

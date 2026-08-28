@@ -190,7 +190,7 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 ## Phase 1：存储与管理面（热生效组）
 
 ### Task 1.1: settings 表 + SettingsStore
-- [ ] Alembic 迁移（settings/settings_changes）；Fernet 编解码 + 密钥缺失 fail-closed 单测；审计写入单测
+- [x] Alembic 迁移（settings/settings_changes）；Fernet 编解码 + 密钥缺失 fail-closed 单测；审计写入单测
 
 ### Task 1.2: ConfigService DB 集成
 - [ ] 快照合成三级优先级 + CORS env 覆盖例外；env-only 降级路径单测
@@ -294,5 +294,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 2. `invalidate_es_client()` 顺带清 `_write_index_cache`（别名解析缓存）——换端点后别名解析不应残留；MinIO 客户端无打开资源，仅置空引用。
 3. tracer 收编后 OTel 四个旋钮（service.name/环境/endpoint/log_level）全部来自快照；新增测试断言 provider resource 来自 settings 而非 env。
 4. 实测：`pytest -m "not integration"` 1764 passed / 6 skipped；ruff 绿。**Phase 0 完成——配置读取单一化，为 Phase 1 的 DB 快照替换铺平。**
+
+**Task 1.1 完成**（settings 表 + SettingsStore + SETTINGS_META）。偏差与实测：
+1. **`settings.seq` 列取消**——sqlite 方言只对 INTEGER PRIMARY KEY 自增（BIGINT 非 PK 不行，store 单测无法移植）；全局版本改用 `MAX(settings_changes.id)`（审计表 PK 两方言都自增），新增 `SettingsStore.current_version()`。
+2. **顺手删除 host Settings 的 `docparse_*`（10 字段）与 `font_model_*`（3 字段）镜像字段**——去 LLM 化后 host 侧零消费者（插件进程读自己的 env），归属 plugin.env；比计划仅删 `cec_*` 的范围略大。
+3. **SETTINGS_META 从 `Settings.model_fields` 规则派生**（前缀→分组 + 显式 secret/rebuild/restart 集合），不逐字段手写表；Tier-0 字段与 `agent_runtime` 嵌套块排除。实测：65 个可编辑字段（model 19/retrieval 16/guards 16/web 7/observability 5/plugins 2），6 个 secret，hot 44/rebuild 16/restart 5。
+4. 迁移守卫测试改为**版本无关的单 head 断言**（原测试硬编码当时的 head，新增迁移必红）。dev 依赖加 `aiosqlite`（store 单测用文件型 sqlite）。
+5. 真实验证：迁移 `e5c90b1a7d42` 已对本地 dev MySQL 应用（两表建成）；store 真库冒烟（明文保存/读取/版本=2/清理）通过。回归 `pytest -m "not integration"` 1778 passed。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）

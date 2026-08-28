@@ -260,27 +260,6 @@ class Settings(BaseSettings):
         description="大用户输入 persist 治理阈值（环境变量: CONTEXT_MAX_USER_MESSAGE_CHARS）",
     )
 
-    docparse_ocr_api_url: str = Field(default="", alias="docparse_ocr_api_url")
-    anydoc_ocr_api_url: str = Field(default="", alias="anydoc_ocr_api_url")
-    docparse_ocr_lang: str = Field(default="ch", alias="docparse_ocr_lang")
-    docparse_ocr_engine: str = Field(default="ppstructure", alias="docparse_ocr_engine")
-    docparse_ocr_max_image_long_side: int = Field(
-        default=2048, alias="docparse_ocr_max_image_long_side"
-    )
-    docparse_ocr_deskew: bool = Field(default=False, alias="docparse_ocr_deskew")
-    docparse_max_llm_concurrent: int = Field(default=4, alias="docparse_max_llm_concurrent")
-    docparse_max_ocr_concurrent: int = Field(default=10, alias="docparse_max_ocr_concurrent")
-    docparse_llm_image_max_long_side: int = Field(
-        default=1280, alias="docparse_llm_image_max_long_side"
-    )
-    docparse_classify_mode: str = Field(default="llm", alias="docparse_classify_mode")
-
-    # 字体识别模型（自训练 ResNet）：配置后扫描件字体识别优先走模型，
-    # 未识别/低置信行回退 LLM。
-    font_model_url: str = Field(default="", alias="font_model_url")
-    font_model_conf_threshold: float = Field(default=0.6, alias="font_model_conf_threshold")
-    font_model_margin_threshold: float = Field(default=0.15, alias="font_model_margin_threshold")
-
     minio_endpoint: str = Field(default="", description="MinIO 服务端点，如 localhost:9000")
     minio_access_key: str = Field(default="", description="MinIO access key")
     minio_secret_key: str = Field(default="", description="MinIO secret key")
@@ -776,3 +755,126 @@ _config_service = ConfigService()
 # Eager init at import keeps the old singleton behavior: Settings
 # validation runs once at import time, avoiding first-call races.
 _config_service.get()
+
+
+# ---------------------------------------------------------------------------
+# Settings metadata — the DB-backed settings surface
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SettingMeta:
+    """Presentation/persistence metadata for one Settings field.
+
+    effect: "hot" applies from the next request; "rebuild" additionally
+    recreates derived clients (ES/MinIO/plugin connections) on save;
+    "restart" only takes effect after a container restart (UI labels it).
+    """
+
+    category: str
+    is_secret: bool = False
+    effect: str = "hot"
+
+
+SETTING_CATEGORIES: dict[str, str] = {
+    "model": "模型与上下文",
+    "retrieval": "检索与存储",
+    "plugins": "插件",
+    "guards": "运行守卫与预算",
+    "observability": "可观测性",
+    "web": "Web 与安全",
+}
+
+#: Fields the DB must never override — bootstrap/topology concerns whose
+#: values stay in the deployment layer (Tier 0).  admin_user/admin_password
+#: leave with the Phase 3 setup wizard.
+TIER0_SETTING_FIELDS: frozenset[str] = frozenset({
+    "mysql_url",
+    "upload_dir",
+    "cache_dir",
+    "audit_log_dir",
+    "deployment_env",
+    "admin_user",
+    "admin_password",
+})
+
+_SECRET_SETTING_FIELDS: frozenset[str] = frozenset({
+    "llm_api_key",
+    "minio_access_key",
+    "minio_secret_key",
+    "es_password",
+    "courtier_plugin_token",
+    "jwt_secret",
+})
+
+_RESTART_SETTING_FIELDS: frozenset[str] = frozenset({
+    "cors_origins",
+    "cors_allow_credentials",
+    "otel_service_name",
+    "otel_exporter_otlp_endpoint",
+    "otel_log_level",
+})
+
+_REBUILD_SETTING_FIELDS: frozenset[str] = frozenset({
+    "es_hosts",
+    "es_username",
+    "es_password",
+    "es_index_chunks",
+    "es_index_results",
+    "minio_endpoint",
+    "minio_access_key",
+    "minio_secret_key",
+    "minio_secure",
+    "minio_bucket_docs",
+    "minio_bucket_library",
+    "minio_bucket_resources",
+    "minio_bucket_documents",
+    "minio_bucket_plugin_io",
+    "courtier_plugin_endpoints",
+    "courtier_plugin_token",
+})
+
+
+def _setting_category(field: str) -> str:
+    if field.startswith(("llm_", "context_")):
+        return "model"
+    if field.startswith(("es_", "minio_", "search_rerank_")):
+        return "retrieval"
+    if field.startswith("courtier_plugin_"):
+        return "plugins"
+    if field.startswith(("loop_", "subagent_", "run_")) or field in (
+        "max_runs_per_user",
+        "max_total_runs",
+    ):
+        return "guards"
+    if field.startswith(("otel_", "audit_log_")) or field == "logger_level":
+        return "observability"
+    if field.startswith(("cors_", "jwt_")) or field == "bcrypt_rounds":
+        return "web"
+    return "advanced"
+
+
+def build_settings_meta() -> dict[str, SettingMeta]:
+    """Derive per-field metadata from the Settings model itself.
+
+    Tier-0 fields and the nested agent_runtime block are excluded: they
+    are not part of the DB-editable surface."""
+    meta: dict[str, SettingMeta] = {}
+    for name in Settings.model_fields:
+        if name in TIER0_SETTING_FIELDS or name == "agent_runtime":
+            continue
+        if name in _RESTART_SETTING_FIELDS:
+            effect = "restart"
+        elif name in _REBUILD_SETTING_FIELDS:
+            effect = "rebuild"
+        else:
+            effect = "hot"
+        meta[name] = SettingMeta(
+            category=_setting_category(name),
+            is_secret=name in _SECRET_SETTING_FIELDS,
+            effect=effect,
+        )
+    return meta
+
+
+SETTINGS_META: dict[str, SettingMeta] = build_settings_meta()

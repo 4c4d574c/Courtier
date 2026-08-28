@@ -19,6 +19,7 @@ from .paragraph import ParagraphCreate, ParagraphTable, ParagraphUpdate
 from .refresh_token import RefreshTokenTable
 from .resource import ResourceCreate, ResourceTable, ResourceUpdate
 from .rule import Rule, RuleDomain, RuleFile
+from .setting import SettingsChangeTable, SettingsTable
 from .user import ProfileUpdate, UserCreate, UserTable, UserUpdate
 
 __all__ = [
@@ -52,6 +53,8 @@ __all__ = [
     "RuleDomain",
     "RuleFile",
     "Rule",
+    "SettingsTable",
+    "SettingsChangeTable",
     "FormatAuditResultTable",
     "ContentAuditResultTable",
     "PlagiarismAuditResultTable",
