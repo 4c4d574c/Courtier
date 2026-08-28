@@ -142,6 +142,16 @@
             />
             <template v-else>
               <span class="chat-sidebar-item-task">
+                <span
+                  v-if="session.status === 'running'"
+                  class="chat-sidebar-item-spinner"
+                  aria-hidden="true"
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="8" cy="8" r="6" opacity="0.25" />
+                    <path d="M14 8A6 6 0 0 0 8 2" stroke-linecap="round" />
+                  </svg>
+                </span>
                 <svg
                   v-if="session.pinned"
                   class="chat-sidebar-item-pin"
@@ -648,6 +658,30 @@ function onMenuDelete(id: string) {
   margin-right: 4px;
   vertical-align: -1px;
   color: var(--chat-accent);
+}
+
+/* Live run indicator in front of the title (status goes live via the
+   global run-events channel, not just the mount-time list snapshot). */
+.chat-sidebar-item-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  color: var(--chat-accent);
+  animation: chat-sidebar-spin 0.9s linear infinite;
+}
+
+.chat-sidebar-item-spinner svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@keyframes chat-sidebar-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .chat-sidebar-item-right {
