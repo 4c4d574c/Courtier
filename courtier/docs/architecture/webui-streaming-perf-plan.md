@@ -107,3 +107,11 @@ C. `renderStreamingHtml` JS 侧单次更新：40KB 文档全量 re-lex 也仅 ~0
 ## 实施状态（滚动更新）
 
 - 2026-08-28：完成代码侦察与需求对齐，方案成文，待批准后进入 Phase 0 测量。
+- 2026-08-28：Phase 0 完成（无头基准 + 浏览器基线），结论修订：响应式代理税 × O(steps×thoughts) 扫描是重建成本主体；markdown JS 解析本身可忽略，其代价在 DOM 重建。
+- 2026-08-28：P1 全部落地（`5d4ddeb` token 帧批处理、`d4d768a` 单轮一次分组、`44db237` 历史 turn item 缓存、`b0aa6ed` 滚动单写者+贴底门控、`e4e8a0d` 删 turnVersion、`0ef6645` dev 日志降噪）。
+- 2026-08-28：P2 全部落地（`efa64b7` 尾部 span 直写 textContent、`3c14f62` 工具卡定时器 2Hz+隐藏暂停、`ee35f1c` normalizeToolResult 输入身份记忆化、`a8ee878` breathe 改 opacity + aria-live 收窄为状态级 sr-only 播报）。
+- 2026-08-28：最终验证通过。
+  - `npm test` 15 套件全绿；`npm run build`（vue-tsc）通过。
+  - 无头基准（单流式轮 + 历史 turn 缓存）：80 步历史 + 流式尾，单 token 重建 14.1ms → **0.29ms**（reactive），且随历史规模走平。
+  - 浏览器同场景复测（同文档同任务、9 步、attach + 完整流式窗口，Vite dev）：长任务（>50ms）从 **7 个（52–128ms）降到 2 个（93/53ms）**，最大帧间隔 133ms → 104ms；完成后截图核对渲染完整性无异常。
+  - 偏差记录：P1-2 的方案从"增量索引"改为"每轮一次分组 + 循环携带上步文本集"（语义构造性等价，测试零改动）；P2-8 定时器取 2Hz（500ms）而非 rAF（rAF 会提高频率）；P2-9 依据 P1-3 后的级联分析收窄为 normalizeToolResult 输入身份记忆化（全组记忆化在 P1-3 后基本不命中）。P3 备选项（attach 批处理、字体加载、manualChunks）未启用——attach 回放已随 P1-1 的统一管线获得批处理，其余两项与"流式卡顿"目标无关。
