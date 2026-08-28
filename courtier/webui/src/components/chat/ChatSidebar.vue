@@ -523,6 +523,7 @@ function onMenuDelete(id: string) {
 
 /* History variant: fills the section so the list inside keeps scrolling. */
 .chat-sidebar-collapsible--history {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -664,16 +665,18 @@ function onMenuDelete(id: string) {
     background 0.15s;
 }
 
-/* Show-more: the list dissolves into a fade gradient and a centered pill
-   button sits below it. The negative margin pulls the fade over the list's
-   bottom edge; the fade ignores pointer events so items stay clickable. */
+/* Show-more: floats over the bottom of the list (absolutely positioned, so
+   the scrollbar keeps the full height). The wrapper ignores pointer events;
+   only the button itself is clickable — rows under the fade stay clickable. */
 .chat-sidebar-more {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   justify-content: center;
-  margin-top: -22px;
   padding-top: 22px;
+  pointer-events: none;
 }
 
 .chat-sidebar-more-fade {
@@ -686,6 +689,7 @@ function onMenuDelete(id: string) {
 
 .chat-sidebar-more-btn {
   position: relative;
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 5px;
