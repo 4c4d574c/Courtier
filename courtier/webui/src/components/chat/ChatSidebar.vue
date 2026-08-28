@@ -689,25 +689,22 @@ function onMenuDelete(id: string) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 12px;
-  border: 1px solid var(--chat-border);
-  border-radius: 999px;
-  background: var(--chat-bg-card);
-  color: var(--chat-text-secondary);
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--chat-radius-md);
+  background: transparent;
+  color: var(--chat-text-tertiary);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  box-shadow: var(--chat-shadow);
   transition:
     background 0.15s,
-    border-color 0.15s,
     color 0.15s;
 }
 
 .chat-sidebar-more-btn:hover {
   background: var(--chat-bg-hover);
-  border-color: var(--chat-text-tertiary);
-  color: var(--chat-text-primary);
+  color: var(--chat-text-secondary);
 }
 
 .chat-sidebar-more-chevron {
@@ -716,14 +713,9 @@ function onMenuDelete(id: string) {
 }
 
 .chat-sidebar-more-count {
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--chat-bg-hover);
   color: var(--chat-text-tertiary);
+  opacity: 0.75;
   font-size: 11px;
-  line-height: 16px;
-  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
