@@ -1,10 +1,16 @@
 <template>
   <div class="admin-page">
-    <h1 class="admin-heading">注册审批</h1>
+    <header class="admin-header">
+      <div>
+        <h1 class="admin-heading">注册审批</h1>
+        <p class="admin-subtitle">审批新用户的注册申请</p>
+      </div>
+    </header>
     <p v-if="actionMsg.text" class="action-msg" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
       {{ actionMsg.text }}
     </p>
-    <table class="admin-table" v-if="items.length > 0">
+    <div class="admin-card" v-if="items.length > 0">
+      <table class="admin-table">
       <thead>
         <tr>
           <th>用户名</th>
@@ -37,8 +43,11 @@
         </tr>
       </tbody>
     </table>
-    <div v-else-if="!loading" class="admin-empty-state">
-      <p>暂无待审批的注册申请</p>
+    </div>
+    <div v-else-if="!loading" class="admin-card">
+      <div class="admin-empty-state">
+        <p>暂无待审批的注册申请</p>
+      </div>
     </div>
   </div>
 </template>
@@ -107,35 +116,42 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.admin-header {
+  margin-bottom: 16px;
+}
 .action-msg {
   margin: 0 0 12px;
-  font-size: 15px;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
 }
 .msg-ok {
-  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-dim);
 }
 .msg-err {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
   color: var(--err);
 }
 .approve-btn {
   color: var(--ok);
-  border-color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
 }
 .reject-btn {
   color: var(--err);
-  border-color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
 }
 .approve-btn:hover:not(:disabled) {
-  background: #e4f4e4;
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
 .reject-btn:hover:not(:disabled) {
-  background: #fce4e4;
+  background: color-mix(in srgb, var(--err) 12%, transparent);
 }
 
 .admin-empty-state {
   text-align: center;
-  padding: 64px 0;
+  padding: 56px 0;
   color: var(--chat-text-tertiary);
-  font-size: 19px;
+  font-size: 13px;
 }
 </style>

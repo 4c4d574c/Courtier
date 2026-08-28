@@ -1,6 +1,11 @@
 <template>
   <div class="admin-page">
-    <h1 class="admin-heading">用户管理</h1>
+    <header class="admin-header">
+      <div>
+        <h1 class="admin-heading">用户管理</h1>
+        <p class="admin-subtitle">管理账号、角色与登录状态</p>
+      </div>
+    </header>
     <p v-if="actionMsg.text" class="action-msg" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
       {{ actionMsg.text }}
     </p>
@@ -25,7 +30,8 @@
       </select>
     </div>
 
-    <table class="admin-table">
+    <div class="admin-card">
+      <table class="admin-table">
       <thead>
         <tr>
           <th>用户名</th>
@@ -86,6 +92,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <div class="admin-pagination" v-if="total > pageSize">
       <button :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
@@ -107,10 +114,10 @@
         />
         <p v-if="pwModal.error" class="action-msg msg-err">{{ pwModal.error }}</p>
         <div class="modal-actions">
-          <button class="action-btn" @click="confirmResetPassword" :disabled="pwModal.loading">
+          <button class="modal-btn" @click="pwModal.open = false">取消</button>
+          <button class="modal-btn modal-btn--primary" @click="confirmResetPassword" :disabled="pwModal.loading">
             {{ pwModal.loading ? "提交中..." : "确认" }}
           </button>
-          <button class="action-btn" @click="pwModal.open = false">取消</button>
         </div>
       </div>
     </div>
@@ -257,48 +264,93 @@ onMounted(fetchUsers);
 </script>
 
 <style scoped>
+.admin-header {
+  margin-bottom: 16px;
+}
 .action-msg {
   margin: 0 0 12px;
-  font-size: 15px;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
 }
 .msg-ok {
-  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-dim);
 }
 .msg-err {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
   color: var(--err);
 }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.45);
   z-index: 300;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .modal {
-  background: var(--chat-bg-card, #fff);
-  border-radius: 8px;
-  padding: 24px;
-  width: 360px;
-  max-width: 90vw;
+  width: min(400px, calc(100vw - 48px));
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  padding: 20px;
 }
 .modal-title {
-  margin: 0 0 16px;
-  font-size: 18px;
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--chat-text-primary);
 }
 .modal-input {
   width: 100%;
-  padding: 8px 12px;
+  padding: 8px 10px;
   margin-bottom: 12px;
-  border: 1px solid #d6d0c4;
-  border-radius: 6px;
-  font-size: 15px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 13px;
   box-sizing: border-box;
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.modal-input:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 .modal-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+.modal-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 150ms;
+}
+.modal-btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
+.modal-btn--primary {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+.modal-btn--primary:hover:not(:disabled) {
+  background: var(--chat-accent-hover);
+}
+.modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
