@@ -1,108 +1,102 @@
 <template>
-  <Teleport to="body">
-    <Transition name="drawer-fade">
-      <div v-if="isOpen" class="file-drawer-backdrop" @click="$emit('close')">
-        <Transition name="drawer-slide">
-          <div
-            v-if="isOpen"
-            class="file-drawer"
-            role="dialog"
-            aria-modal="true"
-            :aria-labelledby="titleId"
-            @click.stop
+  <aside class="preview-dock" :class="{ open: isOpen }" @click.self="$emit('close')">
+    <div
+      v-if="rendered"
+      class="preview-panel"
+      role="dialog"
+      aria-modal="false"
+      :aria-labelledby="titleId"
+      :aria-hidden="!isOpen"
+    >
+      <div class="file-drawer-header">
+        <h3 :id="titleId" class="file-drawer-title" :title="headerTitle">
+          {{ headerTitle }}
+        </h3>
+        <div class="file-drawer-actions">
+          <a
+            v-if="downloadUrl"
+            class="file-drawer-action"
+            :href="downloadUrl"
+            :download="downloadName"
           >
-            <div class="file-drawer-header">
-              <h3 :id="titleId" class="file-drawer-title" :title="headerTitle">
-                {{ headerTitle }}
-              </h3>
-              <div class="file-drawer-actions">
-                <a
-                  v-if="downloadUrl"
-                  class="file-drawer-action"
-                  :href="downloadUrl"
-                  :download="downloadName"
-                >
-                  {{ MESSAGES.CHAT_PREVIEW_DOWNLOAD }}
-                </a>
-                <button
-                  class="file-drawer-close"
-                  type="button"
-                  :aria-label="MESSAGES.CHAT_PREVIEW_CLOSE"
-                  @click="$emit('close')"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div class="file-drawer-body">
-              <!-- Citation mode: highlight card → click to open full PDF -->
-              <template v-if="citation">
-                <div v-if="previewMode === 'card'" class="citation-view">
-                  <button
-                    type="button"
-                    class="citation-card"
-                    :disabled="loadingPdf"
-                    @click="openPdf"
-                  >
-                    <div class="citation-card-title">{{ citation.title || "引用来源" }}</div>
-                    <div class="citation-card-body">
-                      <template v-if="citation.highlight?.length">
-                        <p
-                          v-for="(snippet, i) in citation.highlight"
-                          :key="i"
-                          class="citation-card-snippet"
-                          v-html="snippetHtml(snippet)"
-                        ></p>
-                      </template>
-                      <p v-else class="citation-card-snippet citation-card-plain">
-                        {{ citation.chunkText || "（无引用片段）" }}
-                      </p>
-                    </div>
-                  </button>
-                  <p class="citation-hint">
-                    {{ loadingPdf ? "正在加载完整文件…" : "点击卡片查看完整文件" }}
-                  </p>
-                </div>
-                <iframe
-                  v-else
-                  :src="pdfUrl"
-                  class="file-drawer-frame"
-                  :title="citation.title || '文件预览'"
-                ></iframe>
-              </template>
-
-              <!-- Uploaded-file mode (existing behavior) -->
-              <template v-else-if="file">
-                <img
-                  v-if="isImage(file.mimeType)"
-                  :src="file.url"
-                  :alt="file.name"
-                  class="file-drawer-image"
-                />
-                <iframe
-                  v-else-if="isPdf(file.mimeType)"
-                  :src="file.url"
-                  class="file-drawer-frame"
-                  :title="file.name"
-                ></iframe>
-                <div v-else class="file-drawer-unsupported">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                  <p>{{ MESSAGES.CHAT_PREVIEW_UNSUPPORTED }}</p>
-                  <a v-if="file?.url" class="file-drawer-download-link" :href="file.url" :download="file.name">
-                    {{ MESSAGES.CHAT_PREVIEW_DOWNLOAD }}
-                  </a>
-                </div>
-              </template>
-            </div>
-          </div>
-        </Transition>
+            {{ MESSAGES.CHAT_PREVIEW_DOWNLOAD }}
+          </a>
+          <button
+            class="file-drawer-close"
+            type="button"
+            :aria-label="MESSAGES.CHAT_PREVIEW_CLOSE"
+            @click="$emit('close')"
+          >
+            ×
+          </button>
+        </div>
       </div>
-    </Transition>
-  </Teleport>
+
+      <div class="file-drawer-body">
+        <!-- Citation mode: highlight card → click to open full PDF -->
+        <template v-if="citation">
+          <div v-if="previewMode === 'card'" class="citation-view">
+            <button
+              type="button"
+              class="citation-card"
+              :disabled="loadingPdf"
+              @click="openPdf"
+            >
+              <div class="citation-card-title">{{ citation.title || "引用来源" }}</div>
+              <div class="citation-card-body">
+                <template v-if="citation.highlight?.length">
+                  <p
+                    v-for="(snippet, i) in citation.highlight"
+                    :key="i"
+                    class="citation-card-snippet"
+                    v-html="snippetHtml(snippet)"
+                  ></p>
+                </template>
+                <p v-else class="citation-card-snippet citation-card-plain">
+                  {{ citation.chunkText || "（无引用片段）" }}
+                </p>
+              </div>
+            </button>
+            <p class="citation-hint">
+              {{ loadingPdf ? "正在加载完整文件…" : "点击卡片查看完整文件" }}
+            </p>
+          </div>
+          <iframe
+            v-else
+            :src="pdfUrl"
+            class="file-drawer-frame"
+            :title="citation.title || '文件预览'"
+          ></iframe>
+        </template>
+
+        <!-- Uploaded-file mode -->
+        <template v-else-if="file">
+          <img
+            v-if="isImage(file.mimeType)"
+            :src="file.url"
+            :alt="file.name"
+            class="file-drawer-image"
+          />
+          <iframe
+            v-else-if="isPdf(file.mimeType)"
+            :src="file.url"
+            class="file-drawer-frame"
+            :title="file.name"
+          ></iframe>
+          <div v-else class="file-drawer-unsupported">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <p>{{ MESSAGES.CHAT_PREVIEW_UNSUPPORTED }}</p>
+            <a v-if="file?.url" class="file-drawer-download-link" :href="file.url" :download="file.name">
+              {{ MESSAGES.CHAT_PREVIEW_DOWNLOAD }}
+            </a>
+          </div>
+        </template>
+      </div>
+    </div>
+  </aside>
 </template>
 
 <script setup lang="ts">
@@ -113,17 +107,35 @@ import type { ChatFileItem } from "../../types/chat";
 import { MESSAGES } from "../../constants/messages";
 import { sanitizeHtml } from "../../utils/markdown";
 
-const titleId = "file-drawer-title";
+const titleId = "file-preview-panel-title";
 
 interface Props {
   isOpen: boolean;
   file: ChatFileItem | null;
-  /** When set, the drawer shows the citation card → full PDF preview flow. */
+  /** When set, the panel shows the citation card → full PDF preview flow. */
   citation?: CitationHit | null;
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits<{ close: [] }>();
+
+// Docked slide panel: the dock column animates its width; the inner panel
+// stays mounted while the close animation plays, then unmounts (releasing
+// PDF iframes) once the slide-out has finished.
+const rendered = ref(false);
+let hideTimer: ReturnType<typeof setTimeout> | undefined;
+watch(
+  () => props.isOpen,
+  (open) => {
+    clearTimeout(hideTimer);
+    if (open) {
+      rendered.value = true;
+    } else {
+      hideTimer = setTimeout(() => (rendered.value = false), 300);
+    }
+  },
+  { immediate: true },
+);
 
 // Citation preview state: card first, full PDF after the card is clicked.
 const previewMode = ref<"card" | "pdf">("card");
@@ -198,14 +210,6 @@ async function openPdf() {
   }
 }
 
-watch(
-  () => props.isOpen,
-  (open) => {
-    document.body.style.overflow = open ? "hidden" : "";
-  },
-  { immediate: true },
-);
-
 function onKeydown(event: KeyboardEvent) {
   if (event.key === "Escape" && props.isOpen) {
     emit("close");
@@ -215,29 +219,56 @@ function onKeydown(event: KeyboardEvent) {
 onMounted(() => window.addEventListener("keydown", onKeydown));
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);
-  document.body.style.overflow = "";
+  clearTimeout(hideTimer);
 });
 </script>
 
 <style scoped>
-/* Drawer shell + uploaded-file modes — unchanged from the original component */
-.file-drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 200;
-  display: flex;
-  justify-content: flex-end;
+/* Docked slide panel: a width-animating column inside the chat body row.
+   The chat area narrows beside it — no backdrop, no scroll lock. On narrow
+   screens (<768px) it falls back to a full-screen overlay with backdrop. */
+.preview-dock {
+  width: 0;
+  height: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.25s ease;
 }
 
-.file-drawer {
+.preview-dock.open {
   width: var(--chat-drawer-width);
-  max-width: 100%;
+}
+
+.preview-panel {
+  width: var(--chat-drawer-width);
+  max-width: 100vw;
   height: 100%;
   background: var(--chat-bg-card);
+  border-left: 1px solid var(--chat-border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+}
+
+@media (max-width: 768px) {
+  .preview-dock {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    transition: none;
+  }
+
+  .preview-dock.open {
+    width: 100%;
+  }
+
+  .preview-panel {
+    width: 100%;
+    border-left: none;
+    box-shadow: none;
+  }
 }
 
 .file-drawer-header {
@@ -335,7 +366,7 @@ onUnmounted(() => {
   padding: 8px 16px;
   border-radius: var(--chat-radius-md);
   background: var(--chat-accent);
-  color: #fff;
+  color: var(--chat-accent-contrast);
   text-decoration: none;
   font-size: 15px;
 }
@@ -416,31 +447,5 @@ onUnmounted(() => {
   font-size: 12px;
   text-align: center;
   color: var(--chat-text-tertiary);
-}
-
-.drawer-fade-enter-active,
-.drawer-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.drawer-fade-enter-from,
-.drawer-fade-leave-to {
-  opacity: 0;
-}
-
-.drawer-slide-enter-active,
-.drawer-slide-leave-active {
-  transition: transform 0.25s ease;
-}
-
-.drawer-slide-enter-from,
-.drawer-slide-leave-to {
-  transform: translateX(100%);
-}
-
-@media (max-width: 768px) {
-  .file-drawer {
-    width: 100%;
-  }
 }
 </style>

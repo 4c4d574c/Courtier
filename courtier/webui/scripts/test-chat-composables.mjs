@@ -84,7 +84,9 @@ try {
   assert.deepEqual(preview.currentFile.value, fileItem);
   preview.close();
   assert.equal(preview.isOpen.value, false);
-  assert.equal(preview.currentFile.value, null);
+  // close() keeps the content refs so the slide-out animation doesn't blank
+  // out; the next open() replaces them.
+  assert.deepEqual(preview.currentFile.value, fileItem);
 
   // useChatMessages
   const baseSession = {

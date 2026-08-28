@@ -22,16 +22,24 @@
         @toggle-theme="$emit('toggle-theme')"
         @logout="$emit('logout')"
       />
-      <ChatArea
-        :messages="messages"
-        :is-running="isRunning"
-        :queue-position="session.queuePosition"
-        :can-edit="canEdit"
-        :edit-hint="editHint"
-        @preview="$emit('preview-file', $event)"
-        @citation-click="$emit('citation-click', $event)"
-        @edit-submit="$emit('edit-submit', $event)"
-      />
+      <div class="chat-layout-body">
+        <ChatArea
+          :messages="messages"
+          :is-running="isRunning"
+          :queue-position="session.queuePosition"
+          :can-edit="canEdit"
+          :edit-hint="editHint"
+          @preview="$emit('preview-file', $event)"
+          @citation-click="$emit('citation-click', $event)"
+          @edit-submit="$emit('edit-submit', $event)"
+        />
+        <FilePreviewPanel
+          :is-open="drawerOpen"
+          :file="currentFile"
+          :citation="currentCitation"
+          @close="$emit('close-preview')"
+        />
+      </div>
       <InputArea
         :model-name="session.modelName"
         :uploading="uploading"
@@ -41,12 +49,6 @@
         @stop="$emit('stop')"
       />
     </div>
-    <FilePreviewDrawer
-      :is-open="drawerOpen"
-      :file="currentFile"
-      :citation="currentCitation"
-      @close="$emit('close-preview')"
-    />
   </div>
 </template>
 
@@ -57,7 +59,7 @@ import ChatSidebar from "./ChatSidebar.vue";
 import ChatHeader from "./ChatHeader.vue";
 import ChatArea from "./ChatArea.vue";
 import InputArea from "./InputArea.vue";
-import FilePreviewDrawer from "./FilePreviewDrawer.vue";
+import FilePreviewPanel from "./FilePreviewPanel.vue";
 
 interface Props {
   title: string;
@@ -112,6 +114,18 @@ defineEmits<{
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+/* Messages + docked preview panel row: the panel takes its width when open
+   and the chat area narrows beside it. */
+.chat-layout-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.chat-layout-body > :first-child {
   min-width: 0;
 }
 </style>

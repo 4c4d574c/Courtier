@@ -21,10 +21,13 @@ export function useFilePreview() {
     isOpen.value = true;
   }
 
+  /**
+   * Collapse the panel. Content refs are intentionally kept so the panel
+   * doesn't blank out during the slide-out animation — the next open()
+   * replaces them anyway.
+   */
   function close() {
     isOpen.value = false;
-    currentFile.value = null;
-    currentCitation.value = null;
   }
 
   return { isOpen, currentFile, currentCitation, open, openCitation, close };
