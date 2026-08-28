@@ -256,6 +256,46 @@
           <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
           <span class="chat-sidebar-user-arrow">▾</span>
           <div v-if="userMenuOpen" class="chat-sidebar-user-menu">
+            <div
+              class="chat-sidebar-user-menu-item chat-sidebar-theme-row"
+              @click.stop="themeMenuOpen = !themeMenuOpen"
+            >
+              <svg class="chat-sidebar-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+              </svg>
+              <span class="chat-sidebar-theme-label">{{ MESSAGES.CHAT_THEME }}</span>
+              <span class="chat-sidebar-theme-caret" :class="{ 'chat-sidebar-theme-caret--open': themeMenuOpen }">▾</span>
+            </div>
+            <div v-if="themeMenuOpen" class="chat-sidebar-theme-options">
+              <button
+                class="chat-sidebar-user-menu-item chat-sidebar-theme-option"
+                type="button"
+                @click.stop="pickTheme('light')"
+              >
+                <svg class="chat-sidebar-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="12" cy="12" r="5" />
+                  <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+                <span>{{ MESSAGES.CHAT_THEME_LIGHT }}</span>
+                <svg v-if="theme === 'light'" class="chat-sidebar-theme-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              </button>
+              <button
+                class="chat-sidebar-user-menu-item chat-sidebar-theme-option"
+                type="button"
+                @click.stop="pickTheme('dark')"
+              >
+                <svg class="chat-sidebar-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+                <span>{{ MESSAGES.CHAT_THEME_DARK }}</span>
+                <svg v-if="theme === 'dark'" class="chat-sidebar-theme-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              </button>
+            </div>
             <router-link to="/profile" class="chat-sidebar-user-menu-item" @click.stop>
               {{ MESSAGES.CHAT_SETTINGS }}
             </router-link>
@@ -278,6 +318,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import type { SessionSummary } from "../../types/agent";
 import { MESSAGES } from "../../constants/messages";
+import { useTheme } from "../../composables/useTheme";
 import logoUrl from "../../assets/logo.png";
 
 interface Props {
@@ -304,11 +345,20 @@ const emit = defineEmits<{
 const isAdmin = computed(() => props.userRole === "admin");
 
 // Bottom-left user menu (moved from the header). The invisible overlay
-// closes it on any outside click — same pattern as the meatballs menu.
+// closes it on any outside click — same pattern as the meatballs menus.
 const userMenuOpen = ref(false);
+const themeMenuOpen = ref(false);
+const { theme, setTheme } = useTheme();
+
+function pickTheme(value: "light" | "dark") {
+  setTheme(value);
+  userMenuOpen.value = false;
+  themeMenuOpen.value = false;
+}
 
 function logout() {
   userMenuOpen.value = false;
+  themeMenuOpen.value = false;
   emit("logout");
 }
 
@@ -1014,6 +1064,64 @@ function onMenuDelete(id: string) {
 
 .chat-sidebar-user-menu-item:hover {
   background: var(--chat-bg-hover);
+}
+
+/* 界面主题 row: icon + label + caret, expands its options accordion-style
+   (the sidebar's overflow:hidden clips a flyout, so the options render
+   inline under the row like the reference submenu, indented). */
+.chat-sidebar-theme-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.chat-sidebar-theme-label {
+  flex: 1;
+}
+
+.chat-sidebar-theme-caret {
+  font-size: 10px;
+  color: var(--chat-text-secondary);
+  transition: transform 0.15s;
+}
+
+.chat-sidebar-theme-caret--open {
+  transform: rotate(180deg);
+}
+
+.chat-sidebar-theme-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--chat-text-secondary);
+}
+
+.chat-sidebar-theme-options {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 4px 10px;
+}
+
+.chat-sidebar-theme-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: var(--chat-radius-sm, 4px);
+}
+
+.chat-sidebar-theme-option span {
+  flex: 1;
+  text-align: left;
+}
+
+.chat-sidebar-theme-check {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--chat-accent);
 }
 
 @media (max-width: 768px) {

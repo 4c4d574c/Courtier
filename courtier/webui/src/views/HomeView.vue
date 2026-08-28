@@ -22,7 +22,6 @@
     @history-pin="handleHistoryPin"
     @logout="handleLogout"
     @toggle-sidebar="sidebarOpen = !sidebarOpen"
-    @toggle-theme="toggleTheme"
     @preview-file="openPreview"
     @citation-click="openCitation"
     @close-preview="closePreview"
@@ -83,7 +82,7 @@ const {
   openCitation,
   close: closePreview,
 } = filePreview;
-const { initTheme, toggleTheme } = useTheme();
+const { initTheme } = useTheme();
 
 // Desktop starts with the history sidebar open; mobile keeps it closed
 // (it renders as an overlay there).

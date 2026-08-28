@@ -15,11 +15,15 @@ export function useTheme() {
     document.documentElement.setAttribute("data-theme", theme.value);
   }
 
-  function toggleTheme() {
-    theme.value = theme.value === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", theme.value);
-    localStorage.setItem(THEME_KEY, theme.value);
+  function setTheme(value: "light" | "dark") {
+    theme.value = value;
+    document.documentElement.setAttribute("data-theme", value);
+    localStorage.setItem(THEME_KEY, value);
   }
 
-  return { theme, initTheme, toggleTheme };
+  function toggleTheme() {
+    setTheme(theme.value === "light" ? "dark" : "light");
+  }
+
+  return { theme, initTheme, setTheme, toggleTheme };
 }

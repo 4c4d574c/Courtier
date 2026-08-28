@@ -19,7 +19,6 @@
         :title="title"
         :model-events="session.modelEvents"
         @toggle-sidebar="$emit('toggle-sidebar')"
-        @toggle-theme="$emit('toggle-theme')"
       />
       <div class="chat-layout-chat">
         <ChatArea
@@ -92,7 +91,6 @@ defineEmits<{
   "history-pin": [id: string, pinned: boolean];
   logout: [];
   "toggle-sidebar": [];
-  "toggle-theme": [];
   "preview-file": [file: ChatFileItem];
   "citation-click": [hit: CitationHit | undefined];
   "close-preview": [];
