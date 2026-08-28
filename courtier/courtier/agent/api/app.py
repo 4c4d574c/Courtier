@@ -285,6 +285,11 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     # Admin routes — JWT + admin-role protected
     app.include_router(admin_router)
 
+    # Admin settings (DB-backed configuration surface)
+    from .routes.admin_settings import router as admin_settings_router
+
+    app.include_router(admin_settings_router)
+
     # Profile routes — JWT-protected
     app.include_router(profile_router)
 

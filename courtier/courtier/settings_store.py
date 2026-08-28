@@ -201,6 +201,40 @@ class SettingsStore:
                 saved.append(key)
             return saved
 
+    async def delete(self, keys: list[str], *, actor: str) -> list[str]:
+        """Remove rows so the fields fall back to the env/default chain.
+
+        Writes audit rows with new_hash=None.  Returns the removed keys."""
+        from sqlalchemy import delete as sa_delete, select
+
+        async with self._db.session() as session:
+            existing = {
+                row.key: row
+                for row in (
+                    await session.execute(
+                        select(SettingsTable).where(SettingsTable.key.in_(keys))
+                    )
+                ).scalars()
+            }
+            removed: list[str] = []
+            for key in keys:
+                row = existing.get(key)
+                if row is None:
+                    continue
+                await session.execute(
+                    sa_delete(SettingsTable).where(SettingsTable.key == key)
+                )
+                session.add(
+                    SettingsChangeTable(
+                        key_name=key,
+                        old_hash=_value_hash(row.value),
+                        new_hash=None,
+                        actor=actor,
+                    )
+                )
+                removed.append(key)
+            return removed
+
     async def current_version(self) -> int:
         """Global settings version = MAX(settings_changes.id); 0 when empty.
 

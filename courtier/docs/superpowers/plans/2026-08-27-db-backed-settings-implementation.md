@@ -198,8 +198,8 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 - [x] `config.changed` 发布与订阅者刷新（RunManager）单测
 
 ### Task 1.3: 管理 API（热生效组）
-- [ ] `GET`（脱敏 + schema + 来源 + 档位）、`PUT`（partial + 整模型校验 + 审计）、`test/llm`、`audit`；`require_admin`
-- [ ] API 测试（含校验失败 422 字段级报错、secret 留空不改、null 清除）
+- [x] `GET`（脱敏 + schema + 来源 + 档位）、`PUT`（partial + 整模型校验 + 审计）、`test/llm`、`audit`；`require_admin`
+- [x] API 测试（含校验失败 422 字段级报错、secret 留空不改、null 清除）
 
 ### Task 1.4: 前端系统设置页（热生效组）
 - [ ] SchemaForm 组件 + SystemSettings.vue（模型与上下文/守卫预算/可观测性日志项）+ api client 扩展 + 路由
@@ -309,5 +309,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 4. JWT 自举：DB 模式 + 空 jwt_secret + 有加密密钥 → 生成 token_urlsafe(48) 加密落库；无密钥 → 告警跳过（env 值继续生效）。测试坑：本地 .env 有 JWT_SECRET，单测须显式 `JWT_SECRET=""` 才走自举分支。
 5. lifespan 接线：mysql_url 非空 → 建 `app.state.settings_store` + `refresh_settings_snapshot`；为空 → `settings_store=None`（env-only）。降级（DB 不可达）不换快照只告警。
 6. 实测：新增 15 个合成/种子/自举/降级单测；全量 1793 passed。
+
+**Task 1.3 完成**（管理 API）。偏差与实测：
+1. PUT 的"null=清除回退 env/default"需要 `SettingsStore.delete()`（删行 + 审计行 new_hash=None）——计划遗漏的存储原语，已补。
+2. 校验失败返回 422 + 字段级 errors（pydantic ValidationError 提取 loc/msg）；PUT 成功后经 `refresh_settings_snapshot` 原子换快照并返回 `restart_required`（本次变更中 effect=restart 的字段）。
+3. `test/llm` 支持请求体携带 llm_* 覆盖（保存前先测），lazy import 后端便于测试打桩。
+4. 测试用独立 FastAPI app（只挂 settings 路由 + require_admin 依赖覆写 + sqlite store），并把路由模块的 `get_config_service`/`get_settings` 指到每测独立的 ConfigService——避免污染进程级全局快照（GET/PUT 必须读到同一个 service）。
+5. 实测：12 个 API 用例（分组/掩码/来源标记/设置+清除/restart 上报/422/404/503/审计/LLM 测试成败两路）；全量 1805 passed。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）
