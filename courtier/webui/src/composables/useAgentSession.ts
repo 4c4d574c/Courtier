@@ -151,6 +151,16 @@ export function useAgentSession() {
     handlers.handleSessionEvent(event);
   }
 
+  // High-frequency streaming events are dropped from the dev SSE log —
+  // per-token console.debug is itself a dev-mode jank source (serialization
+  // + console rendering for hundreds of events per second).
+  const TOKEN_QUIET_LOG_TYPES = new Set([
+    "token",
+    "conclusion_token",
+    "subagent_token",
+    "subagent_think",
+  ]);
+
   // ---- connection lifecycle ----
 
   /**
@@ -165,7 +175,7 @@ export function useAgentSession() {
       reconnectCount = 0;
       try {
         const event: AgentEvent = JSON.parse(e.data);
-        if (import.meta.env.DEV) {
+        if (import.meta.env.DEV && !TOKEN_QUIET_LOG_TYPES.has(event.type)) {
           console.debug("[SSE]", event.type, event);
         }
         dispatchSessionEvent(event);
@@ -412,7 +422,7 @@ export function useAgentSession() {
         }
         return;
       }
-      if (import.meta.env.DEV) {
+      if (import.meta.env.DEV && !TOKEN_QUIET_LOG_TYPES.has(parsed.type)) {
         console.debug("[SSE]", parsed.type, parsed);
       }
       dispatchSessionEvent(parsed);
