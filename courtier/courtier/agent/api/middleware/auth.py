@@ -194,9 +194,15 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> dict:
     """FastAPI dependency: returns full user claims dict {sub, uid, role}."""
-    return _resolve_token(
+    payload = _resolve_token(
         request.app.state.settings,
         credentials,
         request.query_params.get("token"),
         request.cookies.get("access_token"),
     )
+    # Stamped for the rate limiter's per-user bucket key (rate_limiter.py):
+    # dependencies resolve before the endpoint's limiter decorator runs.
+    sub = payload.get("sub")
+    if isinstance(sub, str) and sub:
+        request.state.auth_user = sub
+    return payload

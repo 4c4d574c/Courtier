@@ -110,20 +110,49 @@ async def _persist_oversized_task(task: str, context_manager: Any, settings: Any
 
 
 @router.get("/sessions")
-@limiter.limit("10/minute")
+@limiter.limit("60/minute")
 async def handle_sessions(
+    request: Request,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000),
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """List historical sessions (per-user rate budget)."""
+    # Run-start params on the list route = a stale client. Fail loudly —
+    # silently returning the list would strand an EventSource on JSON.
+    if (
+        request.query_params.get("task") is not None
+        or request.query_params.get("fileId") is not None
+        or request.query_params.get("sessionId") is not None
+    ):
+        raise HTTPException(400, "运行启动请使用 /api/sessions/run")
+    session_store = request.app.state.session_store
+    current_user = current_user_payload["sub"]
+    is_admin = _is_admin(current_user_payload)
+
+    items = await list_sessions(session_store, current_user, is_admin, skip=skip, limit=limit)
+    run_manager = getattr(request.app.state, "run_manager", None)
+    if run_manager is not None:
+        # Overlay live run status — store writes can lag the runner.
+        for item in items:
+            live = run_manager.active_status(item["id"])
+            if live is not None:
+                item["status"] = live
+    return items
+
+
+@router.get("/sessions/run")
+@limiter.limit("30/minute")
+async def handle_session_stream(
     request: Request,
     task: Optional[str] = Query(default=None),
     fileId: Optional[str] = Query(default=None),
     sessionId: Optional[str] = Query(default=None),
     editTurn: Optional[int] = Query(default=None),
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=1000),
     current_user_payload: dict = Depends(get_current_user),
 ):
-    """List all sessions, create a new one, or continue an existing one.
+    """Start a run and stream its events (SSE); its own per-user budget.
 
-    - No params: list all historical sessions.
     - task (+ optional fileId), no sessionId: new session (emits session SSE event).
     - task + sessionId: continue existing multi-turn session.
     - task + sessionId + editTurn: edit-resend — revoke turn `editTurn` and
@@ -133,18 +162,6 @@ async def handle_sessions(
     session_store = request.app.state.session_store
     current_user = current_user_payload["sub"]
     is_admin = _is_admin(current_user_payload)
-
-    # List mode: no query params
-    if task is None and fileId is None and sessionId is None:
-        items = await list_sessions(session_store, current_user, is_admin, skip=skip, limit=limit)
-        run_manager = getattr(request.app.state, "run_manager", None)
-        if run_manager is not None:
-            # Overlay live run status — store writes can lag the runner.
-            for item in items:
-                live = run_manager.active_status(item["id"])
-                if live is not None:
-                    item["status"] = live
-        return items
 
     # Both modes need at least a task
     if not task:

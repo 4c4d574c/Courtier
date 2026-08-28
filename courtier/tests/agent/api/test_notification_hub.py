@@ -115,7 +115,7 @@ class TestGlobalEventsChannel:
                 # contract the route forwards verbatim).
                 conn = app.state.notification_hub.subscribe("admin")
                 with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-                    resp = await client.get("/api/sessions", params={"task": "hello"})
+                    resp = await client.get("/api/sessions/run", params={"task": "hello"})
                 assert resp.status_code == 200
                 # Drain transitions until the terminal one arrives
                 # (running is announced first since Task 4.1).

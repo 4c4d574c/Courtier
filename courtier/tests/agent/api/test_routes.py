@@ -140,17 +140,17 @@ class TestSSEStream:
             "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
-            with client.stream("GET", "/api/sessions?task=hello") as resp:
+            with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                 assert resp.status_code == 200
                 assert resp.headers["content-type"].startswith("text/event-stream")
 
     def test_missing_task(self, client):
         """fileId without task is still invalid."""
-        resp = client.get("/api/sessions?fileId=file_nonexistent")
+        resp = client.get("/api/sessions/run?fileId=file_nonexistent")
         assert resp.status_code == 400
 
     def test_invalid_file_id(self, client):
-        resp = client.get("/api/sessions?task=test&fileId=file_nonexistent")
+        resp = client.get("/api/sessions/run?task=test&fileId=file_nonexistent")
         assert resp.status_code == 404
 
     def test_new_session_emits_session_event(self, client, mock_chat_agent):
@@ -163,7 +163,7 @@ class TestSSEStream:
             "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
-            with client.stream("GET", "/api/sessions?task=hello") as resp:
+            with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                 assert resp.status_code == 200
 
                 # Read first SSE event
@@ -180,7 +180,7 @@ class TestSSEStream:
 
     def test_continue_nonexistent_session(self, client):
         """Continuing a session that doesn't exist returns 404."""
-        resp = client.get("/api/sessions?task=hello&sessionId=sess_nonexistent")
+        resp = client.get("/api/sessions/run?task=hello&sessionId=sess_nonexistent")
         assert resp.status_code == 404
 
 
@@ -193,7 +193,7 @@ class TestPatchSession:
             "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
-            with client.stream("GET", "/api/sessions?task=hello") as resp:
+            with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                 assert resp.status_code == 200
                 buffer = ""
                 for chunk in resp.iter_bytes():
@@ -254,7 +254,7 @@ class TestSessionOwnership:
             "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
-            with client.stream("GET", "/api/sessions?task=hello") as resp:
+            with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                 assert resp.status_code == 200
 
                 buffer = ""
@@ -319,7 +319,7 @@ class TestAuditLogSwitch:
                     "courtier.agent.api.routes.sessions.build_agent",
                     new=AsyncMock(return_value=(agent, None, "test-model")),
                 ):
-                    with client.stream("GET", "/api/sessions?task=hello") as resp:
+                    with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                         assert resp.status_code == 200
                         # Read a small part and close — session event should be emitted
                         buffer = ""
@@ -375,7 +375,7 @@ class TestAuditLogSwitch:
                             settings.upload_dir = log_dir
 
                             buffer = ""
-                            with test_client.stream("GET", "/api/sessions?task=hello") as resp:
+                            with test_client.stream("GET", "/api/sessions/run?task=hello") as resp:
                                 assert resp.status_code == 200
 
                                 # Read SSE stream to completion
@@ -416,7 +416,7 @@ class TestAccessCookie:
             "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
-            with client.stream("GET", "/api/sessions?task=hello") as resp:
+            with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                 assert resp.status_code == 200
 
     def test_logout_clears_access_cookie(self, client):
@@ -452,7 +452,7 @@ class TestContinueWithNewFile:
             "courtier.agent.api.routes.sessions.build_agent",
             new=AsyncMock(return_value=(agent, None, "test-model")),
         ):
-            with client.stream("GET", "/api/sessions?task=hello") as resp:
+            with client.stream("GET", "/api/sessions/run?task=hello") as resp:
                 assert resp.status_code == 200
                 buffer = ""
                 for chunk in resp.iter_bytes():
@@ -483,7 +483,7 @@ class TestContinueWithNewFile:
         ):
             with client.stream(
                 "GET",
-                f"/api/sessions?task=分析这份文档&sessionId={session_id}&fileId={file_id}",
+                f"/api/sessions/run?task=分析这份文档&sessionId={session_id}&fileId={file_id}",
             ) as resp:
                 assert resp.status_code == 200
                 for _ in resp.iter_bytes():

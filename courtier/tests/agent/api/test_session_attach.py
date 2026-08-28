@@ -60,7 +60,7 @@ class TestAttachEndpoint:
     async def test_attach_404_without_run(self, app_client):
         _app, client = app_client
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-            resp = await client.get("/api/sessions", params={"task": "hello"})
+            resp = await client.get("/api/sessions/run", params={"task": "hello"})
         assert resp.status_code == 200
         assert (await client.get("/api/sessions")).json()  # session exists
         # The completed run is within its grace period (attach succeeds),
@@ -72,7 +72,7 @@ class TestAttachEndpoint:
     async def test_attach_replays_full_transcript_with_terminal(self, app_client):
         app, client = app_client
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-            resp = await client.get("/api/sessions", params={"task": "hello"})
+            resp = await client.get("/api/sessions/run", params={"task": "hello"})
         assert resp.status_code == 200
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         # Run completed; still within grace — attach replays from seq 0.
@@ -87,7 +87,7 @@ class TestAttachEndpoint:
     async def test_attach_since_watermark_replays_tail_only(self, app_client):
         app, client = app_client
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-            resp = await client.get("/api/sessions", params={"task": "hello"})
+            resp = await client.get("/api/sessions/run", params={"task": "hello"})
         assert resp.status_code == 200
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         detail = (await client.get(f"/api/sessions/{sid}")).json()
@@ -105,7 +105,7 @@ class TestAttachEndpoint:
     async def test_attach_last_event_id_header_overrides_since(self, app_client):
         app, client = app_client
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-            resp = await client.get("/api/sessions", params={"task": "hello"})
+            resp = await client.get("/api/sessions/run", params={"task": "hello"})
         assert resp.status_code == 200
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         detail = (await client.get(f"/api/sessions/{sid}")).json()
@@ -129,7 +129,7 @@ class TestAttachEndpoint:
     async def test_snapshot_includes_event_seq(self, app_client):
         app, client = app_client
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-            resp = await client.get("/api/sessions", params={"task": "hello"})
+            resp = await client.get("/api/sessions/run", params={"task": "hello"})
         assert resp.status_code == 200
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         detail = (await client.get(f"/api/sessions/{sid}")).json()
@@ -173,7 +173,7 @@ class TestReconnectSemantics:
 
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_slow_build):
             # First connection: starts the run.
-            stream = asyncio.create_task(client.get("/api/sessions", params={"task": "hello"}))
+            stream = asyncio.create_task(client.get("/api/sessions/run", params={"task": "hello"}))
             await asyncio.sleep(0.1)  # run is now executing
             sid = None
             while sid is None:
@@ -184,7 +184,7 @@ class TestReconnectSemantics:
                     await asyncio.sleep(0.05)
 
             # Reconnect with the same task while still running → attach.
-            resp = await client.get("/api/sessions", params={"task": "hello", "sessionId": sid})
+            resp = await client.get("/api/sessions/run", params={"task": "hello", "sessionId": sid})
             assert resp.status_code == 200
             await stream
             types = [p["type"] for p in _sse_payloads(resp.text)]
@@ -229,7 +229,7 @@ class TestReconnectSemantics:
             )
 
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_slow_build):
-            stream = asyncio.create_task(client.get("/api/sessions", params={"task": "hello"}))
+            stream = asyncio.create_task(client.get("/api/sessions/run", params={"task": "hello"}))
             await asyncio.sleep(0.1)
             sid = None
             while sid is None:
@@ -245,7 +245,7 @@ class TestReconnectSemantics:
             while app.state.run_manager.active_status(sid) is None:
                 assert asyncio.get_running_loop().time() < deadline, "run never started"
                 await asyncio.sleep(0.02)
-            resp = await client.get("/api/sessions", params={"task": "different", "sessionId": sid})
+            resp = await client.get("/api/sessions/run", params={"task": "different", "sessionId": sid})
             assert resp.status_code == 409
             await stream
 
@@ -255,7 +255,7 @@ class TestLiveStatusOverlay:
     async def test_list_overlays_live_run_status(self, app_client):
         app, client = app_client
         with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-            resp = await client.get("/api/sessions", params={"task": "hello"})
+            resp = await client.get("/api/sessions/run", params={"task": "hello"})
         assert resp.status_code == 200
         sid = (await client.get("/api/sessions")).json()[0]["id"]
 

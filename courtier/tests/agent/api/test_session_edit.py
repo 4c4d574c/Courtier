@@ -434,7 +434,7 @@ async def _run_turn(client, **params) -> None:
     from unittest.mock import patch
 
     with patch("courtier.agent.api.routes.sessions.build_agent", new=_fake_build_agent):
-        resp = await client.get("/api/sessions", params=params)
+        resp = await client.get("/api/sessions/run", params=params)
     assert resp.status_code == 200, resp.text
 
 
@@ -491,7 +491,7 @@ class TestEditTurnRoute:
     @pytest.mark.asyncio
     async def test_edit_turn_requires_session(self, app_client):
         _app, client = app_client
-        resp = await client.get("/api/sessions", params={"task": "x", "editTurn": 0})
+        resp = await client.get("/api/sessions/run", params={"task": "x", "editTurn": 0})
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -500,7 +500,7 @@ class TestEditTurnRoute:
         await _run_turn(client, task="唯一一轮")
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         resp = await client.get(
-            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 9}
+            "/api/sessions/run", params={"task": "x", "sessionId": sid, "editTurn": 9}
         )
         assert resp.status_code == 400
 
@@ -511,7 +511,7 @@ class TestEditTurnRoute:
         sid = (await client.get("/api/sessions")).json()[0]["id"]
         await app.state.session_store.update(sid, status="running")
         resp = await client.get(
-            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
+            "/api/sessions/run", params={"task": "x", "sessionId": sid, "editTurn": 0}
         )
         assert resp.status_code == 409
 
@@ -528,7 +528,7 @@ class TestEditTurnRoute:
 
         app.state.run_manager._runs[sid] = AgentRun(sid, "u", RunEventLog(), EventBus())
         resp = await client.get(
-            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
+            "/api/sessions/run", params={"task": "x", "sessionId": sid, "editTurn": 0}
         )
         assert resp.status_code == 409
         app.state.run_manager._runs.pop(sid, None)
@@ -543,7 +543,7 @@ class TestEditTurnRoute:
             context_state=json.dumps({"version": 1, "has_compacted": True, "compact_count": 1}),
         )
         resp = await client.get(
-            "/api/sessions", params={"task": "x", "sessionId": sid, "editTurn": 0}
+            "/api/sessions/run", params={"task": "x", "sessionId": sid, "editTurn": 0}
         )
         assert resp.status_code == 409
         # Detail payload exposes the flag for the frontend to hide the entry.
