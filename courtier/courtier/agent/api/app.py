@@ -81,14 +81,16 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        """Startup: start PluginSystem. Shutdown: stop PluginSystem."""
-        if start_plugins:
-            await app.state.plugin_system.start()
-        init_telemetry()
-        # Runs are in-process only: any persisted "running" session died with
-        # the previous process — mark it interrupted so it never shows as
-        # perpetually running.
-        await app.state.run_manager.sweep_stale_sessions()
+        """Startup order matters:
+
+        1. DB engine + admin-existence flag (Tier 0).
+        2. DB-backed settings snapshot swap — everything below must read
+           DB-sourced values (plugin endpoints/token, OTel, ES hosts,
+           log level).  Starting plugins before this point read the
+           env-only snapshot and BLOCKED every plugin terminally after
+           the env→DB migration of COURTIER_PLUGIN_ENDPOINTS.
+        3. Plugins, telemetry, stale-session sweep, ES index init.
+        """
         from .db import get_db
 
         # DB-less mode (empty MYSQL_URL) is a supported configuration for
@@ -109,7 +111,8 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         # DB-backed settings: compose env base + DB overrides into the
         # effective snapshot (first-run .env seeding, JWT bootstrap and
         # env-only degradation handled inside).  app.state.settings_store
-        # backs the admin settings API.
+        # backs the admin settings API; the subscription installed at
+        # factory time rebinds app.state.settings to the new snapshot.
         if settings.mysql_url:
             from courtier.config import get_config_service
             from courtier.settings_store import (
@@ -129,13 +132,31 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
                 len(info["seeded"]),
                 len(info["unreadable"]),
             )
+            # The factory configured logging from env-only values; re-apply
+            # with the effective snapshot so a DB-backed logger_level holds.
+            from ..core.logging_config import configure_logging
+
+            effective = get_settings()
+            configure_logging(
+                log_dir=effective.audit_log_dir,
+                level=effective.logger_level,
+                console=True,
+            )
         else:
             app.state.settings_store = None
+
+        if start_plugins:
+            await app.state.plugin_system.start()
+        init_telemetry()
+        # Runs are in-process only: any persisted "running" session died with
+        # the previous process — mark it interrupted so it never shows as
+        # perpetually running.
+        await app.state.run_manager.sweep_stale_sessions()
         # Ensure the ES chunks index exists (init_index is a no-op when it
         # does).  ES-less mode (empty es_hosts) skips this, and an
         # unreachable cluster only logs a warning instead of aborting
         # startup — search tools will report the error when actually used.
-        if settings.es_hosts:
+        if get_settings().es_hosts:
             from courtier.es import init_index
 
             try:

@@ -356,3 +356,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 附回归测试（重绑定身份断言 + 退订后失效）。实测：修复前登录 500 复现 → 修复后登录 200、
 无效 refresh cookie 正确 401。教训已入记录：**凡"每请求读 app.state.settings"的消费者，
 快照替换必须传播到该引用**——这正是计划 §3 ConfigService 一节"统一或刷新所有脑"要求的落实缺口。
+
+**验收后修复 2（2026-08-28 13:13 用户报告）**：`.env` 清理后 8 个插件全部
+"no endpoint in COURTIER_PLUGIN_ENDPOINTS — BLOCKED"——lifespan 里 `PluginSystem.start()` 跑在
+DB 设置快照加载**之前**，插件管理器读到 env-only 快照（endpoints 已入库、env 为空）；BLOCKED
+是终态，快照加载后也不会自愈。修复：**lifespan 重排**——DB ensure → admin 标记 → 设置快照换装 →
+（此后才）插件启动 / OTel / stale 清扫 / ES 索引；顺带两处同族修复：ES 守卫改读
+`get_settings()`（DB 配置的 es_hosts 重启后生效），快照换装后重调幂等的 `configure_logging`
+（DB 的 logger_level 真正生效）。实测：零 BLOCKED，`parse connected and ACTIVE`、
+`search registered: {'tool': 2}`（连接用户在跑的插件进程）；全量 1833 passed。
