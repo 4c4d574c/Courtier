@@ -59,6 +59,14 @@ C. `renderStreamingHtml` JS 侧单次更新：40KB 文档全量 re-lex 也仅 ~0
 4. P2-7 维持：价值在 DOM 重建而非 JS 解析。
 5. 中等单轮（20-40 步）下每 token 的 reactive 重建 + 全列表 VDOM diff 量级在数毫秒到十几毫秒，与流式 token 频率相乘即可解释"越聊越卡"。
 
+### Phase 0 浏览器实测记录（2026-08-28，Vite dev + 真实运行）
+
+复用历史会话文档发起一次真实审核任务（9 步、子代理方式），页面 attach 后用 PerformanceObserver(longtask) + rAF 帧间隔采样：
+
+- attach + 流式 + 收尾窗口内捕获 **7 个长任务，52–128ms**（PerformanceObserver longtask 阈值 50ms），集中于 attach 回放与流式密集段。
+- 帧间隔 P50=4ms（多数时间空闲）、P95=21ms、P99=25ms、max=133ms。
+- 局限：该次运行步数偏少、完成快，重结论流式段覆盖较薄；修复后用同场景复测对比。dev 模式的每事件 `console.debug`（P1-6）在该窗口内同样活跃。
+
 ## 修复方案（Phase 1 起逐项实施，每项独立可回退）
 
 ### P1 — 流式热路径（预期解决大部分卡顿）
