@@ -1,9 +1,12 @@
 <template>
   <div class="ext-page">
     <div class="ext-header">
-      <h1 class="ext-title">插件与技能</h1>
+      <div>
+        <h1 class="ext-title">插件与技能</h1>
+        <p class="ext-subtitle">管理插件进程、domain 包与技能工作流</p>
+      </div>
       <button class="ext-refresh" type="button" :disabled="loading" @click="reload">
-        {{ loading ? "刷新中..." : "刷新" }}
+        {{ loading ? "刷新中..." : "↻ 刷新" }}
       </button>
     </div>
 
@@ -772,32 +775,49 @@ onMounted(reload);
 
 <style scoped>
 .ext-page {
-  padding: 24px 32px 48px;
-  max-width: 1100px;
+  max-width: 1160px;
 }
 
 .ext-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   margin-bottom: 16px;
 }
 
 .ext-title {
   font-family: "Noto Sans SC", sans-serif;
   font-size: 26px;
+  font-weight: 600;
   color: var(--chat-text-primary);
   margin: 0;
 }
 
+.ext-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
+}
+
 .ext-refresh {
-  padding: 7px 18px;
+  height: 28px;
+  padding: 0 12px;
   border: 1px solid var(--chat-border);
-  border-radius: 8px;
+  border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-card);
   color: var(--chat-text-secondary);
-  font-size: 15px;
+  font-size: 13px;
   cursor: pointer;
+  transition: background 150ms;
+}
+
+.ext-refresh:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
+
+.ext-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ext-tabs {
@@ -808,10 +828,10 @@ onMounted(reload);
 }
 
 .ext-tab {
-  padding: 8px 18px;
+  padding: 8px 14px;
   border: none;
   background: transparent;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--chat-text-secondary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -826,7 +846,7 @@ onMounted(reload);
 
 .ext-error {
   color: var(--err);
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .ext-grid {
@@ -838,8 +858,9 @@ onMounted(reload);
 .ext-card {
   background: var(--chat-bg-card);
   border: 1px solid var(--chat-border);
-  border-radius: 12px;
-  padding: 16px 18px;
+  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
 }
@@ -857,15 +878,16 @@ onMounted(reload);
 }
 
 .ext-card-name {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--chat-text-primary);
 }
 
 .ext-badge {
-  padding: 1px 10px;
+  padding: 1px 8px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .ext-badge--source {
@@ -874,17 +896,17 @@ onMounted(reload);
 }
 
 .ext-badge--ok {
-  background: rgba(90, 138, 74, 0.14);
-  color: var(--ok-dim);
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  color: var(--ok);
 }
 
 .ext-badge--warn {
-  background: rgba(184, 122, 14, 0.14);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
   color: var(--warn);
 }
 
 .ext-badge--err {
-  background: var(--chat-accent-soft);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
   color: var(--err);
 }
 
@@ -894,14 +916,13 @@ onMounted(reload);
 }
 
 .ext-card-desc {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
   margin: 0 0 8px;
-  min-height: 20px;
 }
 
 .ext-card-meta {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--chat-text-tertiary);
   margin-bottom: 8px;
 }
@@ -914,11 +935,11 @@ onMounted(reload);
 }
 
 .ext-chip {
-  padding: 2px 10px;
+  padding: 2px 8px;
   border-radius: 6px;
   background: var(--chat-bg-hover);
   border: 1px solid var(--chat-border);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--chat-text-secondary);
 }
 
@@ -931,7 +952,7 @@ onMounted(reload);
 }
 
 .ext-card-error {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--err);
   margin: 4px 0;
 }
@@ -945,24 +966,34 @@ onMounted(reload);
 }
 
 .ext-btn {
-  padding: 6px 16px;
+  height: 28px;
+  padding: 0 12px;
   border: 1px solid var(--chat-border);
-  border-radius: 8px;
-  background: var(--chat-bg-card);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
   color: var(--chat-text-primary);
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
+  transition: background 150ms;
+}
+
+.ext-btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
 }
 
 .ext-btn:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: not-allowed;
 }
 
 .ext-btn--primary {
   background: var(--chat-accent);
   border-color: var(--chat-accent);
-  color: #fff;
+  color: var(--chat-accent-contrast);
+}
+
+.ext-btn--primary:hover:not(:disabled) {
+  background: var(--chat-accent-hover);
 }
 
 .ext-skill-toolbar {
@@ -986,7 +1017,8 @@ onMounted(reload);
 
 .ext-domain-title {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 19px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--chat-text-primary);
   margin: 0;
 }
@@ -996,15 +1028,15 @@ onMounted(reload);
 }
 
 .ext-banner {
-  background: rgba(184, 122, 14, 0.08);
-  border: 1px solid var(--warn);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-radius: var(--chat-radius-sm);
   padding: 10px 14px;
   margin-bottom: 16px;
 }
 
 .ext-banner-item {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--warn);
 }
 
@@ -1026,8 +1058,9 @@ onMounted(reload);
 
 .ext-switch-track {
   position: relative;
+  display: block;
   width: 38px;
-  height: 22px;
+  height: 21px;
   border-radius: 999px;
   background: var(--chat-bg-hover);
   border: 1px solid var(--chat-border);
@@ -1041,23 +1074,27 @@ onMounted(reload);
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  background: var(--chat-text-tertiary);
+  background: var(--chat-bg-card);
+  box-shadow: var(--chat-shadow);
   transition:
     transform 0.15s ease,
     background 0.15s ease;
 }
 
 .ext-switch input:checked + .ext-switch-track {
-  background: rgba(90, 138, 74, 0.22);
-  border-color: var(--ok-dim);
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
 }
 
 .ext-switch input:checked + .ext-switch-track::after {
-  transform: translateX(16px);
-  background: var(--ok-dim);
+  transform: translateX(17px);
+}
+
+.ext-switch input:focus-visible + .ext-switch-track {
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 
 .ext-switch input:disabled + .ext-switch-track {
@@ -1068,7 +1105,7 @@ onMounted(reload);
 .ext-modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(45, 37, 32, 0.4);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1078,12 +1115,14 @@ onMounted(reload);
 
 .ext-modal {
   background: var(--chat-bg-card);
-  border-radius: var(--chat-radius-lg);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
   width: 640px;
   max-width: 92vw;
   max-height: 84vh;
   overflow-y: auto;
-  padding: 24px 28px;
+  padding: 20px 24px;
 }
 
 .ext-modal--narrow {
@@ -1105,17 +1144,23 @@ onMounted(reload);
 .ext-log-select {
   padding: 6px 10px;
   border: 1px solid var(--chat-border);
-  border-radius: 8px;
+  border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-body);
   color: var(--chat-text-primary);
-  font-size: 14px;
+  font-size: 13px;
+  outline: none;
+}
+
+.ext-log-select:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 
 .ext-log-auto {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--chat-text-primary);
   cursor: pointer;
 }
@@ -1142,7 +1187,8 @@ onMounted(reload);
 
 .ext-modal-title {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 22px;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--chat-text-primary);
   margin: 0 0 16px;
 }
@@ -1155,7 +1201,7 @@ onMounted(reload);
 }
 
 .ext-field > span {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
   font-weight: 500;
 }
@@ -1163,18 +1209,29 @@ onMounted(reload);
 .ext-field input,
 .ext-field select,
 .ext-field textarea {
-  padding: 8px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--chat-border);
-  border-radius: 8px;
-  background: var(--chat-bg-card);
-  font-size: 15px;
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  font-size: 13px;
   color: var(--chat-text-primary);
   font-family: inherit;
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.ext-field input:focus,
+.ext-field select:focus,
+.ext-field textarea:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 
 .ext-field textarea {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
   resize: vertical;
 }
 
@@ -1182,7 +1239,7 @@ onMounted(reload);
   max-height: 140px;
   overflow-y: auto;
   border: 1px solid var(--chat-border);
-  border-radius: 8px;
+  border-radius: var(--chat-radius-sm);
   padding: 8px 12px;
   display: flex;
   flex-wrap: wrap;
@@ -1190,7 +1247,7 @@ onMounted(reload);
 }
 
 .ext-check {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
   display: flex;
   align-items: center;
@@ -1199,7 +1256,7 @@ onMounted(reload);
 
 .ext-dim {
   color: var(--chat-text-tertiary);
-  font-size: 14px;
+  font-size: 12px;
   margin: 0;
 }
 
