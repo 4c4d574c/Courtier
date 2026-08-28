@@ -3,11 +3,25 @@ import { ref, watch, nextTick, type Ref } from "vue";
 export function useAutoScroll() {
   const containerRef = ref<HTMLElement>();
   let isAtBottom = true;
+  // rAF-coalesced: scroll events fire per frame while streaming writes
+  // scrollTop every flush — read the layout at most once per frame.
+  let scrollRafId: number | null = null;
 
   function onScroll() {
-    const el = containerRef.value;
-    if (!el) return;
-    isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+    if (scrollRafId !== null) return;
+    scrollRafId = requestAnimationFrame(() => {
+      scrollRafId = null;
+      const el = containerRef.value;
+      if (!el) return;
+      isAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+    });
+  }
+
+  function cancelScrollRaf() {
+    if (scrollRafId !== null) {
+      cancelAnimationFrame(scrollRafId);
+      scrollRafId = null;
+    }
   }
 
   function scrollToBottom() {
@@ -40,6 +54,7 @@ export function useAutoScroll() {
   }
 
   function unmount() {
+    cancelScrollRaf();
     containerRef.value?.removeEventListener("scroll", onScroll);
   }
 
