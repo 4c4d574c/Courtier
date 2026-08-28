@@ -168,6 +168,31 @@ for (const numSteps of [5, 10, 20, 40, 80]) {
   );
 }
 
+console.log("== A2. rebuild cost with frozen history (1 done turn + streaming turn) ==");
+console.log("     history turn = N steps; streaming turn = 1 step growing thoughts");
+console.log("history steps | raw ms/call | reactive ms/call");
+for (const numSteps of [20, 40, 80]) {
+  const doneTurn = makeSession(numSteps, 2).turns[0];
+  doneTurn.conclusion = "历史轮结论。";
+  const live = makeSession(1, 2).turns[0];
+  const session = makeSession(1, 2);
+  session.status = "running";
+  session.turns = [doneTurn, live];
+  session.steps = [...doneTurn.steps, ...live.steps];
+  // tokens stream into the LIVE turn: replace its last thought each time
+  const last = live.steps[live.steps.length - 1];
+  const rSession = reactive(structuredClone({ ...session }));
+  const rawLast = session.thoughts[session.thoughts.length - 1];
+  session.thoughts[session.thoughts.length - 1] = { ...rawLast, text: rawLast.text + "字" };
+  const rLast = rSession.thoughts[rSession.thoughts.length - 1];
+  rSession.thoughts[rSession.thoughts.length - 1] = { ...rLast, text: rLast.text + "字" };
+  buildChatMessages(session, []);
+  buildChatMessages(rSession, []); // warm caches
+  const rawMs = bench(() => buildChatMessages(session, []), 200);
+  const reactiveMs = bench(() => buildChatMessages(rSession, []), 200);
+  console.log(`${String(numSteps).padStart(13)} | ${rawMs.toFixed(3).padStart(11)} | ${reactiveMs.toFixed(3).padStart(11)}`);
+}
+
 console.log("\n== B. thoughtsForStep alone (per call) ==");
 console.log("steps | thoughts | µs/call");
 for (const numSteps of [10, 40, 80]) {

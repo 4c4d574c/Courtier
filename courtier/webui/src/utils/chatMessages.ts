@@ -1,4 +1,10 @@
-import type { CitationHit, Session, Thought, Turn } from "../types/agent";
+import type {
+  CitationHit,
+  CompactionNotice,
+  Session,
+  Thought,
+  Turn,
+} from "../types/agent";
 import type {
   CitationIndex,
   ChatFileRecord,
@@ -291,6 +297,34 @@ function buildGuardItems(
   }));
 }
 
+// ---- per-turn item cache ----
+// All step/thought/thought-object mutations land on the CURRENT (last) turn —
+// step patches address session.steps' tail and token appends the thoughts
+// tail. A turn that is no longer the streaming one is therefore render-frozen,
+// so its whole item list can be reused across rebuilds: no thought scanning,
+// no item re-construction, and identical object identities mean Vue's keyed
+// v-for diff skips those subtrees entirely. The fingerprint is a cheap
+// shallow guard (O(steps) primitive reads) against future mutators; it does
+// not read thoughts — orphaned pending-thought rewrites of historical turns
+// render nowhere either way (see design notes in
+// docs/architecture/webui-streaming-perf-plan.md).
+interface CachedTurnItems {
+  fileRecords: ChatFileRecord[];
+  compactions: CompactionNotice[] | undefined;
+  fingerprint: string;
+  items: ChatMessageItem[];
+}
+
+const turnItemsCache = new WeakMap<Turn, CachedTurnItems>();
+
+function turnFingerprint(turn: Turn, turnIndex: number): string {
+  let fp = `${turnIndex}|${turn.message.text.length}|${turn.message.fileName ?? ""}|${turn.message.fileId ?? ""}|${turn.conclusion === undefined ? "-" : turn.conclusion.length}`;
+  for (const s of turn.steps) {
+    fp += `|${s.index}:${s.tools.length}:${s.verdict?.length ?? -1}:${s.endSegmentIndex ?? -1}:${s.subagents?.length ?? 0}`;
+  }
+  return fp;
+}
+
 export function buildChatMessages(
   session: Session,
   fileRecords: ChatFileRecord[],
@@ -301,13 +335,29 @@ export function buildChatMessages(
   session.turns.forEach((turn, turnIndex) => {
     const baseId = `turn-${turnIndex}`;
     const isLastTurn = turnIndex === session.turns.length - 1;
+    const isStreamingTurn = isRunning && isLastTurn;
+
+    if (!isStreamingTurn) {
+      const cached = turnItemsCache.get(turn);
+      if (
+        cached &&
+        cached.fileRecords === fileRecords &&
+        cached.compactions === session.compactions &&
+        cached.fingerprint === turnFingerprint(turn, turnIndex)
+      ) {
+        items.push(...cached.items);
+        return;
+      }
+    }
+
+    const turnItems: ChatMessageItem[] = [];
 
     const fileItem = buildFileItem(turn, baseId, fileRecords);
-    if (fileItem) items.push(fileItem);
+    if (fileItem) turnItems.push(fileItem);
 
-    items.push(buildUserItem(turn, baseId, turnIndex));
+    turnItems.push(buildUserItem(turn, baseId, turnIndex));
 
-    items.push(
+    turnItems.push(
       ...buildProcessItems(
         turn,
         baseId,
@@ -323,7 +373,7 @@ export function buildChatMessages(
     for (const [i, notice] of (session.compactions ?? [])
       .filter((n) => n.turnIndex === turnIndex + 1)
       .entries()) {
-      items.push({
+      turnItems.push({
         type: "compacted",
         id: `${baseId}-compacted-${i}`,
         text: notice.text,
@@ -333,7 +383,7 @@ export function buildChatMessages(
     // Compaction currently in progress: show a live indicator at the tail
     // of the running turn (replaced by the compacted notice when done).
     if (isRunning && isLastTurn && session.compacting) {
-      items.push({
+      turnItems.push({
         type: "compacted",
         id: `${baseId}-compacting`,
         text: MESSAGES.CHAT_COMPACTING,
@@ -347,13 +397,24 @@ export function buildChatMessages(
       isRunning,
       isLastTurn,
     );
-    if (assistantItem) items.push(assistantItem);
+    if (assistantItem) turnItems.push(assistantItem);
 
     const statusItem = buildStatusItem(session, baseId, isRunning, isLastTurn);
-    if (statusItem) items.push(statusItem);
+    if (statusItem) turnItems.push(statusItem);
 
     const guardItems = buildGuardItems(session, baseId, isLastTurn);
-    items.push(...guardItems);
+    turnItems.push(...guardItems);
+
+    if (!isStreamingTurn) {
+      turnItemsCache.set(turn, {
+        fileRecords,
+        compactions: session.compactions,
+        fingerprint: turnFingerprint(turn, turnIndex),
+        items: turnItems,
+      });
+    }
+
+    items.push(...turnItems);
   });
 
   return items;
