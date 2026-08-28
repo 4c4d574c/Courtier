@@ -7,30 +7,41 @@
       </router-link>
       <nav class="admin-nav">
         <router-link
+          v-if="isAdmin"
           to="/admin/users"
           class="admin-nav-item"
           active-class="active"
           >用户管理</router-link
         >
         <router-link
+          v-if="isAdmin"
           to="/admin/approvals"
           class="admin-nav-item"
           active-class="active"
           >注册审批</router-link
         >
         <router-link
+          v-if="isAdmin"
           to="/admin/plugins"
           class="admin-nav-item"
           active-class="active"
           >插件市场</router-link
         >
         <router-link
+          v-if="isAdmin"
           to="/admin/skills"
           class="admin-nav-item"
           active-class="active"
           >技能</router-link
         >
         <router-link
+          to="/admin/resources"
+          class="admin-nav-item"
+          active-class="active"
+          >资源库</router-link
+        >
+        <router-link
+          v-if="isAdmin"
           to="/admin/settings"
           class="admin-nav-item"
           active-class="active"
@@ -49,4 +60,9 @@
 
 <script setup lang="ts">
 import logoUrl from "../assets/logo.png";
+import { useAuth } from "../composables/useAuth";
+
+// The admin shell doubles as the app's settings page (gear entry in the
+// sidebar footer): non-admins land here too and only see 资源库.
+const { isAdmin } = useAuth();
 </script>

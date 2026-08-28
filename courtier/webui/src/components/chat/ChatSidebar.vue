@@ -21,62 +21,6 @@
       </div>
 
       <div
-        v-if="isAdmin"
-        class="chat-sidebar-section"
-        :class="{ 'chat-sidebar-section--collapsed': adminCollapsed }"
-      >
-        <button
-          class="chat-sidebar-section-toggle"
-          type="button"
-          :aria-expanded="!adminCollapsed"
-          @click="toggleAdmin"
-        >
-          <span class="chat-sidebar-section-title">管理</span>
-          <svg
-            class="chat-sidebar-section-chevron"
-            :class="{
-              'chat-sidebar-section-chevron--collapsed': adminCollapsed,
-            }"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </button>
-        <Transition
-          :css="false"
-          @before-enter="onCollapseBeforeEnter"
-          @enter="onCollapseEnter"
-          @after-enter="onCollapseAfterEnter"
-          @before-leave="onCollapseBeforeLeave"
-          @leave="onCollapseLeave"
-        >
-          <nav
-            v-if="!adminCollapsed"
-            class="chat-sidebar-nav chat-sidebar-collapsible"
-          >
-          <router-link to="/admin/users" class="chat-sidebar-nav-item">
-            {{ MESSAGES.CHAT_USER_MANAGE }}
-          </router-link>
-          <router-link to="/admin/approvals" class="chat-sidebar-nav-item">
-            {{ MESSAGES.CHAT_APPROVALS }}
-          </router-link>
-          <router-link to="/admin/plugins" class="chat-sidebar-nav-item">
-            插件市场
-          </router-link>
-          <router-link to="/admin/skills" class="chat-sidebar-nav-item">
-            技能
-          </router-link>
-          <router-link to="/resources" class="chat-sidebar-nav-item">
-            资源库
-          </router-link>
-          </nav>
-        </Transition>
-      </div>
-
-      <div
         class="chat-sidebar-section chat-sidebar-section--history"
         :class="{ 'chat-sidebar-section--collapsed': historyCollapsed }"
       >
@@ -249,12 +193,26 @@
            have it under 管理) and the user menu moved here from the header
            (bottom-left corner). -->
       <div class="chat-sidebar-footer">
-        <router-link v-if="!isAdmin" to="/resources" class="chat-sidebar-footer-item">
+        <router-link v-if="!isAdmin" to="/admin/resources" class="chat-sidebar-footer-item">
           资源库
         </router-link>
-        <div class="chat-sidebar-user" @click="userMenuOpen = !userMenuOpen">
-          <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
-          <span class="chat-sidebar-user-arrow">▾</span>
+        <div class="chat-sidebar-user">
+          <div class="chat-sidebar-user-main" @click="userMenuOpen = !userMenuOpen">
+            <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
+            <span class="chat-sidebar-user-arrow">▾</span>
+          </div>
+          <router-link
+            :to="settingsTarget"
+            class="chat-sidebar-user-gear"
+            title="设置"
+            aria-label="设置"
+            @click.stop
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </router-link>
           <div v-if="userMenuOpen" class="chat-sidebar-user-menu">
             <div
               class="chat-sidebar-user-menu-item chat-sidebar-theme-row"
@@ -350,6 +308,10 @@ const userMenuOpen = ref(false);
 const themeMenuOpen = ref(false);
 const { theme, setTheme } = useTheme();
 
+// Gear entry: admins land in the settings shell (redirects to 用户管理);
+// regular users go straight to the only section they can access.
+const settingsTarget = computed(() => (isAdmin.value ? "/admin" : "/admin/resources"));
+
 function pickTheme(value: "light" | "dark") {
   setTheme(value);
   userMenuOpen.value = false;
@@ -428,14 +390,6 @@ function toggleHistory() {
     historyCollapsed.value ? "1" : "0",
   );
   if (historyCollapsed.value) closeMenu();
-}
-
-const ADMIN_COLLAPSED_KEY = "chat-sidebar-admin-collapsed";
-const adminCollapsed = ref(localStorage.getItem(ADMIN_COLLAPSED_KEY) === "1");
-
-function toggleAdmin() {
-  adminCollapsed.value = !adminCollapsed.value;
-  localStorage.setItem(ADMIN_COLLAPSED_KEY, adminCollapsed.value ? "1" : "0");
 }
 
 // Height animation for the fold/unfold of dynamic-height sections. CSS can
@@ -1015,13 +969,45 @@ function onMenuDelete(id: string) {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 8px 10px;
+  padding: 4px 4px 4px 0;
+  border-radius: var(--chat-radius-md);
+}
+
+.chat-sidebar-user-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
   border-radius: var(--chat-radius-md);
   cursor: pointer;
 }
 
-.chat-sidebar-user:hover {
+.chat-sidebar-user-main:hover {
   background: var(--chat-bg-hover);
+}
+
+.chat-sidebar-user-gear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: var(--chat-radius-md);
+  color: var(--chat-text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.chat-sidebar-user-gear:hover {
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-primary);
+}
+
+.chat-sidebar-user-gear svg {
+  width: 17px;
+  height: 17px;
 }
 
 .chat-sidebar-user-name {

@@ -61,6 +61,14 @@ const routes: RouteRecordRaw[] = [
         name: "AdminSettings",
         component: () => import("../views/SystemSettings.vue"),
       },
+      {
+        // Resource library lives in the settings shell for every user;
+        // the child meta overrides the admin-only parent for the guard.
+        path: "resources",
+        name: "AdminResources",
+        component: () => import("../views/ResourceLibraryView.vue"),
+        meta: { requiresAdmin: false },
+      },
       { path: "", redirect: "/admin/users" },
     ],
   },
@@ -71,10 +79,10 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    // Legacy standalone path — the library renders inside the settings
+    // shell now; deep links keep working via this redirect.
     path: "/resources",
-    name: "ResourceLibrary",
-    component: () => import("../views/ResourceLibraryView.vue"),
-    meta: { requiresAuth: true },
+    redirect: "/admin/resources",
   },
   { path: "/:pathMatch(.*)*", redirect: "/" },
 ];
