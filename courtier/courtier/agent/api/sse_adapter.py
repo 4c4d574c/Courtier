@@ -38,9 +38,19 @@ from .models import (
     normalize_tool_call_classification,
 )
 from .services.run_event_log import RunEventLog
-from .session_store import SessionStore
+from .session_store import SessionStore, match_pending_tool_index
 
 logger = logging.getLogger(__name__)
+
+
+class _PendingLookup:
+    """Duck-typed ToolInfo stand-in used to locate the pending announcement
+    card a result settles (before the full ToolInfo is built)."""
+
+    def __init__(self, name: str, tool_call_id: str | None) -> None:
+        self.name = name
+        self.status = "pending"
+        self.tool_call_id = tool_call_id
 
 
 class RunRecorder:
@@ -453,8 +463,21 @@ class RunRecorder:
         # Build detail from result data so frontend can display it
         detail = self._build_detail_data(result)
 
-        self._tool_counter += 1
-        tool_id = f"tool-{self._tool_counter}"
+        # Settle the pending announcement card when one matches (by call id,
+        # else by name): its id is kept so the persisted record replaces the
+        # pending one instead of appending a duplicate.  Unannounced results
+        # mint a fresh id as before.
+        pending_lookup = _PendingLookup(tool_name, tool_call_id)
+        pending_index = (
+            match_pending_tool_index(self._current_step.tools, pending_lookup)
+            if self._current_step is not None
+            else None
+        )
+        if pending_index is not None:
+            tool_id = self._current_step.tools[pending_index].id
+        else:
+            self._tool_counter += 1
+            tool_id = f"tool-{self._tool_counter}"
         seq = self._log.reserve()
 
         tool_info = ToolInfo(
@@ -481,11 +504,14 @@ class RunRecorder:
 
         # Keep the in-memory current step in sync with the store so later
         # decisions (e.g. whether to create a placeholder text-response step)
-        # see the latest tools list.
+        # see the latest tools list.  Mirrors add_tool_info's settle-or-append.
         if self._current_step is not None:
-            self._current_step = replace(
-                self._current_step, tools=self._current_step.tools + [tool_info]
-            )
+            mirror_tools = list(self._current_step.tools)
+            if pending_index is not None:
+                mirror_tools[pending_index] = tool_info
+            else:
+                mirror_tools.append(tool_info)
+            self._current_step = replace(self._current_step, tools=mirror_tools)
             self._tool_calls_pending = False
 
         sse_payload: dict[str, Any] = {
@@ -767,10 +793,33 @@ class RunRecorder:
         meta: dict[str, Any] = (
             self._tool_meta_for(names[0]) if names else {"skill": "", "display_name": None}
         )
+        # Persist the announced-but-unresolved calls as pending cards.  The
+        # live frontend creates them at the think event; the snapshot must
+        # carry them too or a re-attached stream diverges (e.g. the next
+        # text_response would not open a new step because the persisted step
+        # looks tool-less) and running tool calls render nowhere.
+        pending_tools: list[ToolInfo] = []
+        for i, name in enumerate(names):
+            self._tool_counter += 1
+            card_meta = self._tool_meta_for(name)
+            pending_tools.append(
+                ToolInfo(
+                    id=f"tool-{self._tool_counter}",
+                    name=name,
+                    skill=card_meta["skill"],
+                    display_name=card_meta["display_name"],
+                    skill_description=card_meta["skill_description"],
+                    status="pending",
+                    duration=0.0,
+                    summary="",
+                    tool_call_id=(ids[i] if ids and i < len(ids) and ids[i] else None),
+                )
+            )
         self._current_step = StepRecord(
             index=self._step_index,
             label=", ".join(names),
             skill=meta["skill"],
+            tools=pending_tools,
             turn_index=turn_index,
             start_segment_index=self._segment_index,
         )

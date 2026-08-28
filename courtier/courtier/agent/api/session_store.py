@@ -18,6 +18,26 @@ logger = logging.getLogger(__name__)
 _SESSION_ID_RE = re.compile(r"^sess_[a-f0-9]{12}$")
 
 
+def match_pending_tool_index(tools: list, incoming) -> int | None:
+    """Index of the pending announcement card *incoming* settles, if any.
+
+    Results pair to their announcement by ``tool_call_id`` when both sides
+    carry one (same-name parallel calls), else by tool name.  Returns None
+    when nothing pending matches — the caller appends instead.
+    """
+    for i, existing in enumerate(tools):
+        if existing.status != "pending" or existing.name != incoming.name:
+            continue
+        if (
+            existing.tool_call_id
+            and incoming.tool_call_id
+            and existing.tool_call_id != incoming.tool_call_id
+        ):
+            continue
+        return i
+    return None
+
+
 def _advance_watermark(session: SessionRecord, event_seq: int | None) -> SessionRecord:
     """Stamp the event-log watermark onto a record being mutated.
 
@@ -274,13 +294,25 @@ class SessionStore:
     async def add_tool_info(
         self, session_id: str, tool_info, *, event_seq: int | None = None
     ) -> None:
-        """Append a tool info record to the current step of the session."""
+        """Record a tool result on the current step.
+
+        A result settles the step's pending announcement card (persisted when
+        the step was created at ``think tool_calls``) instead of appending a
+        duplicate — matched by ``match_pending_tool_index``.  Unannounced
+        results append as before.
+        """
         async with self._lock:
             session = self._sessions.get(session_id)
             if session is None or not session.steps:
                 return
             last_step = session.steps[-1]
-            updated_step = replace(last_step, tools=last_step.tools + [tool_info])
+            new_tools = list(last_step.tools)
+            pending_at = match_pending_tool_index(new_tools, tool_info)
+            if pending_at is not None:
+                new_tools[pending_at] = tool_info
+            else:
+                new_tools.append(tool_info)
+            updated_step = replace(last_step, tools=new_tools)
             new_steps = list(session.steps)
             new_steps[-1] = updated_step
             session = replace(session, steps=new_steps)

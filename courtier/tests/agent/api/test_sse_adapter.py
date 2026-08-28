@@ -182,7 +182,11 @@ class TestRunRecorder:
         assert session is not None
         assert len(session.steps) == 2
         assert session.steps[0].label == "check_format"
-        assert session.steps[0].tools == []
+        # The announced call persists as a pending card until its result
+        # settles it — the attach snapshot needs it to mirror live state.
+        pending = session.steps[0].tools[0]
+        assert pending.name == "check_format"
+        assert pending.status == "pending"
         assert session.steps[1].label == ""
         assert session.thoughts[0].step_index == session.steps[1].index
 
@@ -466,7 +470,12 @@ class TestRunRecorder:
 
         session = await store.get("sess_7e57e57e57e5")
         assert session is not None
-        tool = session.steps[0].tools[0]
+        # The child-scope result announces a different name than the pending
+        # dispatch card, so it appends instead of settling it.
+        tools = session.steps[0].tools
+        assert tools[0].name == "run_format_auditor"
+        assert tools[0].status == "pending"
+        tool = tools[1]
         assert tool.call_kind == "tool"
         assert tool.call_scope == "subagent"
         assert tool.subagent_name == "format_auditor"
