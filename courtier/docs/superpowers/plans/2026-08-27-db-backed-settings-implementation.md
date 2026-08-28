@@ -222,15 +222,15 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 ## Phase 3：首启体验与文档
 
 ### Task 3.1: setup 向导
-- [ ] 后端 `/api/setup/*`（admin 创建 + 完成标记 + production 门禁：内网或 `COURIER_SETUP_KEY`）；删 `bootstrap_admin_user` 与 `ADMIN_USER/ADMIN_PASSWORD`
-- [ ] 前端 SetupView + 全局路由守卫；`/health` config 状态
+- [x] 后端 `/api/setup/*`（admin 创建 + 完成标记 + production 门禁：内网或 `COURIER_SETUP_KEY`）；删 `bootstrap_admin_user` 与 `ADMIN_USER/ADMIN_PASSWORD`
+- [x] 前端 SetupView + 全局路由守卫；`/health` config 状态
 
 ### Task 3.2: 配置瘦身与部署制品
-- [ ] `.env.example` 瘦身为 Tier 0；compose infra 默认值 + app env 缩减；audit_log/upload/cache 等部署层项前端只读展示
-- [ ] `AGENTS.md`（§4/§7.1/§9/§10）、根 `CLAUDE.md`、`docs/operations/`（密钥备份、infra 匹配、生产 secrets 注入）更新
+- [x] `.env.example` 瘦身为 Tier 0；compose infra 默认值 + app env 缩减；audit_log/upload/cache 等部署层项前端只读展示
+- [x] `AGENTS.md`（§4/§7.1/§9/§10）、根 `CLAUDE.md`、`docs/operations/`（密钥备份、infra 匹配、生产 secrets 注入）更新
 
 ### Task 3.3: Phase 3 测试
-- [ ] setup 状态机测试（development 直通/生产门禁/完成后 404）；audit 前端面板
+- [x] setup 状态机测试（development 直通/生产门禁/完成后 404）；audit 前端面板
 
 ## Phase 4：全量回归与真实验收
 
@@ -330,5 +330,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 3. `unconfigured` 守门落在独立模块 `setup_gate.py`（可单测的 install_setup_gate + admin_exists）；admin 存在性在 lifespan 启动时算一次存 `app.state._has_admin`，Phase 3 的 setup 端点完成后翻 True。production validator（import 时 raise）删除——首启才能进得去向导。
 4. JWT 轮换端点要求加密密钥存在（422），env-only 503；前端 web 组带确认弹窗与结果提示。
 5. 实测：Phase 2 新增 17 个后端用例 + 前端确认/测试/轮换交互；全量 1822 passed / 6 skipped；webui build+lint+15 脚本绿。
+
+**Task 3.1/3.2/3.3 完成**（Phase 3，`4529ade` + `64013f3`）。偏差与实测：
+1. **`ADMIN_USER/ADMIN_PASSWORD` 字段保留**（计划原文"删除"）：`_fallback_login`（env-only 开发模式登录）仍读这两个字段；删除的是**启动引导**（`bootstrap_admin_user` 及 lifespan 调用）。字段留在 Tier-0（不入库），.env.example 标注"仅 env-only 回退登录用"。
+2. production 门禁：私网/回环来源直通（ipaddress 精确判定），或 `COURTIER_SETUP_KEY` 常量时间比较；无钥公网来源 → 403。向导一次性由"admin 存在即 409"保证，key 生命周期归部署方。
+3. `.env.example` 终态三段式（Tier-0 必需 / 首启种子 / infra 部署层）——应用配置保留为"种子"注释行，语义是首启导入而非持续读取；compose 六处 `:?Required` 全部改开发默认值。Tier-0 只读展示：GET 返回 deployment 块（mysql_url/admin_password 仅显示"已设置"），前端折叠区渲染。
+4. 测试坑：routes/setup.py 的相对导入层级（`..setup_gate`/`..db`）；TestClient 的 client.host 非私网 → 正好用作生产门禁的"公网来源"测试路径。
+5. 实测：setup 9 用例；全量 1831 passed / 6 skipped；webui 15 脚本 + build + lint 绿。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）
