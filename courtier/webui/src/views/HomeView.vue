@@ -211,7 +211,16 @@ async function handleHistoryDelete(id: string) {
   const previous = historySessions.value;
   historySessions.value = historySessions.value.filter((s) => s.id !== id);
   try {
+    // Deleting the open session: stop its run first, then drop the stream
+    // and reset the main view exactly like starting a new session.
+    if (session.id === id && isRunning.value) {
+      await stop();
+    }
     await deleteSession(id);
+    if (session.id === id) {
+      closePreview();
+      newSessionWithCleanup();
+    }
   } catch (_err) {
     historySessions.value = previous;
     console.warn("删除会话失败", _err);
