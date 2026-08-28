@@ -396,6 +396,39 @@ class SessionStore:
         async with self._persist_lock:
             await self._persist(session)
 
+    async def set_step_subagents(
+        self,
+        session_id: str,
+        step_index: int,
+        subagents: list,
+        *,
+        event_seq: int | None = None,
+    ) -> None:
+        """Persist the live sub-agent tree onto a step that is still running.
+
+        Incremental counterpart of ``finalize_step``: called per sub-agent
+        event so the session snapshot keeps honouring the watermark invariant
+        (snapshot(W) + events>W ≡ full state).  Without it the tree reaches
+        the store only at observe, and a mid-run attach replays sub-agent
+        events into a snapshot step that never carried them.
+        """
+        async with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return
+            new_steps = list(session.steps)
+            for i, step in enumerate(new_steps):
+                if step.index != step_index:
+                    continue
+                new_steps[i] = replace(step, subagents=list(subagents))
+                break
+            session = replace(session, steps=new_steps)
+            session = _advance_watermark(session, event_seq)
+            self._sessions[session_id] = session
+
+        async with self._persist_lock:
+            await self._persist(session)
+
     async def finalize_step(
         self,
         session_id: str,

@@ -975,6 +975,57 @@ class TestRunRecorderSubAgentStateAccumulation:
         assert sa.tools[0].summary == "格式正确"
 
     @pytest.mark.asyncio
+    async def test_running_tree_is_in_snapshot_before_observe(self, store):
+        """Attach invariant I2 for sub-agents: each event's tree state is
+        persisted (stamped with that event's seq) before the event is
+        appended, so a mid-run snapshot already contains the running
+        sub-agent and re-attach replay after the watermark reconstructs
+        seamlessly instead of dropping events for an unknown node."""
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+
+        log_queue = RunEventLog()
+        queue = _LogQueue(log_queue)
+        adapter = RunRecorder(log_queue, store, "sess_abc123def456")
+        await store.create("sess_abc123def456", "audit", "/tmp/f.docx")
+
+        await adapter.on_step("think", "tool_calls:run_auditor")
+        queue.get_nowait()  # think event
+
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="format_auditor",
+                handle_id="hdl_1",
+                task="审核格式",
+            )
+        )
+        queue.get_nowait()  # subagent_start
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="token",
+                subagent_name="format_auditor",
+                handle_id="hdl_1",
+                text="运行中思考",
+            )
+        )
+        queue.get_nowait()  # subagent_token
+
+        # Mid-run snapshot: watermark == last emitted event's seq, and the
+        # owner step already carries the RUNNING sub-agent with its thought.
+        session = await store.get("sess_abc123def456")
+        assert session is not None
+        assert session.event_seq == queue._cursor
+        owner_step = session.steps[0]
+        assert len(owner_step.subagents) == 1
+        sa = owner_step.subagents[0]
+        assert sa.status == "running"
+        assert sa.thoughts[0].text == "运行中思考"
+
+        # Nothing precedes the watermark unrecorded: replay after it starts
+        # empty until genuinely new events arrive.
+        assert log_queue.replay_after(session.event_seq) == []
+
+    @pytest.mark.asyncio
     async def test_nested_subagents_build_tree(self, store):
         from courtier.agent.agents.subagent.events import SubAgentStreamEvent
 

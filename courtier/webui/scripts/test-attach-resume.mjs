@@ -275,6 +275,93 @@ try {
     assert.equal(session.turns[0].conclusion, "中间结论");
   }
 
+  // 7. Replayed sub-agent events update the running node the snapshot
+  //    restored inside the in-flight step (backend persists the tree per
+  //    event — invariant I2 — so the node exists at attach time).
+  {
+    const { session, restoreSession } = useAgentSession();
+    esInstances.length = 0;
+    const runningSubagent = {
+      name: "format_auditor",
+      displayName: "格式审核",
+      handleId: "sa-1",
+      task: "审核格式",
+      status: "running",
+      conclusion: "",
+      error: "",
+      thoughts: [{ id: 1, text: "已还原的思考" }],
+      children: [],
+      tools: [],
+    };
+    const subagentStep = {
+      index: 1,
+      numeral: "一",
+      label: "run_format_auditor",
+      skill: "format_audit",
+      turnIndex: 1,
+      startSegmentIndex: 1,
+      tools: [
+        {
+          id: "tool-2",
+          name: "run_format_auditor",
+          status: "running",
+          callKind: "tool",
+          callScope: "parent",
+        },
+      ],
+      subagents: [runningSubagent],
+    };
+    restoreSession(
+      makeLoadedSession({
+        status: "running",
+        eventSeq: 20,
+        turns: [
+          {
+            message: { role: "user", text: "审计文档", timestamp: 1 },
+            steps: [subagentStep],
+          },
+        ],
+        steps: [subagentStep],
+        thoughts: [],
+      }),
+    );
+    assert.equal(esInstances.length, 1);
+
+    // Streamed sub-agent tokens continue the restored node's thought block.
+    esInstances[0].emit({
+      type: "subagent_token",
+      name: "format_auditor",
+      handleId: "sa-1",
+      text: "，重连后续流",
+    });
+    await tick();
+    const node = () => session.turns[0].steps[0].subagents[0];
+    assert.equal(node().thoughts.at(-1).text, "已还原的思考，重连后续流");
+
+    // Sub-agent tool results land in the node inside the turn's step.
+    esInstances[0].emit({
+      type: "subagent_tool_result",
+      name: "format_auditor",
+      handleId: "sa-1",
+      toolName: "check_format",
+      toolStatus: "ok",
+      toolSummary: "3 处问题",
+    });
+    await tick();
+    assert.equal(node().tools.length, 1);
+    assert.equal(node().tools[0].name, "check_format");
+
+    // Sub-agent end flips the node's status in place.
+    esInstances[0].emit({
+      type: "subagent_end",
+      name: "format_auditor",
+      handleId: "sa-1",
+      result: { status: "completed" },
+    });
+    await tick();
+    assert.equal(node().status, "completed");
+  }
+
   console.log("test-attach-resume: all assertions passed");
 } finally {
   rmSync(outDir, { recursive: true, force: true });

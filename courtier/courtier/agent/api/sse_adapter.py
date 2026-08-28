@@ -517,7 +517,9 @@ class RunRecorder:
 
     async def on_subagent_event(self, event: Any) -> None:
         """Handle a SubAgentStreamEvent by emitting the corresponding SSE event
-        and accumulating state for historical persistence.
+        and persisting the live sub-agent tree into the owner step (per event,
+        so mid-run snapshots honour the attach watermark invariant; the tree is
+        finalized with its segment boundary at observe).
 
         Runs under the dispatch lock — sub-agent events arrive via a direct
         callback that may interleave with the bus listener.
@@ -539,7 +541,9 @@ class RunRecorder:
         parent_handle_id = event.parent_handle_id
 
         # -- State capture for historical rendering --
+        tree_changed = False
         if kind == "start" and handle_id:
+            tree_changed = True
             new_run = SubagentRunRecord(
                 name=event.subagent_name,
                 handle_id=handle_id,
@@ -553,6 +557,7 @@ class RunRecorder:
         elif kind in ("token", "think") and handle_id:
             run = self._current_subagents.get(handle_id)
             if run and event.text:
+                tree_changed = True
                 if kind == "think" and event.text == "text_response":
                     # New thought block
                     next_id = len(run.thoughts) + 1
@@ -577,6 +582,7 @@ class RunRecorder:
         elif kind == "tool_result" and handle_id:
             run = self._current_subagents.get(handle_id)
             if run and event.tool_name:
+                tree_changed = True
                 raw_status = event.tool_status or "done"
                 valid_statuses = {"pending", "running", "done", "ok", "error", "warning"}
                 status = raw_status if raw_status in valid_statuses else "done"
@@ -592,7 +598,8 @@ class RunRecorder:
 
         elif kind == "conclusion" and handle_id:
             run = self._current_subagents.get(handle_id)
-            if run:
+            if run and event.text:
+                tree_changed = True
                 self._current_subagents[handle_id] = replace(
                     run,
                     conclusion=(run.conclusion or "") + (event.text or ""),
@@ -601,6 +608,7 @@ class RunRecorder:
         elif kind == "end" and handle_id:
             run = self._current_subagents.get(handle_id)
             if run:
+                tree_changed = True
                 result = event.result
                 is_error = isinstance(result, dict) and result.get("status") == "error"
                 self._current_subagents[handle_id] = replace(
@@ -609,7 +617,26 @@ class RunRecorder:
                     error=(result.get("error", "") if isinstance(result, dict) else ""),
                 )
 
-        # -- SSE emission (unchanged) --
+        # Persist the live tree into the owner step on every mutation, stamped
+        # with the emitted event's seq.  The observe-time finalize alone breaks
+        # the attach invariant I2 (snapshot(W) + events>W ≡ full state): the
+        # store watermark would advance past sub-agent events whose tree state
+        # exists only in this recorder's memory, so a mid-run re-attach replays
+        # them into a snapshot step that never carried the tree — and the
+        # frontend handlers silently drop events for unknown sub-agents.  Same
+        # persist-per-event class as parent-level tokens.
+        event_seq: int | None = None
+        owner_step_index = self._subagent_owner_step_index or self._step_index
+        if tree_changed and owner_step_index > 0:
+            event_seq = self._log.reserve()
+            await self._store.set_step_subagents(
+                self._session_id,
+                owner_step_index,
+                self._build_subagent_tree(),
+                event_seq=event_seq,
+            )
+
+        # -- SSE emission --
         if kind == "start":
             await self._emit_sse(
                 {
@@ -620,7 +647,8 @@ class RunRecorder:
                     "parentSubagentName": event.parent_subagent_name,
                     "handleId": event.handle_id,
                     "parentHandleId": event.parent_handle_id,
-                }
+                },
+                seq=event_seq,
             )
         elif kind == "think":
             await self._emit_sse(
@@ -631,7 +659,8 @@ class RunRecorder:
                     "parentSubagentName": event.parent_subagent_name,
                     "handleId": event.handle_id,
                     "parentHandleId": event.parent_handle_id,
-                }
+                },
+                seq=event_seq,
             )
         elif kind == "token":
             await self._emit_sse(
@@ -642,7 +671,8 @@ class RunRecorder:
                     "parentSubagentName": event.parent_subagent_name,
                     "handleId": event.handle_id,
                     "parentHandleId": event.parent_handle_id,
-                }
+                },
+                seq=event_seq,
             )
         elif kind == "tool_result":
             tool_meta = self._tool_meta_for(event.tool_name or "")
@@ -660,7 +690,7 @@ class RunRecorder:
             }
             if event.tool_issue_counts is not None:
                 payload["issueCounts"] = event.tool_issue_counts
-            await self._emit_sse(payload)
+            await self._emit_sse(payload, seq=event_seq)
         elif kind == "conclusion":
             if event.text:
                 await self._emit_sse(
@@ -671,7 +701,8 @@ class RunRecorder:
                         "parentSubagentName": event.parent_subagent_name,
                         "handleId": event.handle_id,
                         "parentHandleId": event.parent_handle_id,
-                    }
+                    },
+                    seq=event_seq,
                 )
         elif kind == "end":
             await self._emit_sse(
@@ -682,7 +713,8 @@ class RunRecorder:
                     "parentSubagentName": event.parent_subagent_name,
                     "handleId": event.handle_id,
                     "parentHandleId": event.parent_handle_id,
-                }
+                },
+                seq=event_seq,
             )
 
     # -- Internal handlers ----------------------------------------------------
