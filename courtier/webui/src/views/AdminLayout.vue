@@ -85,16 +85,15 @@ const navGroups = computed<{ label: string; items: NavItem[] }[]>(() => [
       ]
     : []),
   {
-    label: "审核能力",
+    label: "Agent能力",
     items: [
-      ...(isAdmin.value
-        ? [
-            { to: "/admin/plugins", label: "插件市场", icon: "package" },
-            { to: "/admin/skills", label: "技能", icon: "sparkle" },
-          ]
-        : []),
-      { to: "/admin/resources", label: "资源库", icon: "library" },
+      { to: "/admin/plugins", label: "插件市场", icon: "package" },
+      { to: "/admin/skills", label: "技能", icon: "sparkle" },
     ],
+  },
+  {
+    label: "知识与记忆",
+    items: [{ to: "/admin/resources", label: "资源库", icon: "library" }],
   },
   ...(isAdmin.value
     ? [
