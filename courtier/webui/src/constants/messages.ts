@@ -53,6 +53,7 @@ export const MESSAGES = {
   CHAT_NEW_SESSION: "新会话",
   CHAT_HISTORY_TITLE: "历史会话",
   CHAT_NO_HISTORY: "暂无历史会话",
+  CHAT_SHOW_MORE: "显示更多",
   CHAT_SEND: "发送",
   CHAT_STOP: "停止",
   CHAT_UPLOADING: "上传中...",

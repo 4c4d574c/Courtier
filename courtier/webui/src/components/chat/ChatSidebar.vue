@@ -117,7 +117,7 @@
         </div>
         <ul v-else class="chat-sidebar-list">
           <li
-            v-for="session in sessions"
+            v-for="session in visibleSessions"
             :key="session.id"
             class="chat-sidebar-item"
             @click="$emit('select', session.id)"
@@ -195,6 +195,14 @@
             </div>
           </li>
         </ul>
+        <button
+          v-if="hiddenCount > 0"
+          type="button"
+          class="chat-sidebar-more"
+          @click="showMoreSessions"
+        >
+          {{ MESSAGES.CHAT_SHOW_MORE }}（还有 {{ hiddenCount }} 个）
+        </button>
         <div
           v-if="openMenuId"
           class="chat-sidebar-menu-overlay"
@@ -238,6 +246,18 @@ const emit = defineEmits<{
 }>();
 
 const isAdmin = computed(() => props.userRole === "admin");
+
+// Long history lists render the first batch with a show-more expander
+// instead of mounting every session row (GET /sessions returns them all).
+const INITIAL_VISIBLE_SESSIONS = 20;
+const SESSIONS_BATCH = 20;
+const visibleCount = ref(INITIAL_VISIBLE_SESSIONS);
+const visibleSessions = computed(() => props.sessions.slice(0, visibleCount.value));
+const hiddenCount = computed(() => Math.max(0, props.sessions.length - visibleCount.value));
+
+function showMoreSessions() {
+  visibleCount.value += SESSIONS_BATCH;
+}
 
 // Meatballs menu: only one open at a time; an invisible overlay closes it
 // on any outside click (no global listeners needed).
@@ -613,6 +633,27 @@ function onMenuDelete(id: string) {
   transition:
     opacity 0.15s,
     background 0.15s;
+}
+
+.chat-sidebar-more {
+  flex-shrink: 0;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--chat-radius-md);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.chat-sidebar-more:hover {
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-secondary);
 }
 
 .chat-sidebar-item:hover .chat-sidebar-item-menu-btn,
