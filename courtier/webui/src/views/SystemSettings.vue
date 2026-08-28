@@ -94,22 +94,36 @@
                 <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
               </div>
               <div class="field-control">
-                <input
-                  v-if="field.is_secret"
-                  v-model="formState[activeCategory][field.name]"
-                  class="field-input"
-                  type="password"
-                  autocomplete="new-password"
-                  :placeholder="secretPlaceholder(field)"
-                  :disabled="!editable"
-                />
-                <label v-else-if="field.type === 'bool'" class="bool-control">
+                <div v-if="field.is_secret" class="secret-wrap">
                   <input
                     v-model="formState[activeCategory][field.name]"
-                    type="checkbox"
+                    class="field-input"
+                    :type="revealed[field.name] ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    :placeholder="secretPlaceholder(field)"
                     :disabled="!editable"
                   />
-                  <span>{{ formState[activeCategory][field.name] ? "已启用" : "已停用" }}</span>
+                  <button
+                    class="secret-toggle"
+                    type="button"
+                    :disabled="!formState[activeCategory][field.name]"
+                    @click="revealed[field.name] = !revealed[field.name]"
+                  >
+                    {{ revealed[field.name] ? "隐藏" : "显示" }}
+                  </button>
+                </div>
+                <label v-else-if="field.type === 'bool'" class="switch-label">
+                  <span class="switch">
+                    <input
+                      v-model="formState[activeCategory][field.name]"
+                      type="checkbox"
+                      :disabled="!editable"
+                    />
+                    <span class="track" />
+                  </span>
+                  <span class="switch-state">{{
+                    formState[activeCategory][field.name] ? "已启用" : "已停用"
+                  }}</span>
                 </label>
                 <textarea
                   v-else-if="field.type === 'list' || field.type === 'json'"
@@ -129,18 +143,67 @@
                   @input="setFieldValue(field.name, ($event.target as HTMLInputElement).value)"
                 />
 
-                <label v-if="field.source === 'db'" class="field-clear">
-                  <input
-                    v-model="cleared[activeCategory][field.name]"
-                    type="checkbox"
+                <div v-if="field.source === 'db'" class="clear-zone">
+                  <button
+                    v-if="!cleared[activeCategory][field.name]"
+                    class="clear-link"
+                    type="button"
                     :disabled="!editable"
-                  />
-                  清除并回退 env/默认
-                </label>
+                    @click="cleared[activeCategory][field.name] = true"
+                  >
+                    清除并回退 env/默认
+                  </button>
+                  <span v-else class="cleared-chip">
+                    保存后清除并回退 env/默认
+                    <button
+                      class="clear-link"
+                      type="button"
+                      :disabled="!editable"
+                      @click="cleared[activeCategory][field.name] = false"
+                    >
+                      撤销
+                    </button>
+                  </span>
+                </div>
                 <p v-if="formErrors[field.name]" class="field-error">{{ formErrors[field.name] }}</p>
               </div>
             </div>
           </section>
+
+          <section v-if="activeCategory === 'web'" class="group-card danger-zone">
+            <header class="group-head">
+              <h3>安全操作</h3>
+              <span class="group-hint">立即生效且影响所有登录会话</span>
+            </header>
+            <div class="danger-row">
+              <div class="danger-info">
+                <span class="danger-title">轮换 JWT 签名密钥</span>
+                <p>所有用户（包括你自己）的会话立即失效，需重新登录。</p>
+              </div>
+              <div class="danger-actions">
+                <button class="btn danger" :disabled="rotating" @click="rotateJwt">
+                  {{ rotating ? "轮换中…" : "轮换 JWT 密钥" }}
+                </button>
+                <span v-if="rotateResult" class="llm-test" :class="rotateResult.ok ? 'ok' : 'fail'">
+                  {{ rotateResult.ok ? "已轮换：所有会话已失效，请重新登录" : `失败：${rotateResult.error}` }}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <div v-if="testResult" class="test-card" :class="testResult.ok ? 'ok' : 'fail'">
+            <div class="test-card-head">
+              <span>{{ testResult.ok ? "✓ 连接成功" : "✕ 连接失败" }}</span>
+              <button class="strip-close" aria-label="关闭" @click="testResult = null">×</button>
+            </div>
+            <p v-if="testResult.ok" class="test-detail">{{ testResultText }}</p>
+            <ul v-else class="test-errors">
+              <li v-for="(msg, name) in testResult.errors ?? {}" :key="name">
+                <code>{{ name }}</code> {{ msg }}
+              </li>
+              <li v-if="testResult.error">{{ testResult.error }}</li>
+            </ul>
+          </div>
         </template>
 
         <section v-else class="group-card">
@@ -174,28 +237,27 @@
               {{ testing ? "测试中…" : TEST_TARGET_LABELS[target] }}
             </button>
             <button
-              v-if="activeCategory === 'web'"
-              class="btn danger"
-              :disabled="rotating"
-              @click="rotateJwt"
-            >
-              {{ rotating ? "轮换中…" : "轮换 JWT 密钥" }}
-            </button>
-            <button
               class="btn primary"
               :disabled="!editable || saving || !dirtyCount"
               @click="save"
             >
               {{ saving ? "保存中…" : "保存更改" }}
             </button>
-            <span v-if="testResult" class="llm-test" :class="testResult.ok ? 'ok' : 'fail'">
-              {{ testResultText }}
-            </span>
-            <span v-if="rotateResult" class="llm-test" :class="rotateResult.ok ? 'ok' : 'fail'">
-              {{ rotateResult.ok ? "已轮换：所有会话已失效，请重新登录" : `失败：${rotateResult.error}` }}
-            </span>
           </div>
         </footer>
+      </div>
+    </div>
+
+    <div v-if="confirmState.open" class="modal-backdrop" @click.self="resolveConfirm(false)">
+      <div class="modal" role="dialog" aria-modal="true" :aria-label="confirmState.title">
+        <h3 class="modal-title">{{ confirmState.title }}</h3>
+        <p class="modal-message">{{ confirmState.message }}</p>
+        <div class="modal-actions">
+          <button class="btn" @click="resolveConfirm(false)">取消</button>
+          <button class="btn confirm-btn" @click="resolveConfirm(true)">
+            {{ confirmState.confirmLabel }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -233,6 +295,8 @@ const activeCategory = ref("");
 const showDeployment = ref(false);
 const formState = reactive<Record<string, FormState>>({});
 const cleared = reactive<Record<string, Record<string, boolean>>>({});
+/** Per-secret reveal state (field name → plaintext visible). */
+const revealed = reactive<Record<string, boolean>>({});
 const formErrors = reactive<Record<string, string>>({});
 const saving = ref(false);
 const testing = ref(false);
@@ -267,6 +331,30 @@ const testResultText = computed(() => {
   return `失败：${detail}`;
 });
 
+/** Promise-based confirm dialog (replaces window.confirm). */
+const confirmState = reactive<{
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  resolve: (ok: boolean) => void;
+}>({ open: false, title: "", message: "", confirmLabel: "确认", resolve: () => {} });
+
+function askConfirm(title: string, message: string, confirmLabel = "确认"): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirmState.open = true;
+    confirmState.title = title;
+    confirmState.message = message;
+    confirmState.confirmLabel = confirmLabel;
+    confirmState.resolve = resolve;
+  });
+}
+
+function resolveConfirm(ok: boolean) {
+  confirmState.open = false;
+  confirmState.resolve(ok);
+}
+
 /**
  * Destructive-adjacent saves ask for confirmation: index/vector-dim changes
  * need a reindex, the plugin token is shared with plugin-side env, CORS
@@ -278,24 +366,25 @@ const CONFIRM_RULES: Array<{
 }> = [
   {
     fields: ["es_index_chunks", "es_index_results", "llm_embedding_dim"],
-    message: "索引名/向量维度已变更：需要重建索引（reindex）才能对现有数据生效。确认保存？",
+    message: "索引名/向量维度已变更：需要重建索引（reindex）才能对现有数据生效。",
   },
   {
     fields: ["courtier_plugin_token"],
     message:
-      "插件 token 是主进程/插件双侧共享的：保存后插件将断开重连，插件侧 env 需同步修改，否则全部插件 401。确认保存？",
+      "插件 token 是主进程/插件双侧共享的：保存后插件将断开重连，插件侧 env 需同步修改，否则全部插件 401。",
   },
   {
     fields: ["cors_origins", "cors_allow_credentials"],
     message:
-      "CORS 配置需重启后生效；配置错误可能导致前端无法访问（可用环境变量 CORS_ORIGINS 救援覆盖）。确认保存？",
+      "CORS 配置需重启后生效；配置错误可能导致前端无法访问（可用环境变量 CORS_ORIGINS 救援覆盖）。",
   },
 ];
 
-function confirmIfNeeded(changed: string[]): boolean {
+async function confirmIfNeeded(changed: string[]): Promise<boolean> {
   for (const rule of CONFIRM_RULES) {
     if (changed.some((name) => rule.fields.includes(name))) {
-      if (!window.confirm(rule.message)) return false;
+      const ok = await askConfirm("确认保存更改？", rule.message, "确认保存");
+      if (!ok) return false;
     }
   }
   return true;
@@ -376,6 +465,7 @@ function resetForms(data: SettingsView) {
     formState[cat.key] = initFormState(cat.fields);
     cleared[cat.key] = {};
   }
+  for (const key of Object.keys(revealed)) delete revealed[key];
 }
 
 function stringValue(name: string): string {
@@ -427,7 +517,7 @@ async function save() {
     saveBanner.value = { applied: [], cleared: [], restart: [] };
     return;
   }
-  if (!confirmIfNeeded(changed)) return;
+  if (!(await confirmIfNeeded(changed))) return;
   saving.value = true;
   try {
     const result = await api.updateSettings(cat, body);
@@ -462,13 +552,12 @@ async function testConnection(target: "llm" | "es" | "minio" | "plugins") {
 }
 
 async function rotateJwt() {
-  if (
-    !window.confirm(
-      "轮换 JWT 密钥会使所有用户（包括你自己）的会话立即失效，需重新登录。确认轮换？",
-    )
-  ) {
-    return;
-  }
+  const ok = await askConfirm(
+    "确认轮换 JWT 密钥？",
+    "轮换会使所有用户（包括你自己）的会话立即失效，需重新登录。",
+    "确认轮换",
+  );
+  if (!ok) return;
   rotating.value = true;
   rotateResult.value = null;
   try {
@@ -775,18 +864,127 @@ onMounted(load);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   line-height: 1.5;
 }
-.bool-control {
-  display: inline-flex;
+/* Secret input with inline reveal toggle. */
+.secret-wrap {
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--chat-text-secondary);
+}
+.secret-wrap .field-input {
+  padding-right: 52px;
+}
+.secret-toggle {
+  position: absolute;
+  right: 6px;
+  padding: 2px 6px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--chat-text-tertiary);
+  font-size: 12px;
   cursor: pointer;
 }
-.field-clear {
-  font-size: 12px;
-  color: var(--chat-text-secondary);
+.secret-toggle:hover:not(:disabled) {
+  color: var(--chat-text-primary);
+  background: var(--chat-bg-hover);
+}
+.secret-toggle:disabled {
+  cursor: default;
+}
+
+/* Toggle switch for bool fields. */
+.switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
+}
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 21px;
+  flex-shrink: 0;
+}
+.switch input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+.switch .track {
+  position: absolute;
+  inset: 0;
+  background: var(--chat-bg-hover);
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  transition:
+    background 150ms,
+    border-color 150ms;
+}
+.switch .track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--chat-bg-card);
+  box-shadow: var(--chat-shadow);
+  transition: transform 150ms;
+}
+.switch input:checked + .track {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+}
+.switch input:checked + .track::before {
+  transform: translateX(17px);
+}
+.switch input:disabled + .track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.switch input:focus-visible + .track {
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+.switch-state {
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+}
+
+/* Clear-and-revert link (replaces the old clear checkbox). */
+.clear-zone {
+  min-height: 18px;
+}
+.clear-link {
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--chat-text-tertiary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.clear-link:hover:not(:disabled) {
+  color: var(--err);
+}
+.clear-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.cleared-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+}
+.cleared-chip .clear-link {
+  color: inherit;
 }
 .field-row.error .field-input {
   border-color: var(--err);
@@ -946,6 +1144,117 @@ onMounted(load);
   line-height: 1;
   cursor: pointer;
   padding: 2px;
+}
+
+/* ---- Connection test result card ---- */
+.test-card {
+  padding: 12px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+}
+.test-card.ok {
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-dim);
+}
+.test-card.fail {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+}
+.test-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+.test-detail {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.test-errors {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.test-errors code {
+  opacity: 0.75;
+  margin-right: 4px;
+}
+
+/* ---- Danger zone (JWT rotation) ---- */
+.danger-zone .group-head {
+  border-bottom-color: color-mix(in srgb, var(--err) 25%, transparent);
+}
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 0;
+}
+.danger-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
+}
+.danger-info p {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--chat-text-secondary);
+}
+.danger-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ---- Confirm modal ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal {
+  width: min(460px, calc(100vw - 48px));
+  padding: 20px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--chat-text-primary);
+}
+.modal-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--chat-text-secondary);
+  white-space: pre-wrap;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.confirm-btn {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+.confirm-btn:hover:not(:disabled) {
+  background: var(--chat-accent-hover);
 }
 
 /* ---- Narrow screens: nav collapses to a horizontal scroller ---- */
