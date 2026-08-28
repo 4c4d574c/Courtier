@@ -94,7 +94,38 @@
                 <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
               </div>
               <div class="field-control">
-                <div v-if="field.is_secret" class="secret-wrap">
+                <div v-if="field.name === 'courtier_plugin_endpoints'" class="endpoint-editor">
+                  <div v-for="(row, i) in endpointRows" :key="i" class="endpoint-row">
+                    <input
+                      v-model="row.name"
+                      class="field-input endpoint-name"
+                      :disabled="!editable"
+                      placeholder="插件名"
+                      @input="writeEndpoints"
+                    />
+                    <span class="endpoint-eq">=</span>
+                    <input
+                      v-model="row.addr"
+                      class="field-input endpoint-addr"
+                      :disabled="!editable"
+                      placeholder="host:port"
+                      @input="writeEndpoints"
+                    />
+                    <button
+                      class="endpoint-remove"
+                      type="button"
+                      :aria-label="`删除 ${row.name || '端点'}`"
+                      :disabled="!editable"
+                      @click="removeEndpointRow(i)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <button class="endpoint-add" type="button" :disabled="!editable" @click="addEndpointRow">
+                    + 添加端点
+                  </button>
+                </div>
+                <div v-else-if="field.is_secret" class="secret-wrap">
                   <input
                     v-model="formState[activeCategory][field.name]"
                     class="field-input"
@@ -356,6 +387,59 @@ function resolveConfirm(ok: boolean) {
 }
 
 /**
+ * Plugin endpoint mapping editor: the stored value is a comma-separated
+ * `name=host:port` string; the UI edits structured rows and writes the
+ * serialized form back into formState, so dirty detection, save, and
+ * connection tests keep using the unchanged string pipeline.
+ */
+const ENDPOINTS_FIELD = "courtier_plugin_endpoints";
+const endpointRows = ref<Array<{ name: string; addr: string }>>([]);
+
+function parseEndpoints(raw: string): Array<{ name: string; addr: string }> {
+  return (raw ?? "")
+    .split(",")
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const idx = pair.indexOf("=");
+      return idx === -1
+        ? { name: pair, addr: "" }
+        : { name: pair.slice(0, idx).trim(), addr: pair.slice(idx + 1).trim() };
+    });
+}
+
+function syncEndpointRows() {
+  endpointRows.value = parseEndpoints(String(formState["plugins"]?.[ENDPOINTS_FIELD] ?? ""));
+}
+
+function writeEndpoints() {
+  const state = formState["plugins"];
+  if (state) {
+    state[ENDPOINTS_FIELD] = endpointRows.value
+      .map((r) => `${r.name.trim()}=${r.addr.trim()}`)
+      .filter((s) => s !== "=")
+      .join(",");
+  }
+}
+
+function addEndpointRow() {
+  endpointRows.value.push({ name: "", addr: "" });
+}
+
+function removeEndpointRow(index: number) {
+  endpointRows.value.splice(index, 1);
+  writeEndpoints();
+}
+
+/** A row must be fully filled or completely empty (unsaved placeholder). */
+function endpointRowErrors(): string {
+  const partial = endpointRows.value.some(
+    (r) => (r.name.trim() === "") !== (r.addr.trim() === ""),
+  );
+  return partial ? "每行的插件名称与地址需同时填写" : "";
+}
+
+/**
  * Destructive-adjacent saves ask for confirmation: index/vector-dim changes
  * need a reindex, the plugin token is shared with plugin-side env, CORS
  * misconfiguration can lock the frontend out.
@@ -466,6 +550,7 @@ function resetForms(data: SettingsView) {
     cleared[cat.key] = {};
   }
   for (const key of Object.keys(revealed)) delete revealed[key];
+  syncEndpointRows();
 }
 
 function stringValue(name: string): string {
@@ -511,7 +596,9 @@ async function save() {
   const { body, errors } = buildUpdateBody(activeFields.value, formState[cat], cleared[cat]);
   for (const key of Object.keys(formErrors)) delete formErrors[key];
   Object.assign(formErrors, errors);
-  if (Object.keys(errors).length) return;
+  const endpointError = cat === "plugins" ? endpointRowErrors() : "";
+  if (endpointError) formErrors[ENDPOINTS_FIELD] = endpointError;
+  if (Object.keys(errors).length || endpointError) return;
   const changed = Object.keys(body);
   if (!changed.length) {
     saveBanner.value = { applied: [], cleared: [], restart: [] };
@@ -1210,6 +1297,68 @@ onMounted(load);
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+/* ---- Plugin endpoint mapping editor ---- */
+.endpoint-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.endpoint-row {
+  display: grid;
+  grid-template-columns: 150px auto 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.endpoint-eq {
+  color: var(--chat-text-tertiary);
+}
+.endpoint-remove {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  border-radius: var(--chat-radius-sm);
+  cursor: pointer;
+  transition:
+    background 150ms,
+    color 150ms;
+}
+.endpoint-remove:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  color: var(--err);
+}
+.endpoint-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.endpoint-add {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border: 1px dashed var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 150ms,
+    color 150ms;
+}
+.endpoint-add:hover:not(:disabled) {
+  border-color: var(--chat-accent);
+  color: var(--chat-accent);
+}
+.endpoint-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- Confirm modal ---- */
