@@ -36,6 +36,29 @@
 
 产出：一段简短测量记录（数字 + 结论）附到本文件"实施状态"，据此微调 P1 优先级。
 
+### Phase 0 测量记录（2026-08-28，无头基准 `webui/scripts/bench-streaming-perf.mjs`）
+
+A. `buildChatMessages` 单次调用成本（模拟一个 token 到达后重建；合成会话 = 单轮 × N 步 × 每步 2 条思考）：
+
+| steps | thoughts | raw ms/次 | reactive() ms/次 |
+|------:|---------:|----------:|-----------------:|
+| 5     | 10       | 0.020     | 0.134            |
+| 10    | 20       | 0.041     | 0.333            |
+| 20    | 40       | 0.091     | 1.089            |
+| 40    | 80       | 0.273     | 3.987            |
+| 80    | 160      | 0.917     | **14.107**       |
+
+B. `thoughtsForStep` 单次调用（raw）：80 步/160 thoughts 时 12.4µs；× 每步都调用 = raw 全量扫描约 1ms/次重建，reactive 下约 15ms——**占 A-reactive 的大头**。
+
+C. `renderStreamingHtml` JS 侧单次更新：40KB 文档全量 re-lex 也仅 ~0.13ms（快路径 0.13ms）——**JS 解析不是瓶颈**，其代价在浏览器端整棵 `v-html` 子树的 innerHTML 重解析 + 布局/绘制（无头测不到，转浏览器实测）。
+
+结论（优先级修订）：
+1. **响应式代理税是放大器主体**（15×）：`session` 深层 `reactive()` 下，每 token 重建对每个 thought 的多属性读取被代理税逐次放大，O(steps×thoughts) 的 `thoughtsForStep` 是主导项 → **P1-2 升级为高优先**（改为每轮一次 O(T) 分组 + 组内 merge，保持语义不变）。
+2. P1-1（token 批量落 state）依然最高杠杆：频率 reduction 对上述所有成本线性生效。
+3. P1-3（历史 turn item 身份稳定）直接消除 Vue 对历史消息的 VDOM 重 diff（无头测不到的另一半，浏览器实测确认）。
+4. P2-7 维持：价值在 DOM 重建而非 JS 解析。
+5. 中等单轮（20-40 步）下每 token 的 reactive 重建 + 全列表 VDOM diff 量级在数毫秒到十几毫秒，与流式 token 频率相乘即可解释"越聊越卡"。
+
 ## 修复方案（Phase 1 起逐项实施，每项独立可回退）
 
 ### P1 — 流式热路径（预期解决大部分卡顿）
