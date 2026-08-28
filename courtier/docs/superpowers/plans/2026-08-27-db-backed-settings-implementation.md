@@ -348,3 +348,11 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 4. **遗留（环境依赖，非阻塞）**：总验收 #1 的"删 .env 起容器"完整形态需容器构建（live 进程 + 单测覆盖了机制）；dev 环境 `COURTIER_SETTINGS_KEY` 未配置——secret 类设置（LLM_API_KEY 等）在配置密钥前无法入库，属预期行为，运维文档已说明。
 5. 最终回归：`pytest -m "not integration"` 1831 passed / 6 skipped；validate-domain 通过；webui 15 测试脚本 + build + lint 绿。**计划完成**：提交 77bb584 → 26c8884 + 本提交共 12 个。
 
+**验收后修复（2026-08-28 13:08 用户报告）**：`.env` 清理（删 JWT_SECRET，已入库）后登录/刷新报
+`InvalidKeyError: HMAC key must not be empty`——`app.state.settings` 在工厂期取的是 env-only 快照
+直接引用，lifespan 里 DB 快照替换的是 ConfigService，**该引用不跟随替换**，认证代码
+（`request.app.state.settings`）读到旧快照的空 jwt_secret。修复：`_bind_dynamic_settings()`
+订阅快照替换并重绑 `app.state.settings`（退订句柄随 lifespan 关闭清理，连带 run_manager 监听），
+附回归测试（重绑定身份断言 + 退订后失效）。实测：修复前登录 500 复现 → 修复后登录 200、
+无效 refresh cookie 正确 401。教训已入记录：**凡"每请求读 app.state.settings"的消费者，
+快照替换必须传播到该引用**——这正是计划 §3 ConfigService 一节"统一或刷新所有脑"要求的落实缺口。

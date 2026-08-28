@@ -7,6 +7,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +34,25 @@ from .services.run_manager import RunManager
 from .session_store import SessionStore
 
 logger = logging.getLogger(__name__)
+
+
+def _bind_dynamic_settings(app: FastAPI, service: Any = None) -> Any:
+    """Keep app.state.settings pointing at the CURRENT ConfigService snapshot.
+
+    Returns the unsubscribe callable.  Snapshot replacement (DB-backed
+    settings at startup and on admin saves) must reach every per-request
+    consumer that reads ``request.app.state.settings``; a direct reference
+    assigned once at factory time would keep pre-replacement values (empty
+    jwt_secret after the env→DB migration broke login with
+    InvalidKeyError)."""
+    from courtier.config import get_config_service
+
+    service = service or get_config_service()
+
+    def _on_settings_changed(new_settings: Any, _version: int) -> None:
+        app.state.settings = new_settings
+
+    return service.subscribe(_on_settings_changed)
 
 
 def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
@@ -131,6 +151,12 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         finally:
             # Cancel any still-running background sessions before teardown.
             await app.state.run_manager.shutdown()
+            # Detach config listeners (app.state.settings rebind + run
+            # manager limits) so a discarded app cannot leak them.
+            for handle_name in ("_settings_unsubscribe", "_config_unsubscribe"):
+                unsubscribe = getattr(app.state, handle_name, None)
+                if callable(unsubscribe):
+                    unsubscribe()
             if start_plugins:
                 await app.state.plugin_system.shutdown()
 
@@ -180,6 +206,13 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     # Shared state
     app.state.settings = settings
+    # Per-request consumers read request.app.state.settings (auth middleware,
+    # routes).  A direct reference assigned here would go STALE when the
+    # DB-backed settings replace the ConfigService snapshot at startup or on
+    # admin saves — e.g. jwt_secret moving from env to the DB left the old
+    # reference empty and broke login with InvalidKeyError.  Re-bind it on
+    # every snapshot replacement.
+    app.state._settings_unsubscribe = _bind_dynamic_settings(app)
     app.state.session_store = SessionStore(
         sessions_dir or str(Path(settings.cache_dir) / "sessions")
     )

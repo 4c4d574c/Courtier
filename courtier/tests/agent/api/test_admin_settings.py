@@ -185,3 +185,34 @@ class TestLlmConnectivity:
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
         assert "endpoint down" in resp.json()["error"]
+
+
+class TestDynamicSettingsBinding:
+    """app.state.settings must follow ConfigService snapshot replacement.
+
+    Regression: after the env→DB jwt_secret migration, a stale factory-time
+    reference kept the empty env value and login failed with
+    InvalidKeyError ('HMAC key must not be empty')."""
+
+    def test_state_settings_rebound_on_replace(self):
+        from fastapi import FastAPI
+
+        from courtier.agent.api.app import _bind_dynamic_settings
+        from courtier.config import ConfigService
+
+        app = FastAPI()
+        service = ConfigService()
+        stale = service.get()
+        app.state.settings = stale  # factory-time reference, as in create_app
+
+        unsubscribe = _bind_dynamic_settings(app, service=service)
+        new_snapshot = stale.model_copy(update={"jwt_secret": "db-secret"})
+        service.replace(new_snapshot)
+
+        assert app.state.settings is new_snapshot
+        assert app.state.settings.jwt_secret == "db-secret"
+
+        unsubscribe()
+        newer = new_snapshot.model_copy(update={"jwt_secret": "rotated"})
+        service.replace(newer)
+        assert app.state.settings is new_snapshot  # detached after unsubscribe
