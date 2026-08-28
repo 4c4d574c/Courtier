@@ -1,155 +1,225 @@
 <template>
   <div class="settings-page">
     <header class="settings-header">
-      <h1>系统设置</h1>
-      <div class="settings-meta">
-        <span class="badge" :class="`mode-${view.mode}`">
-          {{ view.mode === "db" ? "数据库配置" : "env-only（未接数据库）" }}
+      <div class="settings-heading">
+        <h1>系统设置</h1>
+        <p class="settings-subtitle">管理模型、检索、插件等运行时配置，按生效方式即时或延迟应用</p>
+      </div>
+      <div class="settings-status">
+        <span class="status-chip" :class="view.mode === 'db' ? 'ok' : 'warn'">
+          {{ view.mode === "db" ? "数据库配置" : "env 降级 · 只读" }}
         </span>
-        <span v-if="view.version !== null" class="badge">版本 {{ view.version }}</span>
-        <span v-if="view.unreadable.length" class="badge warn">
-          {{ view.unreadable.length }} 项密文不可读（加密密钥不匹配）
-        </span>
+        <span v-if="view.version !== null" class="status-chip">v{{ view.version }}</span>
+        <button class="refresh-btn" :disabled="loading" @click="load">↻ 刷新</button>
       </div>
     </header>
 
-    <p v-if="loading" class="settings-notice">加载中…</p>
-    <p v-else-if="loadError" class="settings-notice">加载失败：{{ loadError }}</p>
+    <div v-if="view.unreadable.length" class="alert alert-error">
+      {{ view.unreadable.length }} 项密文不可读：加密密钥与加密时不一致，对对应项重新保存即可修复。
+    </div>
+    <p v-if="loading && !view.categories.length" class="settings-notice">加载中…</p>
+    <div v-else-if="loadError" class="alert alert-error">
+      加载失败：{{ loadError }}
+      <button class="link-btn" @click="load">重试</button>
+    </div>
+    <div v-if="view.mode === 'env' && !loadError" class="alert alert-warn">
+      当前为 env-only 降级模式：设置不可编辑。配置 MYSQL_URL 并重启后启用数据库配置。
+    </div>
 
-    <p v-if="view.mode === 'env'" class="settings-notice">
-      当前为 env-only 降级模式：设置不可编辑，需配置 MYSQL_URL 并重启后使用。
-    </p>
+    <div v-if="view.categories.length" class="settings-body">
+      <nav class="settings-nav" aria-label="设置分类">
+        <button
+          v-for="cat in view.categories"
+          :key="cat.key"
+          class="nav-item"
+          :class="{ active: !showDeployment && cat.key === activeCategory }"
+          @click="selectCategory(cat.key)"
+        >
+          <span class="nav-label">{{ cat.label }}</span>
+          <span class="nav-count">{{ cat.fields.length }}</span>
+          <span
+            v-if="hasDeferredEffect(cat)"
+            class="nav-dot"
+            :title="`${deferredCount(cat)} 项需重启容器或保存后重建`"
+          />
+        </button>
+        <div class="nav-sep" />
+        <button class="nav-item" :class="{ active: showDeployment }" @click="showDeployment = true">
+          <span class="nav-label">部署层配置</span>
+          <span class="nav-count ro">只读</span>
+        </button>
+      </nav>
 
-    <details v-if="view.deployment?.length" class="deployment-box">
-      <summary>部署层配置（Tier 0，只读 — 容器环境变量）</summary>
-      <div v-for="item in view.deployment" :key="item.name" class="deployment-item">
-        <span class="field-name">{{ item.name }}</span>
-        <code class="deployment-value">{{
-          typeof item.value === "string" ? item.value : item.value.set ? "已设置" : "未设置"
-        }}</code>
-      </div>
-    </details>
-
-    <nav class="settings-tabs">
-      <button
-        v-for="cat in view.categories"
-        :key="cat.key"
-        class="settings-tab"
-        :class="{ active: cat.key === activeCategory }"
-        @click="activeCategory = cat.key"
-      >
-        {{ cat.label }}
-      </button>
-    </nav>
-
-    <section v-if="activeFields.length" class="settings-form">
-      <div
-        v-for="field in activeFields"
-        :key="field.name"
-        class="settings-field"
-        :class="{ error: formErrors[field.name] }"
-      >
-        <label class="field-label">
-          <span class="field-name">{{ field.name }}</span>
-          <span class="field-badges">
-            <span class="badge" :class="`source-${field.source}`">{{ sourceLabel(field.source) }}</span>
-            <span class="badge" :class="`effect-${field.effect}`">{{ effectLabel(field.effect) }}</span>
+      <div class="settings-pane">
+        <div v-if="saveBanner" class="save-strip" :class="{ warn: saveBanner.restart.length }">
+          <span>
+            已保存 {{ saveBanner.applied.length }} 项<template v-if="saveBanner.cleared.length"
+              >，清除 {{ saveBanner.cleared.length }} 项</template
+            ><template v-if="saveBanner.restart.length">
+              ；{{ saveBanner.restart.join("、") }} 需重启容器后生效</template
+            >
           </span>
-        </label>
-        <p v-if="field.description" class="field-desc">{{ field.description }}</p>
+          <button class="strip-close" aria-label="关闭" @click="saveBanner = null">×</button>
+        </div>
 
-        <input
-          v-if="field.is_secret"
-          v-model="formState[activeCategory][field.name]"
-          class="field-input"
-          type="password"
-          autocomplete="new-password"
-          :placeholder="secretPlaceholder(field)"
-          :disabled="!editable"
-        />
-        <input
-          v-else-if="field.type === 'bool'"
-          v-model="formState[activeCategory][field.name]"
-          class="field-checkbox"
-          type="checkbox"
-          :disabled="!editable"
-        />
-        <textarea
-          v-else-if="field.type === 'list' || field.type === 'json'"
-          :value="stringValue(field.name)"
-          class="field-input field-textarea"
-          :disabled="!editable"
-          spellcheck="false"
-          @input="setFieldValue(field.name, ($event.target as HTMLTextAreaElement).value)"
-        />
-        <input
-          v-else
-          :value="stringValue(field.name)"
-          class="field-input"
-          :type="field.type === 'string' ? 'text' : 'number'"
-          :step="field.type === 'float' ? 'any' : '1'"
-          :disabled="!editable"
-          @input="setFieldValue(field.name, ($event.target as HTMLInputElement).value)"
-        />
+        <template v-if="!showDeployment">
+          <header class="pane-head">
+            <h2>{{ activeCategoryLabel }}</h2>
+            <p>{{ CATEGORY_DESCRIPTIONS[activeCategory] }}</p>
+            <span v-if="catEffectSummary" class="pane-hint">{{ catEffectSummary }}</span>
+          </header>
 
-        <label v-if="field.source === 'db'" class="field-clear">
-          <input v-model="cleared[activeCategory][field.name]" type="checkbox" :disabled="!editable" />
-          清除（回退 env/默认）
-        </label>
-        <p v-if="formErrors[field.name]" class="field-error">{{ formErrors[field.name] }}</p>
-      </div>
+          <section v-for="group in activeGroups" :key="group.key" class="group-card">
+            <header class="group-head">
+              <h3>{{ group.label }}</h3>
+              <span v-if="groupHint(group)" class="group-hint">{{ groupHint(group) }}</span>
+            </header>
+            <div
+              v-for="field in group.fields"
+              :key="field.name"
+              class="field-row"
+              :class="{ dirty: isFieldDirty(field.name), error: formErrors[field.name] }"
+            >
+              <div class="field-info">
+                <div class="field-title">
+                  <span class="field-name">{{ fieldDisplayName(field) }}</span>
+                  <span v-if="isFieldDirty(field.name)" class="badge badge-dirty">已修改</span>
+                  <span v-else-if="field.effect === 'restart'" class="badge badge-restart">需重启</span>
+                  <span v-else-if="field.effect === 'rebuild'" class="badge badge-rebuild">保存后重建</span>
+                </div>
+                <div class="field-meta">
+                  <code>{{ field.env_name }}</code>
+                  <span v-if="field.source === 'db'" class="badge badge-db">数据库</span>
+                </div>
+                <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
+              </div>
+              <div class="field-control">
+                <input
+                  v-if="field.is_secret"
+                  v-model="formState[activeCategory][field.name]"
+                  class="field-input"
+                  type="password"
+                  autocomplete="new-password"
+                  :placeholder="secretPlaceholder(field)"
+                  :disabled="!editable"
+                />
+                <label v-else-if="field.type === 'bool'" class="bool-control">
+                  <input
+                    v-model="formState[activeCategory][field.name]"
+                    type="checkbox"
+                    :disabled="!editable"
+                  />
+                  <span>{{ formState[activeCategory][field.name] ? "已启用" : "已停用" }}</span>
+                </label>
+                <textarea
+                  v-else-if="field.type === 'list' || field.type === 'json'"
+                  :value="stringValue(field.name)"
+                  class="field-input field-textarea"
+                  :disabled="!editable"
+                  spellcheck="false"
+                  @input="setFieldValue(field.name, ($event.target as HTMLTextAreaElement).value)"
+                />
+                <input
+                  v-else
+                  :value="stringValue(field.name)"
+                  class="field-input"
+                  :type="field.type === 'string' ? 'text' : 'number'"
+                  :step="field.type === 'float' ? 'any' : '1'"
+                  :disabled="!editable"
+                  @input="setFieldValue(field.name, ($event.target as HTMLInputElement).value)"
+                />
 
-      <footer class="settings-actions">
-        <button class="btn primary" :disabled="!editable || saving" @click="save">
-          {{ saving ? "保存中…" : "保存本组" }}
-        </button>
-        <button
-          v-for="target in testTargets"
-          :key="target"
-          class="btn"
-          :disabled="testing"
-          @click="testConnection(target)"
-        >
-          {{ testing ? "测试中…" : `测试 ${testTargetLabel(target)} 连接` }}
-        </button>
-        <button
-          v-if="activeCategory === 'web'"
-          class="btn danger"
-          :disabled="rotating"
-          @click="rotateJwt"
-        >
-          {{ rotating ? "轮换中…" : "轮换 JWT 密钥" }}
-        </button>
-        <span v-if="testResult" class="llm-test" :class="testResult.ok ? 'ok' : 'fail'">
-          {{ testResultText }}
-        </span>
-        <span v-if="rotateResult" class="llm-test" :class="rotateResult.ok ? 'ok' : 'fail'">
-          {{ rotateResult.ok ? "已轮换：所有会话已失效，请重新登录" : `失败：${rotateResult.error}` }}
-        </span>
-      </footer>
-
-      <p v-if="saveBanner" class="save-banner" :class="{ restart: saveBanner.restart.length }">
-        已保存 {{ saveBanner.applied.length }} 项
-        <template v-if="saveBanner.cleared.length">，清除 {{ saveBanner.cleared.length }} 项</template>
-        <template v-if="saveBanner.restart.length">
-          ；{{ saveBanner.restart.join("、") }} 需重启容器后生效
+                <label v-if="field.source === 'db'" class="field-clear">
+                  <input
+                    v-model="cleared[activeCategory][field.name]"
+                    type="checkbox"
+                    :disabled="!editable"
+                  />
+                  清除并回退 env/默认
+                </label>
+                <p v-if="formErrors[field.name]" class="field-error">{{ formErrors[field.name] }}</p>
+              </div>
+            </div>
+          </section>
         </template>
-      </p>
-    </section>
+
+        <section v-else class="group-card">
+          <header class="group-head">
+            <h3>部署层配置（Tier 0 · 只读）</h3>
+            <span class="group-hint">随容器环境变量注入，不落数据库</span>
+          </header>
+          <div v-for="item in view.deployment ?? []" :key="item.name" class="deploy-row">
+            <code class="deploy-name">{{ item.env_name }}</code>
+            <code class="deploy-value">{{ deployValue(item) }}</code>
+          </div>
+        </section>
+
+        <footer v-if="!showDeployment" class="action-bar">
+          <span class="dirty-summary" :class="{ none: !dirtyCount }">
+            {{
+              dirtyCount
+                ? `${changedCount} 项已修改${clearedCount ? ` · ${clearedCount} 项待清除` : ""}`
+                : "无更改"
+            }}
+          </span>
+          <div class="action-buttons">
+            <button v-if="dirtyCount" class="btn ghost" @click="abandon">放弃更改</button>
+            <button
+              v-for="target in testTargets"
+              :key="target"
+              class="btn"
+              :disabled="testing"
+              @click="testConnection(target)"
+            >
+              {{ testing ? "测试中…" : TEST_TARGET_LABELS[target] }}
+            </button>
+            <button
+              v-if="activeCategory === 'web'"
+              class="btn danger"
+              :disabled="rotating"
+              @click="rotateJwt"
+            >
+              {{ rotating ? "轮换中…" : "轮换 JWT 密钥" }}
+            </button>
+            <button
+              class="btn primary"
+              :disabled="!editable || saving || !dirtyCount"
+              @click="save"
+            >
+              {{ saving ? "保存中…" : "保存更改" }}
+            </button>
+            <span v-if="testResult" class="llm-test" :class="testResult.ok ? 'ok' : 'fail'">
+              {{ testResultText }}
+            </span>
+            <span v-if="rotateResult" class="llm-test" :class="rotateResult.ok ? 'ok' : 'fail'">
+              {{ rotateResult.ok ? "已轮换：所有会话已失效，请重新登录" : `失败：${rotateResult.error}` }}
+            </span>
+          </div>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 
-import { api, type SettingsView } from "../api/client";
+import { api, type DeploymentField, type SettingsView } from "../api/client";
 import {
   buildUpdateBody,
   initFormState,
   secretPlaceholder,
   type FormState,
+  type SettingsCategory,
   type SettingsField,
 } from "../utils/settingsForm";
+import {
+  CATEGORY_DESCRIPTIONS,
+  cleanDescription,
+  fieldDisplayName,
+  groupCategoryFields,
+  type SettingsGroup,
+} from "../utils/settingsLabels";
 
 const loading = ref(true);
 const loadError = ref("");
@@ -160,6 +230,7 @@ const view = ref<SettingsView>({
   categories: [],
 });
 const activeCategory = ref("");
+const showDeployment = ref(false);
 const formState = reactive<Record<string, FormState>>({});
 const cleared = reactive<Record<string, Record<string, boolean>>>({});
 const formErrors = reactive<Record<string, string>>({});
@@ -172,17 +243,19 @@ const testResult = ref<
 const rotateResult = ref<{ ok: boolean; error?: string } | null>(null);
 const saveBanner = ref<{ applied: string[]; cleared: string[]; restart: string[] } | null>(null);
 
-/** Per-category connectivity tests offered in the footer. */
+/** Per-category connectivity tests offered in the action bar. */
 const CATEGORY_TEST_TARGETS: Record<string, Array<"llm" | "es" | "minio" | "plugins">> = {
   model: ["llm"],
   retrieval: ["es", "minio"],
   plugins: ["plugins"],
 };
+const TEST_TARGET_LABELS: Record<string, string> = {
+  llm: "测试 LLM 连接",
+  es: "测试 Elasticsearch 连接",
+  minio: "测试 MinIO 连接",
+  plugins: "测试插件连接",
+};
 const testTargets = computed(() => CATEGORY_TEST_TARGETS[activeCategory.value] ?? []);
-
-function testTargetLabel(target: string): string {
-  return { llm: "LLM", es: "Elasticsearch", minio: "MinIO", plugins: "插件" }[target] ?? target;
-}
 
 const testResultText = computed(() => {
   const result = testResult.value;
@@ -233,16 +306,76 @@ const editable = computed(() => view.value.mode === "db");
 const activeFields = computed<SettingsField[]>(
   () => view.value.categories.find((c) => c.key === activeCategory.value)?.fields ?? [],
 );
+const activeCategoryLabel = computed(
+  () => view.value.categories.find((c) => c.key === activeCategory.value)?.label ?? "",
+);
+const activeGroups = computed<Array<SettingsGroup<SettingsField>>>(() =>
+  groupCategoryFields(activeCategory.value, activeFields.value),
+);
+
+function selectCategory(key: string) {
+  activeCategory.value = key;
+  showDeployment.value = false;
+}
+
+function hasDeferredEffect(cat: SettingsCategory): boolean {
+  return cat.fields.some((f) => f.effect !== "hot");
+}
+function deferredCount(cat: SettingsCategory): number {
+  return cat.fields.filter((f) => f.effect !== "hot").length;
+}
+
+const catEffectSummary = computed(() => {
+  const parts: string[] = [];
+  const restart = activeFields.value.filter((f) => f.effect === "restart").length;
+  const rebuild = activeFields.value.filter((f) => f.effect === "rebuild").length;
+  if (restart) parts.push(`${restart} 项需重启容器生效`);
+  if (rebuild) parts.push(`${rebuild} 项保存后重建生效`);
+  return parts.join(" · ");
+});
+
+function groupHint(group: SettingsGroup<SettingsField>): string {
+  const parts: string[] = [];
+  const restart = group.fields.filter((f) => f.effect === "restart").length;
+  const rebuild = group.fields.filter((f) => f.effect === "rebuild").length;
+  if (restart) parts.push(`${restart} 项需重启容器`);
+  if (rebuild) parts.push(`${rebuild} 项保存后重建`);
+  return parts.join(" · ");
+}
+
+function cleanedDesc(field: SettingsField): string {
+  const text = cleanDescription(field.description ?? "");
+  return text && text !== fieldDisplayName(field) ? text : "";
+}
+
+/** Changed-only diff of the active category, driving dirty marks + action bar. */
+const dirtyInfo = computed(() => {
+  const cat = activeCategory.value;
+  if (!cat || !formState[cat]) {
+    return { changed: new Set<string>(), clearedNames: new Set<string>() };
+  }
+  const { body } = buildUpdateBody(activeFields.value, formState[cat], cleared[cat]);
+  const changed = new Set<string>();
+  const clearedNames = new Set<string>();
+  for (const [name, value] of Object.entries(body)) {
+    if (value === null) clearedNames.add(name);
+    else changed.add(name);
+  }
+  return { changed, clearedNames };
+});
+const changedCount = computed(() => dirtyInfo.value.changed.size);
+const clearedCount = computed(() => dirtyInfo.value.clearedNames.size);
+const dirtyCount = computed(() => changedCount.value + clearedCount.value);
+
+function isFieldDirty(name: string): boolean {
+  return dirtyInfo.value.changed.has(name) || dirtyInfo.value.clearedNames.has(name);
+}
 
 function resetForms(data: SettingsView) {
   for (const cat of data.categories) {
     formState[cat.key] = initFormState(cat.fields);
     cleared[cat.key] = {};
   }
-}
-
-function sourceLabel(source: string): string {
-  return { db: "数据库", env: "环境", default: "默认" }[source] ?? source;
 }
 
 function stringValue(name: string): string {
@@ -255,8 +388,15 @@ function setFieldValue(name: string, value: string) {
   if (state) state[name] = value;
 }
 
-function effectLabel(effect: string): string {
-  return { hot: "即时生效", rebuild: "保存后重建", restart: "需重启" }[effect] ?? effect;
+function deployValue(item: DeploymentField): string {
+  return typeof item.value === "string" ? item.value : item.value.set ? "已设置" : "未设置";
+}
+
+/** Discard unsaved edits of the active category. */
+function abandon() {
+  resetForms(view.value);
+  for (const key of Object.keys(formErrors)) delete formErrors[key];
+  saveBanner.value = null;
 }
 
 async function load() {
@@ -264,8 +404,9 @@ async function load() {
   loadError.value = "";
   try {
     view.value = await api.getSettings();
-    if (!activeCategory.value) {
+    if (!activeCategory.value || !view.value.categories.some((c) => c.key === activeCategory.value)) {
       activeCategory.value = view.value.categories[0]?.key ?? "";
+      showDeployment.value = false;
     }
     resetForms(view.value);
   } catch (exc) {
@@ -343,162 +484,495 @@ async function rotateJwt() {
 onMounted(load);
 </script>
 
-<style scoped src="../styles/admin.css"></style>
 <style scoped>
 .settings-page {
-  max-width: 860px;
+  max-width: 1160px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  font-size: 15px;
 }
+
+/* ---- Header ---- */
 .settings-header {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
+  gap: 16px;
+}
+.settings-heading h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  font-family: "Noto Sans SC", sans-serif;
+  color: var(--chat-text-primary);
+}
+.settings-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
+}
+.settings-status {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
-.settings-meta,
-.field-badges {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
-.badge {
+.status-chip {
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(127, 127, 127, 0.18);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--chat-bg-hover);
+  border: 1px solid var(--chat-border);
+  color: var(--chat-text-secondary);
+  white-space: nowrap;
 }
-.badge.mode-db,
-.badge.source-db {
-  background: rgba(46, 160, 67, 0.2);
+.status-chip.ok {
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  border-color: transparent;
+  color: var(--ok);
 }
-.badge.warn {
-  background: rgba(219, 88, 96, 0.25);
+.status-chip.warn {
+  background: color-mix(in srgb, var(--warn) 13%, transparent);
+  border-color: transparent;
+  color: var(--warn);
 }
-.badge.effect-restart {
-  background: rgba(219, 88, 96, 0.18);
+.refresh-btn {
+  height: 28px;
+  padding: 0 12px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  color: var(--chat-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 150ms;
 }
-.badge.effect-rebuild {
-  background: rgba(156, 79, 221, 0.18);
+.refresh-btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Alerts ---- */
+.alert {
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.alert-error {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+}
+.alert-warn {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--warn);
 }
 .settings-notice {
-  color: #d08770;
+  color: var(--chat-text-tertiary);
 }
-.deployment-box {
-  border: 1px dashed rgba(127, 127, 127, 0.3);
-  border-radius: 8px;
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+/* ---- Two-pane body ---- */
+.settings-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+.settings-nav {
+  width: 200px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
-  font-size: 13px;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-primary);
+  font-size: 14px;
+  text-align: left;
+  border-radius: var(--chat-radius-sm);
+  cursor: pointer;
+  transition: background 150ms;
 }
-.deployment-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0;
+.nav-item:hover {
+  background: var(--chat-bg-hover);
 }
-.deployment-value {
-  opacity: 0.85;
+.nav-item.active {
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
+  font-weight: 600;
 }
-.settings-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.nav-label {
+  flex: 1;
 }
-.settings-tab {
-  border: 1px solid rgba(127, 127, 127, 0.3);
+.nav-count {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
+}
+.nav-item.active .nav-count {
   background: transparent;
   color: inherit;
-  padding: 6px 14px;
-  border-radius: 8px;
-  cursor: pointer;
+  opacity: 0.7;
 }
-.settings-tab.active {
-  background: rgba(127, 127, 127, 0.2);
+.nav-count.ro {
+  background: transparent;
+  border: 1px dashed var(--chat-border);
 }
-.settings-form {
+.nav-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex-shrink: 0;
+}
+.nav-sep {
+  height: 1px;
+  background: var(--chat-border);
+  margin: 8px 4px;
+}
+
+/* ---- Pane ---- */
+.settings-pane {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.settings-field.error .field-input,
-.settings-field.error .field-textarea {
-  border-color: rgba(219, 88, 96, 0.8);
+.pane-head h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
 }
-.field-label {
+.pane-head p {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
+}
+.pane-hint {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--warn);
+}
+
+.group-card {
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
+  padding: 0 20px;
+}
+.group-head {
   display: flex;
-  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid var(--chat-border);
+}
+.group-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
+}
+.group-hint {
+  font-size: 12px;
+  color: var(--chat-text-tertiary);
+}
+
+/* ---- Field rows ---- */
+.field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 8px 24px;
+  padding: 14px 0;
+}
+.field-row + .field-row {
+  border-top: 1px solid var(--chat-border);
+}
+.field-title {
+  display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .field-name {
+  font-size: 14px;
   font-weight: 600;
+  color: var(--chat-text-primary);
+}
+.field-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+.field-meta code {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--chat-text-tertiary);
 }
 .field-desc {
-  margin: 2px 0 6px;
+  margin-top: 6px;
   font-size: 12px;
-  opacity: 0.7;
+  line-height: 1.5;
+  color: var(--chat-text-secondary);
   white-space: pre-wrap;
+}
+
+.field-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-self: center;
 }
 .field-input {
   width: 100%;
-  box-sizing: border-box;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(127, 127, 127, 0.35);
-  background: transparent;
-  color: inherit;
+  padding: 7px 10px;
+  border-radius: var(--chat-radius-sm);
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.field-input:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+.field-input:disabled {
+  opacity: 0.55;
 }
 .field-textarea {
   min-height: 64px;
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.5;
 }
-.field-clear {
-  margin-top: 4px;
-  font-size: 12px;
-  opacity: 0.8;
-}
-.field-error {
-  color: #e06c75;
-  font-size: 12px;
-  margin: 4px 0 0;
-}
-.settings-actions {
-  display: flex;
-  gap: 10px;
+.bool-control {
+  display: inline-flex;
   align-items: center;
-}
-.btn {
-  padding: 6px 16px;
-  border-radius: 8px;
-  border: 1px solid rgba(127, 127, 127, 0.4);
-  background: transparent;
-  color: inherit;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--chat-text-secondary);
   cursor: pointer;
 }
+.field-clear {
+  font-size: 12px;
+  color: var(--chat-text-secondary);
+  cursor: pointer;
+}
+.field-row.error .field-input {
+  border-color: var(--err);
+}
+.field-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--err);
+}
+
+/* ---- Badges (denoised: only noteworthy states) ---- */
+.badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge-db {
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
+}
+.badge-dirty {
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
+}
+.badge-restart {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  color: var(--err);
+}
+.badge-rebuild {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+.field-row.dirty .field-input {
+  border-color: color-mix(in srgb, var(--chat-accent) 55%, transparent);
+}
+
+/* ---- Deployment (Tier 0, read-only) ---- */
+.deploy-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 9px 0;
+}
+.deploy-row + .deploy-row {
+  border-top: 1px solid var(--chat-border);
+}
+.deploy-name {
+  font-size: 12px;
+  color: var(--chat-text-primary);
+}
+.deploy-value {
+  font-size: 12px;
+  color: var(--chat-text-secondary);
+  text-align: right;
+  word-break: break-all;
+}
+
+/* ---- Sticky action bar ---- */
+.action-bar {
+  position: sticky;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
+}
+.dirty-summary {
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+}
+.dirty-summary.none {
+  color: var(--chat-text-tertiary);
+}
+.action-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--chat-radius-sm);
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms;
+}
+.btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
 .btn.primary {
-  background: rgba(46, 160, 67, 0.3);
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--chat-accent-hover);
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--chat-text-secondary);
 }
 .btn.danger {
-  background: rgba(219, 88, 96, 0.25);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  color: var(--err);
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.llm-test {
+  font-size: 12px;
+  max-width: 360px;
+}
 .llm-test.ok {
-  color: #98c379;
+  color: var(--ok);
 }
 .llm-test.fail {
-  color: #e06c75;
+  color: var(--err);
 }
-.save-banner {
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(46, 160, 67, 0.15);
+
+/* ---- Save result strip ---- */
+.save-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok-dim);
 }
-.save-banner.restart {
-  background: rgba(219, 88, 96, 0.15);
+.save-strip.warn {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--warn);
+}
+.strip-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+}
+
+/* ---- Narrow screens: nav collapses to a horizontal scroller ---- */
+@media (max-width: 1080px) {
+  .settings-body {
+    flex-direction: column;
+  }
+  .settings-nav {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .nav-item {
+    flex-shrink: 0;
+  }
+  .nav-sep {
+    display: none;
+  }
+  .field-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .field-control {
+    align-self: stretch;
+  }
 }
 </style>
