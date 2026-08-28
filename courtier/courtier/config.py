@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
 
 from courtier.domain.loader import DomainConfig, DomainLoader
@@ -48,6 +48,24 @@ def _default_project_root() -> Path:
     """
     env_root = os.getenv("COURTIER_REPO_ROOT", "").strip()
     return Path(env_root) if env_root else _PROJECT_ROOT
+
+
+def get_settings_encryption_key() -> str:
+    """COURTIER_SETTINGS_KEY from the process env, falling back to the
+    .env file — dev runs (uv run / python main.py) do not export .env
+    into os.environ, only pydantic-settings reads it (Tier 0 vars are
+    not Settings fields, so they need this dedicated path)."""
+    raw = os.getenv("COURTIER_SETTINGS_KEY", "").strip()
+    if raw:
+        return raw
+    try:
+        for line in Path(_ENV_FILE).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("COURTIER_SETTINGS_KEY="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
 
 
 def get_config_service() -> "ConfigService":

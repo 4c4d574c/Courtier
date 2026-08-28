@@ -35,13 +35,41 @@ class TestFernetCodec:
         encrypted = FernetCodec("aa" * 32).encrypt("秘密")
         assert FernetCodec("bb" * 32).decrypt(encrypted) is None
 
-    def test_from_env_unset_returns_none(self, monkeypatch):
+    def test_from_env_unset_returns_none(self, monkeypatch, tmp_path):
         monkeypatch.delenv("COURTIER_SETTINGS_KEY", raising=False)
+        # Isolate from the developer's real .env (which now carries the key).
+        env_file = tmp_path / ".env"
+        env_file.write_text("LLM_IP=http://x\n", encoding="utf-8")
+        monkeypatch.setattr("courtier.config._ENV_FILE", str(env_file))
         assert FernetCodec.from_env() is None
 
     def test_from_env_builds_codec(self, monkeypatch):
         monkeypatch.setenv("COURTIER_SETTINGS_KEY", "cd" * 32)
         assert FernetCodec.from_env() is not None
+
+    def test_from_env_falls_back_to_env_file(self, monkeypatch, tmp_path):
+        """Dev runs don't export .env into os.environ — the key must also
+        be readable from the .env file (Tier 0 is not a Settings field)."""
+        from courtier.config import _ENV_FILE, get_settings_encryption_key
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("LLM_IP=http://x\nCOURTIER_SETTINGS_KEY=efef\n", encoding="utf-8")
+        monkeypatch.delenv("COURTIER_SETTINGS_KEY", raising=False)
+        monkeypatch.setattr("courtier.config._ENV_FILE", str(env_file))
+
+        assert get_settings_encryption_key() == "efef"
+        assert FernetCodec.from_env() is not None
+
+        # Process env wins over the file.
+        monkeypatch.setenv("COURTIER_SETTINGS_KEY", "ab" * 32)
+        assert get_settings_encryption_key() == "ab" * 32
+
+        # Missing everywhere → empty string (secrets stay fail-closed).
+        monkeypatch.delenv("COURTIER_SETTINGS_KEY", raising=False)
+        env_file.write_text("LLM_IP=http://x\n", encoding="utf-8")
+        assert get_settings_encryption_key() == ""
+        assert FernetCodec.from_env() is None
+        assert _ENV_FILE  # original constant untouched (patched via monkeypatch)
 
 
 class TestSettingsStore:

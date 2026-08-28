@@ -57,8 +57,14 @@ class FernetCodec:
 
     @classmethod
     def from_env(cls) -> "FernetCodec | None":
-        """Build from COURTIER_SETTINGS_KEY, or None when unset."""
-        raw = os.getenv("COURTIER_SETTINGS_KEY", "").strip()
+        """Build from COURTIER_SETTINGS_KEY, or None when unset.
+
+        Reads the process env first, then the .env file (see
+        courtier.config.get_settings_encryption_key) so dev runs work
+        without exported variables."""
+        from courtier.config import get_settings_encryption_key
+
+        raw = get_settings_encryption_key()
         return cls(raw) if raw else None
 
     def encrypt(self, value: str) -> dict[str, str]:

@@ -298,7 +298,6 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
             "status": "ok",
             "config": {
                 "mode": service.source,
-                "version": service.version,
                 "setup_required": bool(settings.mysql_url) and has_admin is False,
             },
         }
