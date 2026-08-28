@@ -13,7 +13,7 @@ import type {
 } from "../types/chat";
 import { MESSAGES } from "../constants/messages";
 import { MIME_TYPES } from "../constants/fileUpload";
-import { thoughtsForStep } from "./sessionUtils";
+import { thoughtsForSteps } from "./sessionUtils";
 
 const MIME_TYPE_MAP: Record<string, string> = Object.fromEntries(
   Object.entries(MIME_TYPES).map(([ext, mimes]) => [
@@ -144,9 +144,13 @@ function buildProcessItems(
     pendingPushed = true;
   };
 
+  // One pass over the turn's thoughts — the per-step scan inside the loop
+  // was the dominant per-token rebuild cost under deep reactivity.
+  const stepThoughtLists = thoughtsForSteps(turn, allThoughts);
+
   turn.steps.forEach((step, stepIndexInTurn) => {
-    const thoughts = thoughtsForStep(allThoughts, turn, stepIndexInTurn).filter(
-      (t) => t.text.trim() !== "",
+    const thoughts = (stepThoughtLists[stepIndexInTurn] ?? []).filter((t) =>
+      t.text.trim() !== "",
     );
     const hasVerdict = !!step.verdict?.trim();
     const isPendingSplit = hasPending && !pendingPushed && step.index > boundary;
