@@ -202,8 +202,8 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 - [x] API 测试（含校验失败 422 字段级报错、secret 留空不改、null 清除）
 
 ### Task 1.4: 前端系统设置页（热生效组）
-- [ ] SchemaForm 组件 + SystemSettings.vue（模型与上下文/守卫预算/可观测性日志项）+ api client 扩展 + 路由
-- [ ] `npm test` / `npm run build` 绿；SchemaForm 单测
+- [x] SchemaForm 组件 + SystemSettings.vue（模型与上下文/守卫预算/可观测性日志项）+ api client 扩展 + 路由
+- [x] `npm test` / `npm run build` 绿；SchemaForm 单测
 
 ## Phase 2：连接类与安全
 
@@ -316,5 +316,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 3. `test/llm` 支持请求体携带 llm_* 覆盖（保存前先测），lazy import 后端便于测试打桩。
 4. 测试用独立 FastAPI app（只挂 settings 路由 + require_admin 依赖覆写 + sqlite store），并把路由模块的 `get_config_service`/`get_settings` 指到每测独立的 ConfigService——避免污染进程级全局快照（GET/PUT 必须读到同一个 service）。
 5. 实测：12 个 API 用例（分组/掩码/来源标记/设置+清除/restart 上报/422/404/503/审计/LLM 测试成败两路）；全量 1805 passed。
+
+**Task 1.4 完成**（前端系统设置页）。偏差与实测：
+1. **SchemaForm 不做独立组件**——表单逻辑全部沉到纯模块 `webui/src/utils/settingsForm.ts`（initFormState/secretPlaceholder/buildUpdateBody：掩码 secret、仅变更提交、null=清除、int/float/bool/list/json 强转与错误收集），`SystemSettings.vue` 按类型分叉渲染（six 种控件内联）。纯模块可用现有 node 脚本测试模式（tsc 编译到 .tmp 导入）覆盖，组件保持薄。
+2. 模板坑两则：分组 tab 的状态键是 `formState[activeCategory][field.name]`（非 `formState[field.name]`）；`string|boolean` 联合与 textarea/number input 的 v-model 类型不合，string 类字段走 `:value` + 类型化 `@input` 处理器（模板内 `as` 断言可用）。
+3. 顶部加载不可用顶层 await（路由视图无 Suspense）——onMounted 加载 + loading/error 分支。
+4. 页面能力：分组 tab、来源/生效徽章、secret 掩码占位、清除勾选（仅 source=db 字段显示）、组级保存横幅（applied/cleared/restart_required）、模型组"测试 LLM 连接"（带未保存覆盖值）、env-only 模式禁用编辑。
+5. 实测：`npm test` 15 脚本全过（新增 test-settings-form.mjs：初始态/占位/变更语义/清除语义/五种强转错误）；`npm run build` + eslint 绿。**Phase 1 完成。**
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）

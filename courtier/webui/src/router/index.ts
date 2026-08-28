@@ -40,6 +40,11 @@ const routes: RouteRecordRaw[] = [
         name: "AdminExtensions",
         component: () => import("../views/ExtensionManagement.vue"),
       },
+      {
+        path: "settings",
+        name: "AdminSettings",
+        component: () => import("../views/SystemSettings.vue"),
+      },
       { path: "", redirect: "/admin/users" },
     ],
   },

@@ -24,6 +24,12 @@
           active-class="active"
           >插件与技能</router-link
         >
+        <router-link
+          to="/admin/settings"
+          class="admin-nav-item"
+          active-class="active"
+          >系统设置</router-link
+        >
       </nav>
       <div class="admin-sidebar-footer">
         <router-link to="/" class="admin-nav-item">← 返回主页</router-link>

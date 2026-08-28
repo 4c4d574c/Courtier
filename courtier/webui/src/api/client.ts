@@ -166,6 +166,20 @@ function qs(params: Record<string, string | undefined>): string {
   return "?" + new URLSearchParams(filtered).toString();
 }
 
+export interface SettingsView {
+  mode: "db" | "env";
+  version: number | null;
+  unreadable: string[];
+  categories: import("../utils/settingsForm").SettingsCategory[];
+}
+
+export interface SettingsUpdateResult {
+  applied: string[];
+  cleared: string[];
+  version: number;
+  restart_required: string[];
+}
+
 export const api = {
   // ---- Auth ----
   async login(
@@ -480,6 +494,37 @@ export const api = {
   },
 
   // ---- Admin: extension management (plugins & skills) ----
+  async getSettings(): Promise<SettingsView> {
+    const res = await authFetch(`${API_BASE}/admin/settings`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/settings failed");
+    return res.json();
+  },
+
+  async updateSettings(
+    category: string,
+    body: Record<string, unknown>,
+  ): Promise<SettingsUpdateResult> {
+    const res = await authFetch(`${API_BASE}/admin/settings/${category}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "PUT /admin/settings failed");
+    return res.json();
+  },
+
+  async testLlm(
+    body: Record<string, unknown> = {},
+  ): Promise<{ ok: boolean; error?: string; model?: string; reply?: string }> {
+    const res = await authFetch(`${API_BASE}/admin/settings/test/llm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /admin/settings/test/llm failed");
+    return res.json();
+  },
+
   async listPlugins(): Promise<{ items: PluginInfo[] }> {
     const res = await authFetch(`${API_BASE}/admin/extensions/plugins`);
     if (!res.ok) throw await parseErrorDetail(res, "GET /admin/extensions/plugins failed");
