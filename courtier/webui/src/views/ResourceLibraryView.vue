@@ -107,6 +107,7 @@
             @input="onSearchInput"
           />
         </div>
+        <p v-if="listMsg" class="resources-msg msg-err">{{ listMsg }}</p>
         <div v-if="loading" class="resources-empty">加载中...</div>
         <div v-else-if="items.length === 0" class="resources-empty">暂无资源</div>
         <ul v-else class="resources-list">
@@ -147,6 +148,21 @@
           <button type="button" class="resources-more-btn" @click="loadMore">加载更多</button>
         </div>
       </section>
+    </div>
+
+    <div v-if="deleteConfirm.open" class="modal-backdrop" @click.self="deleteConfirm.open = false">
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3 class="modal-title">确认删除</h3>
+        <p class="modal-message">
+          确定删除「{{ deleteConfirm.item?.title }}」？将同时删除其全部检索切片。
+        </p>
+        <div class="modal-actions">
+          <button class="modal-btn" @click="deleteConfirm.open = false">取消</button>
+          <button class="modal-btn modal-btn--danger" :disabled="deletingId !== null" @click="doDelete">
+            {{ deletingId !== null ? "删除中..." : "删除" }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -258,14 +274,28 @@ function onSearchInput() {
 }
 
 async function confirmDelete(item: ResourceSummary) {
-  if (!window.confirm(`确定删除「${item.title}」？将同时删除其全部检索切片。`)) return;
+  deleteConfirm.item = item;
+  deleteConfirm.open = true;
+}
+
+const deleteConfirm = reactive<{ open: boolean; item: ResourceSummary | null }>({
+  open: false,
+  item: null,
+});
+const listMsg = ref("");
+
+async function doDelete() {
+  const item = deleteConfirm.item;
+  if (!item) return;
+  deleteConfirm.open = false;
   deletingId.value = item.id;
+  listMsg.value = "";
   try {
     await api.deleteResource(item.id);
     items.value = items.value.filter((r) => r.id !== item.id);
     total.value -= 1;
   } catch (e: unknown) {
-    window.alert(e instanceof Error ? e.message : "删除失败");
+    listMsg.value = e instanceof Error ? e.message : "删除失败";
   } finally {
     deletingId.value = null;
   }
@@ -306,20 +336,21 @@ onMounted(() => loadList(true));
 
 .resources-title {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 28px;
+  font-size: 26px;
+  font-weight: 600;
   color: var(--chat-text-primary);
-  margin: 0 0 6px;
+  margin: 0 0 4px;
 }
 
 .resources-subtitle {
-  font-size: 15px;
-  color: var(--chat-text-secondary);
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
   margin: 0;
 }
 
 .resources-back {
   color: var(--chat-text-secondary);
-  font-size: 16px;
+  font-size: 13px;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -332,16 +363,20 @@ onMounted(() => loadList(true));
 .resources-list-section {
   background: var(--chat-bg-card);
   border: 1px solid var(--chat-border);
-  border-radius: 12px;
-  padding: 20px 24px;
+  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
+  padding: 16px 20px 20px;
   margin-bottom: 20px;
 }
 
 .resources-section-title {
   font-family: "Noto Sans SC", sans-serif;
-  font-size: 19px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--chat-text-primary);
-  margin: 0 0 16px;
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--chat-border);
 }
 
 .resources-form-grid {
@@ -361,13 +396,14 @@ onMounted(() => loadList(true));
 
 .resources-file span {
   display: block;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px dashed var(--chat-border);
-  border-radius: 8px;
+  border-radius: var(--chat-radius-sm);
   color: var(--chat-text-secondary);
-  font-size: 15px;
+  font-size: 13px;
   cursor: pointer;
   background: var(--chat-bg-body);
+  transition: border-color 150ms;
 }
 
 .resources-file span:hover {
@@ -376,12 +412,14 @@ onMounted(() => loadList(true));
 }
 
 .resources-msg {
-  font-size: 15px;
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
   margin: 12px 0 0;
 }
 
 .resources-hint {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--chat-text-tertiary);
   margin: 0;
   align-self: end;
@@ -399,10 +437,10 @@ onMounted(() => loadList(true));
 }
 
 .visibility-option {
-  padding: 7px 22px;
+  padding: 6px 18px;
   border: none;
   background: transparent;
-  font-size: 15px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
   cursor: pointer;
   transition:
@@ -416,11 +454,11 @@ onMounted(() => loadList(true));
 
 .visibility-option--active {
   background: var(--chat-accent);
-  color: #fff;
+  color: var(--chat-accent-contrast);
 }
 
 .visibility-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--chat-text-tertiary);
   margin: 4px 0 0;
 }
@@ -433,10 +471,10 @@ onMounted(() => loadList(true));
 }
 
 .resources-tab {
-  padding: 8px 16px;
+  padding: 8px 14px;
   border: none;
   background: transparent;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--chat-text-secondary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -453,14 +491,14 @@ onMounted(() => loadList(true));
   display: inline-block;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 11px;
   margin-right: 6px;
   vertical-align: 1px;
 }
 
 .resources-item-badge--public {
-  background: rgba(90, 138, 74, 0.12);
-  color: var(--ok-dim);
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  color: var(--ok);
 }
 
 .resources-item-badge--personal {
@@ -469,17 +507,21 @@ onMounted(() => loadList(true));
 }
 
 .msg-ok {
-  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-dim);
 }
 
 .msg-err {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
   color: var(--err);
 }
 
 .resources-submit {
   width: auto;
-  padding: 0 24px;
+  height: 32px;
+  padding: 0 20px;
   margin-top: 16px;
+  font-size: 13px;
 }
 
 .resources-list-header {
@@ -487,24 +529,39 @@ onMounted(() => loadList(true));
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
+}
+
+.resources-list-header .resources-section-title {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 .resources-search {
   flex: 0 1 260px;
   padding: 7px 12px;
   border: 1px solid var(--chat-border);
-  border-radius: 8px;
-  font-size: 15px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
   background: var(--chat-bg-body);
   color: var(--chat-text-primary);
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.resources-search:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 
 .resources-empty {
-  padding: 24px 0;
+  padding: 32px 0;
   text-align: center;
-  color: var(--chat-text-secondary);
-  font-size: 15px;
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
 }
 
 .resources-list {
@@ -523,13 +580,13 @@ onMounted(() => loadList(true));
 }
 
 .resources-item-title {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--chat-text-primary);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .resources-item-meta {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--chat-text-secondary);
   margin-top: 3px;
 }
@@ -540,17 +597,24 @@ onMounted(() => loadList(true));
 
 .resources-item-delete {
   flex-shrink: 0;
-  padding: 5px 14px;
-  border: 1px solid var(--chat-border);
-  border-radius: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  border-radius: var(--chat-radius-sm);
   background: transparent;
   color: var(--err);
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
+  transition: background 150ms;
 }
 
-.resources-item-delete:hover {
-  background: var(--chat-accent-soft);
+.resources-item-delete:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+
+.resources-item-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .resources-more {
@@ -560,33 +624,113 @@ onMounted(() => loadList(true));
 }
 
 .resources-more-btn {
-  padding: 6px 18px;
+  height: 30px;
+  padding: 0 16px;
   border: 1px solid var(--chat-border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--chat-text-secondary);
-  font-size: 15px;
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 12px;
   cursor: pointer;
+  transition: background 150ms;
 }
 
-/* The upload form reuses auth.css classes; align them with the chat theme. */
+.resources-more-btn:hover {
+  background: var(--chat-bg-hover);
+}
+
+/* The upload form reuses auth.css classes; align them with the settings
+   console scale (auth.css itself is shared with login/register). */
 .auth-field label {
+  font-size: 13px;
   color: var(--chat-text-secondary);
 }
 
 .auth-field input {
-  background: var(--chat-bg-card);
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: var(--chat-bg-body);
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-sm);
   color: var(--chat-text-primary);
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
 }
 
 .auth-field input:focus {
   border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 
 .auth-submit {
+  height: 32px;
   background: var(--chat-accent);
   border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+}
+
+/* ---- Delete confirm modal (settings pattern) ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.modal {
+  width: min(420px, calc(100vw - 48px));
+  padding: 20px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--chat-text-primary);
+}
+.modal-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--chat-text-secondary);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.modal-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 150ms;
+}
+.modal-btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
+.modal-btn--danger {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  color: var(--err);
+}
+.modal-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
