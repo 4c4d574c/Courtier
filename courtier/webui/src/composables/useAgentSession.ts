@@ -1,5 +1,5 @@
 import { reactive, ref, computed, watch } from "vue";
-import type { Session, Turn } from "../types/agent";
+import type { Session, Step, Turn } from "../types/agent";
 import type { AgentEvent } from "../types/agent";
 import { api } from "../api/client";
 import { MESSAGES } from "../constants/messages";
@@ -8,6 +8,20 @@ import {
   type MutableState,
   finalizeRunningOperations,
 } from "./sessionEventHandlers";
+
+/** Largest `tool-N` suffix across the snapshot's tools — a re-attached stream
+ *  continues the live run's id counter so replayed events mint ids that cannot
+ *  collide with the tools the snapshot restored. */
+function maxSnapshotToolId(steps: Step[]): number {
+  let max = 0;
+  for (const step of steps) {
+    for (const tool of step.tools ?? []) {
+      const n = Number(/^tool-(\d+)$/.exec(tool.id ?? "")?.[1] ?? 0);
+      if (n > max) max = n;
+    }
+  }
+  return max;
+}
 
 export function useAgentSession() {
   const session = reactive<Session>({
@@ -238,10 +252,26 @@ export function useAgentSession() {
     // Still running server-side (left the page mid-run): re-attach to the
     // live stream. The server replays events after the snapshot's watermark
     // (eventSeq) then streams live — replay is the exact same event sequence
-    // the uninterrupted stream would have delivered, so the existing handler
-    // pipeline reconstructs the in-flight state without any new alignment
-    // logic.
+    // the uninterrupted stream would have delivered. In that stream the
+    // events land in the turn connect() pushed locally; here the turn comes
+    // from the snapshot, so the pipeline's alignment state must be rebuilt
+    // from it — otherwise replayed steps/thoughts never attach to the turn
+    // and the restored page shows no streaming content.
     if (session.status === "running" || session.status === "queued") {
+      const lastStep = session.steps[session.steps.length - 1];
+      const lastThought = session.thoughts[session.thoughts.length - 1];
+      state.currentTurn = session.turns[session.turns.length - 1] ?? null;
+      state.currentStepIndex = lastStep?.index ?? 0;
+      state.segmentIndex = lastThought?.segmentIndex ?? 0;
+      state.currentSegmentType = lastThought?.segmentType ?? "observe";
+      state.currentThoughtTurn = lastThought?.turn ?? 0;
+      // Snapshot tools/thoughts keep the ids minted by the live run —
+      // continue the counters past them so replayed events cannot collide.
+      state.toolIdCounter = maxSnapshotToolId(session.steps);
+      state.thoughtIdCounter = Math.max(
+        0,
+        ...session.thoughts.map((thought) => thought.id),
+      );
       attachToRunningSession(loaded.id, loaded.eventSeq ?? 0);
     }
   }

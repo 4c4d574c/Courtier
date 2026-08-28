@@ -189,6 +189,92 @@ try {
     assert.ok(esInstances[1].url.includes("since=88"), esInstances[1].url);
   }
 
+  // 6. Replayed events attach to the snapshot's in-flight turn (the render
+  //    path): steps land in turns[last].steps with collision-free ids,
+  //    streamed tokens continue the last restored thought, and the final
+  //    conclusion lands on the turn — not just on session-level state.
+  {
+    const { session, restoreSession } = useAgentSession();
+    esInstances.length = 0;
+    const snapshotStep = {
+      index: 1,
+      numeral: "一",
+      label: "parse_document",
+      skill: "",
+      turnIndex: 1,
+      startSegmentIndex: 3,
+      tools: [
+        {
+          id: "tool-3",
+          name: "parse_document",
+          status: "done",
+          callKind: "tool",
+          callScope: "orchestrator",
+        },
+      ],
+    };
+    restoreSession(
+      makeLoadedSession({
+        status: "running",
+        eventSeq: 12,
+        turns: [
+          {
+            message: { role: "user", text: "审计文档", timestamp: 1 },
+            steps: [snapshotStep],
+          },
+        ],
+        steps: [snapshotStep],
+        thoughts: [
+          {
+            id: 5,
+            text: "前面的思考",
+            turn: 3,
+            turnIndex: 1,
+            segmentIndex: 4,
+            segmentType: "observe",
+            timestamp: 1,
+          },
+        ],
+      }),
+    );
+    assert.equal(esInstances.length, 1);
+
+    // The next think creates a step INSIDE the snapshot turn, with an id
+    // continuing the snapshot's tool counter (no tool-3 collision).
+    esInstances[0].emit({
+      type: "think",
+      toolCalls: ["search_documents"],
+      toolCallIds: ["call-1"],
+    });
+    await tick();
+    assert.equal(session.turns[0].steps.length, 2);
+    const replayedTool = session.turns[0].steps[1].tools[0];
+    assert.equal(replayedTool.name, "search_documents");
+    assert.equal(replayedTool.id, "tool-4");
+
+    // tool_start flips the card inside the turn's step.
+    esInstances[0].emit({
+      type: "tool_start",
+      name: "search_documents",
+      toolCallId: "call-1",
+    });
+    await tick();
+    assert.equal(session.turns[0].steps[1].tools[0].status, "running");
+
+    // Streamed tokens continue the last restored thought (no new block).
+    esInstances[0].emit({ type: "token", text: "，续流文本" });
+    await tick();
+    assert.equal(session.thoughts.length, 1);
+    assert.equal(session.thoughts[0].text, "前面的思考，续流文本");
+
+    esInstances[0].emit({ type: "conclusion_token", text: "中间结论" });
+    await tick();
+    esInstances[0].emit({ type: "complete", conclusion: "最终结论" });
+    await tick();
+    assert.equal(session.status, "completed");
+    assert.equal(session.turns[0].conclusion, "中间结论");
+  }
+
   console.log("test-attach-resume: all assertions passed");
 } finally {
   rmSync(outDir, { recursive: true, force: true });
