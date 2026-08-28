@@ -666,8 +666,10 @@ function onMenuDelete(id: string) {
 }
 
 /* Show-more: floats over the bottom of the list (absolutely positioned, so
-   the scrollbar keeps the full height). The wrapper ignores pointer events;
-   only the button itself is clickable — rows under the fade stay clickable. */
+   the scrollbar keeps the full height). The fade spans the whole overlay and
+   reaches full opacity before the button row, masking the session text
+   underneath. The wrapper ignores pointer events; only the button is
+   clickable — rows in the fade strip stay clickable. */
 .chat-sidebar-more {
   position: absolute;
   bottom: 0;
@@ -675,15 +677,14 @@ function onMenuDelete(id: string) {
   right: 0;
   display: flex;
   justify-content: center;
-  padding-top: 22px;
+  padding-top: 28px;
   pointer-events: none;
 }
 
 .chat-sidebar-more-fade {
   position: absolute;
-  inset: 0 0 auto 0;
-  height: 22px;
-  background: linear-gradient(to bottom, transparent, var(--chat-bg-card));
+  inset: 0;
+  background: linear-gradient(to bottom, transparent, var(--chat-bg-card) 60%);
   pointer-events: none;
 }
 
