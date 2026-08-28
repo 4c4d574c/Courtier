@@ -23,11 +23,11 @@
       <span
         v-else-if="run.runStatus === 'error'"
         class="subagent-status-icon subagent-status-icon--error"
-        >✗</span
-      >
+        ><AppIcon name="x" :size="12"
+      /></span>
       <span v-else class="subagent-status-icon subagent-status-icon--done"
-        >✓</span
-      >
+        ><AppIcon name="check" :size="12"
+      /></span>
       <span class="subagent-status-name">{{ run.displayName ?? run.name }}</span>
       <span class="subagent-kind-badge">子代理</span>
       <span class="subagent-status-label">
@@ -68,7 +68,8 @@
             >
               <span class="subagent-error-text">{{ errorPreview }}</span>
               <span v-if="isLongError" class="subagent-error-toggle">
-                {{ errorExpanded ? "收起 ▲" : "展开 ▼" }}
+                {{ errorExpanded ? "收起" : "展开" }}
+                <AppIcon :name="errorExpanded ? 'chevron-up' : 'chevron-down'" :size="12" />
               </span>
             </div>
             <Transition name="expand">
@@ -111,9 +112,10 @@
                 <span v-if="isStreamingThought" class="thinking-dot"></span>
                 子代理思考过程
               </span>
-              <span class="subagent-reasoning-toggle">{{
-                reasoningExpanded ? "收起 ▲" : "展开 ▼"
-              }}</span>
+              <span class="subagent-reasoning-toggle">
+                {{ reasoningExpanded ? "收起" : "展开" }}
+                <AppIcon :name="reasoningExpanded ? 'chevron-up' : 'chevron-down'" :size="12" />
+              </span>
             </div>
             <Transition name="expand">
               <div
@@ -170,9 +172,13 @@
               @keydown.space.prevent="toggleConclusion(run.key)"
             >
               <span class="subagent-conclusion-label">子代理结论</span>
-              <span class="subagent-conclusion-toggle">{{
-                isConclusionExpanded(run.key) ? "收起 ▲" : "展开 ▼"
-              }}</span>
+              <span class="subagent-conclusion-toggle">
+                {{ isConclusionExpanded(run.key) ? "收起" : "展开" }}
+                <AppIcon
+                  :name="isConclusionExpanded(run.key) ? 'chevron-up' : 'chevron-down'"
+                  :size="12"
+                />
+              </span>
             </div>
             <Transition name="expand">
               <div
@@ -201,6 +207,7 @@ import type { SubagentToolDisplayItem } from "../utils/toolCalls";
 import { displayItemKey } from "../utils/toolCalls";
 import ToolCard from "./ToolCard.vue";
 import StreamingMarkdown from "./StreamingMarkdown.vue";
+import AppIcon from "./AppIcon.vue";
 
 interface Props {
   run: SubagentToolDisplayItem;

@@ -37,7 +37,8 @@
           class="sd-error-toggle"
           @click="errorExpanded = !errorExpanded"
         >
-          {{ errorExpanded ? "收起 ▲" : "查看全文 ▼" }}
+          {{ errorExpanded ? "收起" : "查看全文" }}
+          <AppIcon :name="errorExpanded ? 'chevron-up' : 'chevron-down'" :size="12" />
         </button>
       </div>
       <div v-else-if="tool.summary" class="sd-row">
@@ -49,6 +50,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from "./AppIcon.vue";
 import { computed, ref } from "vue";
 import type { ToolResult } from "../types/agent";
 import StreamingMarkdown from "./StreamingMarkdown.vue";

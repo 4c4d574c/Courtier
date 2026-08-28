@@ -127,7 +127,7 @@
                 :aria-label="MESSAGES.CHAT_MENU_MORE"
                 @click.stop="toggleMenu(session.id, $event)"
                 >
-                  ⋯
+                  <AppIcon name="dots" :size="14" />
                 </button>
               </span>
             </template>
@@ -199,7 +199,7 @@
         <div class="chat-sidebar-user">
           <div class="chat-sidebar-user-main" @click="userMenuOpen = !userMenuOpen">
             <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
-            <span class="chat-sidebar-user-arrow">▾</span>
+            <AppIcon class="chat-sidebar-user-arrow" name="chevron-down" :size="12" />
           </div>
           <router-link
             :to="settingsTarget"
@@ -223,7 +223,7 @@
                 <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
               </svg>
               <span class="chat-sidebar-theme-label">{{ MESSAGES.CHAT_THEME }}</span>
-              <span class="chat-sidebar-theme-caret" :class="{ 'chat-sidebar-theme-caret--open': themeMenuOpen }">▾</span>
+              <AppIcon class="chat-sidebar-theme-caret" :class="{ 'chat-sidebar-theme-caret--open': themeMenuOpen }" name="chevron-down" :size="12" />
             </div>
             <div v-if="themeMenuOpen" class="chat-sidebar-theme-options">
               <button
@@ -278,6 +278,7 @@ import type { SessionSummary } from "../../types/agent";
 import { MESSAGES } from "../../constants/messages";
 import { useTheme } from "../../composables/useTheme";
 import logoUrl from "../../assets/logo.png";
+import AppIcon from "../AppIcon.vue";
 
 interface Props {
   sessions: SessionSummary[];

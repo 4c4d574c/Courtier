@@ -42,7 +42,7 @@
       <span v-else-if="tool.duration" class="tool-card-time"
         >{{ tool.duration.toFixed(1) }}s</span
       >
-      <span class="tool-card-expand-icon" @click.stop="$emit('toggle')">▼</span>
+      <span class="tool-card-expand-icon" @click.stop="$emit('toggle')"><AppIcon name="chevron-down" :size="10" /></span>
     </div>
   </div>
   <div v-if="tool.skill && tool.skillDescription" class="tool-card-description">
@@ -76,6 +76,7 @@ import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import type { ToolResult } from "../types/agent";
 import { displayToolName } from "../utils/toolCalls";
 import DataChip from "./DataChip.vue";
+import AppIcon from "./AppIcon.vue";
 
 interface Props {
   tool: ToolResult;

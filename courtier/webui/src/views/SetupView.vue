@@ -58,13 +58,14 @@
 
       <p v-if="done" class="setup-done">
         管理员已创建。
-        <router-link to="/login">前往登录 →</router-link>
+        <router-link to="/login" class="setup-login-link">前往登录<AppIcon name="arrow-right" :size="14" /></router-link>
       </p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../components/AppIcon.vue";
 import { onMounted, ref } from "vue";
 
 import { api } from "../api/client";
@@ -164,6 +165,15 @@ async function submit() {
   color: #98c379;
   font-size: 13px;
   margin: 0;
+}
+
+.setup-login-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
 }
 .setup-submit {
   padding: 10px;

@@ -6,7 +6,7 @@
           <h1 class="resources-title">资源库</h1>
           <p class="resources-subtitle">上传文档到检索库，审核时可通过「搜索文档」引用</p>
         </div>
-        <router-link to="/" class="resources-back">← 返回主页</router-link>
+        <router-link to="/" class="resources-back"><AppIcon name="arrow-left" :size="14" />返回主页</router-link>
       </header>
 
       <section class="resources-upload">
@@ -168,6 +168,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../components/AppIcon.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type ResourceSummary } from "../api/client";
 import { useAuth } from "../composables/useAuth";
@@ -349,6 +350,9 @@ onMounted(() => loadList(true));
 }
 
 .resources-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--chat-text-secondary);
   font-size: 13px;
   text-decoration: none;

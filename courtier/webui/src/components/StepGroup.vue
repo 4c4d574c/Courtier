@@ -22,9 +22,10 @@
               >分析中…</span
             >
           </span>
-          <span class="thought-segment-toggle">{{
-            thoughtsExpanded ? "收起 ▲" : "展开 ▼"
-          }}</span>
+          <span class="thought-segment-toggle">
+            {{ thoughtsExpanded ? "收起" : "展开" }}
+            <AppIcon :name="thoughtsExpanded ? 'chevron-up' : 'chevron-down'" :size="12" />
+          </span>
         </div>
         <Transition name="expand">
           <div
@@ -76,6 +77,7 @@
 import { computed, ref, watch } from "vue";
 import type { Step, Thought } from "../types/agent";
 import { buildStepToolGroups, displayItemKey } from "../utils/toolCalls";
+import AppIcon from "./AppIcon.vue";
 import { useToggleSet } from "../composables/useToggleSet";
 
 import ToolCard from "./ToolCard.vue";

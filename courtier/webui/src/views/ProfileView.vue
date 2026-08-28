@@ -91,13 +91,14 @@
       </div>
 
       <div class="profile-footer">
-        <router-link to="/">← 返回主页</router-link>
+        <router-link to="/" class="profile-back"><AppIcon name="arrow-left" :size="14" />返回主页</router-link>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../components/AppIcon.vue";
 import { reactive } from "vue";
 import { useAuth } from "../composables/useAuth";
 import { api } from "../api/client";
@@ -253,6 +254,18 @@ async function updatePassword() {
 }
 
 .profile-footer a:hover {
+  color: var(--chat-text-primary);
+}
+.profile-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--chat-text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.profile-back:hover {
   color: var(--chat-text-primary);
 }
 </style>

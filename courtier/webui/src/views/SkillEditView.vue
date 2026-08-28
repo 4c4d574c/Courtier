@@ -1,7 +1,7 @@
 <template>
   <div class="se-page">
     <div class="se-topbar">
-      <router-link to="/admin/skills" class="se-back">← 技能列表</router-link>
+      <router-link to="/admin/skills" class="se-back"><AppIcon name="arrow-left" :size="14" />技能列表</router-link>
       <div class="se-actions">
         <button class="ext-btn" type="button" :disabled="saving" @click="cancel">取消</button>
         <button
@@ -292,6 +292,9 @@ onUnmounted(() => {
 }
 
 .se-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 13px;
   color: var(--chat-text-tertiary);
   text-decoration: none;
@@ -512,6 +515,14 @@ onUnmounted(() => {
 }
 
 .se-chip--on::before {
-  content: "✓ ";
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") no-repeat center / contain;
 }
 </style>

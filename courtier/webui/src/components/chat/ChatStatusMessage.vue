@@ -1,6 +1,6 @@
 <template>
   <div class="status-message" :class="`status-message--${type}`">
-    <span class="status-message-icon">{{ type === "error" ? "✕" : "⊘" }}</span>
+    <span class="status-message-icon"><AppIcon :name="type === 'error' ? 'x' : 'ban'" :size="14" /></span>
     <div>
       <div class="status-message-title">{{ title }}</div>
       <div v-if="detail" class="status-message-detail">{{ detail }}</div>
@@ -9,6 +9,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../AppIcon.vue";
 interface Props {
   type: "error" | "stopped";
   title: string;

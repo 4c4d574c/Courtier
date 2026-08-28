@@ -234,7 +234,10 @@
 
           <div v-if="testResult" class="test-card" :class="testResult.ok ? 'ok' : 'fail'">
             <div class="test-card-head">
-              <span>{{ testResult.ok ? "✓ 连接成功" : "✕ 连接失败" }}</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;">
+                <AppIcon :name="testResult.ok ? 'check' : 'x'" :size="13" />
+                {{ testResult.ok ? "连接成功" : "连接失败" }}
+              </span>
               <button class="strip-close" aria-label="关闭" @click="testResult = null">×</button>
             </div>
             <p v-if="testResult.ok" class="test-detail">{{ testResultText }}</p>
@@ -305,6 +308,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../components/AppIcon.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import { api, type DeploymentField, type SettingsView } from "../api/client";

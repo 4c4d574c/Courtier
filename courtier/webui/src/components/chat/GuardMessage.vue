@@ -1,6 +1,6 @@
 <template>
   <div class="guard-message" :class="`guard-message--${action}`">
-    <span class="guard-message-icon">{{ icon }}</span>
+    <span class="guard-message-icon"><AppIcon :name="icon" :size="13" /></span>
     <div>
       <div class="guard-message-title">
         {{ title }}
@@ -12,6 +12,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../AppIcon.vue";
 import { computed } from "vue";
 
 interface Props {
@@ -24,9 +25,9 @@ interface Props {
 const props = defineProps<Props>();
 
 const icon = computed(() => {
-  if (props.action === "block") return "✕";
-  if (props.action === "log") return "⊘";
-  return "✓";
+  if (props.action === "block") return "x" as const;
+  if (props.action === "log") return "ban" as const;
+  return "check" as const;
 });
 
 const title = computed(() => {

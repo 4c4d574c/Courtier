@@ -11,7 +11,7 @@
       <div class="auth-card">
         <template v-if="submitted">
           <div class="auth-success">
-            <div class="auth-success-icon">✓</div>
+            <div class="auth-success-icon"><AppIcon name="check" :size="28" /></div>
             <h2>注册成功</h2>
             <p>请等待管理员审批后即可登录使用</p>
             <router-link
@@ -106,6 +106,7 @@
 </template>
 
 <script setup lang="ts">
+import AppIcon from "../components/AppIcon.vue";
 import { onMounted, ref } from "vue";
 import { useAuth } from "../composables/useAuth";
 import { useTheme } from "../composables/useTheme";
