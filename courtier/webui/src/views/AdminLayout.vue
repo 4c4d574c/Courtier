@@ -19,10 +19,16 @@
           >注册审批</router-link
         >
         <router-link
-          to="/admin/extensions"
+          to="/admin/plugins"
           class="admin-nav-item"
           active-class="active"
-          >插件与技能</router-link
+          >插件市场</router-link
+        >
+        <router-link
+          to="/admin/skills"
+          class="admin-nav-item"
+          active-class="active"
+          >技能</router-link
         >
         <router-link
           to="/admin/settings"

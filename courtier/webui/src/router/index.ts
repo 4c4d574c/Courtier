@@ -41,10 +41,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import("../views/ApprovalManagement.vue"),
       },
       {
-        path: "extensions",
-        name: "AdminExtensions",
-        component: () => import("../views/ExtensionManagement.vue"),
+        path: "plugins",
+        name: "AdminPlugins",
+        component: () => import("../views/PluginMarketView.vue"),
       },
+      {
+        path: "skills",
+        name: "AdminSkills",
+        component: () => import("../views/SkillsView.vue"),
+      },
+      { path: "extensions", redirect: "/admin/plugins" },
       {
         path: "settings",
         name: "AdminSettings",

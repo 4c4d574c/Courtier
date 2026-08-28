@@ -63,8 +63,11 @@
           <router-link to="/admin/approvals" class="chat-sidebar-nav-item">
             {{ MESSAGES.CHAT_APPROVALS }}
           </router-link>
-          <router-link to="/admin/extensions" class="chat-sidebar-nav-item">
-            插件与技能
+          <router-link to="/admin/plugins" class="chat-sidebar-nav-item">
+            插件市场
+          </router-link>
+          <router-link to="/admin/skills" class="chat-sidebar-nav-item">
+            技能
           </router-link>
           <router-link to="/resources" class="chat-sidebar-nav-item">
             资源库
