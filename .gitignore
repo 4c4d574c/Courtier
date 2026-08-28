@@ -1,3 +1,3 @@
-.env_bak
+.env_bak*
 .worktrees/
 .zcode/
