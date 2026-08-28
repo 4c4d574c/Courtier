@@ -152,7 +152,9 @@ class TestRefreshSnapshot:
         assert info["mode"] == "db"
         assert service.source == "db"
         assert service.get().llm_model == "db-model"
-        assert info["version"] == service.version
+        # API-facing version is the durable store sequence, not the
+        # process-local service counter.
+        assert info["version"] == await store.current_version()
 
     async def test_jwt_bootstrap_generates_and_persists(self, db, monkeypatch):
         monkeypatch.setenv("JWT_SECRET", "")

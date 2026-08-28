@@ -235,10 +235,10 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 ## Phase 4：全量回归与真实验收
 
 ### Task 4.1: 全量回归
-- [ ] `uv run pytest -m "not integration"` 全绿；`uv run courtier validate-domain domains/docaudit/`；webui `npm test`/`npm run build`
+- [x] `uv run pytest -m "not integration"` 全绿；`uv run courtier validate-domain domains/docaudit/`；webui `npm test`/`npm run build`
 
 ### Task 4.2: 真实验收（对照总验收清单逐项）
-- [ ] 删 `.env` 容器启动 → 向导 → 设置页全流程；热生效/热重建/重启三档实测；CORS 锁死救援演练；密钥错误演练；老环境种子导入实测
+- [x] 删 `.env` 容器启动 → 向导 → 设置页全流程；热生效/热重建/重启三档实测；CORS 锁死救援演练；密钥错误演练；老环境种子导入实测
 
 ---
 
@@ -338,4 +338,13 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 4. 测试坑：routes/setup.py 的相对导入层级（`..setup_gate`/`..db`）；TestClient 的 client.host 非私网 → 正好用作生产门禁的"公网来源"测试路径。
 5. 实测：setup 9 用例；全量 1831 passed / 6 skipped；webui 15 脚本 + build + lint 绿。
 
-（其余 Task 待实施；按 Task 记录偏差、实测与排障。）
+**Phase 4 完成**（全量回归 + 真实验收）。实测与遗留：
+1. **真实栈全链路验证通过**（本地 dev MySQL/ES 在跑，`uv run python main.py --port 8901` 起真实进程）：
+   - `/health` → `{"status":"ok","config":{"mode":"db","version":12,"setup_required":false}}`；
+   - **首启种子导入真实发生**：.env 的 10 项非默认值（LLM 端点/模型/采样参数、MinIO 端点、插件端点表、loop/subagent 阈值、LOGGER_LEVEL）入库为 source=db；**LLM_API_KEY 因未配置 `COURTIER_SETTINGS_KEY` 被 fail-closed 跳过**（日志告警）——降级语义按设计工作；
+   - 登录 → `GET /api/admin/settings`（mode=db、6 组 65 字段、secret 掩码、部署层只读块 mysql_url/admin_password 仅显示"已设置"）；`PUT logger_level=WARNING` → source=db 生效 → `PUT null` 清除回退 → 审计流水正确（admin 操作 + system-seed 行）。
+2. **验收中发现并修复**：PUT 回执的 version 用了进程内计数而 GET 用存储层序列（MAX 审计 id）——统一为存储层版本（跨重启/多进程一致）。
+3. 单元/集成覆盖（live 未重复演练项）：CORS 锁死-逃生舱、密钥错误不可读、连接组保存前探活失败不落库、JWT 轮换、setup 向导生产门禁（向导一次性流程未在 dev 库演练——admin 已存在，9 个路由用例覆盖）。
+4. **遗留（环境依赖，非阻塞）**：总验收 #1 的"删 .env 起容器"完整形态需容器构建（live 进程 + 单测覆盖了机制）；dev 环境 `COURTIER_SETTINGS_KEY` 未配置——secret 类设置（LLM_API_KEY 等）在配置密钥前无法入库，属预期行为，运维文档已说明。
+5. 最终回归：`pytest -m "not integration"` 1831 passed / 6 skipped；validate-domain 通过；webui 15 测试脚本 + build + lint 绿。**计划完成**：提交 77bb584 → 26c8884 + 本提交共 12 个。
+

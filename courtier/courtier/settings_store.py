@@ -431,10 +431,16 @@ async def refresh_settings_snapshot(
             )
 
     snapshot = compose_snapshot(base, overrides)
-    version = service.replace(snapshot)
+    service.replace(snapshot)
     service.source = "db"
+    # API-facing version: the durable store sequence (MAX audit id), not
+    # the process-local replace counter, so GET and PUT agree across
+    # restarts and workers.
     info.update(
-        mode="db", version=version, unreadable=unreadable, seeded=seeded,
+        mode="db",
+        version=await store.current_version(),
+        unreadable=unreadable,
+        seeded=seeded,
         jwt_generated=jwt_generated,
     )
     return info
