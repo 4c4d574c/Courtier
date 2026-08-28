@@ -79,11 +79,10 @@ export function patchLastStep(
 }
 
 export function addStep(deps: () => HandlerDeps, step: Step): boolean {
-  const { state: s, session, turnVersion } = deps();
+  const { state: s, session } = deps();
   session.steps.push(step);
   if (s.currentTurn) {
     s.currentTurn.steps.push(step);
-    turnVersion.value++;
     return true;
   }
   return false;

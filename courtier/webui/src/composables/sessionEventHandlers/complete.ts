@@ -6,7 +6,7 @@ export function handleCompleteEvent(
   deps: () => HandlerDeps,
   event: AgentEvent,
 ): void {
-  const { state: s, session, turnVersion } = deps();
+  const { state: s, session } = deps();
   session.status = "completed";
   closeLastStepSegmentRange(deps);
   const cTin = event.tokens_in ?? event.tokensIn;
@@ -25,6 +25,5 @@ export function handleCompleteEvent(
   if (s.currentTurn && (streamed || event.conclusion)) {
     s.currentTurn.conclusion =
       streamed || s.currentTurn.conclusion || event.conclusion;
-    turnVersion.value++;
   }
 }

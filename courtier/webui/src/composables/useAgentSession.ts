@@ -38,7 +38,6 @@ export function useAgentSession() {
 
   const currentSessionId = ref("");
   const eventSource = ref<EventSource | null>(null);
-  const turnVersion = ref(0);
   let reconnectCount = 0;
   const MAX_RECONNECTS = 3;
   // Incremented on every connect()/disconnect() — a pending createEventSource
@@ -63,7 +62,6 @@ export function useAgentSession() {
   const handlers = createSessionEventHandlers(() => ({
     state,
     session,
-    turnVersion,
   }));
 
   // ---- token-event coalescing ----
@@ -618,6 +616,5 @@ export function useAgentSession() {
     editAndResend,
     isRunning,
     isCompacted,
-    turnVersion,
   };
 }

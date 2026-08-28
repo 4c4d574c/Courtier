@@ -13,7 +13,7 @@ export function handleConclusionTokenEvent(
   deps: () => HandlerDeps,
   event: AgentEvent,
 ): void {
-  const { state: s, session, turnVersion } = deps();
+  const { state: s, session } = deps();
   if (!event.text) return;
   // 先进运行中缓冲：这段文本可能是某 step 的中间结论（observe 时后端发
   // step_verdict 转正），也可能是最终结论（complete 时落定）。直接进
@@ -29,5 +29,4 @@ export function handleConclusionTokenEvent(
       s.currentStepIndex > 0 ? s.currentStepIndex - 1 : session.steps.length;
   }
   session.pendingVerdict = (session.pendingVerdict ?? "") + event.text;
-  turnVersion.value++;
 }

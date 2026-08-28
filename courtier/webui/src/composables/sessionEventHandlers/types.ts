@@ -1,4 +1,3 @@
-import type { Ref } from "vue";
 import type { Session, Turn } from "../../types/agent";
 import type { PendingSubagent } from "../subagentTree";
 
@@ -21,7 +20,6 @@ export interface MutableState {
 export interface HandlerDeps {
   state: MutableState;
   session: Session;
-  turnVersion: Ref<number>;
 }
 
 export type DepsFn = () => HandlerDeps;

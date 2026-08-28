@@ -63,11 +63,9 @@ try {
       subagentThoughtCounters: {},
       pendingSubagents: [],
     };
-    const turnVersion = { value: 0 };
     const handlers = createSessionEventHandlers(() => ({
       state,
       session,
-      turnVersion,
     }));
     return { handlers, session };
   }

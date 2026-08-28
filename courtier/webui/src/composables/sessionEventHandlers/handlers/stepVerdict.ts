@@ -11,7 +11,7 @@ export function handleStepVerdictEvent(
   deps: () => HandlerDeps,
   event: AgentEvent,
 ): void {
-  const { session, turnVersion } = deps();
+  const { session } = deps();
   if (!event.text) return;
   let target = session.steps.findIndex((st) => st.index === event.stepIndex);
   if (target < 0) {
@@ -28,5 +28,4 @@ export function handleStepVerdictEvent(
   replaceStepAt(deps, target, { ...step, verdict: event.text });
   session.pendingVerdict = "";
   session.pendingVerdictAfterStepIndex = 0;
-  turnVersion.value++;
 }
