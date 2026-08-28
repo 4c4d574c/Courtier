@@ -122,6 +122,10 @@ async def verify_jwt(
     sub = payload.get("sub")
     if not isinstance(sub, str):
         raise HTTPException(401, "Token 中缺少有效的 sub 字段")
+    # Stamped for the rate limiter's per-user bucket key (rate_limiter.py).
+    # This router-level dependency covers every /api route; endpoint-level
+    # get_current_user stamps the same value again where declared.
+    request.state.auth_user = sub
     return sub
 
 
