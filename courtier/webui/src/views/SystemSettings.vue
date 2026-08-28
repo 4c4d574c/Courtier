@@ -94,15 +94,27 @@
           {{ saving ? "保存中…" : "保存本组" }}
         </button>
         <button
-          v-if="activeCategory === 'model'"
+          v-for="target in testTargets"
+          :key="target"
           class="btn"
           :disabled="testing"
-          @click="testLlm"
+          @click="testConnection(target)"
         >
-          {{ testing ? "测试中…" : "测试 LLM 连接" }}
+          {{ testing ? "测试中…" : `测试 ${testTargetLabel(target)} 连接` }}
         </button>
-        <span v-if="llmTest" class="llm-test" :class="llmTest.ok ? 'ok' : 'fail'">
-          {{ llmTest.ok ? `连通（${llmTest.model}，${llmTest.reply}）` : `失败：${llmTest.error}` }}
+        <button
+          v-if="activeCategory === 'web'"
+          class="btn danger"
+          :disabled="rotating"
+          @click="rotateJwt"
+        >
+          {{ rotating ? "轮换中…" : "轮换 JWT 密钥" }}
+        </button>
+        <span v-if="testResult" class="llm-test" :class="testResult.ok ? 'ok' : 'fail'">
+          {{ testResultText }}
+        </span>
+        <span v-if="rotateResult" class="llm-test" :class="rotateResult.ok ? 'ok' : 'fail'">
+          {{ rotateResult.ok ? "已轮换：所有会话已失效，请重新登录" : `失败：${rotateResult.error}` }}
         </span>
       </footer>
 
@@ -143,8 +155,68 @@ const cleared = reactive<Record<string, Record<string, boolean>>>({});
 const formErrors = reactive<Record<string, string>>({});
 const saving = ref(false);
 const testing = ref(false);
-const llmTest = ref<{ ok: boolean; model?: string; reply?: string; error?: string } | null>(null);
+const rotating = ref(false);
+const testResult = ref<
+  { ok: boolean; model?: string; reply?: string; error?: string; errors?: Record<string, string> } | null
+>(null);
+const rotateResult = ref<{ ok: boolean; error?: string } | null>(null);
 const saveBanner = ref<{ applied: string[]; cleared: string[]; restart: string[] } | null>(null);
+
+/** Per-category connectivity tests offered in the footer. */
+const CATEGORY_TEST_TARGETS: Record<string, Array<"llm" | "es" | "minio" | "plugins">> = {
+  model: ["llm"],
+  retrieval: ["es", "minio"],
+  plugins: ["plugins"],
+};
+const testTargets = computed(() => CATEGORY_TEST_TARGETS[activeCategory.value] ?? []);
+
+function testTargetLabel(target: string): string {
+  return { llm: "LLM", es: "Elasticsearch", minio: "MinIO", plugins: "插件" }[target] ?? target;
+}
+
+const testResultText = computed(() => {
+  const result = testResult.value;
+  if (!result) return "";
+  if (result.ok) {
+    return result.model ? `连通（${result.model}${result.reply ? `，${result.reply}` : ""}）` : "连通";
+  }
+  const detail = result.error ?? Object.values(result.errors ?? {}).join("；");
+  return `失败：${detail}`;
+});
+
+/**
+ * Destructive-adjacent saves ask for confirmation: index/vector-dim changes
+ * need a reindex, the plugin token is shared with plugin-side env, CORS
+ * misconfiguration can lock the frontend out.
+ */
+const CONFIRM_RULES: Array<{
+  fields: string[];
+  message: string;
+}> = [
+  {
+    fields: ["es_index_chunks", "es_index_results", "llm_embedding_dim"],
+    message: "索引名/向量维度已变更：需要重建索引（reindex）才能对现有数据生效。确认保存？",
+  },
+  {
+    fields: ["courtier_plugin_token"],
+    message:
+      "插件 token 是主进程/插件双侧共享的：保存后插件将断开重连，插件侧 env 需同步修改，否则全部插件 401。确认保存？",
+  },
+  {
+    fields: ["cors_origins", "cors_allow_credentials"],
+    message:
+      "CORS 配置需重启后生效；配置错误可能导致前端无法访问（可用环境变量 CORS_ORIGINS 救援覆盖）。确认保存？",
+  },
+];
+
+function confirmIfNeeded(changed: string[]): boolean {
+  for (const rule of CONFIRM_RULES) {
+    if (changed.some((name) => rule.fields.includes(name))) {
+      if (!window.confirm(rule.message)) return false;
+    }
+  }
+  return true;
+}
 
 const editable = computed(() => view.value.mode === "db");
 
@@ -199,10 +271,12 @@ async function save() {
   for (const key of Object.keys(formErrors)) delete formErrors[key];
   Object.assign(formErrors, errors);
   if (Object.keys(errors).length) return;
-  if (!Object.keys(body).length) {
+  const changed = Object.keys(body);
+  if (!changed.length) {
     saveBanner.value = { applied: [], cleared: [], restart: [] };
     return;
   }
+  if (!confirmIfNeeded(changed)) return;
   saving.value = true;
   try {
     const result = await api.updateSettings(cat, body);
@@ -218,21 +292,41 @@ async function save() {
   }
 }
 
-async function testLlm() {
+async function testConnection(target: "llm" | "es" | "minio" | "plugins") {
   testing.value = true;
-  llmTest.value = null;
+  testResult.value = null;
   try {
-    const overrides: Record<string, unknown> = {};
-    for (const field of activeFields.value) {
-      if (!field.name.startsWith("llm_")) continue;
-      const value = formState["model"][field.name];
-      if (typeof value === "string" && value !== "") overrides[field.name] = value;
-    }
-    llmTest.value = await api.testLlm(overrides);
+    // Send unsaved edits of this category so the admin can test BEFORE saving.
+    const { body } = buildUpdateBody(
+      activeFields.value,
+      formState[activeCategory.value],
+      cleared[activeCategory.value],
+    );
+    testResult.value = await api.testConnection(target, body);
   } catch (exc) {
-    llmTest.value = { ok: false, error: String(exc) };
+    testResult.value = { ok: false, error: String(exc) };
   } finally {
     testing.value = false;
+  }
+}
+
+async function rotateJwt() {
+  if (
+    !window.confirm(
+      "轮换 JWT 密钥会使所有用户（包括你自己）的会话立即失效，需重新登录。确认轮换？",
+    )
+  ) {
+    return;
+  }
+  rotating.value = true;
+  rotateResult.value = null;
+  try {
+    await api.rotateJwtSecret();
+    rotateResult.value = { ok: true };
+  } catch (exc) {
+    rotateResult.value = { ok: false, error: String(exc) };
+  } finally {
+    rotating.value = false;
   }
 }
 
@@ -360,6 +454,9 @@ onMounted(load);
 }
 .btn.primary {
   background: rgba(46, 160, 67, 0.3);
+}
+.btn.danger {
+  background: rgba(219, 88, 96, 0.25);
 }
 .btn:disabled {
   opacity: 0.5;

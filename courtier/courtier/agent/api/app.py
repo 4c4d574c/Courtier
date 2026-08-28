@@ -78,6 +78,16 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
             db = get_db()
             await db.ensure_database()
         await bootstrap_admin_user()
+        # Setup gate flag: an admin existing anywhere (env bootstrap or a
+        # previous setup wizard run) opens the production API surface.
+        if settings.mysql_url:
+            from .setup_gate import admin_exists
+
+            try:
+                app.state._has_admin = await admin_exists()
+            except Exception:
+                logger.warning("admin existence check failed; gate stays closed", exc_info=True)
+                app.state._has_admin = False
         # DB-backed settings: compose env base + DB overrides into the
         # effective snapshot (first-run .env seeding, JWT bootstrap and
         # env-only degradation handled inside).  app.state.settings_store
@@ -155,6 +165,11 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
     app.add_middleware(ObservabilityMiddleware)
+
+    # Production first-run gate (no-op in development / env-only mode).
+    from .setup_gate import install_setup_gate
+
+    install_setup_gate(app, settings)
 
     # Rate limiting
     app.state.limiter = limiter

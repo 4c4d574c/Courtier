@@ -475,20 +475,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    @model_validator(mode="after")
-    def _validate_production_secrets(self) -> "Settings":
-        """In production, require JWT secret and admin password to be set."""
-        if self.deployment_env not in ("staging", "production"):
-            return self
-        missing: list[str] = []
-        if not self.jwt_secret:
-            missing.append("JWT_SECRET")
-        if not self.admin_password:
-            missing.append("ADMIN_PASSWORD")
-        if missing:
-            raise ValueError(f"Production environment requires {', '.join(missing)} to be set.")
-        return self
-
     model_config = {
         "env_file": _ENV_FILE,
         "extra": "ignore",

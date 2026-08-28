@@ -513,15 +513,30 @@ export const api = {
     return res.json();
   },
 
-  async testLlm(
+  async testConnection(
+    target: "llm" | "es" | "minio" | "plugins",
     body: Record<string, unknown> = {},
-  ): Promise<{ ok: boolean; error?: string; model?: string; reply?: string }> {
-    const res = await authFetch(`${API_BASE}/admin/settings/test/llm`, {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    model?: string;
+    reply?: string;
+    errors?: Record<string, string>;
+  }> {
+    const res = await authFetch(`${API_BASE}/admin/settings/test/${target}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw await parseErrorDetail(res, "POST /admin/settings/test/llm failed");
+    if (!res.ok) throw await parseErrorDetail(res, "POST /admin/settings/test failed");
+    return res.json();
+  },
+
+  async rotateJwtSecret(): Promise<{ ok: boolean; sessions_invalidated: boolean }> {
+    const res = await authFetch(`${API_BASE}/admin/settings/jwt/rotate`, {
+      method: "POST",
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /admin/settings/jwt/rotate failed");
     return res.json();
   },
 
