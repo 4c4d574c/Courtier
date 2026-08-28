@@ -90,15 +90,19 @@ function startTimer() {
   timer = null;
   if (props.tool.status !== "running" || !props.tool.startTime) return;
   liveDuration.value = (Date.now() - props.tool.startTime) / 1000;
-  // FUTURE: switch to requestAnimationFrame for smoother updates and
-  // pause the timer when the document/tab loses visibility.
+  // 2Hz: k parallel running cards each re-render on every tick — 10Hz on
+  // top of streaming renders was measurable. Skip ref updates while the
+  // document is hidden (background intervals fire throttled but would
+  // still queue renders for when the tab returns).
   timer = setInterval(() => {
     if (props.tool.startTime) {
-      liveDuration.value = (Date.now() - props.tool.startTime) / 1000;
+      if (!document.hidden) {
+        liveDuration.value = (Date.now() - props.tool.startTime) / 1000;
+      }
     } else {
       clearTimer();
     }
-  }, 100);
+  }, 500);
 }
 
 function clearTimer() {
