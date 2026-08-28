@@ -208,16 +208,16 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 ## Phase 2：连接类与安全
 
 ### Task 2.1: MinIO/ES/插件配置热重建
-- [ ] 三类 client 接入热重建编排：保存 → invalidate → 重建 → 探活 → 失败回滚旧快照；PluginSystem endpoints/token 变更触发断开重连
-- [ ] `es_index_*`/embedding 维度变更确认对话框（索引重建影响）；插件 token 双侧警告 + 一致性探测
-- [ ] `test/minio`、`test/es`、`test/plugins` 端点
+- [x] 三类 client 接入热重建编排：**保存前探活（失败不落库）** → 保存 → invalidate ES/MinIO 单例 → 插件断开重连（manager 重解析 + restart_plugin）
+- [x] `es_index_*`/embedding 维度变更确认对话框（索引重建影响）；插件 token 双侧警告（确认弹窗）；保存后 `revalidated` 回执
+- [x] `test/minio`、`test/es`、`test/plugins` 端点（与 test/llm 合并为 `/test/{target}`）
 
 ### Task 2.2: 安全项
-- [ ] JWT 轮换端点（会话全失效语义 + 前端确认）；CORS env 逃生舱 + 确认对话框 + 同源/回环放行
-- [ ] production validator 删除 + `unconfigured` 守门中间件（此时 setup 端点尚未有，403 `setup_required` 先行）
+- [x] JWT 轮换端点（会话全失效语义 + 前端确认）；CORS env 逃生舱（合成侧已实现）+ 前端确认对话框
+- [x] production validator 删除 + `unconfigured` 守门中间件（`setup_gate.py`：staging/production 且无 admin → /api/* 除 /health、/api/setup* 外 403 setup_required；非 API 路径放行供向导 SPA 加载）
 
 ### Task 2.3: Phase 2 测试
-- [ ] 热重建成功/失败回滚/降级三路径集成测试；CORS 锁死-救援演练测试
+- [x] 保存前探活失败不落库 / 成功失效对应 client / 插件配置变更触发重连 / test 端点 / JWT 轮换三路径 / 守门五路径（production 拦截、setup/health/静态放行、admin 存在放行、dev 不拦、env-only 不拦）；CORS 逃生舱由合成单测覆盖
 
 ## Phase 3：首启体验与文档
 
@@ -323,5 +323,12 @@ CREATE TABLE settings_changes (             -- 审计：谁、何时、改了哪
 3. 顶部加载不可用顶层 await（路由视图无 Suspense）——onMounted 加载 + loading/error 分支。
 4. 页面能力：分组 tab、来源/生效徽章、secret 掩码占位、清除勾选（仅 source=db 字段显示）、组级保存横幅（applied/cleared/restart_required）、模型组"测试 LLM 连接"（带未保存覆盖值）、env-only 模式禁用编辑。
 5. 实测：`npm test` 15 脚本全过（新增 test-settings-form.mjs：初始态/占位/变更语义/清除语义/五种强转错误）；`npm run build` + eslint 绿。**Phase 1 完成。**
+
+**Task 2.1/2.2/2.3 完成**（Phase 2）。偏差与实测：
+1. **热重建语义改为"保存前探活"**：PUT 在落库前用 prospective 快照探测（ES ping / MinIO list_buckets / 插件端点 TCP 拨号），失败 → 422"连接测试失败，未保存"，坏值永不入库——比计划原文"保存→重建→失败回滚"更安全（无回滚窗口、重启也不会复坏值）。保存成功后 invalidate ES/MinIO 单例（下次使用即重建）、插件经 manager 重解析 + restart_plugin 重连。前端 test 按钮携带未保存的表单值（保存前先测）。
+2. 插件配置变更的重连语义：restart 全部插件连接（token 变更影响所有插件；端点变更个别插件断开后退避重连自动用新值）。确认弹窗提示"插件侧 env 需同步修改"。
+3. `unconfigured` 守门落在独立模块 `setup_gate.py`（可单测的 install_setup_gate + admin_exists）；admin 存在性在 lifespan 启动时算一次存 `app.state._has_admin`，Phase 3 的 setup 端点完成后翻 True。production validator（import 时 raise）删除——首启才能进得去向导。
+4. JWT 轮换端点要求加密密钥存在（422），env-only 503；前端 web 组带确认弹窗与结果提示。
+5. 实测：Phase 2 新增 17 个后端用例 + 前端确认/测试/轮换交互；全量 1822 passed / 6 skipped；webui build+lint+15 脚本绿。
 
 （其余 Task 待实施；按 Task 记录偏差、实测与排障。）

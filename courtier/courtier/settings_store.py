@@ -10,6 +10,7 @@ closed (:class:`SettingsKeyMissing`) instead of storing plaintext.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -205,7 +206,8 @@ class SettingsStore:
         """Remove rows so the fields fall back to the env/default chain.
 
         Writes audit rows with new_hash=None.  Returns the removed keys."""
-        from sqlalchemy import delete as sa_delete, select
+        from sqlalchemy import delete as sa_delete
+        from sqlalchemy import select
 
         async with self._db.session() as session:
             existing = {
@@ -436,3 +438,66 @@ async def refresh_settings_snapshot(
         jwt_generated=jwt_generated,
     )
     return info
+
+
+# ---------------------------------------------------------------------------
+# Connection probing (validate rebuild-group changes BEFORE persisting)
+# ---------------------------------------------------------------------------
+
+
+async def probe_connections(settings: Any, targets: set[str]) -> dict[str, str]:
+    """Probe the given targets ("es" | "minio" | "plugins") against the
+    *settings* snapshot; returns target -> error message (empty dict = all
+    healthy).  Used pre-save so a bad endpoint/credential never persists."""
+    errors: dict[str, str] = {}
+
+    if "es" in targets and settings.es_hosts:
+        try:
+            from elasticsearch import Elasticsearch
+
+            hosts = [h.strip() for h in settings.es_hosts.split(",") if h.strip()]
+            kwargs: dict[str, Any] = {"request_timeout": 5}
+            if settings.es_username and settings.es_password:
+                kwargs["basic_auth"] = (settings.es_username, settings.es_password)
+            client = Elasticsearch(hosts, **kwargs)
+            try:
+                healthy = await asyncio.to_thread(client.ping)
+            finally:
+                client.close()
+            if not healthy:
+                errors["es"] = "ES ping 失败（地址或认证错误？）"
+        except Exception as exc:
+            errors["es"] = str(exc)[:200]
+
+    if "minio" in targets and settings.minio_endpoint:
+        try:
+            from minio import Minio
+
+            client = Minio(
+                settings.minio_endpoint,
+                access_key=settings.minio_access_key,
+                secret_key=settings.minio_secret_key,
+                secure=settings.minio_secure,
+            )
+            await asyncio.to_thread(client.list_buckets)
+        except Exception as exc:
+            errors["minio"] = str(exc)[:200]
+
+    if "plugins" in targets:
+        try:
+            endpoints = settings.plugin_endpoints()
+        except Exception as exc:
+            errors["plugins"] = f"COURTIER_PLUGIN_ENDPOINTS 格式错误: {exc}"
+            endpoints = {}
+        for name, (host, port) in endpoints.items():
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port), timeout=3.0
+                )
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                errors.setdefault("plugins", f"插件 {name} ({host}:{port}) 不可达")
+                break
+
+    return errors
