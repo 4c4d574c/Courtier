@@ -46,8 +46,18 @@ function generateFallbackToolId(): string {
   return `tool-legacy-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// normalizeToolResult is pure and its inputs are never mutated in place
+// (mutators always spread into a fresh object), so outputs can be memoized
+// per input identity: step patches rebuild the tail step's tools array per
+// tool event and unchanged tools then reuse the same normalized object,
+// letting Vue skip re-rendering finished tool cards. Also stabilizes the
+// generated fallback id for id-less tools across rebuilds.
+const normalizeMemo = new WeakMap<ToolResultInput, ToolResult>();
+
 export function normalizeToolResult(tool: ToolResultInput): ToolResult {
-  return {
+  const memoHit = normalizeMemo.get(tool);
+  if (memoHit) return memoHit;
+  const normalized: ToolResult = {
     id: tool.id || generateFallbackToolId(),
     name: tool.name,
     displayName: tool.displayName ?? null,
@@ -68,6 +78,8 @@ export function normalizeToolResult(tool: ToolResultInput): ToolResult {
     startTime: tool.startTime,
     progress: tool.progress,
   };
+  normalizeMemo.set(tool, normalized);
+  return normalized;
 }
 
 export function normalizeStep(step: Step): Step {
