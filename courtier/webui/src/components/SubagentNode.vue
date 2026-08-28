@@ -50,7 +50,7 @@
         <!-- Task description (only when running) -->
         <Transition name="fade-slide">
           <div v-if="run.task && run.runStatus === 'running'" class="subagent-task">
-            {{ run.task }}
+            {{ taskPreview }}
           </div>
         </Transition>
 
@@ -241,6 +241,16 @@ watch(
 );
 
 const runStatusClass = computed(() => props.run.runStatus ?? "completed");
+
+// The orchestrator embeds the full input data (the whole document) into the
+// sub-agent task; while running, show only the leading instruction.
+const TASK_PREVIEW_CHARS = 120;
+const taskPreview = computed(() => {
+  const task = props.run.task ?? "";
+  return task.length > TASK_PREVIEW_CHARS
+    ? `${task.slice(0, TASK_PREVIEW_CHARS)} …`
+    : task;
+});
 
 const statusLabel = computed(() => {
   const status = props.run.runStatus;
