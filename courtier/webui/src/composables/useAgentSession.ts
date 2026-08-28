@@ -66,6 +66,93 @@ export function useAgentSession() {
     turnVersion,
   }));
 
+  // ---- token-event coalescing ----
+  // Per-token SSE events each trigger a full message-list rebuild + VDOM diff
+  // (the dominant streaming cost; see docs/architecture/webui-streaming-perf-plan.md).
+  // Buffer the high-frequency append-only events and replay them in order on a
+  // frame-aligned flush so the UI re-renders at most once per frame instead of
+  // once per SSE message. Non-buffered events flush the buffer first to keep
+  // the replay order identical to arrival order; teardown drops the buffer so
+  // a pending flush can never write a stale session's tokens into a reset one.
+  const BUFFERED_EVENT_TYPES = new Set([
+    "token",
+    "conclusion_token",
+    "subagent_token",
+    "subagent_think",
+  ]);
+  let bufferedEvents: AgentEvent[] = [];
+  let flushRafId: number | null = null;
+  let flushTimerId: ReturnType<typeof setTimeout> | null = null;
+
+  function flushBufferedEvents(): void {
+    if (flushRafId !== null) {
+      cancelAnimationFrame(flushRafId);
+      flushRafId = null;
+    }
+    if (flushTimerId !== null) {
+      clearTimeout(flushTimerId);
+      flushTimerId = null;
+    }
+    if (bufferedEvents.length === 0) return;
+    const events = bufferedEvents;
+    bufferedEvents = [];
+    for (const ev of events) handlers.handleSessionEvent(ev);
+  }
+
+  function dropBufferedEvents(): void {
+    if (flushRafId !== null) {
+      cancelAnimationFrame(flushRafId);
+      flushRafId = null;
+    }
+    if (flushTimerId !== null) {
+      clearTimeout(flushTimerId);
+      flushTimerId = null;
+    }
+    bufferedEvents = [];
+  }
+
+  function scheduleBufferedFlush(): void {
+    if (flushRafId !== null || flushTimerId !== null) return;
+    // Backstop first: rAF is suspended in background tabs, the timer keeps
+    // the stream live there (browser throttles it to ≥1s — acceptable).
+    flushTimerId = setTimeout(() => {
+      flushTimerId = null;
+      if (flushRafId !== null) {
+        cancelAnimationFrame(flushRafId);
+        flushRafId = null;
+      }
+      flushBufferedEvents();
+    }, 50);
+    if (typeof requestAnimationFrame === "function") {
+      flushRafId = requestAnimationFrame(() => {
+        flushRafId = null;
+        if (flushTimerId !== null) {
+          clearTimeout(flushTimerId);
+          flushTimerId = null;
+        }
+        flushBufferedEvents();
+      });
+    } else {
+      // Non-DOM environments (node-side test harnesses): flush next tick so
+      // `await tick()`-style assertions observe the applied events.
+      clearTimeout(flushTimerId);
+      flushTimerId = setTimeout(() => {
+        flushTimerId = null;
+        flushBufferedEvents();
+      }, 0);
+    }
+  }
+
+  function dispatchSessionEvent(event: AgentEvent): void {
+    if (BUFFERED_EVENT_TYPES.has(event.type)) {
+      bufferedEvents.push(event);
+      scheduleBufferedFlush();
+      return;
+    }
+    flushBufferedEvents();
+    handlers.handleSessionEvent(event);
+  }
+
   // ---- connection lifecycle ----
 
   /**
@@ -83,7 +170,7 @@ export function useAgentSession() {
         if (import.meta.env.DEV) {
           console.debug("[SSE]", event.type, event);
         }
-        handlers.handleSessionEvent(event);
+        dispatchSessionEvent(event);
       } catch (_err) {
         console.warn("Failed to handle SSE data:", _err, e.data);
         session.errorMessage = "数据解析错误，请刷新页面重试";
@@ -310,6 +397,7 @@ export function useAgentSession() {
         return;
       }
       if (parsed.type === "resync") {
+        dropBufferedEvents();
         es.close();
         if (!resynced && generation === connectGeneration) {
           resynced = true;
@@ -329,7 +417,7 @@ export function useAgentSession() {
       if (import.meta.env.DEV) {
         console.debug("[SSE]", parsed.type, parsed);
       }
-      handlers.handleSessionEvent(parsed);
+      dispatchSessionEvent(parsed);
     };
 
     es.onerror = () => {
@@ -487,6 +575,9 @@ export function useAgentSession() {
     // Invalidate any pending createEventSource resolution so a superseded
     // connect cannot attach its stream afterwards.
     connectGeneration++;
+    // A pending coalesced flush must never fire after the caller resets
+    // session state — it would write the previous session's tokens into it.
+    dropBufferedEvents();
     eventSource.value?.close();
     eventSource.value = null;
   }
