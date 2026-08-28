@@ -50,6 +50,11 @@ const routes: RouteRecordRaw[] = [
         name: "AdminSkills",
         component: () => import("../views/SkillsView.vue"),
       },
+      {
+        path: "skills/:domain/:name",
+        name: "AdminSkillEdit",
+        component: () => import("../views/SkillEditView.vue"),
+      },
       { path: "extensions", redirect: "/admin/plugins" },
       {
         path: "settings",
