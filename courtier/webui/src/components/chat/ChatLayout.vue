@@ -3,6 +3,7 @@
     <ChatSidebar
       :sessions="sessions"
       :loading="historyLoading"
+      :list-error="listError"
       :is-open="sidebarOpen"
       :user-role="userRole"
       @new-session="$emit('new-session')"
@@ -67,6 +68,8 @@ interface Props {
   messages: ChatMessageItem[];
   sessions: SessionSummary[];
   historyLoading: boolean;
+  /** Non-empty = last sidebar-list refresh failed; sidebar keeps old data. */
+  listError?: string | null;
   isRunning: boolean;
   uploading: boolean;
   uploadError: string;

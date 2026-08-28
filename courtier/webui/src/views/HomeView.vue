@@ -5,6 +5,7 @@
     :messages="messages"
     :sessions="historySessions"
     :history-loading="historyLoading"
+    :list-error="historyListError"
     :is-running="isRunning"
     :uploading="uploading"
     :upload-error="uploadError"
@@ -66,7 +67,9 @@ const {
 const {
   sessions: historySessions,
   loading: historyLoading,
+  listError: historyListError,
   fetchSessions,
+  refreshSessionsThrottled,
   loadSession,
   deleteSession,
   updateSession,
@@ -112,10 +115,11 @@ watch(
 );
 
 runEvents.onRunStatus((event) => {
-  // Update the sidebar entry even if it hasn't been listed yet — cheap
-  // enough to refetch when an unknown session reports in.
+  // Update the sidebar entry even if it hasn't been listed yet. Refetches
+  // are throttled — several background runs finishing together must not
+  // burst the rate-limited list route.
   if (!historySessions.value.some((s) => s.id === event.sessionId)) {
-    void fetchSessions();
+    refreshSessionsThrottled();
     return;
   }
   // Toast only for background sessions (the open one streams its own end).

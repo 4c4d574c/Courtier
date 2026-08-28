@@ -114,6 +114,9 @@
             v-if="!historyCollapsed"
             class="chat-sidebar-collapsible chat-sidebar-collapsible--history"
           >
+        <div v-if="listError" class="chat-sidebar-list-error" role="status">
+          {{ listError }}
+        </div>
         <div v-if="loading" class="chat-sidebar-loading">{{ MESSAGES.LOADING }}</div>
         <div v-else-if="sessions.length === 0" class="chat-sidebar-empty">
           {{ MESSAGES.CHAT_NO_HISTORY }}
@@ -261,6 +264,8 @@ import logoUrl from "../../assets/logo.png";
 interface Props {
   sessions: SessionSummary[];
   loading: boolean;
+  /** Non-empty = last list refresh failed; old sessions stay rendered. */
+  listError?: string | null;
   isOpen: boolean;
   userRole?: string;
 }
@@ -613,6 +618,18 @@ function onMenuDelete(id: string) {
   padding: 12px 4px;
   font-size: 15px;
   color: var(--chat-text-secondary);
+}
+
+.chat-sidebar-list-error {
+  margin: 0 4px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--chat-border);
+  border-left: 3px solid #d97706;
+  border-radius: var(--chat-radius-xs, 6px);
+  background: var(--chat-bg-elevated);
+  color: var(--chat-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .chat-sidebar-list {

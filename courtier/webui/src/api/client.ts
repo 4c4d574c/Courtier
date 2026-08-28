@@ -106,19 +106,24 @@ async function authFetch(
 }
 
 // Shared error parser: prefer the backend's `detail` message over a bare
-// status code so the UI can show actionable errors.
+// status code so the UI can show actionable errors. The HTTP status is
+// attached as `status` for callers that need to branch on it (e.g. 429).
 async function parseErrorDetail(res: Response, fallback: string): Promise<Error> {
   const err: { detail?: unknown } = await res.json().catch(() => ({}));
   const detail = err.detail;
+  let message: string;
   if (typeof detail === "string" && detail) {
-    return new Error(detail);
-  }
-  if (Array.isArray(detail) && detail.length > 0) {
+    message = detail;
+  } else if (Array.isArray(detail) && detail.length > 0) {
     // FastAPI/Pydantic 422: detail is a list of {loc, msg, type} objects.
     const first = detail[0] as { msg?: string } | undefined;
-    if (first?.msg) return new Error(first.msg);
+    message = first?.msg ?? `${fallback}: ${res.status}`;
+  } else {
+    message = `${fallback}: ${res.status}`;
   }
-  return new Error(`${fallback}: ${res.status}`);
+  const error = new Error(message) as Error & { status?: number };
+  error.status = res.status;
+  return error;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +417,8 @@ export const api = {
     // SSE authenticates via the httpOnly access_token cookie set at login —
     // EventSource cannot set an Authorization header, and a ?token= query
     // param would leak the JWT into browser history and server access logs.
-    const url = `${API_BASE}/sessions${qs({
+    // Run-start has its own route/budget (/sessions stays the list read).
+    const url = `${API_BASE}/sessions/run${qs({
       task: params.task,
       fileId: params.fileId,
       sessionId: params.sessionId,
