@@ -208,20 +208,14 @@
             aria-label="设置"
             @click.stop
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
+            <AppIcon name="gear" :size="17" />
           </router-link>
           <div v-if="userMenuOpen" class="chat-sidebar-user-menu">
             <div
               class="chat-sidebar-user-menu-item chat-sidebar-theme-row"
               @click.stop="themeMenuOpen = !themeMenuOpen"
             >
-              <svg class="chat-sidebar-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
-              </svg>
+              <AppIcon class="chat-sidebar-theme-icon" name="contrast" :size="16" />
               <span class="chat-sidebar-theme-label">{{ MESSAGES.CHAT_THEME }}</span>
               <AppIcon class="chat-sidebar-theme-caret" :class="{ 'chat-sidebar-theme-caret--open': themeMenuOpen }" name="chevron-down" :size="12" />
             </div>
