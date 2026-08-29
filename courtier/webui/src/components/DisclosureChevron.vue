@@ -25,7 +25,11 @@ withDefaults(
 <style scoped>
 .disclosure-chevron {
   display: block;
-  transition: transform 0.15s ease;
+  /* No transform transition on purpose: when the document rendering timeline
+     is throttled (backgrounded pane), a CSSTransition freezes at its first
+     frame and locks the computed transform to the pre-rotation value — the
+     arrow would point the wrong way until the next real frame. An instant
+     flip is deterministic everywhere. */
 }
 
 .disclosure-chevron--open {
