@@ -256,19 +256,18 @@ store 级行为（persist 小/大、dedup、ref_map、盘上文件一致性）�
 
 ### 结果分析（不足与待优化）
 
-**性能观察**
-- `test_thousands_of_tool_results_guardrail` 5.3s，为全套件最慢：1000 条 tool 结果 = 1000 次串行落盘（每次独立 to_thread + 锁）。生产上长会话/多子代理可能达到数百条量级，微压缩可考虑批量落盘（合并锁获取与写盘）。
-- `estimate_tokens` 每次调用 O(总字符数) 且逐字符 `unicodedata.name`，1M 字符约 0.19s；微压缩与压缩检查每轮都会重扫全部历史。Message 是冻结 dataclass，可按消息实例记忆化 token 估算值。
-- 全套件 43s（重写前基线 35s），增量来自极端测试，可接受。
+**性能观察（2026-08-29 复审：两项已处理）**
+- ~~微压缩串行落盘~~ → **已修**（perf 2e3e356）：`persist_many` 批量落盘，一次锁 + 一次写盘 pass + 批内去重；真正瓶颈是 `_dedup_record` 逐条全量重写哈希索引（二次方），批内改为内存累积、末尾落盘一次。千条结果压缩 5.3s → 0.05s，护栏收紧到 1s。
+- `estimate_tokens` 每次调用 O(总字符数) 且逐字符 `unicodedata.name`，1M 字符约 0.19s；微压缩与压缩检查每轮都会重扫全部历史。Message 是冻结 dataclass，可按消息实例记忆化 token 估算值。（**待用户决策**）
 
 **行为层发现（已固化 / 已记录）**
 - F2 修复后的取舍：压缩后一轮为纯启发式窗口（有 4.10 防重压测试背书）。
-- 微压缩 keep 前缀语义在"最新一条巨大 + 更旧若干小结果"场景会过度压缩（只保 MIN=2），真实会话若出现可再评估背包式选择。
+- 微压缩 keep 前缀语义在"最新一条巨大 + 更旧若干小结果"场景会过度压缩（只保 MIN=2）。（**方案讨论中，待用户决策**）
 - persist IO 失败降级后，持续失败时上下文无法收缩（flag 与指标可见），无数据损失——可接受的保守行为。
 
-**覆盖缺口（后续候选）**
-- ES 主后端持久化路径（integration 范围，离线套件不覆盖）。
-- CompactState 未来版本升级迁移（仅测了未知版本 → 全新状态）。
-- 父子代理并发共享同一 artifact store / memory store 的并发安全场景。
-- 记忆层仍未接线产品路径：fork 隔离目前只有单测与 benchmark 验证，无端到端真实子代理运行验证。
-- 既有清理候选：test_cache_store.py 的 3 条 PytestWarning（非 async 用例误挂 asyncio 标记）。
+**覆盖缺口（2026-08-29 复审：已补测，test 1e07553）**
+- ~~ES 主后端持久化路径~~ → 真 ES integration 测试（跨 store 实例经 ES 回读）。
+- ~~CompactState 未来版本升级迁移~~ → 前向兼容测试（v1 payload 带未知附加字段）。
+- ~~父子代理并发共享 store~~ → 批量 + 单条并发落盘无 ref 碰撞、全部可读；fork 子代理并发写命名空间隔离、long_term last-writer-wins。
+- 记忆层仍未接线产品路径：fork 隔离目前只有单测与 benchmark 验证，无端到端真实子代理运行验证。（**接线方案已提出，待用户对齐**）
+- ~~既有清理候选：test_cache_store.py 的 3 条 PytestWarning~~ → 已清理（test c5dd8d7）；mypy 因 metrics.py 注释事故被阻塞的问题已修复（fix 7cba49f），触碰文件 mypy 全绿。
