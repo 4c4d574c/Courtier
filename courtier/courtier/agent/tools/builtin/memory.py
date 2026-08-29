@@ -9,7 +9,10 @@ manager actually exposes the memory tiers (MemoryManager).
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, Literal
+
+from courtier.prompts.errors import render_error
 
 from ..protocol import OnToolProgress, ToolResult
 
@@ -72,10 +75,15 @@ class MemorySaveTool:
         mgr = _memory_manager(context_manager)
         if mgr is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="记忆功能不可用（当前上下文管理器不支持记忆层）")
+            return ToolResult(success=False, error=render_error("errors.memory_unavailable"))
         if not key:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="必须提供 key 参数")
+            return ToolResult(
+                success=False,
+                error=render_error(
+                    "errors.tool_missing_param", tool_name="memory_save", param_name="key"
+                ),
+            )
         if scope == "long_term":
             await mgr.long_term_set(key, value)
         else:
@@ -123,10 +131,15 @@ class MemoryGetTool:
         mgr = _memory_manager(context_manager)
         if mgr is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="记忆功能不可用（当前上下文管理器不支持记忆层）")
+            return ToolResult(success=False, error=render_error("errors.memory_unavailable"))
         if not key:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="必须提供 key 参数")
+            return ToolResult(
+                success=False,
+                error=render_error(
+                    "errors.tool_missing_param", tool_name="memory_get", param_name="key"
+                ),
+            )
         if scope == "long_term":
             value = await mgr.long_term_get(key)
         else:
@@ -182,10 +195,15 @@ class MemoryDeleteTool:
         mgr = _memory_manager(context_manager)
         if mgr is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="记忆功能不可用（当前上下文管理器不支持记忆层）")
+            return ToolResult(success=False, error=render_error("errors.memory_unavailable"))
         if not key:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="必须提供 key 参数")
+            return ToolResult(
+                success=False,
+                error=render_error(
+                    "errors.tool_missing_param", tool_name="memory_delete", param_name="key"
+                ),
+            )
         if scope == "long_term":
             await mgr.long_term_delete(key)
         else:
@@ -205,7 +223,8 @@ class MemoryRecallTool:
     name: str = "memory_recall"
     description: str = (
         "按关键词检索相关记忆（当前会话 + 长期记忆 + 当前上下文摘要），"
-        "按相关度排序。适合任务开始时回忆相关经验与结论，或不确定键名时模糊查找；"
+        "按相关度排序。query 必须包含具体检索词（不支持通配符或空查询）；"
+        "适合回忆与当前话题相关的经验与结论。要查看现有记忆的完整清单，用 memory_list；"
         "已知确切键名时用 memory_get 更精确。"
     )
     parameters: dict[str, Any] = {
@@ -239,12 +258,27 @@ class MemoryRecallTool:
         mgr = _memory_manager(context_manager)
         if mgr is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="记忆功能不可用（当前上下文管理器不支持记忆层）")
+            return ToolResult(success=False, error=render_error("errors.memory_unavailable"))
         if not query:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
-            return ToolResult(success=False, error="必须提供 query 参数")
-        from ...core.memory_manager import MemoryQuery
+            return ToolResult(
+                success=False,
+                error=render_error(
+                    "errors.tool_missing_param", tool_name="memory_recall", param_name="query"
+                ),
+            )
+        from ...core.memory_manager import MemoryQuery, _extract_query_terms
 
+        # A query with no extractable terms (wildcards, punctuation-only) would
+        # silently return zero matches and mislead the model into "no memories
+        # exist" — fail loudly instead so it can rephrase or use memory_list.
+        if not _extract_query_terms(query):
+            on_progress({"status": "done", "message": "执行完成", "detail": None})
+            return ToolResult(
+                success=False,
+                error="query 中没有可检索的关键词，请给出具体的检索词；"
+                "要查看现有记忆的完整清单，使用 memory_list 工具",
+            )
         tier = _TIER_BY_SCOPE.get(scope)
         recalls = await mgr.retrieve(MemoryQuery(text=query, top_k=max(1, top_k), tier=tier))
         items = [
@@ -263,3 +297,64 @@ class MemoryRecallTool:
         from courtier.agent.tools.summary import summarize_result
 
         return summarize_result(result)
+
+
+class MemoryListTool:
+    """List all stored memories (keys + short value preview) per tier."""
+
+    name: str = "memory_list"
+    description: str = (
+        "列出现有记忆的完整清单（键名 + 值预览），scope=all 时同时列出"
+        "当前会话记忆与跨会话长期记忆。回答「有哪些记忆」这类清单问题用本工具；"
+        "按相关性模糊查找用 memory_recall；已知键名读取完整值用 memory_get。"
+    )
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "scope": {
+                "type": "string",
+                "enum": ["all", "session", "long_term"],
+                "description": "all=全部层级（默认）；session / long_term=限定层级",
+            },
+        },
+    }
+
+    async def execute(
+        self,
+        *,
+        on_progress: OnToolProgress,
+        context_manager: Any = None,
+        scope: str = "all",
+        **kwargs: Any,
+    ) -> ToolResult:
+        on_progress({"status": "running", "message": "列出记忆...", "detail": None})
+        mgr = _memory_manager(context_manager)
+        if mgr is None:
+            on_progress({"status": "done", "message": "执行完成", "detail": None})
+            return ToolResult(success=False, error=render_error("errors.memory_unavailable"))
+
+        items: list[dict[str, Any]] = []
+        if scope in ("all", "session"):
+            for key in await mgr.session_keys():
+                value = await mgr.session_get(key)
+                items.append({"key": key, "tier": "session", "preview": _preview(value)})
+        if scope in ("all", "long_term"):
+            for key in await mgr.long_term_keys():
+                value = await mgr.long_term_get(key)
+                items.append({"key": key, "tier": "long_term", "preview": _preview(value)})
+
+        on_progress({"status": "done", "message": "执行完成", "detail": None})
+        return ToolResult(success=True, data={"items": items, "count": len(items)})
+
+    def summarize(self, result: ToolResult) -> "ToolSummary":
+        from courtier.agent.tools.summary import summarize_result
+
+        return summarize_result(result)
+
+
+def _preview(value: Any, limit: int = 120) -> str:
+    """Short value preview for list output; full values via memory_get."""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) > limit:
+        return text[:limit] + "…"
+    return text

@@ -15,6 +15,7 @@ from courtier.agent.core.memory_manager import MemoryManager
 from courtier.agent.tools.builtin.memory import (
     MemoryDeleteTool,
     MemoryGetTool,
+    MemoryListTool,
     MemoryRecallTool,
     MemorySaveTool,
 )
@@ -151,3 +152,51 @@ class TestAgentAndRegistryWiring:
         assert result.success is True
         assert await child.session_get("k") == "from-child"
         assert await parent.session_get("k") is None
+
+
+class TestMemoryListTool:
+    async def test_lists_both_tiers_with_previews(self, manager):
+        await manager.session_set("s_key", {"tone": "正式"})
+        await manager.long_term_set("l_key", "长" * 200)
+        result = await MemoryListTool().execute(
+            on_progress=_noop_progress, context_manager=manager
+        )
+        assert result.success is True
+        items = result.data["items"]
+        assert result.data["count"] == 2
+        by_tier = {i["tier"]: i for i in items}
+        assert by_tier["session"]["key"] == "s_key"
+        assert "正式" in by_tier["session"]["preview"]
+        # long-term preview truncated to 120 chars + ellipsis
+        assert len(by_tier["long_term"]["preview"]) == 121
+
+    async def test_scope_filter_and_empty(self, manager):
+        await manager.session_set("s_key", "v")
+        only_session = await MemoryListTool().execute(
+            on_progress=_noop_progress, context_manager=manager, scope="session"
+        )
+        assert [i["tier"] for i in only_session.data["items"]] == ["session"]
+
+        empty = await MemoryListTool().execute(
+            on_progress=_noop_progress, context_manager=manager, scope="long_term"
+        )
+        assert empty.data == {"items": [], "count": 0}
+
+
+class TestRecallEmptyTermsFails:
+    async def test_wildcard_query_fails_loudly(self, manager):
+        """'*' 提取不出词项 → 明确报错而不是误导性的空成功。"""
+        await manager.long_term_set("gb_standard", "本季度验收标准")
+        result = await MemoryRecallTool().execute(
+            on_progress=_noop_progress, context_manager=manager, query="*"
+        )
+        assert result.success is False
+        assert "memory_list" in (result.error or "")
+
+    async def test_real_terms_with_no_match_still_succeeds_empty(self, manager):
+        """有有效词项但确实无匹配 → 成功 + 空结果（语义正确）。"""
+        result = await MemoryRecallTool().execute(
+            on_progress=_noop_progress, context_manager=manager, query="完全无关的词项xyz"
+        )
+        assert result.success is True
+        assert result.data["count"] == 0

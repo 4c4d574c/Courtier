@@ -640,14 +640,14 @@ class Agent:
             self.tool_registry.register(GetArtifactTool())
 
     def _ensure_builtin_memory_tools(self) -> None:
-        """Register memory_save/get/delete/recall for memory-capable managers.
+        """Register memory_save/get/delete/recall/list for memory-capable managers.
 
         The registry injects the run-scoped context_manager into execute()
         at dispatch time, so a sub-agent whose manager is a per-handle fork
         automatically reads and writes its isolated session namespace.
         """
         existing = {t.name for t in self.tool_registry.list_tools()}
-        needed = ("memory_save", "memory_get", "memory_delete", "memory_recall")
+        needed = ("memory_save", "memory_get", "memory_delete", "memory_recall", "memory_list")
         if all(name in existing for name in needed):
             return
 
@@ -655,11 +655,18 @@ class Agent:
         from ..tools.builtin.memory import (
             MemoryDeleteTool,
             MemoryGetTool,
+            MemoryListTool,
             MemoryRecallTool,
             MemorySaveTool,
         )
 
-        for tool in (MemorySaveTool(), MemoryGetTool(), MemoryDeleteTool(), MemoryRecallTool()):
+        for tool in (
+            MemorySaveTool(),
+            MemoryGetTool(),
+            MemoryDeleteTool(),
+            MemoryRecallTool(),
+            MemoryListTool(),
+        ):
             if tool.name not in existing:
                 self.tool_registry.register(tool)
 
