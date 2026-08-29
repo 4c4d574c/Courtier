@@ -282,3 +282,80 @@ def test_require_raises_keyerror_for_missing_artifact():
         assert False, "Expected KeyError"
     except KeyError:
         pass
+
+
+# -- Layer-1 large-output persistence (migrated from the legacy
+#    tests/agent/test_context_manager.py; outline §2/plan task 10) ------------
+
+
+class TestPersistLargeOutput:
+    async def test_small_data_passes_through(self, tmp_path):
+        """迁移：小于阈值的数据原样返回，不产生 ref。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        result = (await store.persist({"key": "value"}, "test_tool")).data
+        assert result == {"key": "value"}
+        assert store.ref_map == {}
+
+    async def test_large_data_persisted_with_ref_id(self, tmp_path):
+        """迁移：超过阈值 → __persisted_output__ 标记 + ref_id + 预览。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        result = (await store.persist({"text": "x" * 1000}, "search_documents")).data
+        assert result["__persisted_output__"] is True
+        assert result["ref_id"] == "$ref:search_documents:1"
+        assert "file" in result
+        assert result["size_chars"] > 900
+        assert "preview" in result
+
+    async def test_identical_data_deduped_to_same_ref(self, tmp_path):
+        """迁移：同工具同内容去重复用缓存文件；不同工具独立编号。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        data = {"text": "x" * 1000}
+        r1 = (await store.persist(data, "search_documents")).data
+        r2 = (await store.persist(data, "search_documents")).data
+        r3 = (await store.persist(data, "other_tool")).data
+        assert r2["ref_id"] == r1["ref_id"] == "$ref:search_documents:1"
+        assert r2.get("dedup_hit") is True
+        assert r1["file"] == r2["file"]
+        assert r3["ref_id"] == "$ref:other_tool:1"
+
+    async def test_different_data_gets_new_ref(self, tmp_path):
+        """迁移：不同内容递增 ref 序号。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        r1 = (await store.persist({"text": "a" * 1000}, "search_documents")).data
+        r2 = (await store.persist({"text": "b" * 1000}, "search_documents")).data
+        assert (r1["ref_id"], r2["ref_id"]) == ("$ref:search_documents:1", "$ref:search_documents:2")
+
+    async def test_ref_map_tracks_all_persisted_outputs(self, tmp_path):
+        """迁移：ref_map 登记全部 ref → 文件路径。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        data = {"text": "x" * 1000}
+        r1 = (await store.persist(data, "search_documents")).data
+        r2 = (await store.persist(data, "other_tool")).data
+        assert store.ref_map[r1["ref_id"]] == r1["file"]
+        assert store.ref_map[r2["ref_id"]] == r2["file"]
+
+    async def test_all_tools_persisted_no_passthrough(self, tmp_path):
+        """迁移：审计类工具结果同样落盘（无白名单直通）。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        for tool_name in ["parse_document", "audit_format", "audit_content"]:
+            result = (await store.persist({"text": "x" * 1000}, tool_name)).data
+            assert result["__persisted_output__"] is True
+
+    async def test_none_data_passes_through_no_schema(self, tmp_path):
+        """迁移：None 原样返回，不写文件也不产生 schema。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        result = (await store.persist(None, "test_tool")).data
+        assert result is None
+        assert store.ref_map == {}
+        assert list(tmp_path.rglob("*.json")) == []
+
+    async def test_file_on_disk_matches_data(self, tmp_path):
+        """迁移：盘上 JSON 文件内容与原数据一致。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        data = {"text": "x" * 1000}
+        result = (await store.persist(data, "search_documents")).data
+        import json as _json
+        from pathlib import Path
+
+        loaded = _json.loads(Path(result["file"]).read_text(encoding="utf-8"))
+        assert loaded == data
