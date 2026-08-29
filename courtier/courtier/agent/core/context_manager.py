@@ -247,6 +247,13 @@ class ContextManager:
         compacted = []
         for i, msg in enumerate(deduped):
             if i in to_compact:
+                if _is_omitted_placeholder(msg):
+                    # Compacting an already-compacted placeholder must be a
+                    # no-op: its ref pointer lives in a shape the extractor
+                    # below cannot read, so re-deriving it would drop the
+                    # ref_id from the history for good.
+                    compacted.append(msg)
+                    continue
                 tool_name = msg.name or f"tool_call_{msg.tool_call_id}"
 
                 ref_id, ref_file, success = self._extract_ref_info(msg)
@@ -791,6 +798,17 @@ def _find_last_real_user_index(
 def _is_summary_message(msg: Message) -> bool:
     """Return True when *msg* is a compaction summary written by _full_compact."""
     return msg.role == "system" and (msg.content or "").startswith("[上下文压缩 #")
+
+
+def _is_omitted_placeholder(msg: Message) -> bool:
+    """Return True when *msg* is already a micro-compact placeholder."""
+    if not msg.content:
+        return False
+    try:
+        payload = json.loads(msg.content)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(payload, dict) and payload.get("_omitted") is True
 
 
 def _split_compact_template(rendered: str) -> tuple[str, str]:
