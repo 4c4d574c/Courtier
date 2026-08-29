@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from courtier.prompts.errors import render_error
+
 from ..protocol import ToolResult
 
 if TYPE_CHECKING:
@@ -70,12 +72,17 @@ class ActivateDomainTool:
         if self._activator is None:
             return ToolResult(
                 success=False,
-                error="激活器未接线：activate_domain 需要在编排器构建时绑定 DomainActivator",
+                error=render_error("errors.activate_domain_not_wired"),
             )
         if not isinstance(domain, str) or not domain:
             return ToolResult(
                 success=False,
-                error="缺少必填参数 domain（领域名称，见工具描述中的可用领域列表）",
+                error=render_error(
+                    "errors.tool_missing_param",
+                    tool_name=self.name,
+                    param_name="domain",
+                    hint="领域名称，见工具描述中的可用领域列表",
+                ),
             )
         result = await self._activator.activate(domain)
         if not result.success:

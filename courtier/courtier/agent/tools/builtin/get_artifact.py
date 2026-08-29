@@ -23,6 +23,7 @@ from courtier.agent.artifacts.projectors import (
 )
 from courtier.agent.artifacts.resolver import ProjectionResolver
 from courtier.agent.core.cache_store import _TEXT_FIELD_PRIORITY
+from courtier.prompts.errors import render_error
 
 from ..protocol import OnToolProgress, ToolResult
 
@@ -237,7 +238,7 @@ class GetArtifactTool:
                 "type": "string",
                 "description": (
                     "按大纲序号或标题文本读取指定节的完整内容（含子节）。"
-                    "支持：序号（如 \"3\"、\"三\"、\"第三节\"）或标题文本（精确/包含匹配）。"
+                    '支持：序号（如 "3"、"三"、"第三节"）或标题文本（精确/包含匹配）。'
                     "超长节按 max_tokens 截断并标注。"
                 ),
             },
@@ -329,7 +330,7 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error="Artifact store 不可用，无法获取工件",
+                error=render_error("errors.artifact_store_unavailable", action="获取工件"),
             )
 
         # Tolerate the artifact_id alias: list_artifacts outputs an
@@ -689,11 +690,7 @@ class GetArtifactTool:
                     chunk_index=0,
                     max_tokens=max_tokens,
                 )
-                data = (
-                    raw.get("data")
-                    if isinstance(raw, dict) and "error" not in raw
-                    else None
-                )
+                data = raw.get("data") if isinstance(raw, dict) and "error" not in raw else None
                 if data is not None and _raw_satisfies_caps(
                     data, max_chars=max_chars, max_items=max_items
                 ):
@@ -745,11 +742,7 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             error = str(raw["error"])
             if error.startswith("result not found"):
-                error += (
-                    "。该引用不存在或不属于当前任务可见范围，"
-                    "请使用当前任务链中工具实际返回的 result_id，"
-                    "或先调用 list_artifacts 查看可用工件。"
-                )
+                error += "。" + render_error("errors.artifact_ref_not_found_hint")
             return ToolResult(success=False, error=error)
 
         data = raw.get("data")

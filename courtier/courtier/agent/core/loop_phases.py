@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from courtier.agent.core.execution_result import ExecutionResult
+from courtier.prompts.errors import render_error
 
 from .audit_logger import LLMRequestRecord, LLMResponseRecord
 from .loop_guards import detect_reasoning_loop
@@ -20,6 +21,11 @@ if TYPE_CHECKING:
     from .state import AgentState
 
 logger = logging.getLogger(__name__)
+
+# Cap for raw exception text surfaced to the model — a runaway traceback in
+# an exception message must not flood the observation (the full traceback is
+# still in the server log via logger.exception).
+_MAX_EXCEPTION_CHARS = 800
 
 
 @dataclass
@@ -149,7 +155,7 @@ async def think_phase(
             finish_reason="error",
             duration_ms=llm_duration_ms,
         )
-        state = state.errored(f"Model error: {exc}", set_status=False)
+        state = state.errored(render_error("errors.model_error", error=str(exc)), set_status=False)
         return ThinkResult(
             state=state,
             llm_request=llm_request,
@@ -281,10 +287,12 @@ async def execute_tools_phase(
             result = ExecutionResult.from_error(
                 actor_type="tool",
                 actor_name=tool_call.name,
-                error=(
-                    f"Failed to parse arguments for tool '{tool_call.name}'. "
-                    f"Raw arguments: {raw_args}"
+                error=render_error(
+                    "errors.tool_arg_parse",
+                    tool_name=tool_call.name,
+                    raw_arguments=raw_args,
                 ),
+                metadata={"error_code": "tool_arg_parse"},
             )
             tool_duration_ms = int((time.perf_counter() - tool_start) * 1000)
             records.append(
@@ -315,10 +323,18 @@ async def execute_tools_phase(
             )
         except Exception as exc:
             logger.exception("Tool %s failed", tool_call.name)
+            exc_text = str(exc)
+            if len(exc_text) > _MAX_EXCEPTION_CHARS:
+                exc_text = exc_text[:_MAX_EXCEPTION_CHARS] + "…"
             result = ExecutionResult.from_error(
                 actor_type="tool",
                 actor_name=tool_call.name,
-                error=str(exc),
+                error=render_error(
+                    "errors.tool_exception",
+                    tool_name=tool_call.name,
+                    error=exc_text,
+                ),
+                metadata={"error_code": "tool_exception"},
             )
 
         tool_duration_ms = int((time.perf_counter() - tool_start) * 1000)

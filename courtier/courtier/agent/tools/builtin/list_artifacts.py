@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from courtier.agent.artifacts.models import RuntimePolicy
 from courtier.agent.artifacts.projectors import create_default_projector_registry
+from courtier.prompts.errors import render_error
 
 from ..protocol import OnToolProgress, ToolResult
 
@@ -74,7 +75,7 @@ class ListArtifactsTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error="Artifact store 不可用，无法列出工件",
+                error=render_error("errors.artifact_store_unavailable", action="列出工件"),
             )
 
         candidates = artifact_store.list_projection_candidates()

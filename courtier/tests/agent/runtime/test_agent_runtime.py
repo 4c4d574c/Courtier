@@ -53,7 +53,7 @@ def runtime_with_skill_agent(tmp_path):
 
 @pytest.mark.asyncio
 async def test_spawn_unknown_agent_raises(runtime_with_echo):
-    with pytest.raises(ValueError, match="Unknown agent"):
+    with pytest.raises(ValueError, match="未知的子代理或技能"):
         runtime_with_echo.spawn(name="missing", task="test")
 
 
@@ -176,7 +176,7 @@ async def test_terminate_cancels_running_delegate(tmp_path):
 
     assert isinstance(result, ExecutionResult)
     assert not result.success
-    assert "terminated" in result.error.lower()
+    assert "子代理已被终止" in result.error
 
 
 @pytest.mark.asyncio
@@ -212,7 +212,7 @@ async def test_delegate_enforces_cumulative_runtime_budget(tmp_path):
 
     assert isinstance(result, ExecutionResult)
     assert not result.success
-    assert "Cumulative runtime budget exhausted" in result.error
+    assert "累计运行时间预算已耗尽" in result.error
 
 
 @pytest.mark.asyncio

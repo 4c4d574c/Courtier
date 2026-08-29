@@ -18,6 +18,7 @@ from courtier.agent.artifacts.projectors import ProjectorRegistry, create_defaul
 from courtier.agent.artifacts.resolver import emit_event
 from courtier.agent.artifacts.store import ArtifactStore
 from courtier.agent.core.execution_result import ExecutionResult
+from courtier.prompts.errors import render_error
 
 from .param_injection import HOST_INJECTED_MARKER
 from .protocol import (
@@ -339,10 +340,12 @@ class ToolRegistry:
             return ExecutionResult.from_error(
                 actor_type="tool",
                 actor_name=name,
-                error=(
-                    f"工具 {name!r} 未注册，无法调用。当前可用工具：{available}。"
-                    "请改用可用工具，或直接给出文本回答。"
+                error=render_error(
+                    "errors.tool_not_found",
+                    tool_name=name,
+                    available_tools=available,
                 ),
+                metadata={"error_code": "tool_not_found"},
             )
 
         # --- Enforce runtime policy ---
@@ -420,9 +423,7 @@ class ToolRegistry:
                 if asyncio.iscoroutine(processed):
                     processed = await processed
             except Exception:
-                logger.warning(
-                    "result post-processor failed for %s", name, exc_info=True
-                )
+                logger.warning("result post-processor failed for %s", name, exc_info=True)
             else:
                 if processed is not None:
                     raw_result = processed
@@ -566,9 +567,11 @@ class ToolRegistry:
             )
             return ToolResult(
                 success=False,
-                error=(
-                    f"Tool '{name}' has been called {self._tool_call_counts[name]} times, "
-                    f"exceeding the limit of {max_calls}."
+                error=render_error(
+                    "errors.tool_max_calls_exceeded",
+                    tool_name=name,
+                    count=self._tool_call_counts[name],
+                    limit=max_calls,
                 ),
                 metadata={"blocked_reason": "max_calls_exceeded"},
             )
@@ -585,9 +588,11 @@ class ToolRegistry:
             )
             return ToolResult(
                 success=False,
-                error=(
-                    f"Tool '{name}' has been called {current_consecutive} "
-                    f"consecutive times, exceeding the limit of {max_consecutive}."
+                error=render_error(
+                    "errors.tool_max_consecutive_exceeded",
+                    tool_name=name,
+                    count=current_consecutive,
+                    limit=max_consecutive,
                 ),
                 metadata={"blocked_reason": "max_consecutive_exceeded"},
             )
@@ -745,9 +750,7 @@ class ToolRegistry:
         properties = tool.parameters.get("properties", {})
         updates: dict[str, Any] = {}
         for param_name, prop in properties.items():
-            injector_name = (
-                prop.get(HOST_INJECTED_MARKER) if isinstance(prop, dict) else None
-            )
+            injector_name = prop.get(HOST_INJECTED_MARKER) if isinstance(prop, dict) else None
             if not injector_name:
                 continue
             if param_name in kwargs:
@@ -823,7 +826,8 @@ class ToolRegistry:
             return ExecutionResult.from_error(
                 actor_type="tool",
                 actor_name=tool_name,
-                error=tool_result.error or "unknown error",
+                error=tool_result.error
+                or render_error("errors.result_unknown_error", actor_name=tool_name),
                 metadata=metadata,
             )
         return ExecutionResult(

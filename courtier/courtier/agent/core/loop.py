@@ -14,6 +14,7 @@ from opentelemetry import trace as otel_trace
 from opentelemetry.trace import Status, StatusCode
 
 from courtier.agent.core.execution_result import ExecutionResult
+from courtier.prompts.errors import render_error
 
 from ..artifacts.resolver import emit_event
 from ..telemetry.metrics import (
@@ -698,7 +699,7 @@ async def _run_tool_phase(
             if not permissions.allow(tool_call)
         ]
         if denied_tools:
-            reason = f"Permission denied: {', '.join(denied_tools)}"
+            reason = render_error("errors.permission_denied", denied_tools=", ".join(denied_tools))
             current_state = await state_machine.transition_async(
                 current_state,
                 "blocked",
@@ -1274,7 +1275,9 @@ async def agent_loop(
             # CancelledError (BaseException) propagates untouched.
             logger.exception("Agent loop failed unexpectedly")
             current_state = await state_machine.transition_async(
-                current_state, "error", f"internal_error: {exc}"
+                current_state,
+                "error",
+                render_error("errors.internal_error", message=str(exc)),
             )
 
         if turn_pending_record:

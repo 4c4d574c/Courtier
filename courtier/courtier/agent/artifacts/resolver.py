@@ -6,6 +6,8 @@ import logging
 import time
 from collections import deque
 
+from courtier.prompts.errors import render_error
+
 from .models import (
     Artifact,
     InputField,
@@ -56,8 +58,11 @@ class ProjectionResolver:
                 diag = ProjectionDiagnostic(
                     level="error",
                     code="field_unresolved",
-                    message=f"Could not resolve required field {field.name} "
-                    f"(type={field.artifact_type})",
+                    message=render_error(
+                        "errors.binder_field_unresolved",
+                        field_name=field.name,
+                        artifact_type=field.artifact_type,
+                    ),
                     details={
                         "required_type": field.artifact_type,
                     },
@@ -83,23 +88,29 @@ class ProjectionResolver:
                 resolved_count += 1
                 plans[field.name] = best
         if diagnostics:
-            emit_event("projection_resolution", {
-                "tool": tool_name,
-                "status": "failed",
-                "resolved_fields": resolved_count,
-                "failed_fields": failed_count,
-                "suggestions": [s.get("tool") for s in suggested_actions],
-            })
+            emit_event(
+                "projection_resolution",
+                {
+                    "tool": tool_name,
+                    "status": "failed",
+                    "resolved_fields": resolved_count,
+                    "failed_fields": failed_count,
+                    "suggestions": [s.get("tool") for s in suggested_actions],
+                },
+            )
             return ProjectionResolution(
                 status="failed",
                 diagnostics=tuple(diagnostics),
                 suggested_actions=tuple(suggested_actions),
             )
-        emit_event("projection_resolution", {
-            "tool": tool_name,
-            "status": "resolved",
-            "resolved_fields": resolved_count,
-        })
+        emit_event(
+            "projection_resolution",
+            {
+                "tool": tool_name,
+                "status": "resolved",
+                "resolved_fields": resolved_count,
+            },
+        )
         return ProjectionResolution(status="resolved", plans=plans)
 
     def _resolve_field_multi(
@@ -111,9 +122,7 @@ class ProjectionResolver:
         """Find all valid projection plans for a field, sorted by score descending."""
         results: list[ProjectionPlan] = []
         candidates = [
-            artifact
-            for artifact in artifacts
-            if self._artifact_allowed(artifact, field, policy)
+            artifact for artifact in artifacts if self._artifact_allowed(artifact, field, policy)
         ]
         for source_artifact in candidates:
             plan = self._find_shortest_path(source_artifact, field, policy)
@@ -183,7 +192,8 @@ class ProjectionResolver:
                     continue
                 # Enforce schema version compatibility
                 if not check_schema_version_compatible(
-                    current_version, projector.spec.source_schema_version,
+                    current_version,
+                    projector.spec.source_schema_version,
                 ):
                     continue
                 constraints = {

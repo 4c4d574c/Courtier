@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from courtier.prompts.errors import render_error
+
 from .result import ExecutionResult
 
 #: Text fields probed for outline attachment (mirrors cache_store's
@@ -261,7 +263,7 @@ class ResultSummarizer:
             return ExecutionResult.from_error(
                 actor_type=actor_type,
                 actor_name=actor_name,
-                error=error or "unknown error",
+                error=error or render_error("errors.result_unknown_error", actor_name=actor_name),
                 metadata=metadata or {},
             )
 

@@ -47,10 +47,45 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "behavioral.pre_turn_reminder",
         "behavioral.periodic_reminder",
         "errors.tool_timeout",
-        "errors.permission_denied",
+        "errors.tool_arg_parse",
+        "errors.tool_exception",
         "errors.tool_not_found",
+        "errors.tool_max_calls_exceeded",
+        "errors.tool_max_consecutive_exceeded",
+        "errors.tool_missing_param",
+        "errors.result_unknown_error",
+        "errors.artifact_store_unavailable",
+        "errors.permission_denied",
         "errors.internal_error",
+        "errors.model_error",
         "errors.skill_input_validation",
+        "errors.skill_missing_mode",
+        "errors.skill_runtime_unavailable",
+        "errors.skill_spawn_failed",
+        "errors.skill_failed",
+        "errors.skill_inline_missing_tools",
+        "errors.subagent_unknown",
+        "errors.subagent_timeout",
+        "errors.subagent_terminated",
+        "errors.subagent_budget_exhausted",
+        "errors.subagent_spawn_refused",
+        "errors.subagent_failed",
+        "errors.plugin_arg_path_escape",
+        "errors.plugin_arg_file_missing",
+        "errors.plugin_file_transfer_failed",
+        "errors.plugin_bad_response_type",
+        "errors.plugin_missing_success_field",
+        "errors.plugin_call_timeout",
+        "errors.plugin_crashed",
+        "errors.memory_unavailable",
+        "errors.activate_domain_not_wired",
+        "errors.binder_field_unresolved",
+        "errors.binder_text_below_min",
+        "errors.binder_text_above_max",
+        "errors.binder_items_below_min",
+        "errors.binder_items_above_max",
+        "errors.binder_item_text_below_min",
+        "errors.artifact_ref_not_found_hint",
         "ui.session_title",
         "ui.step_label",
         "ui.agent_name",
@@ -122,14 +157,119 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     "behavioral.periodic_reminder": (
         "# Periodic Reminder\n" "- Review progress.\n" "- Adjust approach if needed.\n"
     ),
-    "errors.tool_timeout": ("Tool '{{ tool_name }}' timed out after {{ timeout }}s.\n"),
-    "errors.permission_denied": ("Permission denied for tool '{{ tool_name }}'.\n"),
-    "errors.tool_not_found": ("Tool '{{ tool_name }}' not found.\n"),
-    "errors.internal_error": ("Internal error occurred: {{ error_message }}.\n"),
+    "errors.tool_timeout": ("Tool '{{ tool_name }}' timed out after {{ timeout_seconds }}s.\n"),
+    "errors.tool_arg_parse": (
+        "Failed to parse arguments for tool '{{ tool_name }}'. "
+        "Raw arguments: {{ raw_arguments }}\n"
+    ),
+    "errors.tool_exception": ("Tool '{{ tool_name }}' raised an exception: {{ error }}\n"),
+    "errors.tool_not_found": (
+        "Tool '{{ tool_name }}' is not registered and cannot be called. "
+        "Available tools: {{ available_tools }}. Use one of the available "
+        "tools, or answer with text directly.\n"
+    ),
+    "errors.tool_max_calls_exceeded": (
+        "Tool '{{ tool_name }}' has been called {{ count }} times, exceeding "
+        "the limit of {{ limit }}.\n"
+    ),
+    "errors.tool_max_consecutive_exceeded": (
+        "Tool '{{ tool_name }}' has been called {{ count }} consecutive "
+        "times, exceeding the limit of {{ limit }}.\n"
+    ),
+    "errors.tool_missing_param": (
+        "Tool '{{ tool_name }}' is missing required parameter "
+        "'{{ param_name }}'{% if hint %} ({{ hint }}){% endif %}.\n"
+    ),
+    "errors.result_unknown_error": (
+        "'{{ actor_name }}' failed without returning a specific error message.\n"
+    ),
+    "errors.artifact_store_unavailable": ("Artifact store is unavailable; cannot {{ action }}.\n"),
+    "errors.permission_denied": (
+        "Permission denied: the following tools were refused: {{ denied_tools }}.\n"
+    ),
+    "errors.internal_error": ("Internal error: {{ message }}.\n"),
+    "errors.model_error": ("Model call failed: {{ error }}.\n"),
     "errors.skill_input_validation": (
         "Skill '{{ skill_name }}' received invalid input.\n"
         "{{ error_details }}\n"
         "Fix the listed fields and call the skill again."
+    ),
+    "errors.skill_missing_mode": (
+        "Skill '{{ skill_name }}' requires a 'mode' parameter. Use "
+        'mode="subagent" (complex task) or mode="inline" (simple task).\n'
+    ),
+    "errors.skill_runtime_unavailable": (
+        "Skill '{{ skill_name }}' cannot run: AgentRuntime is unavailable.\n"
+    ),
+    "errors.skill_spawn_failed": ("Failed to spawn skill '{{ skill_name }}': {{ error }}\n"),
+    "errors.skill_failed": ("Skill '{{ skill_name }}' failed: {{ error }}\n"),
+    "errors.skill_inline_missing_tools": (
+        "Inline mode cannot execute skill '{{ skill_name }}': missing "
+        "required tools {{ missing_tools }}. Use mode='subagent' to run an "
+        "isolated sub-agent, or fetch data via list_artifacts / get_artifact "
+        "from the artifact store.\n"
+    ),
+    "errors.subagent_unknown": ("Unknown agent or skill: {{ agent_name }}\n"),
+    "errors.subagent_timeout": ("Sub-agent timed out after {{ timeout_seconds }}s\n"),
+    "errors.subagent_terminated": ("Sub-agent was terminated\n"),
+    "errors.subagent_budget_exhausted": (
+        "Cumulative runtime budget exhausted ({{ used_seconds }}s / " "{{ limit_seconds }}s)\n"
+    ),
+    "errors.subagent_spawn_refused": ("Cannot spawn sub-agent {{ agent_name }}: {{ reason }}\n"),
+    "errors.subagent_failed": ("Sub-agent execution failed: {{ error }}\n"),
+    "errors.plugin_arg_path_escape": (
+        "Argument {{ param_name }} escapes the upload directory and was " "rejected: {{ value }}\n"
+    ),
+    "errors.plugin_arg_file_missing": (
+        "File referenced by argument {{ param_name }} does not exist: {{ value }}\n"
+    ),
+    "errors.plugin_file_transfer_failed": (
+        "Failed to transfer file to object storage: {{ error }}\n"
+    ),
+    "errors.plugin_bad_response_type": (
+        "Plugin {{ plugin_name }} tool {{ tool_name }} returned an unexpected "
+        "response type: {{ response_type }}\n"
+    ),
+    "errors.plugin_missing_success_field": (
+        "Plugin {{ plugin_name }} tool {{ tool_name }} response is missing " "the 'success' field\n"
+    ),
+    "errors.plugin_call_timeout": (
+        "Plugin '{{ plugin_name }}' call timed out ({{ timeout }}s); retry or " "split the task\n"
+    ),
+    "errors.plugin_crashed": ("Plugin '{{ plugin_name }}' crashed or disconnected\n"),
+    "errors.memory_unavailable": (
+        "Memory is unavailable (the current context manager does not support " "the memory tier).\n"
+    ),
+    "errors.activate_domain_not_wired": (
+        "Activator not wired: activate_domain requires a DomainActivator "
+        "bound at orchestrator build time\n"
+    ),
+    "errors.binder_field_unresolved": (
+        "Could not resolve required field {{ field_name }} (type {{ artifact_type }})"
+    ),
+    "errors.binder_text_below_min": (
+        "Field {{ field_name }}: text length {{ length }} is below minimum "
+        "{{ min_chars }} characters"
+    ),
+    "errors.binder_text_above_max": (
+        "Field {{ field_name }}: text length {{ length }} exceeds maximum "
+        "{{ max_chars }} characters"
+    ),
+    "errors.binder_items_below_min": (
+        "Field {{ field_name }}: {{ length }} items is below minimum {{ min_items }}"
+    ),
+    "errors.binder_items_above_max": (
+        "Field {{ field_name }}: {{ length }} items exceeds maximum {{ max_items }}"
+    ),
+    "errors.binder_item_text_below_min": (
+        "Field {{ field_name }}: item {{ index }} has {{ length }} chars, "
+        "below minimum {{ item_min_chars }}"
+    ),
+    "errors.artifact_ref_not_found_hint": (
+        "This reference does not exist or is outside the current task's "
+        "visibility. Use a result_id actually returned by a tool in the "
+        "current task chain, or call list_artifacts first to see available "
+        "artifacts."
     ),
     "ui.session_title": "{{ title }}",
     "ui.step_label": "Step {{ index }}: {{ label }}",

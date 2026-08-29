@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from courtier.prompts.errors import render_error
+
 from .models import (
     Artifact,
     InputField,
@@ -112,32 +114,49 @@ def validate_materialized_value(
     if isinstance(value, str):
         min_chars = constraints.get("min_chars")
         if isinstance(min_chars, int) and len(value) < min_chars:
-            return (
-                f"Field {field.name}: text length {len(value)} is below "
-                f"minimum {min_chars} characters"
+            return render_error(
+                "errors.binder_text_below_min",
+                field_name=field.name,
+                length=len(value),
+                min_chars=min_chars,
             )
         max_chars = constraints.get("max_chars")
         if isinstance(max_chars, int) and len(value) > max_chars:
-            return (
-                f"Field {field.name}: text length {len(value)} exceeds "
-                f"maximum {max_chars} characters"
+            return render_error(
+                "errors.binder_text_above_max",
+                field_name=field.name,
+                length=len(value),
+                max_chars=max_chars,
             )
     # min_items / max_items for list values
     if isinstance(value, list):
         min_items = constraints.get("min_items")
         if isinstance(min_items, int) and len(value) < min_items:
-            return f"Field {field.name}: {len(value)} items is below " f"minimum {min_items}"
+            return render_error(
+                "errors.binder_items_below_min",
+                field_name=field.name,
+                length=len(value),
+                min_items=min_items,
+            )
         max_items = constraints.get("max_items")
         if isinstance(max_items, int) and len(value) > max_items:
-            return f"Field {field.name}: {len(value)} items exceeds " f"maximum {max_items}"
+            return render_error(
+                "errors.binder_items_above_max",
+                field_name=field.name,
+                length=len(value),
+                max_items=max_items,
+            )
         # item_min_chars for list items
         item_min_chars = constraints.get("item_min_chars")
         if isinstance(item_min_chars, int):
             for i, item in enumerate(value):
                 if isinstance(item, str) and len(item) < item_min_chars:
-                    return (
-                        f"Field {field.name}: item {i} has {len(item)} chars, "
-                        f"below minimum {item_min_chars}"
+                    return render_error(
+                        "errors.binder_item_text_below_min",
+                        field_name=field.name,
+                        index=i,
+                        length=len(item),
+                        item_min_chars=item_min_chars,
                     )
     return None
 

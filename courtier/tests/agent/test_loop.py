@@ -255,7 +255,8 @@ class TestAgentLoop:
         )
 
         assert final.status == "blocked"
-        assert "Permission denied" in (final.termination_reason or "")
+        assert "权限不足" in (final.termination_reason or "")
+        assert "echo" in (final.termination_reason or "")
 
     @pytest.mark.asyncio
     async def test_tool_execution_error(self):
@@ -528,7 +529,7 @@ class TestModelErrorEvents:
         )
 
         assert final.status == "error"
-        assert "internal_error" in (final.termination_reason or "")
+        assert "内部错误" in (final.termination_reason or "")
         events = []
         while not sub.queue.empty():
             events.append(sub.queue.get_nowait())

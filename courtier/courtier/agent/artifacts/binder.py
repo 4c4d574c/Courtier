@@ -38,16 +38,16 @@ class ContractBinder:
         producers: dict[str, list[str]] | None = None,
     ) -> ToolResult:
         """Auto-bind missing tool input fields from artifacts."""
-        missing_fields = tuple(
-            f for f in fields
-            if f.required and f.name not in explicit_kwargs
-        )
+        missing_fields = tuple(f for f in fields if f.required and f.name not in explicit_kwargs)
         if not missing_fields:
-            emit_event("tool_arguments_bound", {
-                "tool": tool_name,
-                "fields": [],
-                "source": "explicit",
-            })
+            emit_event(
+                "tool_arguments_bound",
+                {
+                    "tool": tool_name,
+                    "fields": [],
+                    "source": "explicit",
+                },
+            )
             return ToolResult(
                 success=True,
                 data={
@@ -67,11 +67,14 @@ class ContractBinder:
         )
         if resolution.status != "resolved":
             messages = [d.message for d in resolution.diagnostics]
-            emit_event("tool_binding_failed", {
-                "tool": tool_name,
-                "missing_fields": [f.name for f in missing_fields],
-                "suggestions": list(resolution.suggested_actions),
-            })
+            emit_event(
+                "tool_binding_failed",
+                {
+                    "tool": tool_name,
+                    "missing_fields": [f.name for f in missing_fields],
+                    "suggestions": list(resolution.suggested_actions),
+                },
+            )
             return ToolResult(success=False, error="; ".join(messages))
 
         executor = ProjectionExecutor(
@@ -93,20 +96,26 @@ class ContractBinder:
             arguments[name] = binding.value
             artifact_bindings[name] = binding.artifact_id
         if validation_errors:
-            emit_event("tool_binding_failed", {
-                "tool": tool_name,
-                "reason": "constraint_validation",
-                "errors": validation_errors,
-            })
+            emit_event(
+                "tool_binding_failed",
+                {
+                    "tool": tool_name,
+                    "reason": "constraint_validation",
+                    "errors": validation_errors,
+                },
+            )
             return ToolResult(
                 success=False,
                 error="; ".join(validation_errors),
             )
-        emit_event("tool_arguments_bound", {
-            "tool": tool_name,
-            "fields": list(artifact_bindings.keys()),
-            "source": "auto_binding",
-        })
+        emit_event(
+            "tool_arguments_bound",
+            {
+                "tool": tool_name,
+                "fields": list(artifact_bindings.keys()),
+                "source": "auto_binding",
+            },
+        )
         return ToolResult(
             success=True,
             data={"arguments": arguments, "artifact_bindings": artifact_bindings},

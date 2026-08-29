@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from ....prompts.errors import render_error
 from ...artifacts.models import RuntimePolicy
 from ...core.execution_result import ExecutionResult
 from ...skills.config import SkillConfig
@@ -179,16 +180,22 @@ class SkillTool:
         if not mode:
             return ToolResult(
                 success=False,
-                error=(
-                    f"Skill {self.name} requires a 'mode' parameter. "
-                    f'请指定 mode="subagent"（复杂任务）或 mode="inline"（简单任务）。'
+                error=render_error(
+                    "errors.skill_missing_mode",
+                    skill_name=self.name,
+                    engine=self._prompt_engine,
                 ),
             )
 
         if not task:
             return ToolResult(
                 success=False,
-                error=f"Skill {self.name} requires a 'task' argument",
+                error=render_error(
+                    "errors.tool_missing_param",
+                    tool_name=self.name,
+                    param_name="task",
+                    engine=self._prompt_engine,
+                ),
             )
 
         # Typed data fields (e.g. document) — validated against the skill's
@@ -237,7 +244,11 @@ class SkillTool:
         if self._runtime is None:
             return ToolResult(
                 success=False,
-                error=f"AgentRuntime not available for skill {self.name}",
+                error=render_error(
+                    "errors.skill_runtime_unavailable",
+                    skill_name=self.name,
+                    engine=self._prompt_engine,
+                ),
             )
 
         context: dict[str, str] | None = None
@@ -256,7 +267,12 @@ class SkillTool:
             logger.exception("Failed to spawn skill %s", self.name)
             return ToolResult(
                 success=False,
-                error=f"Failed to spawn skill {self.name}: {exc}",
+                error=render_error(
+                    "errors.skill_spawn_failed",
+                    skill_name=self.name,
+                    error=str(exc),
+                    engine=self._prompt_engine,
+                ),
             )
 
         try:
@@ -273,7 +289,12 @@ class SkillTool:
             logger.exception("Skill %s delegation failed", self.name)
             return ToolResult(
                 success=False,
-                error=f"Skill {self.name} failed: {exc}",
+                error=render_error(
+                    "errors.skill_failed",
+                    skill_name=self.name,
+                    error=str(exc),
+                    engine=self._prompt_engine,
+                ),
             )
         finally:
             await self._runtime.terminate(handle)
@@ -314,7 +335,12 @@ class SkillTool:
         if not result.success:
             return ToolResult(
                 success=False,
-                error=result.error or f"Skill {self.name} returned an error",
+                error=result.error
+                or render_error(
+                    "errors.result_unknown_error",
+                    actor_name=self.name,
+                    engine=self._prompt_engine,
+                ),
                 metadata=metadata,
             )
 
@@ -349,11 +375,11 @@ class SkillTool:
             if missing:
                 return ToolResult(
                     success=False,
-                    error=(
-                        f"inline 模式无法执行 Skill '{self.name}'："
-                        f"缺少必要工具 {sorted(missing)}。"
-                        f"请使用 mode='subagent' 启动独立子代理执行，"
-                        f"或通过 list_artifacts / get_artifact 从 artifact store 获取数据。"
+                    error=render_error(
+                        "errors.skill_inline_missing_tools",
+                        skill_name=self.name,
+                        missing_tools=sorted(missing),
+                        engine=self._prompt_engine,
                     ),
                 )
 

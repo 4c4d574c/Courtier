@@ -19,6 +19,7 @@ from courtier.agent.core.state import AgentState
 from courtier.agent.skills.config import SkillConfig
 from courtier.agent.skills.registry import SkillRegistry
 from courtier.agent.tools.registry import ToolRegistry
+from courtier.prompts.errors import render_error
 
 from .budget import AgentRuntimeBudget
 from .handle import AgentHandle
@@ -170,7 +171,7 @@ class AgentRuntime:
         """Spawn a sub-agent and return its handle."""
         config = self._configs.get(name)
         if config is None:
-            raise ValueError(f"Unknown agent or skill: {name!r}")
+            raise ValueError(render_error("errors.subagent_unknown", agent_name=repr(name)))
 
         if parent_handle is not None:
             effective_budget = parent_handle.budget
@@ -181,7 +182,9 @@ class AgentRuntime:
 
         allowed, reason = effective_budget.can_spawn(name)
         if not allowed:
-            raise RuntimeError(f"Cannot spawn {name!r}: {reason}")
+            raise RuntimeError(
+                render_error("errors.subagent_spawn_refused", agent_name=repr(name), reason=reason)
+            )
 
         handle_id = f"h-{uuid4().hex[:16]}"
         child_budget = effective_budget.allocate_child(
@@ -243,7 +246,7 @@ class AgentRuntime:
             return ExecutionResult.from_error(
                 actor_type=config.agent_type if config else "agent",
                 actor_name=handle.agent_name,
-                error=f"Unknown agent or skill: {handle.agent_name!r}",
+                error=render_error("errors.subagent_unknown", agent_name=repr(handle.agent_name)),
             )
 
         await self._emit_event(
@@ -300,10 +303,10 @@ class AgentRuntime:
             return ExecutionResult.from_error(
                 actor_type=config.agent_type,
                 actor_name=handle.agent_name,
-                error=(
-                    f"Cumulative runtime budget exhausted "
-                    f"({current_cumulative:.1f}s / "
-                    f"{handle.budget.max_cumulative_runtime_seconds:.1f}s)"
+                error=render_error(
+                    "errors.subagent_budget_exhausted",
+                    used_seconds=f"{current_cumulative:.1f}",
+                    limit_seconds=f"{handle.budget.max_cumulative_runtime_seconds:.1f}",
                 ),
                 metadata={"handle_id": handle.handle_id},
             )
@@ -378,7 +381,7 @@ class AgentRuntime:
             return ExecutionResult.from_error(
                 actor_type=config.agent_type,
                 actor_name=handle.agent_name,
-                error=f"Sub-agent timed out after {runtime_seconds}s",
+                error=render_error("errors.subagent_timeout", timeout_seconds=runtime_seconds),
                 metadata={
                     "handle_id": handle.handle_id,
                     "timeout_seconds": runtime_seconds,
@@ -388,7 +391,7 @@ class AgentRuntime:
             return ExecutionResult.from_error(
                 actor_type=config.agent_type,
                 actor_name=handle.agent_name,
-                error="Sub-agent was terminated",
+                error=render_error("errors.subagent_terminated"),
                 metadata={"handle_id": handle.handle_id},
             )
         except Exception as exc:
@@ -396,7 +399,7 @@ class AgentRuntime:
             return ExecutionResult.from_error(
                 actor_type=config.agent_type,
                 actor_name=handle.agent_name,
-                error=str(exc),
+                error=render_error("errors.subagent_failed", error=str(exc)),
                 metadata={"handle_id": handle.handle_id},
             )
         finally:

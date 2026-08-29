@@ -8,6 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ..prompts.errors import render_error
 from .protocol import JSONRPCNotification, JSONRPCRequest
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ class PluginCrashedError(Exception):
 
     def __init__(self, plugin_name: str):
         self.plugin_name = plugin_name
-        super().__init__(f"Plugin '{plugin_name}' crashed or disconnected")
+        super().__init__(render_error("errors.plugin_crashed", plugin_name=plugin_name))
 
 
 class JSONRPCClient:
@@ -313,9 +314,11 @@ class JSONRPCClient:
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
             # Bare TimeoutError stringifies to "" — the model would see an
-            # empty error.  Re-raise with an actionable Chinese message.
+            # empty error.  Re-raise with an actionable message.
             raise asyncio.TimeoutError(
-                f"插件 '{self.plugin_name}' 调用超时（{timeout:g}s），请重试或拆分任务"
+                render_error(
+                    "errors.plugin_call_timeout", plugin_name=self.plugin_name, timeout=timeout
+                )
             ) from None
 
         # The _dispatch sets the raw response dict as the future result.

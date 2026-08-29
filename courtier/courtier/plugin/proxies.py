@@ -15,6 +15,7 @@ from courtier_plugin_sdk.types import ComplianceResult, Violation
 from courtier.agent.artifacts.models import InputField, RuntimePolicy
 from courtier.agent.tools.protocol import OnToolProgress, ToolResult
 from courtier.agent.tools.summary import ToolSummary, summarize_result
+from courtier.prompts.errors import render_error
 
 
 @runtime_checkable
@@ -120,9 +121,9 @@ class ProxyTool:
             p = Path(value)
             resolved = p.resolve() if p.is_absolute() else (upload_root / p).resolve()
             if not resolved.is_relative_to(upload_root):
-                return f"参数 {name} 的路径越出上传目录，已拒绝: {value}"
+                return render_error("errors.plugin_arg_path_escape", param_name=name, value=value)
             if not resolved.is_file():
-                return f"参数 {name} 指向的文件不存在: {value}"
+                return render_error("errors.plugin_arg_file_missing", param_name=name, value=value)
 
             rel = resolved.relative_to(upload_root)
             stat = resolved.stat()
@@ -135,15 +136,13 @@ class ProxyTool:
             try:
                 exists = await asyncio.to_thread(storage_client.object_exists, bucket, key)
                 if not exists:
-                    ctype = (
-                        mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
-                    )
+                    ctype = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
                     await asyncio.to_thread(
                         storage_client.fput_object, bucket, key, str(resolved), ctype
                     )
             except Exception as exc:
                 logger.warning("file-ref transfer to MinIO failed: %s", key, exc_info=True)
-                return f"文件转存对象存储失败: {exc}"
+                return render_error("errors.plugin_file_transfer_failed", error=str(exc))
 
             ref = f"minio://{bucket}/{key}"
             args[name] = ref
@@ -184,16 +183,20 @@ class ProxyTool:
         if not isinstance(resp, dict):
             return ToolResult(
                 success=False,
-                error=(
-                    f"插件 {self._client.plugin_name} 工具 {self.name} "
-                    f"返回了非预期的响应类型: {type(resp).__name__}"
+                error=render_error(
+                    "errors.plugin_bad_response_type",
+                    plugin_name=self._client.plugin_name,
+                    tool_name=self.name,
+                    response_type=type(resp).__name__,
                 ),
             )
         if "success" not in resp:
             return ToolResult(
                 success=False,
-                error=(
-                    f"插件 {self._client.plugin_name} 工具 {self.name} " f"响应缺少 'success' 字段"
+                error=render_error(
+                    "errors.plugin_missing_success_field",
+                    plugin_name=self._client.plugin_name,
+                    tool_name=self.name,
                 ),
                 metadata=resp,
             )
