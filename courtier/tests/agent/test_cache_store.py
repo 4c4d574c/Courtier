@@ -19,7 +19,6 @@ def cache_store(tmp_path):
     )
 
 
-@pytest.mark.asyncio
 class TestCacheStorePersistJson:
     """Tests for the JSON persist layer of CacheStore."""
 
@@ -209,7 +208,6 @@ class TestCacheStorePersistJson:
         assert cache_store._REF_PATTERN.match(result.ref_id) is not None
 
 
-@pytest.mark.asyncio
 class TestCacheStorePersistText:
     """Tests for plain text persist support."""
 
@@ -246,7 +244,6 @@ class TestCacheStorePersistText:
         assert result.data["file"].endswith(".txt")
 
 
-@pytest.mark.asyncio
 class TestCacheStoreResolveRefs:
     """Tests for recursive $ref resolution in resolve_refs()."""
 
@@ -312,7 +309,6 @@ class TestCacheStoreResolveRefs:
         assert resolved["query"] == ref_id
 
 
-@pytest.mark.asyncio
 class TestCacheStoreTypeAdaptive:
     """Tests for type-adaptive resolution in resolve_refs()."""
 
@@ -405,7 +401,6 @@ class TestCacheStoreTypeAdaptive:
         assert resolved["flag"] is True
 
 
-@pytest.mark.asyncio
 class TestCacheStoreLabel:
     """Tests for label support in persist()."""
 
@@ -422,7 +417,6 @@ class TestCacheStoreLabel:
         assert result.data["label"] == "my_result"
 
 
-@pytest.mark.asyncio
 class TestCacheStoreSourceMetadata:
     """Tests for source metadata in persist()."""
 
@@ -451,7 +445,6 @@ class TestCacheStoreSourceMetadata:
         assert "query" not in result.data["source"]
 
 
-@pytest.mark.asyncio
 class TestCacheStoreLoad:
     """Tests for load(), exists(), and get_info() methods."""
 
@@ -500,7 +493,6 @@ class TestCacheStoreLoad:
         assert cache_store.get_info(ref_id) is None
 
 
-@pytest.mark.asyncio
 class TestCacheStoreEndToEnd:
     """End-to-end tests for the full CacheStore + ToolRegistry pipeline."""
 
@@ -545,7 +537,6 @@ class TestCacheStoreEndToEnd:
         assert r2.data.get("source", {}).get("query") == ".docs[1].id"
 
 
-@pytest.mark.asyncio
 class TestCacheStoreObjectSchemaStrict:
     """_load_and_adapt should be strict about object vs array schema types."""
 
@@ -576,7 +567,6 @@ class TestCacheStoreObjectSchemaStrict:
         assert resolved["query"] == data
 
 
-@pytest.mark.asyncio
 class TestCacheStoreHashIndexSalt:
     """Version-salted dedup keys and bounded hash-index growth."""
 
@@ -629,7 +619,6 @@ class TestCacheStoreHashIndexSalt:
         assert all(v["ref_id"] == r2.ref_id for v in index_after.values())
 
 
-@pytest.mark.asyncio
 class TestRefStringAdaptation:
     """Persisted dicts adapted to a string parameter yield the document
     text, not the serialized wrapper object."""
