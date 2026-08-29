@@ -91,6 +91,21 @@ class TestMemoryManager:
         assert tokens > 0
 
 
+    async def test_fork_sub_name_isolates_session_memory_shares_long_term(
+        self, manager, tmp_path
+    ):
+        """6.6 (修复验证 F3) fork 后 session 记忆与父隔离、long_term 双向共享。"""
+        child = manager.fork(sub_name="h1")
+        await manager.session_set("k", "parent")
+        await child.session_set("k", "child")
+        assert await manager.session_get("k") == "parent"
+        assert await child.session_get("k") == "child"
+
+        await child.long_term_set("rule", "cite sources")
+        other = MemoryManager(cache_dir=str(tmp_path / "cache"), session_id="sess_other")
+        assert await other.long_term_get("rule") == "cite sources"
+
+
 class TestRetrieveQueryTerms:
     """6.2 (修复验证 F4) CJK bigram 查询切词的得分语义。"""
 

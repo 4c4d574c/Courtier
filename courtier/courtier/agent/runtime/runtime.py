@@ -268,8 +268,14 @@ class AgentRuntime:
         if context_manager is not None:
             # Sub-agents share the cache store but get an independent
             # CompactState — their compactions must not interleave with the
-            # parent's guard and numbering.
-            cm = context_manager.fork()
+            # parent's guard and numbering.  A MemoryManager parent keeps
+            # the memory tiers alive in the child, scoped to a per-handle
+            # session namespace so parallel or nested sub-agents do not
+            # clobber each other's session memory.
+            if isinstance(context_manager, MemoryManager):
+                cm = context_manager.fork(sub_name=handle.handle_id)
+            else:
+                cm = context_manager.fork()
         else:
             cm = MemoryManager(
                 model=self.model,

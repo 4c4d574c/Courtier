@@ -215,6 +215,36 @@ class MemoryManager(ContextManager):
         self._working_summary = _build_summary(compacted)
         return compacted
 
+    # -- Forking ---------------------------------------------------------------
+
+    def fork(self, sub_name: str | None = None) -> "MemoryManager":
+        """Fork for sub-agents, keeping the four memory tiers.
+
+        Unlike ``ContextManager.fork`` — which returns a plain
+        ContextManager by design — a MemoryManager fork stays a
+        MemoryManager.  With *sub_name* the child gets an isolated session
+        namespace ``{parent}:sub:{sub_name}`` (nested forks chain
+        naturally); without it the parent namespace is shared.  The memory
+        store — and therefore the long-term tier — is shared either way;
+        the working summary and CompactState start fresh.
+        """
+        return MemoryManager(
+            model=self._model,
+            cache_dir=str(self._cache_dir),
+            memory_store=self._memory_store,
+            session_id=(
+                f"{self.session_id}:sub:{sub_name}" if sub_name else self.session_id
+            ),
+            max_context_tokens=self.max_context_tokens,
+            micro_compact_tokens=self.micro_compact_tokens,
+            compact_target_tokens=self.compact_target_tokens,
+            recent_tool_results_tokens=self.recent_tool_results_tokens,
+            large_output_threshold=self.large_output_threshold,
+            compact_prompt_template=self._compact_prompt_template,
+            compact_merge_prompt_template=self._compact_merge_prompt_template,
+            artifact_store=self._cache,
+        )
+
     # -- Helpers --------------------------------------------------------------
 
     def _session_ns(self) -> str:
