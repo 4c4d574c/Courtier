@@ -272,6 +272,7 @@ class AgentRuntime:
             # the memory tiers alive in the child, scoped to a per-handle
             # session namespace so parallel or nested sub-agents do not
             # clobber each other's session memory.
+            cm: ContextManager
             if isinstance(context_manager, MemoryManager):
                 cm = context_manager.fork(sub_name=handle.handle_id)
             else:

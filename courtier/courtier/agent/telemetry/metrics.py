@@ -88,7 +88,8 @@ MODEL_STREAM_TOOL_CALLS_LOST_TOTAL = Counter(
 CONTEXT_COMPACTION_TOTAL = Counter(
     "context_compaction_total",
     "Context compactions by type",
-    ["type"],  # type: "full", "micro", "fallback", "failed"
+    # label values: "full", "micro", "fallback", "failed"
+    ["type"],
 )
 
 CONTEXT_REF_RECOVER_TOTAL = Counter(
