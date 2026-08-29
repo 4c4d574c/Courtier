@@ -564,6 +564,22 @@ class TestLayer2MicroCompact:
         assert pb["success"] is False and "ref_id" not in pb
         assert pc["ref_id"].startswith("$ref:parse_document:") and pc["success"] is True
 
+    async def test_fresh_persist_placeholder_carries_file_on_disk(self, mgr):
+        """迁移补充：fresh-persist 占位符带 file 路径且文件真实存在。"""
+        from pathlib import Path
+
+        msgs = (
+            system("S"),
+            user("U"),
+            tool_msg('{"raw_data":{"text":"旧结果"}}', "t1", "tool1"),
+            tool_msg('{"raw_data":"n1"}', "t2", "t2"),
+            tool_msg('{"raw_data":"n2"}', "t3", "t3"),
+        )
+        result = await mgr.micro_compact(msgs)
+        placeholder = json.loads(result[2].content or "")
+        assert placeholder["file"].endswith(".json")
+        assert Path(placeholder["file"]).exists()
+
     async def test_compacted_history_still_proves_successful_parse(self, mgr):
         """迁移（端到端）：成功的 parse 被微压缩后 parse 守卫不再要求重解析。"""
         from courtier.agent.agents.base import _has_successful_call_for
@@ -650,6 +666,22 @@ class TestLayer3FullCompaction:
         result = await mgr.compact_if_needed(msgs, on_compact_start=_on_start)
         assert result is msgs
         assert called is False
+
+    async def test_on_compact_start_fires_before_llm_when_over_budget(
+        self, mgr, mock_model
+    ):
+        """迁移：超预算时 on_compact_start 恰好触发一次，且先于 LLM 总结。"""
+        msgs = tuple(user("x" * 3000) for _ in range(3))
+        calls = 0
+
+        async def _on_start() -> None:
+            nonlocal calls
+            calls += 1
+            mock_model.generate.assert_not_called()
+
+        result = await mgr.compact_if_needed(msgs, on_compact_start=_on_start)
+        assert calls == 1
+        assert len(result) < len(msgs)
 
     async def test_over_budget_compacts_once(self, mgr, mock_model):
         """迁移：超预算触发压缩，状态与编号正确。"""
@@ -1072,7 +1104,7 @@ class TestBuildSummary:
 
 class TestFindLastRealUser:
     def test_skips_reminders_and_empty_content(self):
-        """迁移：提醒与空内容不算真实用户消息。"""
+        """迁移：提醒（pre-turn 与 periodic）与空内容不算真实用户消息。"""
         real = user("审核这份公文")
         msgs = [
             system("Sys"),
@@ -1082,6 +1114,9 @@ class TestFindLastRealUser:
             user(""),
         ]
         assert _find_last_real_user(msgs) is real
+        assert _find_last_real_user(
+            [real, reminder_msg(PERIODIC_REMINDER)]
+        ) is real
 
     def test_only_reminders_returns_none(self):
         assert _find_last_real_user([reminder_msg(PRE_TURN_REMINDER)]) is None
