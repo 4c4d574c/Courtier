@@ -66,7 +66,7 @@ class AgentConfig:
 class AgentRuntime:
     """Manages spawned sub-agents, budgets, and result summarization."""
 
-    tool_registry: ToolRegistry
+    tool_registry: ToolRegistry | None
     model: ModelClient
     skill_registry: SkillRegistry | None = None
     artifact_store: Any | None = None  # ArtifactStore (subsumes the legacy CacheStore)
@@ -97,7 +97,9 @@ class AgentRuntime:
         store = self.artifact_store
         if self.summarizer is None and store is not None:
             self.summarizer = ResultSummarizer(artifact_store=store)
-        if hasattr(self.tool_registry, "configure_result_handling"):
+        if self.tool_registry is not None and hasattr(
+            self.tool_registry, "configure_result_handling"
+        ):
             self.tool_registry.configure_result_handling(
                 result_store=None,
                 summarizer=self.summarizer,
@@ -115,7 +117,7 @@ class AgentRuntime:
         """
         if registry is None:
             registry = self.skill_registry
-        if registry is None:
+        if registry is None or self.tool_registry is None:
             return
         available_tools = {t.name for t in self.tool_registry.list_tools()}
         available_skills: set[str] = {s.name for s in registry.list_enabled()}
@@ -456,6 +458,8 @@ class AgentRuntime:
         # Resolve tools: look up in ToolRegistry first, with skill fallback
         # for backward compatibility (old format mixed tools + skills in one field).
         for name in config.tools:
+            if self.tool_registry is None:  # no registry → nothing to resolve
+                break
             try:
                 tool = self.tool_registry.get(name)
                 resolved.append(tool)

@@ -51,3 +51,12 @@ class ScopedTool:
         if hasattr(self._inner, "execute"):
             return await self._inner.execute(**merged)
         raise TypeError(f"ScopedTool inner tool {self.name!r} has no execute()")
+
+    def summarize(self, result: Any) -> Any:
+        """Delegate to the wrapped tool's summarizer (ToolProtocol conformance)."""
+        inner_summarize = getattr(self._inner, "summarize", None)
+        if callable(inner_summarize):
+            return inner_summarize(result)
+        from .summary import summarize_result
+
+        return summarize_result(result)

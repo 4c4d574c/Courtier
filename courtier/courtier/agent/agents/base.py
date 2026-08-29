@@ -9,7 +9,7 @@ import platform
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from courtier.agent.core.execution_result import ExecutionResult
@@ -27,6 +27,9 @@ from ..memory.store import MemoryStore
 from ..permissions.gate import PermissionGate
 from ..prompts.pipeline import PromptPipeline
 from ..tools.protocol import ToolProgress, ToolProtocol
+
+if TYPE_CHECKING:
+    from ..runtime.activation import DomainActivator
 from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -178,6 +181,10 @@ class Agent:
         )
         result = await agent.run("echo hello world")
     """
+
+    #: Set by the API layer (agent_service) on the orchestrator so the
+    #: stream runner can persist the session's active-domain set.
+    _domain_activator: "DomainActivator | None"
 
     def __init__(
         self,

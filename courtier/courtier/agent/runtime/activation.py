@@ -134,7 +134,7 @@ class DomainActivator:
         courtier_config: "CourtierConfig",
         agent_runtime: "AgentRuntime",
         plugin_system: Any,
-        prompt_engine: PromptEngine,
+        prompt_engine: PromptEngine | None,
         shared_plugin_names: set[str],
         agent: "Agent | None" = None,
     ) -> None:
@@ -179,7 +179,8 @@ class DomainActivator:
         if self._plugin_system is None:
             return None
         try:
-            return self._plugin_system.plugin_domain(plugin_name)
+            domain: str | None = self._plugin_system.plugin_domain(plugin_name)
+            return domain
         except Exception:
             logger.warning("plugin_domain(%s) failed", plugin_name, exc_info=True)
             return None
@@ -314,6 +315,8 @@ class DomainActivator:
         Idempotent: tools already present are left untouched (hot-replacement
         stays owned by the run() sync loop).
         """
+        if self._agent is None:  # attach() not called yet — nothing to inject
+            return
         existing = {t.name for t in self._agent.tool_registry.list_tools()}
         for tool in self._tool_registry.list_tools():
             plugin_name = getattr(getattr(tool, "_client", None), "plugin_name", None)

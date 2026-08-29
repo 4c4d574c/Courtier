@@ -60,6 +60,12 @@ class ActivateDomainTool:
         """Wire the per-orchestrator activator (host-side, not in the schema)."""
         self._activator = activator
 
+    def summarize(self, result: ToolResult) -> Any:
+        """ToolProtocol conformance — activate_domain skips summarization."""
+        from ..summary import summarize_result
+
+        return summarize_result(result)
+
     async def execute(self, domain: str | None = None, **kwargs: Any) -> ToolResult:
         if self._activator is None:
             return ToolResult(

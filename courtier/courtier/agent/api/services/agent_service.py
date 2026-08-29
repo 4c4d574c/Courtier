@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from courtier.prompts.engine import PromptEngine
+
+if TYPE_CHECKING:
+    from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +123,7 @@ def build_model_client(settings: Any) -> Any:
 async def build_agent(
     settings: Any,
     plugin_system: Any = None,
-    tool_registry: Any = None,
+    tool_registry: "ToolRegistry | None" = None,
     courtier_config: Any = None,
     prompt_engine: PromptEngine | None = None,
     owner_id: int | None = None,
@@ -252,7 +255,28 @@ async def build_agent(
     return agent, context_manager, model.model_name
 
 
-def _context_budget_kwargs(settings: Any) -> dict[str, int]:
+class _ContextBudgetKwargs(TypedDict):
+    """Keyword arguments for ContextManager/MemoryManager budget wiring."""
+
+    max_context_tokens: int
+    micro_compact_tokens: int
+    compact_target_tokens: int
+    recent_tool_results_tokens: int
+    preview_max_chars: int
+
+
+class _CompactPromptKwargs(TypedDict, total=False):
+    """Keyword arguments carrying the compaction prompt templates.
+
+    Keys are absent entirely when no PromptEngine is available (bare test
+    environments) — ContextManager then uses its protocol fallbacks.
+    """
+
+    compact_prompt_template: str | None
+    compact_merge_prompt_template: str | None
+
+
+def _context_budget_kwargs(settings: Any) -> _ContextBudgetKwargs:
     """Derive ContextManager token budgets from settings.
 
     Budgets are ratios of the deployed model's context window:
@@ -275,7 +299,7 @@ def _context_budget_kwargs(settings: Any) -> dict[str, int]:
     }
 
 
-def _compact_prompt_kwargs(prompt_engine: PromptEngine | None) -> dict[str, str | None]:
+def _compact_prompt_kwargs(prompt_engine: PromptEngine | None) -> _CompactPromptKwargs:
     """Render the compaction prompt templates from the domain PromptBundle.
 
     The templates keep ``{history}`` / ``{previous_summary}`` /
