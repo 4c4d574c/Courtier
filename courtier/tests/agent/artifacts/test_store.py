@@ -423,3 +423,35 @@ class TestPersistMany:
             tmp_path.chmod(stat.S_IRWXU)
         assert all(r.persisted is False for r in results)
         assert store.ref_map == {}
+
+
+class TestConcurrentSharedStore:
+    async def test_concurrent_batch_and_single_persists_share_store_safely(self, tmp_path):
+        """父子代理共享同一 store 并发落盘：ref 不碰撞、全部可读。
+
+        Covers the runtime scenario where the orchestrator (batching via
+        micro-compact persist_many) and its sub-agents (single persists)
+        hit the same ArtifactStore concurrently.
+        """
+        import asyncio
+
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+
+        async def batch():
+            return await store.persist_many(
+                [("parent_tool", {"text": "p" * 900, "n": i}) for i in range(5)]
+            )
+
+        async def single(i: int):
+            payload = {"text": f"child-{i}-" + "y" * 400}
+            return await store.persist(payload, "child_tool", force=True)
+
+        gathered = await asyncio.gather(batch(), *[single(i) for i in range(10)])
+        batch_results, single_results = gathered[0], gathered[1:]
+
+        all_results = [*batch_results, *single_results]
+        assert all(r.persisted for r in all_results)
+        ref_ids = [r.ref_id for r in all_results]
+        assert len(set(ref_ids)) == len(ref_ids), "ref ids must not collide"
+        for r in all_results:
+            assert store.load(r.ref_id) is not None

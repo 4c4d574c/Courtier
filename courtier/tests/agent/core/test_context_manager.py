@@ -1256,6 +1256,23 @@ class TestStateAndFork:
         assert mgr.state.last_summary is None
         assert mgr.state.compact_count == 0
 
+    def test_load_state_ignores_unknown_extra_fields(self, mgr):
+        """5.2 补充（前向兼容）: v1 payload 带未来附加字段 → 忽略后正常载入。
+
+        版本升级语义：version 变更 = 全新状态（见未知版本用例）；
+        同版本内新增字段必须不破坏旧读取方。
+        """
+        mgr.load_state(
+            {
+                "version": 1,
+                "has_compacted": True,
+                "compact_count": 2,
+                "some_future_field": {"nested": [1, 2]},
+            }
+        )
+        assert mgr.state.has_compacted is True
+        assert mgr.state.compact_count == 2
+
     def test_over_budget_flag_not_persisted_across_restart(self, mgr, tmp_path):
         """5.3 (pin) last_compact_over_budget 不入快照 → 重启后复位。
 

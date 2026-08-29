@@ -171,3 +171,28 @@ class TestForkIsolation:
         await child.long_term_set("rule", "cite sources")
         other = MemoryManager(cache_dir=str(tmp_path / "cache"), session_id="sess_other")
         assert await other.long_term_get("rule") == "cite sources"
+
+
+class TestForkConcurrency:
+    async def test_forked_children_concurrent_writes_stay_isolated(self, manager):
+        """6.6 补充（并发）: 多个子代理并发写各自命名空间互不串扰；
+        long_term 并发写为 last-writer-wins 且不损坏文件。"""
+        import asyncio
+
+        children = [manager.fork(sub_name=f"h{i}") for i in range(3)]
+
+        async def write_session(child, i: int):
+            for n in range(5):
+                await child.session_set(f"key_{i}", f"child-{i}-{n}")
+
+        await asyncio.gather(*[write_session(c, i) for i, c in enumerate(children)])
+
+        for i, child in enumerate(children):
+            assert await child.session_get(f"key_{i}") == f"child-{i}-4"
+        assert await manager.session_get("key_0") is None  # parent namespace untouched
+
+        async def write_long(i: int):
+            await manager.long_term_set("shared", f"v{i}")
+
+        await asyncio.gather(*[write_long(i) for i in range(6)])
+        assert await manager.long_term_get("shared") in {f"v{i}" for i in range(6)}
