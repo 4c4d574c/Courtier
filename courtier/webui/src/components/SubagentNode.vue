@@ -67,9 +67,12 @@
               @keydown.space.prevent="isLongError && (errorExpanded = !errorExpanded)"
             >
               <span class="subagent-error-text">{{ errorPreview }}</span>
-              <span v-if="isLongError" class="subagent-error-toggle">
-                {{ errorExpanded ? "收起" : "展开" }}
-                <AppIcon class="toggle-caret" :name="errorExpanded ? 'caret-up' : 'caret-down'" :size="14" />
+              <span
+                v-if="isLongError"
+                class="subagent-error-toggle"
+                :class="{ 'subagent-disclosure--open': errorExpanded }"
+              >
+                <AppIcon name="chevron-right" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -112,9 +115,11 @@
                 <span v-if="isStreamingThought" class="thinking-dot"></span>
                 子代理思考过程
               </span>
-              <span class="subagent-reasoning-toggle">
-                {{ reasoningExpanded ? "收起" : "展开" }}
-                <AppIcon class="toggle-caret" :name="reasoningExpanded ? 'caret-up' : 'caret-down'" :size="14" />
+              <span
+                class="subagent-reasoning-toggle"
+                :class="{ 'subagent-disclosure--open': reasoningExpanded }"
+              >
+                <AppIcon name="chevron-right" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -172,12 +177,11 @@
               @keydown.space.prevent="toggleConclusion(run.key)"
             >
               <span class="subagent-conclusion-label">子代理结论</span>
-              <span class="subagent-conclusion-toggle">
-                {{ isConclusionExpanded(run.key) ? "收起" : "展开" }}
-                <AppIcon
-                  :name="isConclusionExpanded(run.key) ? 'caret-up' : 'caret-down'"
-                  :size="14"
-                />
+              <span
+                class="subagent-conclusion-toggle"
+                :class="{ 'subagent-disclosure--open': isConclusionExpanded(run.key) }"
+              >
+                <AppIcon name="chevron-right" :size="14" />
               </span>
             </div>
             <Transition name="expand">

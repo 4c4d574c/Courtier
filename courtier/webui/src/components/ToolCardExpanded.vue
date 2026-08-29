@@ -38,7 +38,7 @@
           @click="errorExpanded = !errorExpanded"
         >
           {{ errorExpanded ? "收起" : "查看全文" }}
-          <AppIcon class="toggle-caret" :name="errorExpanded ? 'caret-up' : 'caret-down'" :size="14" />
+          <AppIcon :name="errorExpanded ? 'chevron-down' : 'chevron-right'" :size="14" />
         </button>
       </div>
       <div v-else-if="tool.summary" class="sd-row">

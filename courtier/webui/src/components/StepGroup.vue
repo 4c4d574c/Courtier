@@ -22,9 +22,11 @@
               >分析中…</span
             >
           </span>
-          <span class="thought-segment-toggle">
-            {{ thoughtsExpanded ? "收起" : "展开" }}
-            <AppIcon class="toggle-caret" :name="thoughtsExpanded ? 'caret-up' : 'caret-down'" :size="14" />
+          <span
+            class="thought-segment-toggle"
+            :class="{ 'thought-segment-toggle--open': thoughtsExpanded }"
+          >
+            <AppIcon name="chevron-right" :size="14" />
           </span>
         </div>
         <Transition name="expand">
