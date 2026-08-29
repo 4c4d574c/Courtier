@@ -36,8 +36,8 @@ from courtier.agent.core.memory_manager import MemoryManager
 from courtier.agent.core.state import Message
 
 from .conftest import (
-    PRE_TURN_REMINDER,
     PERIODIC_REMINDER,
+    PRE_TURN_REMINDER,
     assistant,
     compact_summary,
     reminder_msg,
@@ -46,7 +46,6 @@ from .conftest import (
     tool_msg,
     user,
 )
-
 
 # ===========================================================================
 # §1 Token estimation & budget calibration
@@ -604,7 +603,9 @@ class TestReminderDeduplication:
             reminder_msg(PRE_TURN_REMINDER),
         ]
         result = _deduplicate_reminders(msgs)
-        assert sum(1 for m in result if m.content == PRE_TURN_REMINDER and m.source == "reminder") == 1
+        assert (
+            sum(1 for m in result if m.content == PRE_TURN_REMINDER and m.source == "reminder") == 1
+        )
         assert sum(1 for m in result if m.content == PERIODIC_REMINDER) == 1
 
     def test_no_reminders_returns_same_content(self):
@@ -724,7 +725,7 @@ class TestLayer3FullCompaction:
         """4.4 (边界) compact_target_tokens > max_context_tokens 配置倒挂可走通。"""
         mgr = make_manager(max_context_tokens=2000, compact_target_tokens=3000)
         msgs = tuple(user("x" * 3000) for _ in range(3))
-        result = await mgr.compact_if_needed(msgs)
+        await mgr.compact_if_needed(msgs)
         assert mgr.state.has_compacted is True
         assert mgr.state.last_compact_over_budget is False
 

@@ -492,7 +492,9 @@ class TestContextStatePersistence:
         # Run 2: a FRESH manager receives the persisted state via spec;
         # the load-at-start seam restores the guard, the write-at-end seam
         # snapshots it back into the session record.
-        fresh_cm = ContextManager(model=MockModelClient(), cache_dir=str(tmp_path / "fresh"), **budgets)
+        fresh_cm = ContextManager(
+            model=MockModelClient(), cache_dir=str(tmp_path / "fresh"), **budgets
+        )
         run = await manager.start(
             _spec(
                 store,

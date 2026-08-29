@@ -323,7 +323,10 @@ class TestPersistLargeOutput:
         store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
         r1 = (await store.persist({"text": "a" * 1000}, "search_documents")).data
         r2 = (await store.persist({"text": "b" * 1000}, "search_documents")).data
-        assert (r1["ref_id"], r2["ref_id"]) == ("$ref:search_documents:1", "$ref:search_documents:2")
+        assert (r1["ref_id"], r2["ref_id"]) == (
+            "$ref:search_documents:1",
+            "$ref:search_documents:2",
+        )
 
     async def test_ref_map_tracks_all_persisted_outputs(self, tmp_path):
         """迁移：ref_map 登记全部 ref → 文件路径。"""
