@@ -9,7 +9,46 @@ from __future__ import annotations
 
 import json
 
-from .conftest import system, tool_msg, user
+from .conftest import assistant, system, tool_msg, user
+
+
+class TestTokenEstimationAndCalibration:
+    async def test_calibration_reset_after_full_compact(self, mgr):
+        """1.8 (修复验证 F2) 全量压缩后校准值清空，budget_usage 回落为启发式。
+
+        The calibration was measured against the pre-compaction tuple; it
+        must not keep the post-compaction budget checks pinned high.
+        """
+        mgr.update_actual_usage(5000)
+        msgs = tuple(user("x" * 3000) for _ in range(3))
+        compacted = await mgr.compact_if_needed(msgs)
+
+        assert mgr._last_actual_prompt_tokens is None
+        assert mgr.budget_usage(compacted) == mgr.estimate_tokens(compacted)
+
+
+class TestLayer3FullCompaction:
+    async def test_no_merge_compaction_right_after_full_compact(self, mgr, mock_model):
+        """4.10 (修复验证 F2) 压缩后新用户轮 + 小 estimate 不触发合并压缩。
+
+        With the stale pre-compaction calibration this used to fire a
+        wasteful summary-merge LLM call; a fresh provider report restores
+        calibration-driven triggering.
+        """
+        mgr.update_actual_usage(5000)  # pre-compaction provider report goes stale below
+        history = tuple(user("x" * 3000) for _ in range(3))
+        compacted = await mgr.compact_if_needed(history)
+        assert mgr.state.has_compacted
+        mock_model.generate.reset_mock()
+
+        followup = (*compacted, assistant("处理完成"), user("新问题"))
+        result = await mgr.compact_if_needed(followup)
+        mock_model.generate.assert_not_called()
+        assert result is followup
+
+        mgr.update_actual_usage(5000)
+        await mgr.compact_if_needed(followup)
+        mock_model.generate.assert_called()
 
 
 class TestLayer2MicroCompact:

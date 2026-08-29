@@ -572,6 +572,9 @@ class ContextManager:
             self.state.has_compacted = True
             self.state.last_summary = f"[压缩失败，回退到最近 {keep_recent} 条消息]"
             self.state.compact_count += 1
+            # Same calibration reset as the success path: the fallback slice
+            # is a different tuple than the one the calibration measured.
+            self._last_actual_prompt_tokens = None
             self.state.last_compact_over_budget = (
                 self.estimate_tokens(tuple(fallback_compacted)) > self.max_context_tokens
             )
@@ -585,6 +588,11 @@ class ContextManager:
         self.state.has_compacted = True
         self.state.compact_count += 1
         record_context_compaction("full")
+        # The calibration was measured against the pre-compaction tuple and
+        # is meaningless for the compacted one — reset so the next budget
+        # check runs on the heuristic until a fresh provider report arrives
+        # (otherwise the stale value keeps the gates open one turn).
+        self._last_actual_prompt_tokens = None
 
         # --- Assemble: [system prompt?, summary, current turn...] ---
         compacted: list[Message] = []
