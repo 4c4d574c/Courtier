@@ -21,6 +21,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from itertools import groupby
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -34,6 +35,7 @@ from .context_manager import (
     RECENT_TOOL_RESULTS_TOKENS,
     ContextManager,
     _build_summary,
+    _is_cjk,
 )
 from .state import Message
 
@@ -152,7 +154,7 @@ class MemoryManager(ContextManager):
         a vector/search backend to upgrade recall quality without changing
         callers.
         """
-        terms = {t.lower() for t in query.text.split() if len(t) > 1}
+        terms = _extract_query_terms(query.text)
         results: list[MemoryRecall] = []
 
         tiers: list[MemoryTier] = [query.tier] if query.tier else ["session", "long_term"]
@@ -226,3 +228,27 @@ class MemoryManager(ContextManager):
             return 0.0
         matches = sum(1 for term in terms if term in haystack)
         return matches / len(terms)
+
+
+def _extract_query_terms(text: str) -> set[str]:
+    """Split a retrieval query into matchable terms (CJK-aware).
+
+    Non-CJK segments keep the whitespace-token semantics: runs longer than
+    one character, lowercased.  CJK runs have no delimiters, so the old
+    whitespace split turned a whole Chinese query into one term requiring an
+    exact contiguous substring; runs of CJK characters are now split into
+    overlapping bigrams ("季度报告" → {季度, 度报, 报告}) so partial overlaps
+    score proportionally.  A single CJK character stays as a one-char term.
+    """
+    terms: set[str] = set()
+    for chunk in text.split():
+        for is_cjk, group in groupby(chunk, _is_cjk):
+            run = "".join(group)
+            if is_cjk:
+                if len(run) >= 2:
+                    terms.update(run[i : i + 2] for i in range(len(run) - 1))
+                else:
+                    terms.add(run)
+            elif len(run) > 1:
+                terms.add(run.lower())
+    return terms

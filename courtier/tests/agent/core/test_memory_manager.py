@@ -89,3 +89,48 @@ class TestMemoryManager:
         messages = (Message(role="user", content="hello"),)
         tokens = manager.estimate_tokens(messages)
         assert tokens > 0
+
+
+class TestRetrieveQueryTerms:
+    """6.2 (修复验证 F4) CJK bigram 查询切词的得分语义。"""
+
+    async def test_chinese_partial_query_scores_proportionally(self, manager):
+        """探针：整串子串匹配不到的部分命中必须按 bigram 比例得分。
+
+        Old whitespace splitting made the whole CJK query one term, so a
+        memory containing "季度报告" scored 0 against query "季度报告审核".
+        """
+        await manager.session_set("fact", "本季度报告显示收入增长")
+        results = await manager.retrieve(MemoryQuery(text="季度报告审核"))
+        assert results, "partial CJK overlap must still recall"
+        assert results[0].score == pytest.approx(3 / 5)  # 季度/度报/报告 hit
+
+    async def test_chinese_full_query_scores_one(self, manager):
+        await manager.session_set("fact", "季度报告已归档")
+        results = await manager.retrieve(MemoryQuery(text="季度报告"))
+        assert results[0].score == pytest.approx(1.0)  # 季度/度报/报告 all hit
+
+    async def test_single_cjk_character_query(self, manager):
+        """Old len>1 filter dropped single CJK chars entirely; now kept."""
+        await manager.session_set("fact", "需要人工审核")
+        results = await manager.retrieve(MemoryQuery(text="审"))
+        assert results and results[0].key == "fact"
+
+    async def test_mixed_cjk_ascii_query(self, manager):
+        await manager.session_set("m", "Q3 审核结论")
+        results = await manager.retrieve(MemoryQuery(text="审核 Q3 报告"))
+        assert results and results[0].score == pytest.approx(2 / 3)  # 审核+q3, 报告 miss
+
+    async def test_ascii_whitespace_semantics_unchanged(self, manager):
+        await manager.session_set("style", "use formal tone")
+        await manager.session_set("other", "something else")
+        results = await manager.retrieve(MemoryQuery(text="formal tone"))
+        assert len(results) == 1
+        assert results[0].key == "style"
+        assert results[0].score == pytest.approx(1.0)
+
+    async def test_empty_and_single_char_ascii_queries_recall_nothing(self, manager):
+        await manager.session_set("fact", "plain content")
+        assert await manager.retrieve(MemoryQuery(text="")) == []
+        assert await manager.retrieve(MemoryQuery(text="   ")) == []
+        assert await manager.retrieve(MemoryQuery(text="a b")) == []  # len>1 filter
