@@ -227,4 +227,48 @@ store 级行为（persist 小/大、dedup、ref_map、盘上文件一致性）�
 
 ## 实施状态
 
-（随任务推进回填：各任务提交号、探针复现记录、偏离计划的决定。）
+**已完成（2026-08-29）。** 计划文档提交 2fd907f 之后的提交链：
+
+| 提交 | 内容 |
+|---|---|
+| d5e869c | T2 conftest 骨架（fixtures / 预算工厂 / 消息构造助手） |
+| 518a644 | F1 微压缩占位符幂等（探针复现 → 修）+ 3.3 |
+| 6ffc8c8 | F2 压缩后清空校准值（方案 A）+ 1.8 / 4.10 |
+| c8e6c5a | F4 CJK bigram 切词 + 6.2 |
+| 1cab59a | F3 fork 乙（MemoryManager.fork(sub_name) + runtime 分派）+ 5.4 / 5.6 / 6.6 |
+| 72bb1cd | （探针新发现的计划外修复）persist 磁盘 IO 失败优雅降级 + 2.3 / 3.7 |
+| 8028213 | §1–§5 重写（tests/agent/core/test_context_manager.py，104 用例） |
+| cbaf58b | T10 store 级用例迁入 artifacts 套件（9 用例） |
+| bc24cbe | §6 重写（18 用例）+ §7 集成套件（7.1/7.3/7.6）+ 删除旧 test_context_manager.py 与 test_compact_event.py；7.2 落 test_run_manager.py、7.4 落 test_routes.py |
+| 6a06fed / b36c9bf | lint 修复 / 逐名核对审计补迁 3 例（on_compact_start 时机、periodic 提醒变体、占位符 file 存在性） |
+
+验证：`uv run pytest -m "not integration"` **1872 passed / 6 skipped / 0 failed**；警告 8 → 3（旧文件的 asyncio 标记 PytestWarning 随删除消失，余 3 条为 test_cache_store.py 既有）；ruff 对全部触碰文件干净；mypy 因 `telemetry/metrics.py` 既有语法报错无法完成（非本次改动，遗留问题）。旧套件 98 个用例名与新月套 150 个用例名逐名核对，补齐 3 处缺口后无覆盖丢失。
+
+### 偏离计划记录
+
+1. T7+T8 合并为一个提交（同一文件分两次提交无增量价值）。
+2. T10 实际先于 T9 执行：旧文件删除前必须先迁出 store 级用例。
+3. 7.2 落在 test_run_manager.py、7.4 落在 test_routes.py（复用各自 harness），未集中进 test_context_integration.py。
+4. 7.5（_persist_oversized_task）侦察有误：test_routes.py 已有 4 个用例完整覆盖，无需新增。
+5. 计划外第 5 个修复（探针发现）：`cache_store.persist` 的 `_write_file` 让 OSError 逃逸，registry Layer-1 与微压缩在磁盘满 / 只读时整个崩掉，与 `_persist_tool_message` 注释意图相悖。按处置框架"确认是 bug → 修"：persist 降级返回未持久化结果（调用方已有处理分支），微压缩在自身 persist 失败时保留原消息而非生成无指针占位符。
+6. 事实纠正：`update_actual_usage` 是覆盖语义（讨论中曾误述为取历史最大），1.6 按覆盖语义固化。
+7. 编写期新固化的行为：微压缩 keep 选择是"从新到旧前缀、预算耗尽即 break"（3.5/3.6），不是背包式挑选——最旧的小结果不会被保留；retrieve top_k 负值走 Python 负切片（6.3 记录怪癖）。
+
+### 结果分析（不足与待优化）
+
+**性能观察**
+- `test_thousands_of_tool_results_guardrail` 5.3s，为全套件最慢：1000 条 tool 结果 = 1000 次串行落盘（每次独立 to_thread + 锁）。生产上长会话/多子代理可能达到数百条量级，微压缩可考虑批量落盘（合并锁获取与写盘）。
+- `estimate_tokens` 每次调用 O(总字符数) 且逐字符 `unicodedata.name`，1M 字符约 0.19s；微压缩与压缩检查每轮都会重扫全部历史。Message 是冻结 dataclass，可按消息实例记忆化 token 估算值。
+- 全套件 43s（重写前基线 35s），增量来自极端测试，可接受。
+
+**行为层发现（已固化 / 已记录）**
+- F2 修复后的取舍：压缩后一轮为纯启发式窗口（有 4.10 防重压测试背书）。
+- 微压缩 keep 前缀语义在"最新一条巨大 + 更旧若干小结果"场景会过度压缩（只保 MIN=2），真实会话若出现可再评估背包式选择。
+- persist IO 失败降级后，持续失败时上下文无法收缩（flag 与指标可见），无数据损失——可接受的保守行为。
+
+**覆盖缺口（后续候选）**
+- ES 主后端持久化路径（integration 范围，离线套件不覆盖）。
+- CompactState 未来版本升级迁移（仅测了未知版本 → 全新状态）。
+- 父子代理并发共享同一 artifact store / memory store 的并发安全场景。
+- 记忆层仍未接线产品路径：fork 隔离目前只有单测与 benchmark 验证，无端到端真实子代理运行验证。
+- 既有清理候选：test_cache_store.py 的 3 条 PytestWarning（非 async 用例误挂 asyncio 标记）。
