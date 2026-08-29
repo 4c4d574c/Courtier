@@ -18,6 +18,7 @@ import json
 import logging
 import time
 import unicodedata
+import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -43,6 +44,7 @@ RECENT_TOOL_RESULTS_TOKENS = 4_000  # micro-compact keeps recent results within 
 MIN_RECENT_TOOL_RESULTS = 2  # always keep at least this many recent tool results
 LARGE_OUTPUT_THRESHOLD = 3_000  # persist to disk when tool result exceeds this (chars)
 COMPACT_STATE_VERSION = 1  # version of the serialised CompactState payload
+_ESTIMATE_CACHE_MAX = 8_192  # per-manager memoized per-message token estimates
 
 # Minimal en-US protocol fallback used when the domain PromptBundle does not
 # provide context.compact_prompt / context.compact_merge_prompt (or no
@@ -124,6 +126,8 @@ class ContextManager:
         # Provider-reported prompt tokens from the latest model call; used to
         # calibrate the heuristic estimate (never trigger late).
         self._last_actual_prompt_tokens: int | None = None
+        # id(msg) -> (weakref, tokens): per-message estimate memoization.
+        self._estimate_cache: dict[int, tuple[weakref.ref, int]] = {}
         # Unified store: everything goes through an ArtifactStore (which
         # subsumes the legacy CacheStore).  Duck-typing works because
         # ArtifactStore provides persist, resolve_refs, ref_map, and set_ref.
@@ -678,23 +682,47 @@ class ContextManager:
         (0.25 multiplier), giving a much more accurate budget for
         mixed Chinese–English conversations than the old ``chars/2``
         approximation.
+
+        Per-message results are memoized on the manager instance:
+        Message is frozen so a message's cost never changes, while the
+        same history is re-estimated several times per turn (micro-compact
+        gate, compaction check, budget guard).  Entries hold a weak
+        reference so a recycled message id can never serve a stale value.
         """
-        # Scan content for per-character weighting
+        return sum(self._message_tokens(msg) for msg in messages)
+
+    def _message_tokens(self, msg: Message) -> int:
+        """Memoized per-message estimate, valid for the message's lifetime."""
+        key = id(msg)
+        entry = self._estimate_cache.get(key)
+        if entry is not None:
+            ref, value = entry
+            if ref() is msg:
+                return value
+            # The id was recycled after the original message was dropped
+            # (e.g. compacted away) — never serve the stale value.
+            self._estimate_cache.pop(key, None)
+        tokens = self._compute_message_tokens(msg)
+        if len(self._estimate_cache) >= _ESTIMATE_CACHE_MAX:
+            self._estimate_cache.clear()
+        self._estimate_cache[key] = (weakref.ref(msg), tokens)
+        return tokens
+
+    @staticmethod
+    def _compute_message_tokens(msg: Message) -> int:
+        """Scan one message's content and tool-call arguments."""
         cjk = 0
         other = 0
-        for msg in messages:
-            text = msg.content or ""
-            text_cjk = sum(1 for c in text if _is_cjk(c))
-            cjk += text_cjk
-            other += len(text) - text_cjk
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    args_json = json.dumps(tc.arguments, ensure_ascii=False)
-                    args_cjk = sum(1 for c in args_json if _is_cjk(c))
-                    cjk += args_cjk
-                    other += len(args_json) - args_cjk
-
-        # Heuristic: CJK ≈ 1.5 chars/token, ASCII ≈ 4 chars/token
+        text = msg.content or ""
+        text_cjk = sum(1 for c in text if _is_cjk(c))
+        cjk += text_cjk
+        other += len(text) - text_cjk
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                args_json = json.dumps(tc.arguments, ensure_ascii=False)
+                args_cjk = sum(1 for c in args_json if _is_cjk(c))
+                cjk += args_cjk
+                other += len(args_json) - args_cjk
         return int(cjk * 0.65 + other * 0.25)
 
     def get_ref_map(self) -> dict[str, str]:

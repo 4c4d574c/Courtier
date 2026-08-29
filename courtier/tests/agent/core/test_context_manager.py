@@ -113,6 +113,50 @@ class TestTokenEstimationAndCalibration:
         assert tokens == 650_000
         assert elapsed < 3.0
 
+    def test_estimate_memoized_per_message_instance(self, mgr, monkeypatch):
+        """1.9 (修复验证) 同一消息实例重复估算只扫描一次（记忆化生效）。"""
+        calls = 0
+        original = ContextManager._compute_message_tokens
+
+        def _counting(msg):
+            nonlocal calls
+            calls += 1
+            return original(msg)
+
+        monkeypatch.setattr(ContextManager, "_compute_message_tokens", staticmethod(_counting))
+        msgs = (
+            Message(role="user", content="汉" * 50 + "a" * 50),
+            Message(role="assistant", content="answer " * 20),
+        )
+        first = mgr.estimate_tokens(msgs)
+        assert calls == 2
+        assert mgr.estimate_tokens(msgs) == first
+        assert mgr.estimate_tokens(msgs) == first
+        assert calls == 2  # three estimations, still only one scan per message
+
+    def test_estimate_cache_never_serves_recycled_id(self, mgr):
+        """1.9 补充 (防御) id 复用后不得返回旧值：失效槽位必须重算。"""
+        import weakref as _weakref
+
+        stale_holder = Message(role="user", content="stale " * 100)
+        poisoned_key = id(stale_holder)
+        mgr._estimate_cache[poisoned_key] = (
+            _weakref.ref(stale_holder),
+            999_999,
+        )
+        del stale_holder
+
+        msg = Message(role="user", content="a")  # 1 token
+        if id(msg) != poisoned_key:
+            # Force the poisoned slot onto this message's id slot: the cache
+            # entry must be rejected because the weakref target is gone.
+            mgr._estimate_cache[id(msg)] = (None, 999_999)  # ref None = legacy slot
+            assert mgr.estimate_tokens((msg,)) == mgr._compute_message_tokens(msg)
+        # A live-but-different object under a stale slot is also rejected.
+        other = Message(role="user", content="b" * 40)  # 10 tokens
+        mgr._estimate_cache[id(other)] = (_weakref.ref(Message(role="user", content="x")), 7)
+        assert mgr.estimate_tokens((other,)) == 10
+
     async def test_calibration_reset_after_full_compact(self, mgr):
         """1.8 (修复验证 F2) 全量压缩后校准值清空，budget_usage 回落为启发式。"""
         mgr.update_actual_usage(5000)
