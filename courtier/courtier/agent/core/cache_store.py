@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -294,6 +295,147 @@ class _PersistenceBackend:
                 )
 
         return PersistResult(data=marker, ref_id=ref_id, persisted=True)
+
+    async def persist_many(
+        self, items: Sequence[tuple[str, Any]]
+    ) -> list[PersistResult]:
+        """Force-persist several payloads with a single write pass.
+
+        Per-item semantics are identical to ``persist(force=True)`` — dedup
+        against prior writes (and against earlier items of this same batch),
+        sequential ref numbering, marker construction — but all file writes
+        share one executor hop and one lock acquisition, so compacting a
+        long history costs one round trip instead of one per result.  Items
+        whose write fails (OSError) degrade to a not-persisted result like
+        ``persist`` does; the other items in the batch are unaffected.
+        """
+        results: list[PersistResult | None] = [None] * len(items)
+        # planned: idx, tool, ref, ctype, serialized, data
+        planned: list[tuple[int, str, str, str, str, Any]] = []
+        duplicates: list[tuple[int, int, str]] = []  # idx, first_idx, content_type
+        batch_first: dict[str, int] = {}  # dedup key -> first planned index
+
+        # Phase 1 — in-memory planning: content types, dedup, ref numbering.
+        async with self._lock:
+            for idx, (tool_name, data) in enumerate(items):
+                content_type, serialized = self._detect_content_type(data)
+                key = self._dedup_key(tool_name, serialized)
+                prior = self._dedup_lookup(tool_name, serialized)
+                if prior is not None:
+                    ref_id, filepath_str = prior
+                    marker = self._build_marker(
+                        ref_id,
+                        filepath_str,
+                        serialized,
+                        content_type,
+                        label=None,
+                        source_ref_id=None,
+                        source_query=None,
+                    )
+                    marker["data_shape"] = self._build_data_shape(data)
+                    marker["dedup_hit"] = True
+                    results[idx] = PersistResult(data=marker, ref_id=ref_id, persisted=True)
+                    continue
+                if key in batch_first:
+                    duplicates.append((idx, batch_first[key], content_type))
+                    continue
+                batch_first[key] = idx
+                ref_id = self._next_ref_id(tool_name, None)
+                planned.append((idx, tool_name, ref_id, content_type, serialized, data))
+
+        if planned:
+            # Phase 2 — one executor hop for every file write.  A per-item
+            # OSError degrades that item only.
+            jobs = [
+                (tool_name, ref_id, serialized, "txt" if ctype == "text/plain" else "json")
+                for _, tool_name, ref_id, ctype, serialized, _ in planned
+            ]
+            outcomes = await asyncio.to_thread(self._write_payloads, jobs)
+
+            # Phase 3 — one lock: ref_map / recent_files / dedup records.
+            # The dedup index is mutated in memory and saved ONCE at the
+            # end — _dedup_record would rewrite the whole index per item,
+            # a quadratic cost that dominates large batches.
+            async with self._lock:
+                for (idx, tool_name, ref_id, _ct, serialized, _data), filepath in zip(
+                    planned, outcomes
+                ):
+                    if filepath is None:
+                        results[idx] = PersistResult(data=_data, ref_id="", persisted=False)
+                        continue
+                    self.ref_map[ref_id] = filepath
+                    self.recent_files.append(filepath)
+                    self._hash_index[self._dedup_key(tool_name, serialized)] = {
+                        "ref_id": ref_id,
+                        "file": filepath,
+                    }
+                if len(self.recent_files) > MAX_RECENT_FILES:
+                    self.recent_files = self.recent_files[-MAX_RECENT_FILES:]
+                self._save_hash_index()
+
+            for idx, tool_name, ref_id, content_type, serialized, data in planned:
+                filepath = self.ref_map.get(ref_id)
+                if filepath is None:
+                    continue  # write failed — already a degraded result
+                marker = self._build_marker(
+                    ref_id,
+                    filepath,
+                    serialized,
+                    content_type,
+                    label=None,
+                    source_ref_id=None,
+                    source_query=None,
+                )
+                marker["data_shape"] = self._build_data_shape(data)
+                if content_type == "application/json" and isinstance(data, (dict, list)):
+                    self._persist_schema(data, filepath, tool_name, None)
+                if self._primary_backend is not None:
+                    try:
+                        await self._primary_backend.store(
+                            ref_id,
+                            data,
+                            metadata={"tool_name": tool_name, "label": None},
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Primary backend persist failed for %s (data still on disk)",
+                            ref_id,
+                        )
+                results[idx] = PersistResult(data=marker, ref_id=ref_id, persisted=True)
+
+        # Duplicates share the first occurrence's file, no second write.
+        for idx, first_idx, content_type in duplicates:
+            first = results[first_idx]
+            assert first is not None and first.persisted
+            marker = first.data
+            assert isinstance(marker, dict)
+            dup_marker = dict(marker)
+            dup_marker["dedup_hit"] = True
+            results[idx] = PersistResult(data=dup_marker, ref_id=first.ref_id, persisted=True)
+
+        return [r for r in results if r is not None]
+
+    def _write_payloads(
+        self, jobs: list[tuple[str, str, str, str]]
+    ) -> "list[str | None]":
+        """Write every job synchronously; return the filepath or None per job."""
+        out: list[str | None] = []
+        for tool_name, ref_id, serialized, ext in jobs:
+            try:
+                match = self._REF_PATTERN.match(ref_id)
+                seq = match.group(2) if match else "0"
+                ts = int(time.time() * 1000)
+                uniq = uuid4().hex[:6]
+                safe_name = tool_name.replace("/", "_").replace(" ", "_")
+                filepath = self._cache_dir / f"{safe_name}_{seq}_{ts}_{uniq}.{ext}"
+                filepath.write_text(serialized, encoding="utf-8")
+                out.append(str(filepath))
+            except OSError:
+                logger.warning(
+                    "Batched persist to disk failed for %s", tool_name, exc_info=True
+                )
+                out.append(None)
+        return out
 
     async def read(
         self,

@@ -439,7 +439,7 @@ class TestLayer2MicroCompact:
         elapsed = time.perf_counter() - start
         kept = [m for m in result if m.role == "tool" and "_omitted" not in (m.content or "")]
         assert 2 <= len(kept) <= 20  # bounded by the recency budget, not by history size
-        assert elapsed < 10.0
+        assert elapsed < 1.0  # batched writes + single index save (was 5.3s pre-batching)
 
     async def test_reminder_dedup_runs_even_under_budget(self, mgr):
         """3.9 迁移：门控未开时提醒去重仍执行（否则提醒线性累积）。"""

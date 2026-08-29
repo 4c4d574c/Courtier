@@ -244,60 +244,90 @@ class ContextManager:
         if not to_compact:
             return deduped
 
+        # Plan every doomed message before touching the store: reuse an
+        # existing ref when the result was already persisted (Layer 1 or a
+        # summarizer), queue unpersisted payloads for ONE batched write
+        # pass, and leave placeholder no-ops / failures out entirely.
+        # plans[i] is (ref_id, ref_file, success) for a placeholder, or
+        # None when the original message must be kept verbatim.
+        plans: dict[int, tuple[str | None, str | None, bool | None] | None] = {}
+        jobs: list[tuple[int, str, Any, bool | None]] = []
+        for i in sorted(to_compact):
+            msg = deduped[i]
+            if _is_omitted_placeholder(msg):
+                # Compacting an already-compacted placeholder must be a
+                # no-op: its ref pointer lives in a shape the extractor
+                # cannot read, so re-deriving it would drop the ref_id
+                # from the history for good.
+                plans[i] = None
+                continue
+            ref_id, ref_file, success = self._extract_ref_info(msg)
+            if ref_id is not None:
+                plans[i] = (ref_id, ref_file, success)
+                continue
+            data, success = _extract_persistable_payload(msg)
+            if data is None:
+                # Nothing persistable (error envelope / plain text) — the
+                # placeholder keeps the tool name and success flag only.
+                plans[i] = (None, None, success)
+            else:
+                jobs.append((i, msg.name or f"tool_call_{msg.tool_call_id}", data, success))
+
+        if jobs:
+            persist_many = getattr(self._cache, "persist_many", None)
+            if callable(persist_many):
+                outcomes = await persist_many([(name, data) for _, name, data, _ in jobs])
+            else:  # duck-typed stores without batch support
+                outcomes = [
+                    await self._cache.persist(data, name, force=True)
+                    for _, name, data, _ in jobs
+                ]
+            for (i, _tool_name, _data, success), result in zip(jobs, outcomes):
+                if result.persisted and isinstance(result.data, dict):
+                    plans[i] = (result.ref_id, result.data.get("file"), success)
+                else:
+                    # IO failure (e.g. disk full): keep the original message
+                    # — placeholdering it would drop the content without any
+                    # recovery pointer.
+                    plans[i] = None
+
         compacted = []
         for i, msg in enumerate(deduped):
-            if i in to_compact:
-                if _is_omitted_placeholder(msg):
-                    # Compacting an already-compacted placeholder must be a
-                    # no-op: its ref pointer lives in a shape the extractor
-                    # below cannot read, so re-deriving it would drop the
-                    # ref_id from the history for good.
-                    compacted.append(msg)
-                    continue
-                tool_name = msg.name or f"tool_call_{msg.tool_call_id}"
-
-                ref_id, ref_file, success = self._extract_ref_info(msg)
-                if ref_id is None:
-                    ref_id, ref_file, persist_success, persist_failed = (
-                        await self._persist_tool_message(msg, tool_name)
-                    )
-                    if success is None:
-                        success = persist_success
-                    if persist_failed:
-                        # IO failure (e.g. disk full): keep the original
-                        # message — placeholdering it would drop the content
-                        # without any recovery pointer.
-                        compacted.append(msg)
-                        continue
-
-                note = "结果已被微压缩省略（旧工具结果）。" "将 $ref 作为工具参数即可恢复完整数据。"
-                placeholder: dict[str, Any] = {
-                    "_omitted": True,
-                    "tool": tool_name,
-                    "note": note,
-                }
-                # Keep the success flag so post-compaction checks (e.g. the
-                # parse-before-anything guard) can still tell whether this
-                # call succeeded without recovering the full payload.
-                if success is not None:
-                    placeholder["success"] = success
-                if ref_id:
-                    placeholder["ref_id"] = ref_id
-                if ref_file:
-                    # Debug info only — restore goes through the artifact
-                    # snapshot, not through this marker.
-                    placeholder["file"] = ref_file
-
-                compacted.append(
-                    Message(
-                        role="tool",
-                        content=json.dumps(placeholder, ensure_ascii=False),
-                        tool_call_id=msg.tool_call_id,
-                        name=tool_name,
-                    )
-                )
-            else:
+            # plan is None both for messages not up for compaction and for
+            # ones whose original must be kept (placeholders, IO failures).
+            plan = plans.get(i) if i in to_compact else None
+            if plan is None:
                 compacted.append(msg)
+                continue
+            ref_id, ref_file, success = plan
+            tool_name = msg.name or f"tool_call_{msg.tool_call_id}"
+
+            note = "结果已被微压缩省略（旧工具结果）。" "将 $ref 作为工具参数即可恢复完整数据。"
+            placeholder: dict[str, Any] = {
+                "_omitted": True,
+                "tool": tool_name,
+                "note": note,
+            }
+            # Keep the success flag so post-compaction checks (e.g. the
+            # parse-before-anything guard) can still tell whether this
+            # call succeeded without recovering the full payload.
+            if success is not None:
+                placeholder["success"] = success
+            if ref_id:
+                placeholder["ref_id"] = ref_id
+            if ref_file:
+                # Debug info only — restore goes through the artifact
+                # snapshot, not through this marker.
+                placeholder["file"] = ref_file
+
+            compacted.append(
+                Message(
+                    role="tool",
+                    content=json.dumps(placeholder, ensure_ascii=False),
+                    tool_call_id=msg.tool_call_id,
+                    name=tool_name,
+                )
+            )
 
         record_context_compaction("micro")
         return tuple(compacted)
@@ -390,41 +420,6 @@ class ContextManager:
             if info:
                 ref_file = info.get("file")
         return ref_id, ref_file, success
-
-    async def _persist_tool_message(
-        self, msg: Message, tool_name: str
-    ) -> tuple[str | None, str | None, bool | None, bool]:
-        """Persist a non-persisted tool message to disk.
-
-        Returns (ref_id, file, success, persist_failed).  *persist_failed*
-        is True only when a persist was attempted but the store degraded
-        (e.g. OSError) — the caller keeps the original message in that case.
-        Returns (None, None, success, False) if the message has no data to
-        persist.
-        """
-        if not msg.content:
-            return None, None, None, False
-        try:
-            payload = json.loads(msg.content)
-            data = payload.get("raw_data")
-            success = payload.get("success")
-            success = success if isinstance(success, bool) else None
-            if data is None:
-                return None, None, success, False
-        except (json.JSONDecodeError, TypeError):
-            return None, None, None, False
-
-        result = await self._cache.persist(data, tool_name, force=True)
-        if not result.persisted:
-            return None, None, success, True
-
-        ref_file = result.data.get("file") if isinstance(result.data, dict) else None
-        logger.debug(
-            "Micro-compact persisted: %s -> %s",
-            tool_name,
-            result.ref_id,
-        )
-        return result.ref_id, ref_file, success, False
 
     # -- Layer 3: Full compaction ---------------------------------------------
 
@@ -825,6 +820,28 @@ def _is_omitted_placeholder(msg: Message) -> bool:
     except (json.JSONDecodeError, TypeError):
         return False
     return isinstance(payload, dict) and payload.get("_omitted") is True
+
+
+def _extract_persistable_payload(msg: Message) -> tuple[Any, bool | None]:
+    """Pull (raw_data, success) out of a tool-result envelope for persisting.
+
+    Returns (None, success) when the envelope carries no persistable data —
+    an error result, a plain-text body, or an unparsable payload.
+    """
+    if not msg.content:
+        return None, None
+    try:
+        payload = json.loads(msg.content)
+    except (json.JSONDecodeError, TypeError):
+        return None, None
+    if not isinstance(payload, dict):
+        return None, None
+    success = payload.get("success")
+    success = success if isinstance(success, bool) else None
+    data = payload.get("raw_data")
+    if data is None:
+        return None, success
+    return data, success
 
 
 def _split_compact_template(rendered: str) -> tuple[str, str]:

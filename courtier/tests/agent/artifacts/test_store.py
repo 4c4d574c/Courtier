@@ -362,3 +362,64 @@ class TestPersistLargeOutput:
 
         loaded = _json.loads(Path(result["file"]).read_text(encoding="utf-8"))
         assert loaded == data
+
+
+class TestPersistMany:
+    async def test_batch_writes_all_items_with_unique_refs(self, tmp_path):
+        """批量落盘：每项独立 ref 与盘上文件，ref_map 完整。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        results = await store.persist_many(
+            [("tool_a", {"text": "x" * 900}), ("tool_b", {"text": "y" * 900})]
+        )
+        assert [r.persisted for r in results] == [True, True]
+        assert results[0].ref_id == "$ref:tool_a:1"
+        assert results[1].ref_id == "$ref:tool_b:1"
+        assert results[0].data["file"] != results[1].data["file"]
+        assert len(store.ref_map) == 2
+        assert store.load("$ref:tool_a:1") == {"text": "x" * 900}
+
+    async def test_batch_dedups_within_and_across_calls(self, tmp_path):
+        """批内相同内容共享 ref（不重复写盘）；后续单次 persist 命中批内记录。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        data = {"text": "x" * 900}
+        r1, r2 = await store.persist_many([("tool_a", data), ("tool_a", data)])
+        assert r1.ref_id == r2.ref_id == "$ref:tool_a:1"
+        assert r1.data["file"] == r2.data["file"]
+        assert r1.data.get("dedup_hit") is None  # first occurrence is the write
+        assert r2.data.get("dedup_hit") is True
+
+        r3 = (await store.persist(data, "tool_a")).data
+        assert r3["ref_id"] == "$ref:tool_a:1" and r3.get("dedup_hit") is True
+
+    async def test_batch_degrades_per_item_on_write_failure(self, tmp_path, monkeypatch):
+        """单项写失败只降级该项，其余项正常落盘。"""
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        original = store._backend._write_payloads
+
+        def _selective_fail(jobs):
+            out = original(jobs)
+            out[0] = None  # first item's write "fails"
+            return out
+
+        monkeypatch.setattr(store._backend, "_write_payloads", _selective_fail)
+        results = await store.persist_many(
+            [("tool_a", {"text": "x" * 900}), ("tool_b", {"text": "y" * 900})]
+        )
+        assert results[0].persisted is False and results[0].data == {"text": "x" * 900}
+        assert results[1].persisted is True
+        assert store.load("$ref:tool_b:1") == {"text": "y" * 900}
+
+    async def test_batch_read_only_dir_degrades_all(self, tmp_path):
+        """只读目录 → 全部降级为未持久化，不抛异常。"""
+        import stat
+
+        store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
+        tmp_path.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        try:
+            results = await store.persist_many(
+                [("tool_a", {"text": "x" * 900}), ("tool_b", {"text": "y" * 900})]
+            )
+        finally:
+            tmp_path.chmod(stat.S_IRWXU)
+        assert all(r.persisted is False for r in results)
+        assert store.ref_map == {}

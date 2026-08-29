@@ -112,6 +112,14 @@ class ArtifactStore:
             tool_registry=tool_registry,
         )
 
+    async def persist_many(self, items: list[tuple[str, Any]]) -> list[PersistResult]:
+        """Force-persist several payloads with a single write pass.
+
+        Per-item semantics match ``persist(force=True)``; the file writes
+        share one executor hop.  See ``_PersistenceBackend.persist_many``.
+        """
+        return await self._backend.persist_many(items)
+
     async def read(
         self,
         ref_id: str,
