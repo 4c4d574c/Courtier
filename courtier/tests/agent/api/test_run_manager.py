@@ -467,3 +467,47 @@ class TestQueueing:
         assert payload["status"] == "queued"
         assert payload["queuePosition"] == 0
         await qmanager.stop_all()
+
+
+class TestContextStatePersistence:
+    async def test_context_state_roundtrip_across_runs(self, manager, store, tmp_path):
+        """7.2 run 结束写 context_state → 下次 run 载入 → has_compacted 跨请求生效。"""
+        from courtier.agent.core.context_manager import ContextManager
+        from courtier.agent.core.state import Message
+
+        sid = "sess_7e57e57e57e5"
+        await _create(store, sid)
+
+        # Pre-compact a context whose state will be handed to the next run.
+        budgets = {
+            "max_context_tokens": 2000,
+            "micro_compact_tokens": 1,
+            "compact_target_tokens": 1500,
+        }
+        cm = ContextManager(model=MockModelClient(), cache_dir=str(tmp_path / "cache"), **budgets)
+        msgs = tuple(Message(role="user", content="x" * 3000) for _ in range(3))
+        await cm.compact_if_needed(msgs)
+        assert cm.state.has_compacted
+
+        # Run 2: a FRESH manager receives the persisted state via spec;
+        # the load-at-start seam restores the guard, the write-at-end seam
+        # snapshots it back into the session record.
+        fresh_cm = ContextManager(model=MockModelClient(), cache_dir=str(tmp_path / "fresh"), **budgets)
+        run = await manager.start(
+            _spec(
+                store,
+                sid,
+                is_new=True,
+                context_state=json.dumps(cm.snapshot_state()),
+                context_manager=fresh_cm,
+            )
+        )
+        await run.task
+        assert run.status == "completed"
+
+        session = await store.get(sid)
+        assert session is not None
+        saved = json.loads(session.context_state)
+        assert saved["has_compacted"] is True
+        assert saved["compact_count"] == 1
+        assert fresh_cm.state.has_compacted is True

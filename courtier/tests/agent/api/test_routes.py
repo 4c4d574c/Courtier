@@ -549,6 +549,22 @@ class TestCompactSession:
         resp = client.post("/api/sessions/sess_nonexistent/compact")
         assert resp.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_compact_route_400_for_empty_session(self, client):
+        """7.4 空会话（无消息）→ 400 "会话还没有可压缩的上下文"。"""
+        store = client.app.state.session_store
+        await store.create(
+            session_id="sess_abc000def000",
+            task="",
+            file_id="",
+            model_name="mock",
+            owner="admin",
+            status="completed",
+        )
+        resp = client.post("/api/sessions/sess_abc000def000/compact")
+        assert resp.status_code == 400
+        assert "还没有可压缩" in resp.json()["detail"]
+
 
 class TestPersistOversizedTask:
     @pytest.mark.asyncio
