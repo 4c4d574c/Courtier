@@ -196,3 +196,102 @@ class TestForkConcurrency:
 
         await asyncio.gather(*[write_long(i) for i in range(6)])
         assert await manager.long_term_get("shared") in {f"v{i}" for i in range(6)}
+
+
+class TestMemoryAutoInjection:
+    """自动注入：每真实用户轮一次，hint 紧跟用户消息（source="hint"）。"""
+
+    async def test_injects_hint_after_real_user_message(self, manager):
+        manager._recall_hint_template = (
+            "[记忆召回] 以下是与当前输入相关的历史记忆，供参考：\n{memories}"
+        )
+        await manager.session_set("fact", "本季度报告显示收入增长")
+        msgs = (
+            Message(role="system", content="sys"),
+            Message(role="user", content="季度报告审核"),
+        )
+        result = await manager.inject_memory_recall(msgs)
+        assert len(result) == 3
+        hint = result[2]
+        assert hint.role == "user" and hint.source == "hint"
+        assert "本季度报告显示收入增长" in hint.content
+        assert "[记忆召回]" in hint.content
+
+    async def test_hint_sits_before_reminder(self, manager):
+        manager._recall_hint_template = "[记忆召回]\n{memories}"
+        await manager.session_set("fact", "季度报告结论")
+        from .conftest import PRE_TURN_REMINDER
+
+        msgs = (
+            Message(role="user", content="季度报告审核"),
+            Message(role="user", content=PRE_TURN_REMINDER, source="reminder"),
+        )
+        result = await manager.inject_memory_recall(msgs)
+        assert result[1].source == "hint"
+        assert result[2].source == "reminder"
+
+    async def test_no_reinjection_within_same_turn(self, manager):
+        await manager.session_set("fact", "季度报告结论")
+        msgs = (Message(role="user", content="季度报告审核"),)
+        first = await manager.inject_memory_recall(msgs)
+        second = await manager.inject_memory_recall(first)
+        assert second == first
+        assert sum(1 for m in second if m.source == "hint") == 1
+
+    async def test_no_injection_when_disabled(self, manager):
+        manager._auto_inject_enabled = False
+        await manager.session_set("fact", "季度报告结论")
+        msgs = (Message(role="user", content="季度报告审核"),)
+        assert await manager.inject_memory_recall(msgs) == msgs
+
+    async def test_no_injection_without_real_user_message(self, manager):
+        await manager.session_set("fact", "季度报告结论")
+        msgs = (Message(role="user", content="季度报告", source="reminder"),)
+        assert await manager.inject_memory_recall(msgs) == msgs
+
+    async def test_no_injection_when_nothing_matches(self, manager):
+        msgs = (Message(role="user", content="完全无关的输入xyz"),)
+        assert await manager.inject_memory_recall(msgs) == msgs
+
+    async def test_working_tier_excluded_and_top_k_respected(self, manager):
+        for i in range(5):
+            await manager.session_set(f"item_{i}", f"季度报告条目{i}")
+        manager._working_summary = "季度报告工作摘要"
+        manager._auto_inject_top_k = 2
+        result = await manager.inject_memory_recall(
+            (Message(role="user", content="季度报告"),)
+        )
+        hint = result[-1].content
+        assert "工作摘要" not in hint  # working tier excluded
+        assert hint.count("\n- (") == 2  # top_k respected
+
+    async def test_value_truncated_to_max_chars(self, manager):
+        await manager.session_set("big", "长" * 1000)
+        manager._auto_inject_max_chars = 50
+        result = await manager.inject_memory_recall((Message(role="user", content="长"),))
+        hint = result[-1].content
+        assert "…" in hint
+        assert len(hint) < 300
+
+    async def test_fallback_template_without_bundle(self, manager):
+        """未注入模板（裸环境）→ en 协议回退。"""
+        manager._recall_hint_template = None
+        await manager.session_set("fact", "quarterly report")
+        result = await manager.inject_memory_recall(
+            (Message(role="user", content="quarterly report"),)
+        )
+        assert "[Recalled memory]" in result[-1].content
+
+    async def test_injection_survives_compaction_boundary(self, manager):
+        """注入的 hint 不作压缩边界：真实任务逐字保留（边界修复联动）。"""
+        await manager.session_set("task_note", "这份通知需要审核，注意格式")
+        real = Message(role="user", content="审核这份关于XX的通知 " * 300)
+        msgs = (
+            Message(role="system", content="Sys"),
+            Message(role="user", content="旧问题 " * 400),
+            real,
+        )
+        injected = await manager.inject_memory_recall(msgs)
+        assert len(injected) == 4 and injected[3].source == "hint"
+        compacted = await manager.compact_if_needed(injected)
+        assert any(m is real for m in compacted)

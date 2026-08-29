@@ -200,3 +200,75 @@ class TestCompactEvents:
 
         assert [d for e, d in events if e == "compact"] == []
         assert [d for e, d in events if e == "compacting"] == []
+
+
+class TestMemoryRecallInjection:
+    """7.7 think_phase 的记忆自动注入（MemoryManager 鸭子类型调用）。"""
+
+    async def test_think_phase_injects_memory_hint(self, tmp_path):
+        from courtier.agent.core.memory_manager import MemoryManager
+
+        mgr = MemoryManager(cache_dir=str(tmp_path / "cache"), session_id="s1")
+        await mgr.session_set("fact", "季度报告结论是收入增长")
+        state = AgentState.initial(task="季度报告审核", system_prompt="sys")
+
+        result = await think_phase(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            context_manager=mgr,
+            recent_reasoning=[],
+            on_step=_noop_step,
+            on_token=None,
+            on_content_token=None,
+        )
+
+        hints = [m for m in result.state.messages if m.source == "hint"]
+        assert len(hints) == 1
+        assert "季度报告结论" in (hints[0].content or "")
+
+    async def test_think_phase_does_not_reinject_next_step(self, tmp_path):
+        """同一条 hint 消息已在真实用户消息之后 → 后续 think 不再注入。"""
+        from courtier.agent.core.memory_manager import MemoryManager
+
+        mgr = MemoryManager(cache_dir=str(tmp_path / "cache"), session_id="s1")
+        await mgr.session_set("fact", "季度报告结论是收入增长")
+        state = AgentState.initial(task="季度报告审核", system_prompt="sys")
+
+        first = await think_phase(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            context_manager=mgr,
+            recent_reasoning=[],
+            on_step=_noop_step,
+            on_token=None,
+            on_content_token=None,
+        )
+        second = await think_phase(
+            state=first.state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            context_manager=mgr,
+            recent_reasoning=[],
+            on_step=_noop_step,
+            on_token=None,
+            on_content_token=None,
+        )
+        assert len([m for m in second.state.messages if m.source == "hint"]) == 1
+
+    async def test_plain_context_manager_unaffected(self, tmp_path):
+        """普通 ContextManager 没有 inject_memory_recall → 消息不动。"""
+        cm = ContextManager(cache_dir=str(tmp_path / "cache"))
+        state = AgentState.initial(task="审核文档", system_prompt="sys")
+        result = await think_phase(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            tool_registry=None,
+            context_manager=cm,
+            recent_reasoning=[],
+            on_step=_noop_step,
+            on_token=None,
+            on_content_token=None,
+        )
+        assert all(m.source != "hint" for m in result.state.messages)

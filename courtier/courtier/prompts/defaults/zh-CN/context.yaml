@@ -30,3 +30,7 @@ context:
     {new_segment}
     ---
     请合并并输出更新后的完整摘要。
+  memory_recall_hint: |
+    [记忆召回] 以下是与当前输入相关的历史记忆，供参考：
+    {memories}
+    需要保存或读取记忆时，使用 memory_save / memory_get / memory_delete / memory_recall 工具。

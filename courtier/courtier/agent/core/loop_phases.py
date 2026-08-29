@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from dataclasses import dataclass
@@ -92,6 +93,15 @@ async def think_phase(
                 recent_reasoning=recent_reasoning,
                 tokens_streamed=False,
             )
+
+    # --- Memory recall: once per real user turn (MemoryManager only) ---
+    # iscoroutinefunction keeps MagicMock-based test doubles (which produce
+    # a callable attribute for ANY name) from being "awaited".
+    inject_memory = getattr(context_manager, "inject_memory_recall", None)
+    if inject_memory is not None and inspect.iscoroutinefunction(inject_memory):
+        injected = await inject_memory(state.messages)
+        if injected != state.messages:
+            state = state.model_copy(update={"messages": injected})
 
     # THINK: model generates next action
     messages = state.to_openai_messages()

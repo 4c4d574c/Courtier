@@ -59,6 +59,7 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "search.rerank.user",
         "context.compact_prompt",
         "context.compact_merge_prompt",
+        "context.memory_recall_hint",
     }
 )
 
@@ -168,6 +169,11 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "EXISTING SUMMARY:\n{previous_summary}\n\n"
         "NEW SEGMENT:\n{new_segment}\n---\n"
         "Merge and output the updated summary."
+    ),
+    "context.memory_recall_hint": (
+        "[Recalled memory] The notes below are relevant memories for the "
+        "current input:\n{memories}\nTo store or read memories, use the "
+        "memory_save / memory_get / memory_delete / memory_recall tools."
     ),
 }
 

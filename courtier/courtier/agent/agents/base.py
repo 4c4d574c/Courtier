@@ -481,6 +481,8 @@ class Agent:
             # actually callable when a context_manager is provided.
             if context_manager is not None:
                 self._ensure_builtin_artifact_tools()
+                if hasattr(context_manager, "session_get"):
+                    self._ensure_builtin_memory_tools()
 
         # Refresh tool names in the system prompt after syncing plugins
         all_tools = self.tool_registry.list_tools()
@@ -629,6 +631,30 @@ class Agent:
             self.tool_registry.register(ListArtifactsTool())
         if "get_artifact" not in existing:
             self.tool_registry.register(GetArtifactTool())
+
+    def _ensure_builtin_memory_tools(self) -> None:
+        """Register memory_save/get/delete/recall for memory-capable managers.
+
+        The registry injects the run-scoped context_manager into execute()
+        at dispatch time, so a sub-agent whose manager is a per-handle fork
+        automatically reads and writes its isolated session namespace.
+        """
+        existing = {t.name for t in self.tool_registry.list_tools()}
+        needed = ("memory_save", "memory_get", "memory_delete", "memory_recall")
+        if all(name in existing for name in needed):
+            return
+
+        # Lazy import to avoid circular dependencies at module load time.
+        from ..tools.builtin.memory import (
+            MemoryDeleteTool,
+            MemoryGetTool,
+            MemoryRecallTool,
+            MemorySaveTool,
+        )
+
+        for tool in (MemorySaveTool(), MemoryGetTool(), MemoryDeleteTool(), MemoryRecallTool()):
+            if tool.name not in existing:
+                self.tool_registry.register(tool)
 
 
 def parse_audit_result(

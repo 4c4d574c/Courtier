@@ -35,6 +35,7 @@ from .context_manager import (
     RECENT_TOOL_RESULTS_TOKENS,
     ContextManager,
     _build_summary,
+    _find_last_real_user_index,
     _is_cjk,
 )
 from .state import Message
@@ -45,6 +46,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MemoryTier = Literal["working", "session", "long_term", "retrieval"]
+
+# Minimal en-US protocol fallback used when no PromptBundle provides
+# context.memory_recall_hint (bare test environments — same pattern as the
+# compact prompt fallbacks in context_manager.py).
+_FALLBACK_RECALL_HINT = (
+    "[Recalled memory] The notes below are relevant memories for the "
+    "current input:\n{memories}\nTo store or read memories, use the "
+    "memory_save / memory_get / memory_delete / memory_recall tools."
+)
 
 
 @dataclass
@@ -91,6 +101,10 @@ class MemoryManager(ContextManager):
         compact_prompt_template: str | None = None,
         compact_merge_prompt_template: str | None = None,
         artifact_store: Any | None = None,
+        memory_auto_inject_enabled: bool = True,
+        memory_auto_inject_top_k: int = 3,
+        memory_auto_inject_max_chars: int = 400,
+        memory_recall_hint_template: str | None = None,
     ) -> None:
         super().__init__(
             model=model,
@@ -111,6 +125,15 @@ class MemoryManager(ContextManager):
         )
         # Working memory snapshot (last compacted view) used by retrieval tier.
         self._working_summary: str | None = None
+        # Auto-injection: once per real user turn, think_phase calls
+        # inject_memory_recall (duck-typed) to prepend recalled memories.
+        self._auto_inject_enabled = memory_auto_inject_enabled
+        self._auto_inject_top_k = max(1, memory_auto_inject_top_k)
+        self._auto_inject_max_chars = max(1, memory_auto_inject_max_chars)
+        self._recall_hint_template = memory_recall_hint_template
+        # id() of the hint message this manager injected for the current
+        # turn — structural dedup, no content matching.
+        self._last_recall_hint_id: int | None = None
 
     # -- Session tier ---------------------------------------------------------
 
@@ -215,6 +238,52 @@ class MemoryManager(ContextManager):
         self._working_summary = _build_summary(compacted)
         return compacted
 
+    # -- Auto-injection (called by think_phase, duck-typed) -------------------
+
+    async def inject_memory_recall(
+        self, messages: tuple[Message, ...]
+    ) -> tuple[Message, ...]:
+        """Recall memories for the current real user turn and inject a hint.
+
+        Runs once per real user turn: the query is the turn's genuine user
+        message, the hint (source="hint") is inserted right after it, and
+        the injected message's id suppresses re-injection for the rest of
+        the turn.  No-ops when disabled, when there is no genuine user
+        message, when this turn already carries the hint, or when nothing
+        matches (zero cost).
+        """
+        if not self._auto_inject_enabled:
+            return messages
+        idx = _find_last_real_user_index(messages)
+        if idx is None:
+            return messages
+        hint_id = self._last_recall_hint_id
+        if hint_id is not None and any(id(m) == hint_id for m in messages[idx + 1 :]):
+            return messages
+
+        query = messages[idx].content or ""
+        recalls = await self.retrieve(MemoryQuery(text=query, top_k=self._auto_inject_top_k))
+        recalls = [r for r in recalls if r.tier != "working"]
+        if not recalls:
+            return messages
+
+        lines = []
+        for r in recalls:
+            value = r.value if isinstance(r.value, str) else json.dumps(
+                r.value, ensure_ascii=False, default=str
+            )
+            if len(value) > self._auto_inject_max_chars:
+                value = value[: self._auto_inject_max_chars] + "…"
+            lines.append(f"- ({r.tier}) {r.key}: {value}")
+        template = self._recall_hint_template or _FALLBACK_RECALL_HINT
+        hint = Message(
+            role="user",
+            content=template.replace("{memories}", "\n".join(lines)),
+            source="hint",
+        )
+        self._last_recall_hint_id = id(hint)
+        return (*messages[: idx + 1], hint, *messages[idx + 1 :])
+
     # -- Forking ---------------------------------------------------------------
 
     def fork(self, sub_name: str | None = None) -> "MemoryManager":
@@ -243,6 +312,10 @@ class MemoryManager(ContextManager):
             compact_prompt_template=self._compact_prompt_template,
             compact_merge_prompt_template=self._compact_merge_prompt_template,
             artifact_store=self._cache,
+            memory_auto_inject_enabled=self._auto_inject_enabled,
+            memory_auto_inject_top_k=self._auto_inject_top_k,
+            memory_auto_inject_max_chars=self._auto_inject_max_chars,
+            memory_recall_hint_template=self._recall_hint_template,
         )
 
     # -- Helpers --------------------------------------------------------------

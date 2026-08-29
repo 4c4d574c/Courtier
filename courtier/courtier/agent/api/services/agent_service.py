@@ -235,6 +235,14 @@ async def build_agent(
         artifact_store=store,
         **_context_budget_kwargs(settings),
         **_compact_prompt_kwargs(prompt_engine),
+        memory_auto_inject_enabled=bool(
+            getattr(settings, "memory_auto_inject_enabled", True)
+        ),
+        memory_auto_inject_top_k=int(getattr(settings, "memory_auto_inject_top_k", 3)),
+        memory_auto_inject_max_chars=int(
+            getattr(settings, "memory_auto_inject_max_chars", 400)
+        ),
+        memory_recall_hint_template=_memory_recall_hint_template(prompt_engine),
     )
     if plugin_system is not None:
         # Inject plugin-declared tool-usage guidance (plugin.yaml
@@ -281,6 +289,17 @@ def _compact_prompt_kwargs(prompt_engine: PromptEngine | None) -> dict[str, str 
         "compact_merge_prompt_template": prompt_engine.render("context.compact_merge_prompt")
         or None,
     }
+
+
+def _memory_recall_hint_template(prompt_engine: PromptEngine | None) -> str | None:
+    """Render the memory-recall hint template from the PromptBundle.
+
+    The template keeps a ``{memories}`` placeholder (single braces — not
+    Jinja syntax) which MemoryManager substitutes at injection time.
+    """
+    if prompt_engine is None:
+        return None
+    return prompt_engine.render("context.memory_recall_hint") or None
 
 
 def _build_artifact_store(settings: Any, existing_store: Any, session_id: str = "") -> Any:

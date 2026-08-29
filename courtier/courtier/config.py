@@ -278,6 +278,23 @@ class Settings(BaseSettings):
         description="大用户输入 persist 治理阈值（环境变量: CONTEXT_MAX_USER_MESSAGE_CHARS）",
     )
 
+    # -- Memory tiers (MemoryManager) --
+    memory_auto_inject_enabled: bool = Field(
+        default=True,
+        alias="memory_auto_inject_enabled",
+        description="每轮用户输入后自动检索并注入相关记忆（环境变量: MEMORY_AUTO_INJECT_ENABLED）",
+    )
+    memory_auto_inject_top_k: int = Field(
+        default=3,
+        alias="memory_auto_inject_top_k",
+        description="自动注入的最大记忆条数（环境变量: MEMORY_AUTO_INJECT_TOP_K）",
+    )
+    memory_auto_inject_max_chars: int = Field(
+        default=400,
+        alias="memory_auto_inject_max_chars",
+        description="自动注入时单条记忆值的截断长度（环境变量: MEMORY_AUTO_INJECT_MAX_CHARS）",
+    )
+
     minio_endpoint: str = Field(default="", description="MinIO 服务端点，如 localhost:9000")
     minio_access_key: str = Field(default="", description="MinIO access key")
     minio_secret_key: str = Field(default="", description="MinIO secret key")
