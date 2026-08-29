@@ -271,5 +271,9 @@ store 级行为（persist 小/大、dedup、ref_map、盘上文件一致性）�
 - ~~ES 主后端持久化路径~~ → 真 ES integration 测试（跨 store 实例经 ES 回读）。
 - ~~CompactState 未来版本升级迁移~~ → 前向兼容测试（v1 payload 带未知附加字段）。
 - ~~父子代理并发共享 store~~ → 批量 + 单条并发落盘无 ref 碰撞、全部可读；fork 子代理并发写命名空间隔离、long_term last-writer-wins。
-- ~~记忆层仍未接线产品路径~~ → **第一期已接线**（feat 5d5d70a，2026-08-29）：4 个 memory_* builtin 工具（registry 注入 run 作用域 context_manager，子代理 fork 命名空间自动生效）+ think_phase 每真实用户轮自动检索注入（source=hint、settings 可关、PromptBundle 模板 context.memory_recall_hint）；边界修复：_find_last_real_user_index 排除 hint（fix 9cc3a82）。每轮注入仅一次、无命中零成本；自动检索注入目前仅在离线测试覆盖，真实端到端会话验证待接入后观察。
+- ~~记忆层仍未接线产品路径~~ → **第一期已接线**（feat 5d5d70a，2026-08-29）：4 个 memory_* builtin 工具（registry 注入 run 作用域 context_manager，子代理 fork 命名空间自动生效）+ think_phase 每真实用户轮自动检索注入（source=hint、settings 可关、PromptBundle 模板 context.memory_recall_hint）；边界修复：_find_last_real_user_index 排除 hint（fix 9cc3a82）。每轮注入仅一次、无命中零成本；自动检索注入已通过真实端到端实测（2026-08-29，真实 LLM nvidia/nemotron-3-super、真实 API 服务）：
+① 新会话用 memory_save(scope=long_term) 落盘 → `uploads/.agent_memory/long_term/gb_standard.json`；
+② 同会话续轮提问，hint 注入并答对；
+③ **全新会话**提问，跨会话召回 long_term 记忆、hint 注入、直接答对，零工具调用。
+每个真实用户轮恰好注入 1 条 hint（含模型调用失败轮），同轮去重在生产路径生效。期间两次"Nvidia upstream overloaded"为供应商瞬时故障，run 以 error 事件优雅终止（既有行为）。
 - ~~既有清理候选：test_cache_store.py 的 3 条 PytestWarning~~ → 已清理（test c5dd8d7）；mypy 因 metrics.py 注释事故被阻塞的问题已修复（fix 7cba49f），触碰文件 mypy 全绿。
