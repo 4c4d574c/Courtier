@@ -199,7 +199,7 @@
         <div class="chat-sidebar-user">
           <div class="chat-sidebar-user-main" @click="userMenuOpen = !userMenuOpen">
             <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
-            <AppIcon class="chat-sidebar-user-arrow" name="chevron-down" :size="12" />
+            <AppIcon class="chat-sidebar-user-arrow" name="caret-down" :size="14" />
           </div>
           <router-link
             :to="settingsTarget"
@@ -217,7 +217,7 @@
             >
               <AppIcon class="chat-sidebar-theme-icon" name="contrast" :size="16" />
               <span class="chat-sidebar-theme-label">{{ MESSAGES.CHAT_THEME }}</span>
-              <AppIcon class="chat-sidebar-theme-caret" :class="{ 'chat-sidebar-theme-caret--open': themeMenuOpen }" name="chevron-down" :size="12" />
+              <AppIcon class="chat-sidebar-theme-caret" :class="{ 'chat-sidebar-theme-caret--open': themeMenuOpen }" name="caret-down" :size="14" />
             </div>
             <div v-if="themeMenuOpen" class="chat-sidebar-theme-options">
               <button

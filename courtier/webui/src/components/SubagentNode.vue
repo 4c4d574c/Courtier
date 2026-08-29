@@ -69,7 +69,7 @@
               <span class="subagent-error-text">{{ errorPreview }}</span>
               <span v-if="isLongError" class="subagent-error-toggle">
                 {{ errorExpanded ? "收起" : "展开" }}
-                <AppIcon :name="errorExpanded ? 'chevron-up' : 'chevron-down'" :size="12" />
+                <AppIcon class="toggle-caret" :name="errorExpanded ? 'caret-up' : 'caret-down'" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -114,7 +114,7 @@
               </span>
               <span class="subagent-reasoning-toggle">
                 {{ reasoningExpanded ? "收起" : "展开" }}
-                <AppIcon :name="reasoningExpanded ? 'chevron-up' : 'chevron-down'" :size="12" />
+                <AppIcon class="toggle-caret" :name="reasoningExpanded ? 'caret-up' : 'caret-down'" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -175,8 +175,8 @@
               <span class="subagent-conclusion-toggle">
                 {{ isConclusionExpanded(run.key) ? "收起" : "展开" }}
                 <AppIcon
-                  :name="isConclusionExpanded(run.key) ? 'chevron-up' : 'chevron-down'"
-                  :size="12"
+                  :name="isConclusionExpanded(run.key) ? 'caret-up' : 'caret-down'"
+                  :size="14"
                 />
               </span>
             </div>

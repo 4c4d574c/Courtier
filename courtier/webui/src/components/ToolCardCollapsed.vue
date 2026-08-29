@@ -42,7 +42,7 @@
       <span v-else-if="tool.duration" class="tool-card-time"
         >{{ tool.duration.toFixed(1) }}s</span
       >
-      <span class="tool-card-expand-icon" @click.stop="$emit('toggle')"><AppIcon name="chevron-down" :size="10" /></span>
+      <span class="tool-card-expand-icon" @click.stop="$emit('toggle')"><AppIcon class="toggle-caret" name="caret-down" :size="12" /></span>
     </div>
   </div>
   <div v-if="tool.skill && tool.skillDescription" class="tool-card-description">

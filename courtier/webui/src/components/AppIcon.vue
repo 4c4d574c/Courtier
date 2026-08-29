@@ -34,6 +34,10 @@ const PATHS = {
     '<circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none"/>' +
     '<circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/>' +
     '<circle cx="19" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
+  // Disclosure carets — solid triangles (Material drop style). Stroke
+  // chevrons at 10-14px read as stray marks; a solid shape stays crisp.
+  "caret-down": '<path d="M6.5 9.5 12 15.5 17.5 9.5z" fill="currentColor" stroke="none"/>',
+  "caret-up": '<path d="M6.5 14.5 12 8.5l5.5 6z" fill="currentColor" stroke="none"/>',
   gear: lucideGear(),
   sparkle: lucideSparkles(),
   contrast:
