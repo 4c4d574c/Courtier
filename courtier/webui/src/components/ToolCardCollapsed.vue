@@ -1,12 +1,8 @@
 <template>
-  <div
-    class="tool-card-row"
-    role="button"
-    tabindex="0"
-    @click="$emit('toggle')"
-    @keydown.enter.prevent="$emit('toggle')"
-    @keydown.space.prevent="$emit('toggle')"
-  >
+  <!-- No click handlers here: clicks and keydowns bubble to the ToolCard
+       root, which is the single toggle source. A row-level handler used to
+       double-fire with the root's (emit + bubbled emit = instant collapse). -->
+  <div class="tool-card-row" role="button" tabindex="0">
     <span class="tool-card-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -42,7 +38,7 @@
       <span v-else-if="tool.duration" class="tool-card-time"
         >{{ tool.duration.toFixed(1) }}s</span
       >
-      <span class="tool-card-expand-icon" @click.stop="$emit('toggle')"><AppIcon name="chevron-right" :size="12" /></span>
+      <span class="tool-card-expand-icon"><AppIcon name="chevron-right" :size="12" /></span>
     </div>
   </div>
   <div v-if="tool.skill && tool.skillDescription" class="tool-card-description">
@@ -131,10 +127,6 @@ watch(
 );
 
 onUnmounted(clearTimer);
-defineEmits<{
-  toggle: [];
-}>();
-
 const displayName = computed(() => {
   // 优先展示 plugin.yaml 的 display_name（如"解析文档"），回退到工具名。
   if (props.tool.displayName) {
