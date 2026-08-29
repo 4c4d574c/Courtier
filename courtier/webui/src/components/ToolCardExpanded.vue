@@ -35,10 +35,10 @@
           v-if="isLongError"
           type="button"
           class="sd-error-toggle"
-          @click="errorExpanded = !errorExpanded"
+          @click="toggleErrorExpanded()"
         >
           {{ errorExpanded ? "收起" : "查看全文" }}
-          <AppIcon :name="errorExpanded ? 'chevron-down' : 'chevron-right'" :size="14" />
+          <DisclosureChevron :open="errorExpanded" :size="14" />
         </button>
       </div>
       <div v-else-if="tool.summary" class="sd-row">
@@ -50,8 +50,9 @@
 </template>
 
 <script setup lang="ts">
-import AppIcon from "./AppIcon.vue";
-import { computed, ref } from "vue";
+import DisclosureChevron from "./DisclosureChevron.vue";
+import { useDisclosure } from "../composables/useDisclosure";
+import { computed } from "vue";
 import type { ToolResult } from "../types/agent";
 import StreamingMarkdown from "./StreamingMarkdown.vue";
 import StructuredData from "./StructuredData.vue";
@@ -69,7 +70,7 @@ const statusLabel = computed(
 );
 
 // Error summaries carry the full exception text; clamp long ones by default.
-const errorExpanded = ref(false);
+const { isOpen: errorExpanded, toggle: toggleErrorExpanded } = useDisclosure();
 const isLongError = computed(
   () => (props.tool.summary?.length ?? 0) > 160,
 );

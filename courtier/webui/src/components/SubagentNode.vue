@@ -39,9 +39,7 @@
       >
         {{ run.tools.length }} 工具 · {{ totalDuration(run.tools).toFixed(1) }}s
       </span>
-      <span class="subagent-group-toggle">{{
-        groupExpanded ? "收起" : "展开"
-      }}</span>
+      <DisclosureChevron class="subagent-group-toggle" :open="groupExpanded" :size="14" />
     </div>
 
     <!-- Collapsible body: task, reasoning, error, wrapper, tool list -->
@@ -70,9 +68,9 @@
               <span
                 v-if="isLongError"
                 class="subagent-error-toggle"
-                :class="{ 'subagent-disclosure--open': errorExpanded }"
+                @click.stop="toggleErrorExpanded()"
               >
-                <AppIcon name="chevron-right" :size="14" />
+                <DisclosureChevron :open="errorExpanded" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -115,11 +113,8 @@
                 <span v-if="isStreamingThought" class="thinking-dot"></span>
                 子代理思考过程
               </span>
-              <span
-                class="subagent-reasoning-toggle"
-                :class="{ 'subagent-disclosure--open': reasoningExpanded }"
-              >
-                <AppIcon name="chevron-right" :size="14" />
+              <span class="subagent-reasoning-toggle">
+                <DisclosureChevron :open="reasoningExpanded" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -177,11 +172,8 @@
               @keydown.space.prevent="toggleConclusion(run.key)"
             >
               <span class="subagent-conclusion-label">子代理结论</span>
-              <span
-                class="subagent-conclusion-toggle"
-                :class="{ 'subagent-disclosure--open': isConclusionExpanded(run.key) }"
-              >
-                <AppIcon name="chevron-right" :size="14" />
+              <span class="subagent-conclusion-toggle">
+                <DisclosureChevron :open="isConclusionExpanded(run.key)" :size="14" />
               </span>
             </div>
             <Transition name="expand">
@@ -205,11 +197,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import type { ToolResult } from "../types/agent";
 import type { SubagentToolDisplayItem } from "../utils/toolCalls";
 import { displayItemKey } from "../utils/toolCalls";
 import ToolCard from "./ToolCard.vue";
+import DisclosureChevron from "./DisclosureChevron.vue";
+import { useDisclosure } from "../composables/useDisclosure";
 import StreamingMarkdown from "./StreamingMarkdown.vue";
 import AppIcon from "./AppIcon.vue";
 
@@ -223,34 +217,15 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Whole group: expanded while the run is streaming, auto-collapses when the
-// run finishes — unless the user has manually toggled it.  Restored sessions
-// (status already final) start collapsed.
-const groupExpanded = ref(props.run.runStatus === "running");
-let groupToggled = false;
-function toggleGroupExpanded() {
-  groupToggled = true;
-  groupExpanded.value = !groupExpanded.value;
-}
+// Whole group: streaming semantics live in useDisclosure.
+const {
+  isOpen: groupExpanded,
+  toggle: toggleGroupExpanded,
+} = useDisclosure({ active: () => props.run.runStatus === "running" });
 
-// Reasoning block: expanded while the run is streaming, auto-collapses when
-// the run finishes — unless the user has manually toggled it.
-const reasoningExpanded = ref(props.run.runStatus === "running");
-let reasoningToggled = false;
-function toggleReasoningExpanded() {
-  reasoningToggled = true;
-  reasoningExpanded.value = !reasoningExpanded.value;
-}
-watch(
-  () => props.run.runStatus,
-  (status, prev) => {
-    if (prev === "running" && status !== "running") {
-      if (!groupToggled) groupExpanded.value = false;
-      if (!reasoningToggled) reasoningExpanded.value = false;
-    }
-  },
-);
-
+// Reasoning block: streaming semantics live in useDisclosure.
+const { isOpen: reasoningExpanded, toggle: toggleReasoningExpanded } =
+  useDisclosure({ active: () => props.run.runStatus === "running" });
 const runStatusClass = computed(() => props.run.runStatus ?? "completed");
 
 // The orchestrator embeds the full input data (the whole document) into the
@@ -282,7 +257,7 @@ const isStreamingThought = computed(
 );
 
 // Error block: collapsed to a single-line preview unless toggled.
-const errorExpanded = ref(false);
+const { isOpen: errorExpanded, toggle: toggleErrorExpanded } = useDisclosure();
 const isLongError = computed(() => {
   const err = props.run.error ?? "";
   return err.length > 80 || err.includes("\n");

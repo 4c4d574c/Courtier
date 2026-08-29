@@ -11,7 +11,7 @@
     @keydown.enter.prevent="$emit('toggle')"
     @keydown.space.prevent="$emit('toggle')"
   >
-    <ToolCardCollapsed :tool="tool" @toggle="$emit('toggle')" />
+    <ToolCardCollapsed :tool="tool" :open="expanded" />
     <Transition name="expand">
       <ToolCardExpanded v-if="expanded" :tool="tool" />
     </Transition>

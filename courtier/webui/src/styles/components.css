@@ -749,23 +749,6 @@
   color: var(--chat-text-primary);
 }
 
-/* Disclosure chevron: points right when collapsed, rotates down when the
-   segment is open. Same treatment for the inline error toggle and the tool
-   card row (whose `expanded` class lives on the ToolCard root). */
-.thought-segment-toggle svg,
-.subagent-reasoning-toggle svg,
-.subagent-conclusion-toggle svg,
-.subagent-error-toggle svg,
-.tool-card-expand-icon svg {
-  display: block;
-  transition: transform 0.15s ease;
-}
-.thought-segment-toggle--open svg,
-.subagent-disclosure--open svg,
-.tool-card.expanded .tool-card-expand-icon svg {
-  transform: rotate(90deg);
-}
-
 /* Streaming status badge */
 .thought-status-badge {
   font-family: "Noto Sans SC", sans-serif;

@@ -38,7 +38,7 @@
       <span v-else-if="tool.duration" class="tool-card-time"
         >{{ tool.duration.toFixed(1) }}s</span
       >
-      <span class="tool-card-expand-icon"><AppIcon name="chevron-right" :size="12" /></span>
+      <span class="tool-card-expand-icon"><DisclosureChevron :open="open" :size="12" /></span>
     </div>
   </div>
   <div v-if="tool.skill && tool.skillDescription" class="tool-card-description">
@@ -72,10 +72,12 @@ import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import type { ToolResult } from "../types/agent";
 import { displayToolName } from "../utils/toolCalls";
 import DataChip from "./DataChip.vue";
-import AppIcon from "./AppIcon.vue";
+import DisclosureChevron from "./DisclosureChevron.vue";
 
 interface Props {
   tool: ToolResult;
+  /** Disclosure state, owned by the ToolCard root. */
+  open?: boolean;
 }
 
 const props = defineProps<Props>();

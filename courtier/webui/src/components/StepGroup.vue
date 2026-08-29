@@ -22,11 +22,8 @@
               >分析中…</span
             >
           </span>
-          <span
-            class="thought-segment-toggle"
-            :class="{ 'thought-segment-toggle--open': thoughtsExpanded }"
-          >
-            <AppIcon name="chevron-right" :size="14" />
+          <span class="thought-segment-toggle">
+            <DisclosureChevron :open="thoughtsExpanded" :size="14" />
           </span>
         </div>
         <Transition name="expand">
@@ -76,11 +73,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import type { Step, Thought } from "../types/agent";
 import { buildStepToolGroups, displayItemKey } from "../utils/toolCalls";
-import AppIcon from "./AppIcon.vue";
 import { useToggleSet } from "../composables/useToggleSet";
+import { useDisclosure } from "../composables/useDisclosure";
+import DisclosureChevron from "./DisclosureChevron.vue";
 
 import ToolCard from "./ToolCard.vue";
 import StreamingMarkdown from "./StreamingMarkdown.vue";
@@ -109,24 +107,11 @@ const combinedThoughtText = computed(() =>
   visibleThoughts.value.map((t) => t.text).join("\n\n"),
 );
 
-// Thought block: expanded while this step is the one currently streaming,
-// auto-collapses when it finishes — unless the user has manually toggled it.
-const thoughtsExpanded = ref(props.isRunning && props.isLastStep);
-let thoughtsToggled = false;
-
-function toggleThoughts() {
-  thoughtsToggled = true;
-  thoughtsExpanded.value = !thoughtsExpanded.value;
-}
-
-watch(
-  () => props.isRunning && props.isLastStep,
-  (active, wasActive) => {
-    if (wasActive && !active && !thoughtsToggled) {
-      thoughtsExpanded.value = false;
-    }
-  },
-);
+// Thought block: streaming semantics live in useDisclosure.
+const {
+  isOpen: thoughtsExpanded,
+  toggle: toggleThoughts,
+} = useDisclosure({ active: () => props.isRunning && props.isLastStep });
 
 const {
   toggle: toggleSubagentConclusion,
