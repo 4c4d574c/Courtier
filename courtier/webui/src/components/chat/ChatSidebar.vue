@@ -199,7 +199,6 @@
         <div class="chat-sidebar-user">
           <div class="chat-sidebar-user-main" @click="userMenuOpen = !userMenuOpen">
             <span class="chat-sidebar-user-name">{{ username || "用户" }}</span>
-            <AppIcon class="chat-sidebar-user-arrow" name="caret-down" :size="14" />
           </div>
           <router-link
             :to="settingsTarget"
@@ -1008,11 +1007,6 @@ function onMenuDelete(id: string) {
 .chat-sidebar-user-name {
   font-size: 15px;
   color: var(--chat-text-primary);
-}
-
-.chat-sidebar-user-arrow {
-  font-size: 11px;
-  color: var(--chat-text-secondary);
 }
 
 /* Opens upward — the menu sits at the very bottom of the viewport. */
