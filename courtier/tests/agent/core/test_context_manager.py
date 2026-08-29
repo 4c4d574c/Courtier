@@ -903,6 +903,23 @@ class TestLayer3FullCompaction:
         assert len(result) == 2
         assert _is_summary_message(result[0])
 
+    async def test_compaction_boundary_ignores_hint(self, mgr):
+        """边界修复回归（压缩级）：mid-turn 的 hint 不作边界——真实任务与
+        当前轮逐字保留，更早的历史被摘要。"""
+        real = user("审核这份关于XX的通知 " * 300)
+        hint = Message(role="user", content="解析结果已就绪", source="hint")
+        msgs = (
+            system("Sys"),
+            user("旧问题 " * 400),
+            real,
+            assistant("处理中"),
+            hint,
+        )
+        result = await mgr.compact_if_needed(msgs)
+        assert any(m is real for m in result)
+        assert any(m is hint for m in result)
+        assert _is_summary_message(result[1])
+
     async def test_current_turn_still_over_budget_micro_fallback(self, mgr, mock_model):
         """4.12 (回归) 压缩后当前轮仍超预算 → force 微压缩兜底。"""
         msgs = (
@@ -1161,6 +1178,19 @@ class TestFindLastRealUser:
         assert _find_last_real_user(
             [real, reminder_msg(PERIODIC_REMINDER)]
         ) is real
+
+    def test_skips_hint_messages(self):
+        """边界修复回归：hint（就绪提示/记忆召回）不是真实用户消息。
+
+        修复前：hint 是压缩时刻最后一条 user 消息时，真实任务被卷进摘要、
+        系统注入的提示反而逐字保留。
+        """
+        real = user("审核这份公文")
+        hint = Message(role="user", content="[记忆召回] 一些提示", source="hint")
+        assert _find_last_real_user([real, hint]) is real
+        readiness = Message(role="user", content="解析结果已就绪，可 get_artifact", source="hint")
+        assert _find_last_real_user([real, readiness]) is real
+        assert _find_last_real_user([hint]) is None
 
     def test_only_reminders_returns_none(self):
         assert _find_last_real_user([reminder_msg(PRE_TURN_REMINDER)]) is None

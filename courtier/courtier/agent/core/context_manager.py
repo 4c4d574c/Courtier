@@ -826,10 +826,16 @@ def _find_last_real_user(
 def _find_last_real_user_index(
     messages: tuple[Message, ...] | list[Message],
 ) -> int | None:
-    """Return the index of the most recent genuine user message (or None)."""
+    """Return the index of the most recent genuine user message (or None).
+
+    System-injected user-role messages are not the user's task: reminders
+    recur every turn, and hints (tool-readiness nudges, memory recalls)
+    are one-shot guidance.  Treating a hint as the boundary would hand the
+    real task to the summarizer while preserving the nudge verbatim.
+    """
     for i in range(len(messages) - 1, -1, -1):
         m = messages[i]
-        if m.role == "user" and m.content and m.source != "reminder":
+        if m.role == "user" and m.content and m.source not in ("reminder", "hint"):
             return i
     return None
 
