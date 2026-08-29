@@ -251,7 +251,16 @@ class _PersistenceBackend:
         async with self._lock:
             ref_id = self._next_ref_id(tool_name, label)
         ext = "txt" if content_type == "text/plain" else "json"
-        filepath_str = await self._write_file(tool_name, ref_id, serialized, ext)
+        try:
+            filepath_str = await self._write_file(tool_name, ref_id, serialized, ext)
+        except OSError:
+            # Disk full / permissions etc.: degrade to "not persisted" so
+            # callers (registry Layer 1, micro-compact) keep the raw data
+            # instead of crashing the run.
+            logger.warning(
+                "Persist to disk failed for %s; returning raw data", tool_name, exc_info=True
+            )
+            return PersistResult(data=data, ref_id="", persisted=False)
         self._dedup_record(tool_name, serialized, ref_id, filepath_str)
 
         # Persist schema alongside data (best-effort)

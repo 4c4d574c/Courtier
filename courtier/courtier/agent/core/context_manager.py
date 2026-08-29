@@ -258,11 +258,17 @@ class ContextManager:
 
                 ref_id, ref_file, success = self._extract_ref_info(msg)
                 if ref_id is None:
-                    ref_id, ref_file, persist_success = await self._persist_tool_message(
-                        msg, tool_name
+                    ref_id, ref_file, persist_success, persist_failed = (
+                        await self._persist_tool_message(msg, tool_name)
                     )
                     if success is None:
                         success = persist_success
+                    if persist_failed:
+                        # IO failure (e.g. disk full): keep the original
+                        # message — placeholdering it would drop the content
+                        # without any recovery pointer.
+                        compacted.append(msg)
+                        continue
 
                 note = "结果已被微压缩省略（旧工具结果）。" "将 $ref 作为工具参数即可恢复完整数据。"
                 placeholder: dict[str, Any] = {
@@ -387,28 +393,30 @@ class ContextManager:
 
     async def _persist_tool_message(
         self, msg: Message, tool_name: str
-    ) -> tuple[str | None, str | None, bool | None]:
-        """Persist a non-persisted tool message to disk; return (ref_id, file, success).
+    ) -> tuple[str | None, str | None, bool | None, bool]:
+        """Persist a non-persisted tool message to disk.
 
-        Extracts the inner payload from the tool result envelope
-        ({"success": ..., "raw_data": ..., "error": ...}) and persists it.
-        Returns (None, None, success) if the message has no data to persist.
+        Returns (ref_id, file, success, persist_failed).  *persist_failed*
+        is True only when a persist was attempted but the store degraded
+        (e.g. OSError) — the caller keeps the original message in that case.
+        Returns (None, None, success, False) if the message has no data to
+        persist.
         """
         if not msg.content:
-            return None, None, None
+            return None, None, None, False
         try:
             payload = json.loads(msg.content)
             data = payload.get("raw_data")
             success = payload.get("success")
             success = success if isinstance(success, bool) else None
             if data is None:
-                return None, None, success
+                return None, None, success, False
         except (json.JSONDecodeError, TypeError):
-            return None, None, None
+            return None, None, None, False
 
         result = await self._cache.persist(data, tool_name, force=True)
         if not result.persisted:
-            return None, None, success  # OSError or empty ref_id — caller checks ref_id
+            return None, None, success, True
 
         ref_file = result.data.get("file") if isinstance(result.data, dict) else None
         logger.debug(
@@ -416,7 +424,7 @@ class ContextManager:
             tool_name,
             result.ref_id,
         )
-        return result.ref_id, ref_file, success
+        return result.ref_id, ref_file, success, False
 
     # -- Layer 3: Full compaction ---------------------------------------------
 

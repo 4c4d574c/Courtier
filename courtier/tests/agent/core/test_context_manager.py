@@ -8,6 +8,7 @@ once all of its coverage is re-homed here.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from .conftest import assistant, system, tool_msg, user
 from courtier.agent.core.memory_manager import MemoryManager
@@ -42,6 +43,26 @@ class TestStateAndFork:
         parent = make_memory_manager(session_id="sess_x")
         child = parent.fork()
         assert child.session_id == "sess_x"
+
+
+class TestLayer1Refs:
+    async def test_persist_degrades_gracefully_on_disk_failure(self, mgr, tmp_path):
+        """2.3 (修复验证) 磁盘写失败（只读目录）→ 不抛出、原样返回不落盘。
+
+        Probe: _write_file let OSError escape persist(), crashing every
+        caller (registry Layer 1, micro-compact) instead of degrading.
+        """
+        import stat
+
+        cache_dir = Path(mgr._cache.cache_dir)
+        cache_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        try:
+            result = await mgr._cache.persist({"text": "x" * 1000}, "tool1")
+        finally:
+            cache_dir.chmod(stat.S_IRWXU)
+        assert result.persisted is False
+        assert result.data == {"text": "x" * 1000}
+        assert mgr._cache.ref_map == {}
 
 
 class TestTokenEstimationAndCalibration:
@@ -111,3 +132,25 @@ class TestLayer2MicroCompact:
         assert second[2].content == first[2].content
         assert json.loads(second[2].content or "")["ref_id"].startswith("$ref:tool1:")
         assert mgr._cache.ref_map == refs_before
+
+    async def test_micro_compact_keeps_message_when_persist_fails(
+        self, make_manager, tmp_path
+    ):
+        """3.7 (修复验证) persist 中途失败（磁盘只读）→ 保留原消息，不崩不丢数据。"""
+        import stat
+
+        mgr = make_manager()
+        cache_dir = Path(mgr._cache.cache_dir)
+        cache_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        try:
+            msgs = (
+                system("S"),
+                user("U"),
+                tool_msg('{"raw_data":"旧结果"}', "t1", "tool1"),
+                tool_msg('{"raw_data":"n1"}', "t2", "t2"),
+                tool_msg('{"raw_data":"n2"}', "t3", "t3"),
+            )
+            result = await mgr.micro_compact(msgs)
+        finally:
+            cache_dir.chmod(stat.S_IRWXU)
+        assert result == msgs  # nothing compacted away, nothing raised
