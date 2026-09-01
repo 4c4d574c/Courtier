@@ -1387,31 +1387,14 @@ class TestStateAndFork:
         assert child._compact_prompt_template == "T1 {history}"
         assert child._compact_merge_prompt_template == "T2 {previous_summary} {new_segment}"
 
-    def test_memory_manager_fork_isolated_namespace(self, make_memory_manager):
-        """5.4 (修复验证 F3) fork(sub_name) 返回 MemoryManager 且命名空间隔离。"""
-        parent = make_memory_manager(session_id="sess_x")
-        child = parent.fork(sub_name="h1")
+    def test_memory_manager_fork_keeps_memory_engine(self, make_memory_manager):
+        """5.4（文件制迁移后）：fork 保持 MemoryManager 类型与注入配置；
+        命名空间隔离语义已随文件制记忆退役（共享工作区，详见
+        test_memory_manager.py::TestForkPropagation）。"""
 
-        assert isinstance(child, MemoryManager)
-        assert child.session_id == "sess_x:sub:h1"
-        assert child._cache is parent._cache
-        assert child._memory_store is parent._memory_store
-        assert child.max_context_tokens == parent.max_context_tokens
-        assert child.state.has_compacted is False
-        assert child.state.compact_count == 0
-        assert child._working_summary is None
-
-    def test_nested_fork_chains_namespace(self, make_memory_manager):
-        """5.6 (修复验证 F3) 嵌套 fork 命名空间自然成链。"""
-        parent = make_memory_manager(session_id="sess_x")
-        child = parent.fork(sub_name="h1")
-        grandchild = child.fork(sub_name="h2")
-        assert grandchild.session_id == "sess_x:sub:h1:sub:h2"
-
-    def test_memory_manager_fork_without_sub_name_shares_namespace(
-        self, make_memory_manager
-    ):
-        """5.4 补充：sub_name=None 回退为继承父命名空间（无标识直调场景）。"""
         parent = make_memory_manager(session_id="sess_x")
         child = parent.fork()
-        assert child.session_id == "sess_x"
+        assert isinstance(child, MemoryManager)
+        assert child.memory_home == parent.memory_home
+        assert child.state.has_compacted is False
+        assert child.state.compact_count == 0

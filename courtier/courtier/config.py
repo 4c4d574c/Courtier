@@ -284,10 +284,10 @@ class Settings(BaseSettings):
         alias="memory_auto_inject_enabled",
         description="每轮用户输入后自动检索并注入相关记忆（环境变量: MEMORY_AUTO_INJECT_ENABLED）",
     )
-    memory_auto_inject_top_k: int = Field(
-        default=3,
-        alias="memory_auto_inject_top_k",
-        description="自动注入的最大记忆条数（环境变量: MEMORY_AUTO_INJECT_TOP_K）",
+    memory_auto_inject_total_chars: int = Field(
+        default=1500,
+        alias="memory_auto_inject_total_chars",
+        description="自动注入 hint 的总字符上限（环境变量: MEMORY_AUTO_INJECT_TOTAL_CHARS）",
     )
     memory_auto_inject_max_chars: int = Field(
         default=400,

@@ -13,6 +13,7 @@ persisted per-session and replayed when the agent is rebuilt per request.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -147,6 +148,10 @@ class DomainActivator:
         self._agent = agent
         # Domains activated in this session (additive, never removed).
         self.active_domains: set[str] = set()
+        # Optional host hook (e.g. MemoryManager.note_domain_active) fired
+        # after each successful activation so per-domain memory indexes
+        # join the recall injection.
+        self.on_domain_activated: Callable[[str], None] | None = None
         # Per-domain SkillRegistries, scanned once and cached.
         self._skill_registries: dict[str, SkillRegistry] = {}
 
@@ -256,6 +261,11 @@ class DomainActivator:
             self._agent.mark_system_prompt_dirty()
 
         self.active_domains.add(domain)
+        if self.on_domain_activated is not None:
+            try:
+                self.on_domain_activated(domain)
+            except Exception:
+                logger.warning("on_domain_activated(%s) failed", domain, exc_info=True)
         # Surface the domain's plugin proxies on the agent immediately — the
         # per-run sync only picks up newly visible tools at the START of the
         # next run, so same-turn use after activation would otherwise fail.

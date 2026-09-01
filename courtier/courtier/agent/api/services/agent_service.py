@@ -147,6 +147,7 @@ async def build_agent(
 
     from ...agents.orch import OrchestratorAgent
     from ...core.memory_manager import MemoryManager
+    from ...permissions.gate import PermissionGate
     from ...runtime import AgentRuntime
     from ...runtime.activation import DomainActivator, build_domain_catalog
     from ...runtime.budget import AgentRuntimeBudget
@@ -183,6 +184,12 @@ async def build_agent(
     )
     # Full runtime over the session registry; skills are registered
     # per-domain by the activator (no upfront skill_registry).
+    memory_home = Path(settings.cache_dir).parent / ".agent_memory"
+    session_workspace = (
+        Path(settings.cache_dir).parent / ".agent_sessions" / (session_id or "default")
+    )
+    gate = PermissionGate(allowed_roots=[memory_home, session_workspace])
+
     agent_runtime = AgentRuntime(
         tool_registry=session_registry,
         model=model,
@@ -191,6 +198,7 @@ async def build_agent(
         default_budget=budget,
         cache_dir=settings.cache_dir,
         prompt_engine=prompt_engine,
+        permissions=gate,
     )
 
     # Live catalog: domain descriptions + current skill list (mtime-cached),
@@ -211,6 +219,7 @@ async def build_agent(
         model=model,
         plugin_system=plugin_system,
         tool_registry=session_registry,
+        permissions=gate,
         skill_registry=None,
         agent_runtime=agent_runtime,
         courtier_md_content=courtier_md_content,
@@ -241,12 +250,19 @@ async def build_agent(
         memory_auto_inject_enabled=bool(
             getattr(settings, "memory_auto_inject_enabled", True)
         ),
-        memory_auto_inject_top_k=int(getattr(settings, "memory_auto_inject_top_k", 3)),
         memory_auto_inject_max_chars=int(
             getattr(settings, "memory_auto_inject_max_chars", 400)
         ),
+        memory_auto_inject_total_chars=int(
+            getattr(settings, "memory_auto_inject_total_chars", 1500)
+        ),
         memory_recall_hint_template=_memory_recall_hint_template(prompt_engine),
     )
+    # Seed the replayed activation set and keep future activations (the
+    # activate_domain tool) feeding the recall injection.
+    for domain in active_domains or ():
+        context_manager.note_domain_active(domain)
+    activator.on_domain_activated = context_manager.note_domain_active
     if plugin_system is not None:
         # Inject plugin-declared tool-usage guidance (plugin.yaml
         # system_prompt) into the system prompt via the lazy provider.

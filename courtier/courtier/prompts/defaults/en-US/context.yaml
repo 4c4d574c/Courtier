@@ -31,6 +31,6 @@ context:
     ---
     Merge and output the updated summary.
   memory_recall_hint: |
-    [Recalled memory] The notes below are relevant memories for the current input:
+    [Recalled memory] The notes below are the current memory indexes:
     {memories}
-    To store or read memories, use the memory_save / memory_get / memory_delete / memory_recall tools.
+    Memories are plain files in the memory workspace: use the read / write / edit tools; after writing or changing a memory, update its MEMORY.md index.

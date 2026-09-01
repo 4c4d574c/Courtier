@@ -77,6 +77,10 @@ class AgentRuntime:
     capability_registry: CapabilityRegistry | None = None
     event_bus: EventBus | None = None
     cache_dir: str = ".agent_cache"  # used when a fallback MemoryManager is needed
+    #: Session-scoped permission gate (path policy) inherited by spawned
+    #: sub-agents — without it they would default to an allow-all gate and
+    #: bypass the parent's file-path boundaries.
+    permissions: Any | None = None
     #: Prompt engine shared with spawned sub-agents so they render the same
     #: behavioral rules / reminders from the YAML bundles as the orchestrator
     #: (instead of hardcoded fallbacks).  ``None`` lets Agent pick its default.
@@ -281,11 +285,7 @@ class AgentRuntime:
             # the memory tiers alive in the child, scoped to a per-handle
             # session namespace so parallel or nested sub-agents do not
             # clobber each other's session memory.
-            cm: ContextManager
-            if isinstance(context_manager, MemoryManager):
-                cm = context_manager.fork(sub_name=handle.handle_id)
-            else:
-                cm = context_manager.fork()
+            cm = context_manager.fork()
         else:
             cm = MemoryManager(
                 model=self.model,
@@ -520,6 +520,7 @@ class AgentRuntime:
             tools=tools,
             agent_name=self._skill_display_name(config.name) or "",
             prompt_engine=self.prompt_engine,
+            permissions=self.permissions,
         )
         # Sync summarizer / result_store from the runtime's shared registry
         # so large tool results are summarised before entering the sub-agent's
