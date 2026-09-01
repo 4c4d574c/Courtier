@@ -36,6 +36,7 @@ class ReadTool:
     """Read a file (line-numbered, paged) or list a directory."""
 
     name: str = "read"
+    display_name: str | None = "读取文件"
     description: str = (
         "读取文件内容，带行号，可用 offset/limit 读取指定行区间（翻页）；"
         "path 为目录时返回目录清单（文件名 + 大小）。"
@@ -156,6 +157,7 @@ class WriteTool:
     """Create or overwrite a file (parent directories created as needed)."""
 
     name: str = "write"
+    display_name: str | None = "写入文件"
     description: str = (
         "创建或整体覆盖文件（自动创建父目录）。"
         "content 为完整文件内容；写入空字符串即清空文件。"
@@ -213,6 +215,7 @@ class EditTool:
     """Replace an exact, unique occurrence within a file."""
 
     name: str = "edit"
+    display_name: str | None = "编辑文件"
     description: str = (
         "精确替换文件中的一段内容：old_string 必须在文件中恰好出现一次。"
         "适合修改记忆文件的单条记录而不重写整文件；"

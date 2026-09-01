@@ -14,6 +14,7 @@ class EchoTool:
     """Echo back the input text unchanged."""
 
     name: str = "echo"
+    display_name: str | None = "回显"
     description: str = "Echo back the provided text exactly as given."
     parameters: dict[str, Any] = {
         "type": "object",
