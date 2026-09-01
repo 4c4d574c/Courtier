@@ -117,6 +117,12 @@
   color: var(--chat-text-secondary);
   background: var(--chat-accent-soft);
 }
+/* Error state on the collapsed row — quiet tint instead of a loud count row */
+.tool-card-badge--error {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border-color: color-mix(in srgb, var(--err) 22%, transparent);
+}
 .tool-card-meta {
   display: flex;
   align-items: center;
@@ -162,31 +168,6 @@
 .data-chip .val {
   color: var(--chat-text-primary);
   font-weight: 500;
-}
-
-/* Warning card issues */
-.tool-card-issues {
-  margin-top: 8px;
-  padding-left: 22px;
-  display: flex;
-  gap: 16px;
-}
-.issue-count {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
-  font-weight: 600;
-}
-.issue-count.err {
-  color: var(--err);
-}
-.issue-count.warn {
-  color: var(--warn);
-}
-.issue-count.ok {
-  color: var(--ok);
-}
-.issue-count.unchecked {
-  color: var(--chat-text-tertiary);
 }
 
 /* Expanded detail */

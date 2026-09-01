@@ -17,6 +17,9 @@
         ]"
         >{{ displayName }}</span
       >
+      <span v-if="hasError" class="tool-card-badge tool-card-badge--error"
+        >错误</span
+      >
       <span v-if="badgeLabel" :class="['tool-card-badge', badgeClass]">
         {{ badgeLabel }}
       </span>
@@ -51,19 +54,6 @@
       :label="chip.label"
       :value="chip.value"
     />
-  </div>
-  <div v-if="hasIssueCounts" class="tool-card-issues">
-    <span class="issue-count err">{{ issueErr }} 项错误</span>
-    <span class="issue-count warn">{{ issueWarn }} 项警告</span>
-    <span class="issue-count ok">{{ issueOk }} 项通过</span>
-    <span v-if="issueUnchecked > 0" class="issue-count unchecked"
-      >{{ issueUnchecked }} 项未检查</span
-    >
-  </div>
-  <div v-else-if="hasIssues" class="tool-card-issues">
-    <span class="issue-count err">{{ errorCount }} 项错误</span>
-    <span class="issue-count warn">{{ warnCount }} 项警告</span>
-    <span class="issue-count ok">{{ okCount }} 项通过</span>
   </div>
 </template>
 
@@ -173,16 +163,13 @@ const parsedChips = computed(() => {
 const hasIssues = computed(
   () => props.tool.status === "warning" || props.tool.status === "error",
 );
-const errorCount = computed(() => (props.tool.status === "error" ? 1 : 0));
-const warnCount = computed(() => (props.tool.status === "warning" ? 1 : 0));
-const okCount = computed(() => (props.tool.status === "done" ? 1 : 0));
+const hasIssueCounts = computed(() => props.tool.issueCounts != null);
 
-// 审核计数：后端 issueCounts 存在时优先于 status 派生渲染；
-// 旧持久化会话/不发计数的工具回退到上面的 status 派生行为。
-const issueCounts = computed(() => props.tool.issueCounts ?? null);
-const hasIssueCounts = computed(() => issueCounts.value !== null);
-const issueErr = computed(() => issueCounts.value?.err ?? 0);
-const issueWarn = computed(() => issueCounts.value?.warn ?? 0);
-const issueOk = computed(() => issueCounts.value?.ok ?? 0);
-const issueUnchecked = computed(() => issueCounts.value?.unchecked ?? 0);
+// 标题栏只在工具调用出错时给出一个低调的「错误」徽标；计数/警告/通过等
+// 明细留在展开视图中，避免折叠态过于扎眼。issueCounts 存在时优先于 status。
+const hasError = computed(
+  () =>
+    props.tool.status === "error" ||
+    (props.tool.issueCounts?.err ?? 0) > 0,
+);
 </script>
