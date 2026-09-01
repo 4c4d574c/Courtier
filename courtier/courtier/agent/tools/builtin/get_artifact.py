@@ -345,9 +345,7 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error="必须提供 id 参数。"
-                "使用工具输出中的 result_id 字段（$ref:...:N 格式），"
-                "或 list_artifacts 返回的 artifact_id 字段值。",
+                error=render_error("errors.artifact_missing_id"),
             )
 
         # Structured reading (outline/section) bypasses the projection/paging
@@ -424,14 +422,11 @@ class GetArtifactTool:
                             )
                         return ToolResult(
                             success=False,
-                            error=(
-                                f"产物类型 {artifact.artifact_type} 无法投影以满足请求"
-                                f"（materialize_as={materialize_as or '未指定'}，"
-                                f"约束={sorted(constraints) or '无'}）。"
-                                "可改用可投影目标类型并附带 artifact_type 参数"
-                                "（可用目标类型以 list_artifacts 输出的 "
-                                "projectable_to_types 为准），"
-                                "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
+                            error=render_error(
+                                "errors.artifact_projection_unsatisfied",
+                                artifact_type=artifact.artifact_type,
+                                materialize_as=materialize_as or "未指定",
+                                constraints=sorted(constraints) or "无",
                             ),
                         )
                     return await self._project_artifact(
@@ -496,12 +491,7 @@ class GetArtifactTool:
                 )
             return ToolResult(
                 success=False,
-                error=(
-                    f"未找到 id={id} 的工件数据。"
-                    "id 参数可填：工具输出中的 result_id（$ref:...:N 格式），"
-                    "或 list_artifacts 输出中的 artifact_id 字段值；"
-                    "需要转换类型时再附带 artifact_type（取值见 projectable_to_types）。"
-                ),
+                error=render_error("errors.artifact_data_not_found", id=id),
             )
 
         return await self._project_artifact(
@@ -565,12 +555,7 @@ class GetArtifactTool:
         if text is None:
             return ToolResult(
                 success=False,
-                error=(
-                    f"结果 {id} 不支持大纲/按节读取：仅文本类结果"
-                    "（Markdown/纯文本）与 parse_document 解析结果可用。"
-                    "可直接 get_artifact 读取原始数据，"
-                    "或加 materialize_as=string 提取正文文本。"
-                ),
+                error=render_error("errors.artifact_outline_unsupported", id=id),
             )
 
         sections = parse_sections(text)
@@ -591,9 +576,11 @@ class GetArtifactTool:
                 candidates = "；".join(s.title for s in sections[:10])
                 return ToolResult(
                     success=False,
-                    error=(
-                        f"未找到节「{section}」。可用节（序号+标题）: {candidates}"
-                        + ("…" if len(sections) > 10 else "")
+                    error=render_error(
+                        "errors.artifact_section_not_found",
+                        section=section,
+                        candidates=candidates,
+                        truncated=len(sections) > 10,
                     ),
                 )
             from courtier.agent.core.loop_utils import truncate_data
@@ -611,7 +598,9 @@ class GetArtifactTool:
                 },
                 metadata={"result_id": id},
             )
-        return ToolResult(success=False, error="结构化读取需要 outline 或 section 参数")
+        return ToolResult(
+            success=False, error=render_error("errors.artifact_outline_missing_params")
+        )
 
     async def _resolve_ref(
         self,
@@ -705,22 +694,15 @@ class GetArtifactTool:
             if source is None:
                 return ToolResult(
                     success=False,
-                    error=(
-                        f"未找到引用 {id} 的类型化工件，无法执行投影请求。"
-                        "请省略 materialize_as/source_scope 等参数直接读取原始数据，"
-                        "或先调用 list_artifacts 查看可用工件。"
-                    ),
+                    error=render_error("errors.artifact_typed_ref_not_found", id=id),
                 )
             return ToolResult(
                 success=False,
-                error=(
-                    f"产物类型 {source.artifact_type} 无法投影以满足请求"
-                    f"（materialize_as={materialize_as or '未指定'}，"
-                    f"约束={sorted(constraints) or '无'}）。"
-                    "可改用可投影目标类型并附带 artifact_type 参数"
-                    "（可用目标类型以 list_artifacts 输出的 "
-                    "projectable_to_types 为准），"
-                    "或省略 materialize_as/source_scope 等参数直接读取原始数据。"
+                error=render_error(
+                    "errors.artifact_projection_unsatisfied",
+                    artifact_type=source.artifact_type,
+                    materialize_as=materialize_as or "未指定",
+                    constraints=sorted(constraints) or "无",
                 ),
             )
 
@@ -735,7 +717,7 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error=f"读取持久化结果失败: {exc}",
+                error=render_error("errors.artifact_read_failed", error=str(exc)),
             )
 
         if "error" in raw:
@@ -750,7 +732,7 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error=f"结果 {id} 的数据为空",
+                error=render_error("errors.artifact_empty_data", id=id),
             )
 
         # No artifact_type → return raw data directly (most common path).
@@ -859,15 +841,16 @@ class GetArtifactTool:
         if source is None:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             if artifact_id.startswith("$ref:"):
-                hint = (
-                    f"（提示：{artifact_id} 是持久化引用，"
-                    f"直接作为 id 传入即可读取原始数据，无需先调 list_artifacts。）"
-                )
+                hint = render_error("errors.artifact_hint_persisted_ref", artifact_id=artifact_id)
             else:
-                hint = "请先调用 list_artifacts 查看可用工件及其 artifact_id。"
+                hint = render_error("errors.artifact_hint_list_artifacts")
             return ToolResult(
                 success=False,
-                error=(f"未找到 artifact_id={artifact_id} 的工件。{hint}"),
+                error=render_error(
+                    "errors.artifact_id_not_found",
+                    artifact_id=artifact_id,
+                    hint=hint,
+                ),
             )
 
         field = InputField(
@@ -890,11 +873,11 @@ class GetArtifactTool:
                         "reason": action.get("reason", ""),
                     }
                 )
-            error_msg = "无法获取请求的 artifact：" + "; ".join(messages)
-            if suggestions:
-                error_msg += "。建议先调用以下上游工具：" + ", ".join(
-                    s["tool"] for s in suggestions
-                )
+            error_msg = render_error(
+                "errors.artifact_projection_resolve_failed",
+                messages="; ".join(messages),
+                suggested_tools=", ".join(s["tool"] for s in suggestions) if suggestions else "",
+            )
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
@@ -919,12 +902,10 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error=(
-                    f"投影执行失败: {exc}。"
-                    f"当前可物化的 artifact_type: {available_types}。"
-                    f"如果源 artifact 类型（如 docaudit.parsed_document）不可直接物化，"
-                    f"请尝试请求投影目标类型（如 core.plain_text 或 docaudit.paragraph_list），"
-                    f"系统会自动执行类型投影链。"
+                error=render_error(
+                    "errors.artifact_projection_exec_failed_typed",
+                    error=str(exc),
+                    available_types=available_types,
                 ),
             )
         except Exception as exc:
@@ -932,7 +913,7 @@ class GetArtifactTool:
             on_progress({"status": "done", "message": "执行完成", "detail": None})
             return ToolResult(
                 success=False,
-                error=f"投影执行失败: {exc}",
+                error=render_error("errors.artifact_projection_exec_failed", error=str(exc)),
             )
 
         if validation_err is not None:

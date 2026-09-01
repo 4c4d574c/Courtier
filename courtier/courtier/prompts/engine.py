@@ -70,6 +70,17 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.subagent_budget_exhausted",
         "errors.subagent_spawn_refused",
         "errors.subagent_failed",
+        "errors.budget_max_depth",
+        "errors.budget_spawn_exhausted",
+        "errors.budget_spawn_cycle",
+        "errors.budget_child_allocate",
+        "errors.subagent_max_steps",
+        "errors.subagent_missing_registry",
+        "errors.guard_null_tool_results",
+        "errors.guard_repeated_calls",
+        "errors.guard_consecutive_exploratory",
+        "errors.guard_no_artifact_progress",
+        "errors.guard_tool_blocked",
         "errors.plugin_arg_path_escape",
         "errors.plugin_arg_file_missing",
         "errors.plugin_file_transfer_failed",
@@ -86,6 +97,21 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.binder_items_above_max",
         "errors.binder_item_text_below_min",
         "errors.artifact_ref_not_found_hint",
+        "errors.artifact_missing_id",
+        "errors.artifact_projection_unsatisfied",
+        "errors.artifact_data_not_found",
+        "errors.artifact_outline_unsupported",
+        "errors.artifact_section_not_found",
+        "errors.artifact_outline_missing_params",
+        "errors.artifact_typed_ref_not_found",
+        "errors.artifact_read_failed",
+        "errors.artifact_empty_data",
+        "errors.artifact_id_not_found",
+        "errors.artifact_hint_persisted_ref",
+        "errors.artifact_hint_list_artifacts",
+        "errors.artifact_projection_resolve_failed",
+        "errors.artifact_projection_exec_failed_typed",
+        "errors.artifact_projection_exec_failed",
         "ui.session_title",
         "ui.step_label",
         "ui.agent_name",
@@ -294,6 +320,70 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "current task chain, or call list_artifacts first to see available "
         "artifacts."
     ),
+    "errors.artifact_missing_id": (
+        "The 'id' parameter is required. Use the result_id field from tool "
+        "output ($ref:...:N format), or the artifact_id field value returned "
+        "by list_artifacts.\n"
+    ),
+    "errors.artifact_projection_unsatisfied": (
+        "Artifact type {{ artifact_type }} cannot be projected to satisfy the "
+        "request (materialize_as={{ materialize_as }}, constraints="
+        "{{ constraints }}). Use a projectable target type with the "
+        "artifact_type parameter (see projectable_to_types in list_artifacts "
+        "output), or omit materialize_as/source_scope and read the raw data "
+        "directly.\n"
+    ),
+    "errors.artifact_data_not_found": (
+        "No artifact data found for id={{ id }}. The id parameter accepts: a "
+        "result_id from tool output ($ref:...:N format), or an artifact_id "
+        "field from list_artifacts output; add artifact_type when a type "
+        "conversion is needed (see projectable_to_types).\n"
+    ),
+    "errors.artifact_outline_unsupported": (
+        "Result {{ id }} does not support outline/section reading: only text "
+        "results (Markdown/plain text) and parse_document output qualify. "
+        "Read the raw data via get_artifact directly, or add "
+        "materialize_as=string to extract the body text.\n"
+    ),
+    "errors.artifact_section_not_found": (
+        "Section '{{ section }}' not found. Available sections (index + "
+        "title): {{ candidates }}{% if truncated %}…{% endif %}"
+    ),
+    "errors.artifact_outline_missing_params": (
+        "Structured reading requires the outline or section parameter\n"
+    ),
+    "errors.artifact_typed_ref_not_found": (
+        "No typed artifact found for reference {{ id }}; cannot run the "
+        "requested projection. Omit materialize_as/source_scope and read the "
+        "raw data directly, or call list_artifacts first to see available "
+        "artifacts.\n"
+    ),
+    "errors.artifact_read_failed": ("Failed to read the persisted result: {{ error }}\n"),
+    "errors.artifact_empty_data": ("Data of result {{ id }} is empty\n"),
+    "errors.artifact_id_not_found": (
+        "Artifact not found for artifact_id={{ artifact_id }}. {{ hint }}\n"
+    ),
+    "errors.artifact_hint_persisted_ref": (
+        "(Hint: {{ artifact_id }} is a persisted reference — pass it directly "
+        "as id to read the raw data; no need to call list_artifacts first.)"
+    ),
+    "errors.artifact_hint_list_artifacts": (
+        "Call list_artifacts first to see available artifacts and their " "artifact_id."
+    ),
+    "errors.artifact_projection_resolve_failed": (
+        "Cannot obtain the requested artifact: {{ messages }}{% if "
+        "suggested_tools %}. Consider calling these upstream tools first: "
+        "{{ suggested_tools }}{% endif %}"
+    ),
+    "errors.artifact_projection_exec_failed_typed": (
+        "Projection failed: {{ error }}. Materializable artifact types: "
+        "{{ available_types }}. If the source artifact type (e.g. "
+        "docaudit.parsed_document) is not directly materializable, request a "
+        "projection target type (e.g. core.plain_text or "
+        "docaudit.paragraph_list); the system runs the type-projection chain "
+        "automatically.\n"
+    ),
+    "errors.artifact_projection_exec_failed": ("Projection failed: {{ error }}\n"),
     "ui.session_title": "{{ title }}",
     "ui.step_label": "Step {{ index }}: {{ label }}",
     "ui.agent_name": "{{ agent_name }}",
