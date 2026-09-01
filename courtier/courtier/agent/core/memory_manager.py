@@ -98,8 +98,13 @@ class MemoryManager(ContextManager):
 
     @property
     def memory_home(self) -> Path:
-        """Root of the file-based memory workspace."""
+        """Root of the global file-based memory workspace."""
         return Path(self._cache_dir).parent / ".agent_memory"
+
+    @property
+    def session_workspace(self) -> Path:
+        """This session's scratch workspace (a permission-gate root too)."""
+        return Path(self._cache_dir).parent / ".agent_sessions" / self.session_id
 
     def note_domain_active(self, domain: str) -> None:
         """Register an active domain; its index joins the recall injection."""
@@ -162,9 +167,18 @@ class MemoryManager(ContextManager):
         if hint_id is not None and any(id(m) == hint_id for m in messages[idx + 1 :]):
             return messages
 
-        segments = self._collect_index_segments()
-        if not segments:
-            return messages
+        # The workspace paths are dynamic per deployment — without this
+        # segment the model has to guess them and lose a call to the gate
+        # (observed live).  Always present when injection is on.
+        segments = [
+            (
+                f"【记忆工作区】\n- 全局记忆根: {self.memory_home}\n"
+                f"- 本会话工作区: {self.session_workspace}\n"
+                "- 约定：common/ 存通用记忆，<领域>/ 存领域记忆；"
+                "每个目录的 MEMORY.md 是索引，写入或修改记忆后同步更新"
+            )
+        ]
+        segments += self._collect_index_segments()
 
         template = self._recall_hint_template or _FALLBACK_RECALL_HINT
         hint = Message(

@@ -94,12 +94,20 @@ class TestRecallInjection:
         msgs = (Message(role="user", content="任务", source="reminder"),)
         assert await manager.inject_memory_recall(msgs) == msgs
 
-    async def test_no_injection_when_no_indexes(self, manager, memory_home):
-        """无任何索引文件 → 零成本跳过。"""
+    async def test_workspace_preamble_always_present(self, manager, memory_home):
+        """空索引也注入工作区段——路径是动态的，模型必须能看到（实测教训）。"""
         msgs = (Message(role="user", content="任务"),)
-        assert await manager.inject_memory_recall(msgs) == msgs
+        result = await manager.inject_memory_recall(msgs)
+        hint = result[-1].content or ""
+        assert "【记忆工作区】" in hint
+        assert str(manager.memory_home) in hint
+        assert str(manager.session_workspace) in hint
+        assert "common/" in hint
+        # no index segments — only the workspace preamble
+        assert "【common 记忆索引】" not in hint
 
-    async def test_no_injection_when_index_empty(self, manager, memory_home):
+    async def test_no_injection_when_index_empty_and_disabled(self, manager, memory_home):
+        manager._auto_inject_enabled = False
         _write_index(memory_home, "common", "   ")
         msgs = (Message(role="user", content="任务"),)
         assert await manager.inject_memory_recall(msgs) == msgs
@@ -110,7 +118,8 @@ class TestRecallInjection:
         result = await manager.inject_memory_recall((Message(role="user", content="任务"),))
         hint = result[-1].content or ""
         assert "…" in hint
-        assert len(hint) < 300
+        assert "长" * 400 not in hint  # index body capped
+        assert len(hint) < 500  # workspace preamble + capped index
 
     async def test_total_cap_skips_later_indexes(self, manager, memory_home):
         manager._auto_inject_total_chars = 60

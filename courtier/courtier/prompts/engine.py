@@ -424,7 +424,7 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "Merge and output the updated summary."
     ),
     "context.memory_recall_hint": (
-        "[Recalled memory] The notes below are the current memory indexes:"
+        "[Recalled memory] Below are your memory workspace and current indexes:"
         "\n{memories}\nMemories are plain files in the memory workspace: "
         "use the read / write / edit tools; after writing or changing a "
         "memory, update its MEMORY.md index."
