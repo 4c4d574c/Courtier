@@ -1093,6 +1093,10 @@ async def agent_loop(
             "error": result.error,
             "issue_counts": result.metadata.get("issue_counts"),
             "citations": citations,
+            # The real result object — bus consumers (RunRecorder) build the
+            # expanded-card detail from raw_data/key_excerpts; a payload
+            # without it can only reconstruct an empty shell.
+            "result": result,
         }
         if tool_call_id is not None:
             payload["tool_call_id"] = tool_call_id

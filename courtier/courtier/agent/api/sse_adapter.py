@@ -321,22 +321,34 @@ class RunRecorder:
         elif event_type in ("tool.result", "tool.error"):
             name = payload.get("name")
             summary = payload.get("summary", "")
-            # Reconstruct a minimal ExecutionResult for the existing handler.
-            success = payload.get("success", event_type == "tool.result")
             issue_counts = payload.get("issue_counts")
             citations = payload.get("citations")
-            metadata: dict[str, Any] = {}
-            if isinstance(issue_counts, dict):
-                metadata["issue_counts"] = issue_counts
-            if citations is not None:
-                metadata["citations"] = citations
-            result = ExecutionResult(
-                success=success,
-                actor_type="tool",
-                actor_name=name or "unknown",
-                error=payload.get("error"),
-                metadata=metadata,
-            )
+            # Prefer the real ExecutionResult the loop attaches to the
+            # payload: the expanded-card detail is built from raw_data /
+            # key_excerpts, which a reconstructed shell can never carry.
+            real = payload.get("result")
+            if isinstance(real, ExecutionResult):
+                metadata = dict(real.metadata or {})
+                if isinstance(issue_counts, dict):
+                    metadata["issue_counts"] = issue_counts
+                if citations is not None:
+                    metadata["citations"] = citations
+                result = replace(real, metadata=metadata)
+            else:
+                # Reconstruct a minimal ExecutionResult (legacy payloads).
+                success = payload.get("success", event_type == "tool.result")
+                metadata: dict[str, Any] = {}
+                if isinstance(issue_counts, dict):
+                    metadata["issue_counts"] = issue_counts
+                if citations is not None:
+                    metadata["citations"] = citations
+                result = ExecutionResult(
+                    success=success,
+                    actor_type="tool",
+                    actor_name=name or "unknown",
+                    error=payload.get("error"),
+                    metadata=metadata,
+                )
             await self.on_tool_result(
                 name or "unknown", result, summary, payload.get("tool_call_id")
             )
@@ -1078,6 +1090,38 @@ class RunRecorder:
     _MAX_STRUCTURED_KEYS = 30
     #: Max length of a single string value in structured detail (chars).
     _MAX_STRUCTURED_STRING_LEN = 500
+    #: Max excerpts surfaced for a persisted (raw_data-dropped) result.
+    _MAX_DETAIL_EXCERPTS = 5
+
+    @classmethod
+    def _build_persisted_detail(cls, result: ExecutionResult) -> dict[str, Any] | None:
+        """Detail for results persisted to the artifact store.
+
+        ``raw_data`` is dropped once a payload exceeds the inline limit, so
+        without this branch the expanded card would show only the summary
+        line. Surface the content that ships with the reference: the summary
+        strategy's key excerpts and the stored head preview.
+        """
+        if result.result_id is None:
+            return None
+        excerpts = [e for e in (result.key_excerpts or ()) if e]
+        if not excerpts:
+            stored = (result.metadata or {}).get("stored")
+            preview = stored.get("preview") if isinstance(stored, dict) else None
+            if not preview:
+                return None
+            excerpts = [preview]
+        if result.content_type == "text/plain":
+            # Text payloads (e.g. converted documents) preview as markdown —
+            # the excerpts are the leading lines of the document itself.
+            return {
+                "type": "markdown",
+                "content": "\n\n".join(excerpts[: cls._MAX_DETAIL_EXCERPTS]),
+            }
+        detail: dict[str, Any] = {"$ref": result.result_id}
+        for i, excerpt in enumerate(excerpts[: cls._MAX_DETAIL_EXCERPTS], 1):
+            detail[f"excerpt_{i}"] = excerpt[: cls._MAX_STRUCTURED_STRING_LEN]
+        return {"type": "structured", "data": detail}
 
     @classmethod
     def _build_detail_data(cls, result: Any) -> dict[str, Any] | None:
@@ -1087,7 +1131,7 @@ class RunRecorder:
         data = result.raw_data
 
         if data is None:
-            return None
+            return cls._build_persisted_detail(result)
 
         if isinstance(data, str):
             return {"type": "markdown", "content": data}

@@ -201,7 +201,155 @@ async def test_bus_think_tool_calls_announces_ids(store):
     events = []
     while not q.empty():
         item = q.get_nowait()
-        if item[0] == "event":
-            events.append(json.loads(item[1].replace("data: ", "").strip()))
+        events.append(json.loads(item[1].replace("data: ", "").strip()))
     think = next(e for e in events if e["type"] == "think" and e.get("toolCalls"))
     assert think["toolCallIds"] == ["c1", "c2"]
+
+
+def _make_bus_agent(session_id: str):
+    from courtier.agent.core.event_bus import EventBus
+    from courtier.agent.core.events import AgentEvent
+
+    bus = EventBus()
+
+    async def publish(payload: dict, event_type: str = "tool.result") -> None:
+        await bus.publish(
+            AgentEvent(
+                type=event_type,
+                session_id=session_id,
+                agent_name="Courtier",
+                turn_index=0,
+                payload=payload,
+            )
+        )
+
+    return bus, publish
+
+
+def _drain(log_q: RunEventLog, cursor: int = -1) -> list[dict]:
+    import json as _json
+
+    events = []
+    for entry in log_q.replay_after(cursor):
+        events.append(_json.loads(entry.line.split("data: ", 1)[1]))
+    return events
+
+
+@pytest.mark.asyncio
+async def test_bus_tool_result_builds_detail_from_real_result(store):
+    """The loop payload carries the real ExecutionResult; the recorder builds
+    the expanded-card detail from it instead of the empty-shell fallback."""
+    from courtier.agent.core.execution_result import ExecutionResult
+
+    log_q = RunEventLog()
+    session_id = "sess_b051d5aa0001"
+    await store.create(session_id, "bus detail", "")
+    adapter = RunRecorder(log_q, store, session_id)
+    bus, publish = _make_bus_agent(session_id)
+    adapter.start_listening(bus)
+
+    await publish({"names": ["activate_domain"], "ids": ["c1"]}, "think.tool_calls")
+    await publish(
+        {
+            "name": "activate_domain",
+            "summary": "完成 (2 个字段)",
+            "success": True,
+            "result": ExecutionResult(
+                success=True,
+                actor_type="tool",
+                actor_name="activate_domain",
+                raw_data={"skills": "格式审核", "rules": "GB/T 9704"},
+            ),
+        }
+    )
+    await asyncio.sleep(0.05)
+
+    events = _drain(log_q)
+    tool_result = next(e for e in events if e["type"] == "tool_result")
+    assert tool_result["detail_data"]["type"] == "structured"
+    assert tool_result["detail_data"]["data"]["skills"] == "格式审核"
+
+    session = await store.get(session_id)
+    stored = [t for s in session.steps for t in s.tools]
+    record = next(t for t in stored if t.name == "activate_domain")
+    assert record.detail == {
+        "type": "structured",
+        "data": {"skills": "格式审核", "rules": "GB/T 9704"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_bus_tool_result_persisted_result_detail(store):
+    """Persisted results (raw_data dropped for a $ref) surface their key
+    excerpts: text payloads as markdown, JSON payloads as structured rows."""
+    from courtier.agent.core.execution_result import ExecutionResult
+
+    log_q = RunEventLog()
+    session_id = "sess_b051d5bb0002"
+    await store.create(session_id, "bus persisted detail", "")
+    adapter = RunRecorder(log_q, store, session_id)
+    bus, publish = _make_bus_agent(session_id)
+    adapter.start_listening(bus)
+
+    await publish({"names": ["convert_document"], "ids": ["c1"]}, "think.tool_calls")
+    await publish(
+        {
+            "name": "convert_document",
+            "summary": "完成 (已持久化: $ref:convert_document:1)",
+            "success": True,
+            "result": ExecutionResult(
+                success=True,
+                actor_type="tool",
+                actor_name="convert_document",
+                result_id="convert_document:1",
+                content_type="text/plain",
+                key_excerpts=("# 财政部文件", "第二条 …"),
+            ),
+        }
+    )
+    await publish(
+        {
+            "name": "content_audit",
+            "summary": "完成 (已持久化: $ref:content_audit:1)",
+            "success": True,
+            "result": ExecutionResult(
+                success=True,
+                actor_type="tool",
+                actor_name="content_audit",
+                result_id="content_audit:1",
+                content_type="application/json",
+                key_excerpts=("问题位置: 第2段",),
+            ),
+        }
+    )
+    await asyncio.sleep(0.05)
+
+    events = _drain(log_q)
+    by_name = {e["name"]: e for e in events if e["type"] == "tool_result"}
+    assert by_name["convert_document"]["detail_data"] == {
+        "type": "markdown",
+        "content": "# 财政部文件\n\n第二条 …",
+    }
+    assert by_name["content_audit"]["detail_data"]["type"] == "structured"
+    assert by_name["content_audit"]["detail_data"]["data"]["$ref"] == "content_audit:1"
+    assert by_name["content_audit"]["detail_data"]["data"]["excerpt_1"] == "问题位置: 第2段"
+
+    session = await store.get(session_id)
+    stored = {t.name: t for s in session.steps for t in s.tools}
+    assert stored["convert_document"].detail["type"] == "markdown"
+    assert stored["content_audit"].detail["data"]["$ref"] == "content_audit:1"
+
+
+def test_build_detail_data_persisted_without_content_returns_none():
+    """A persisted result with neither excerpts nor stored preview has no
+    detail to show — None keeps the frontend summary-only fallback."""
+    from courtier.agent.api.sse_adapter import RunRecorder
+    from courtier.agent.core.execution_result import ExecutionResult
+
+    result = ExecutionResult(
+        success=True,
+        actor_type="tool",
+        actor_name="x",
+        result_id="ref:1",
+    )
+    assert RunRecorder._build_detail_data(result) is None
