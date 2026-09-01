@@ -66,10 +66,18 @@
   padding: 7px 10px;
   border-radius: var(--chat-radius-md);
   background: transparent;
+}
+/* Toggle source is the header block only — the expanded detail is not
+   clickable. Negative margins bleed the hover highlight to the card edges. */
+.tool-card-header {
+  margin: -7px -10px;
+  padding: 7px 10px;
+  border-radius: var(--chat-radius-md);
   cursor: pointer;
+  user-select: none;
   transition: background 0.15s;
 }
-.tool-card:hover {
+.tool-card-header:hover {
   background: var(--chat-bg-hover);
 }
 .tool-card-icon {

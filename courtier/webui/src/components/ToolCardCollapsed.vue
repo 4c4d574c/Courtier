@@ -1,8 +1,9 @@
 <template>
-  <!-- No click handlers here: clicks and keydowns bubble to the ToolCard
-       root, which is the single toggle source. A row-level handler used to
-       double-fire with the root's (emit + bubbled emit = instant collapse). -->
-  <div class="tool-card-row" role="button" tabindex="0">
+  <!-- No click handlers here: clicks and keydowns bubble to the
+       tool-card-header wrapper in ToolCard, which is the single toggle
+       source. A row-level handler used to double-fire with the wrapper's
+       (emit + bubbled emit = instant collapse). -->
+  <div class="tool-card-row">
     <span class="tool-card-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
