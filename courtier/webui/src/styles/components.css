@@ -307,6 +307,29 @@
   color: var(--chat-text-primary);
 }
 
+/* Success result preview — a bounded peek with a fade at the cut. Errors
+   use the expandable .sd-error block instead; structured data self-bounds
+   via backend/frontend key and string caps. */
+.tool-card-preview--clamped {
+  max-height: 240px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.tool-card-summary-preview {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--chat-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-card-summary-preview--clamped {
+  max-height: 67px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
 /* Markdown content — base font for thought/conclusion contexts */
 .markdown-content {
   font-family: "Noto Sans SC", sans-serif;
