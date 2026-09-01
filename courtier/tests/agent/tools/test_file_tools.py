@@ -6,8 +6,6 @@ Policy-free primitives: path boundaries live in the permission gate
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from courtier.agent.tools.builtin.file_tools import EditTool, ReadTool, WriteTool
