@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from courtier.agent.core.tool_call import ToolCall
+from courtier.prompts.errors import render_error
 
 from .base import GuardContext, GuardLayer, GuardResult
 
@@ -32,7 +33,11 @@ class DangerousToolGuard:
             if name in self.dangerous_names:
                 return GuardResult.block(
                     self.name,
-                    f"Tool {name!r} is blocked: {self.DANGEROUS_PATTERNS.get(name, 'dangerous')}",
+                    render_error(
+                        "errors.guard_tool_blocked",
+                        tool_name=name,
+                        cause=self.DANGEROUS_PATTERNS.get(name, "dangerous"),
+                    ),
                 )
         return GuardResult.allow(self.name)
 

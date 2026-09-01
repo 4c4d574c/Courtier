@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from courtier.prompts.errors import render_error
+
 
 @dataclass(frozen=True)
 class AgentRuntimeBudget:
@@ -34,6 +36,25 @@ class AgentRuntimeBudget:
             return False, f"spawn_cycle_detected for agent {agent_name!r}"
         return True, None
 
+    @staticmethod
+    def describe_refusal(reason: str | None) -> str:
+        """Localize a machine refusal token from ``can_spawn`` for the model.
+
+        The tokens themselves are the stable contract (events, tests); only
+        the model-facing sentence is rendered from ``errors.*`` templates.
+        """
+        if not reason:
+            return ""
+        if reason.startswith("max_depth_reached"):
+            depth = reason[len("max_depth_reached (") : -1] if reason.endswith(")") else ""
+            return render_error("errors.budget_max_depth", max_depth=depth)
+        if reason == "total_spawn_budget_exhausted":
+            return render_error("errors.budget_spawn_exhausted")
+        if reason.startswith("spawn_cycle_detected"):
+            agent = reason.split(" for agent ", 1)[-1] if " for agent " in reason else ""
+            return render_error("errors.budget_spawn_cycle", agent_name=agent)
+        return reason
+
     def allocate_child(
         self,
         agent_name: str,
@@ -45,14 +66,16 @@ class AgentRuntimeBudget:
         """Return a new budget for a child agent."""
         allowed, reason = self.can_spawn(agent_name)
         if not allowed:
-            raise RuntimeError(f"Cannot allocate child budget: {reason}")
+            raise RuntimeError(
+                render_error("errors.budget_child_allocate", reason=self.describe_refusal(reason))
+            )
 
         return AgentRuntimeBudget(
             max_depth=self.max_depth,
             remaining_total_spawns=self.remaining_total_spawns - 1,
-            max_runtime_seconds=max_runtime_seconds
-            if max_runtime_seconds is not None
-            else self.max_runtime_seconds,
+            max_runtime_seconds=(
+                max_runtime_seconds if max_runtime_seconds is not None else self.max_runtime_seconds
+            ),
             max_cumulative_runtime_seconds=self.max_cumulative_runtime_seconds,
             max_turns=max_turns if max_turns is not None else self.max_turns,
             parent_chain=self.parent_chain + (handle_id,),

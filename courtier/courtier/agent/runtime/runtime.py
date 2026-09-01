@@ -183,7 +183,11 @@ class AgentRuntime:
         allowed, reason = effective_budget.can_spawn(name)
         if not allowed:
             raise RuntimeError(
-                render_error("errors.subagent_spawn_refused", agent_name=repr(name), reason=reason)
+                render_error(
+                    "errors.subagent_spawn_refused",
+                    agent_name=repr(name),
+                    reason=effective_budget.describe_refusal(reason),
+                )
             )
 
         handle_id = f"h-{uuid4().hex[:16]}"
@@ -669,6 +673,7 @@ class AgentRuntime:
 
         success = result.status == "completed"
         data = self._extract_agent_data(result)
+        model_error = self._model_facing_error(config, result.termination_reason)
 
         if self.summarizer is not None:
             return await self.summarizer.from_data(
@@ -676,7 +681,7 @@ class AgentRuntime:
                 actor_type=config.agent_type,
                 actor_name=config.name,
                 data=data,
-                error=result.termination_reason if not success else None,
+                error=model_error,
                 metadata={
                     "handle_id": handle.handle_id,
                     "session_id": self.session_id,
@@ -690,9 +695,24 @@ class AgentRuntime:
             actor_type=config.agent_type,
             actor_name=config.name,
             raw_data=data if success else None,
-            error=result.termination_reason if not success else None,
+            error=model_error,
             metadata={"handle_id": handle.handle_id},
         )
+
+    @staticmethod
+    def _model_facing_error(config: "AgentConfig", termination_reason: str | None) -> str | None:
+        """Map terse termination codes to actionable localized sentences.
+
+        Reasons produced as localized sentences elsewhere (permission gate,
+        model/internal errors, ``guardrail:`` blocks) pass through unchanged.
+        """
+        if termination_reason is None:
+            return None
+        if termination_reason == "max_steps":
+            return render_error("errors.subagent_max_steps", max_steps=config.max_turns)
+        if termination_reason == "missing_tool_registry":
+            return render_error("errors.subagent_missing_registry")
+        return termination_reason
 
     @staticmethod
     def _extract_agent_data(result: AgentResult) -> Any:

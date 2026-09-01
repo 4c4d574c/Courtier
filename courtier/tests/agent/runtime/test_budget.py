@@ -60,5 +60,5 @@ def test_allocate_child_allows_overrides():
 
 def test_allocate_child_raises_when_not_allowed():
     budget = AgentRuntimeBudget(max_depth=0)
-    with pytest.raises(RuntimeError, match="max_depth_reached"):
+    with pytest.raises(RuntimeError, match="嵌套深度"):
         budget.allocate_child("a", "h1")

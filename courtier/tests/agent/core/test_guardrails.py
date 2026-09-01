@@ -200,7 +200,7 @@ class TestLoopGuardrails:
         )
         result = await guard.check(ctx)
         assert result.action == "block"
-        assert "null" in result.reason
+        assert "空结果" in result.reason
 
     @pytest.mark.asyncio
     async def test_explore_loop_guard_blocks_repeated_calls(self):
@@ -214,7 +214,7 @@ class TestLoopGuardrails:
 
         result = await guard.check(ctx)
         assert result.action == "block"
-        assert "repeated" in result.reason
+        assert "重复调用" in result.reason
 
     @pytest.mark.asyncio
     async def test_explore_loop_guard_blocks_consecutive_exploratory(self):
@@ -234,7 +234,7 @@ class TestLoopGuardrails:
         )
         result = await guard.check(ctx)
         assert result.action == "block"
-        assert "exploratory" in result.reason
+        assert "探索性" in result.reason
 
     @pytest.mark.asyncio
     async def test_business_artifact_guard_blocks_no_progress(self, monkeypatch):
@@ -258,7 +258,7 @@ class TestLoopGuardrails:
 
         result = await guard.check(ctx)
         assert result.action == "block"
-        assert "business artifacts" in result.reason
+        assert "业务工件" in result.reason
 
     @pytest.mark.asyncio
     async def test_business_artifact_guard_allows_progress(self):

@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from courtier.config import get_settings
+from courtier.prompts.errors import render_error
 
 from ...artifacts.resolver import emit_event
 from ..loop_utils import normalize_args_for_dedup
@@ -53,13 +54,19 @@ class ExploreLoopGuard:
                 "Explore-loop detected: %d consecutive null results. Forcing completion.",
                 settings.loop_max_null_tool_results,
             )
-            emit_event("loop_no_progress_detected", {
-                "reason": "null_results",
-                "count": settings.loop_max_null_tool_results,
-            })
+            emit_event(
+                "loop_no_progress_detected",
+                {
+                    "reason": "null_results",
+                    "count": settings.loop_max_null_tool_results,
+                },
+            )
             return GuardResult.block(
                 self.name,
-                f"{settings.loop_max_null_tool_results} consecutive null tool results",
+                render_error(
+                    "errors.guard_null_tool_results",
+                    count=settings.loop_max_null_tool_results,
+                ),
             )
 
         if len(self._tool_history) >= settings.loop_max_same_tool_calls:
@@ -70,14 +77,21 @@ class ExploreLoopGuard:
                     settings.loop_max_same_tool_calls,
                     recent[0],
                 )
-                emit_event("loop_no_progress_detected", {
-                    "reason": "repeated_tool_call",
-                    "tool": recent[0][0],
-                    "count": settings.loop_max_same_tool_calls,
-                })
+                emit_event(
+                    "loop_no_progress_detected",
+                    {
+                        "reason": "repeated_tool_call",
+                        "tool": recent[0][0],
+                        "count": settings.loop_max_same_tool_calls,
+                    },
+                )
                 return GuardResult.block(
                     self.name,
-                    f"{settings.loop_max_same_tool_calls} repeated calls to {recent[0][0]}",
+                    render_error(
+                        "errors.guard_repeated_calls",
+                        tool_name=recent[0][0],
+                        count=settings.loop_max_same_tool_calls,
+                    ),
                 )
 
         if self._consecutive_exploratory >= settings.loop_max_consecutive_exploratory:
@@ -85,13 +99,19 @@ class ExploreLoopGuard:
                 "Explore-loop detected: %d consecutive exploratory tool calls. Forcing completion.",
                 self._consecutive_exploratory,
             )
-            emit_event("loop_no_progress_detected", {
-                "reason": "consecutive_exploratory",
-                "count": self._consecutive_exploratory,
-            })
+            emit_event(
+                "loop_no_progress_detected",
+                {
+                    "reason": "consecutive_exploratory",
+                    "count": self._consecutive_exploratory,
+                },
+            )
             return GuardResult.block(
                 self.name,
-                f"{self._consecutive_exploratory} consecutive exploratory tool calls",
+                render_error(
+                    "errors.guard_consecutive_exploratory",
+                    count=self._consecutive_exploratory,
+                ),
             )
 
         return GuardResult.allow(
@@ -169,13 +189,16 @@ class BusinessArtifactProgressGuard:
                 "Forcing completion.",
                 self._turns_since_progress,
             )
-            emit_event("loop_no_progress_detected", {
-                "reason": "no_business_artifacts",
-                "turns": self._turns_since_progress,
-            })
+            emit_event(
+                "loop_no_progress_detected",
+                {
+                    "reason": "no_business_artifacts",
+                    "turns": self._turns_since_progress,
+                },
+            )
             return GuardResult.block(
                 self.name,
-                f"{self._turns_since_progress} turns without new business artifacts",
+                render_error("errors.guard_no_artifact_progress", turns=self._turns_since_progress),
             )
 
         return GuardResult.allow(self.name)
@@ -183,10 +206,7 @@ class BusinessArtifactProgressGuard:
     @staticmethod
     def _count_business_artifacts(artifact_store: Any) -> int:
         try:
-            return len([
-                a for a in artifact_store.list_all()
-                if not a.metadata.debug_only
-            ])
+            return len([a for a in artifact_store.list_all() if not a.metadata.debug_only])
         except Exception:
             logger.warning("Failed to count active non-debug artifacts", exc_info=True)
             return -1

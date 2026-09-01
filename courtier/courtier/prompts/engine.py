@@ -216,6 +216,29 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "Cumulative runtime budget exhausted ({{ used_seconds }}s / " "{{ limit_seconds }}s)\n"
     ),
     "errors.subagent_spawn_refused": ("Cannot spawn sub-agent {{ agent_name }}: {{ reason }}\n"),
+    "errors.budget_max_depth": ("maximum sub-agent nesting depth reached ({{ max_depth }})"),
+    "errors.budget_spawn_exhausted": ("total spawn budget exhausted"),
+    "errors.budget_spawn_cycle": (
+        "spawn cycle detected: {{ agent_name }} (the same agent cannot spawn "
+        "recursively along one chain)"
+    ),
+    "errors.budget_child_allocate": ("Cannot allocate child budget: {{ reason }}"),
+    "errors.subagent_max_steps": (
+        "Sub-agent hit the max-steps limit ({{ max_steps }} steps) without completing the task"
+    ),
+    "errors.subagent_missing_registry": (
+        "Sub-agent has no tool registry and cannot execute tool calls"
+    ),
+    "errors.guard_null_tool_results": ("{{ count }} consecutive tool calls returned empty results"),
+    "errors.guard_repeated_calls": (
+        "{{ count }} repeated calls to tool {{ tool_name }} with identical arguments"
+    ),
+    "errors.guard_consecutive_exploratory": (
+        "{{ count }} consecutive exploratory tool calls (list_artifacts/get_artifact) "
+        "without business output"
+    ),
+    "errors.guard_no_artifact_progress": ("{{ turns }} turns without new business artifacts"),
+    "errors.guard_tool_blocked": ("Tool {{ tool_name }} is blocked by policy: {{ cause }}"),
     "errors.subagent_failed": ("Sub-agent execution failed: {{ error }}\n"),
     "errors.plugin_arg_path_escape": (
         "Argument {{ param_name }} escapes the upload directory and was " "rejected: {{ value }}\n"

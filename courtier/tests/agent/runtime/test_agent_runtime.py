@@ -103,7 +103,7 @@ async def test_spawn_respects_budget_depth(tmp_path):
     )
 
     parent = runtime.spawn(name="loop_agent", task="outer")
-    with pytest.raises(RuntimeError, match="max_depth_reached"):
+    with pytest.raises(RuntimeError, match="嵌套深度"):
         runtime.spawn(name="loop_agent", task="inner", parent_handle=parent)
 
 
@@ -112,7 +112,7 @@ async def test_spawn_detects_cycle(tmp_path):
     runtime = _make_runtime(tmp_path, ["loop_agent"])
 
     parent = runtime.spawn(name="loop_agent", task="outer")
-    with pytest.raises(RuntimeError, match="spawn_cycle_detected"):
+    with pytest.raises(RuntimeError, match="启动环"):
         runtime.spawn(name="loop_agent", task="inner", parent_handle=parent)
 
 
@@ -190,7 +190,7 @@ async def test_spawn_parent_budget_overrides_explicit_budget(tmp_path):
     parent = runtime.spawn(name="parent_agent", task="outer")
     # An explicit permissive budget should be ignored when a parent is supplied.
     explicit_budget = AgentRuntimeBudget(max_depth=5)
-    with pytest.raises(RuntimeError, match="max_depth_reached"):
+    with pytest.raises(RuntimeError, match="嵌套深度"):
         runtime.spawn(
             name="child_agent",
             task="inner",
