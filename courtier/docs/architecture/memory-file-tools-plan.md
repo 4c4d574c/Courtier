@@ -9,7 +9,7 @@
 ## 对齐结论（已与用户确认，2026-08-29）
 
 1. 工具就三个通用件：`read` / `edit` / `write`，无 memory_ 前缀、无工具内路径策略；**任何文件都可操作，边界由权限门（hook 层）限制**。
-2. 拒绝语义：**单调用拒绝**——路径越界的调用返回带指引的错误 ToolResult，loop 继续，模型自行纠正；工具名级拒绝（工具被整体禁用）维持既有整轮 blocked 语义（双级）。
+2. 拒绝语义统一为**单调用拒绝**：名级（工具被整体禁用）与参数级（路径越界）都只拒该次调用——返回带原因与指引的错误 ToolResult，loop 继续，模型自行纠正；不整轮熔断。
 3. 工具内**不**留粗保险边界（策略唯一权威在权限门）。
 4. v1 白名单 = 记忆根 + 本会话工作区两个根。
 5. `read` 支持行区间（offset/limit，行号输出）；path 为目录时返回清单。
@@ -43,9 +43,10 @@ uploads/.agent_sessions/<sid>/    ← 权限根 #2（会话工作区，懒创建
 
 ### 权限门：参数级路径策略（`permissions/gate.py` 扩展）
 
-- 现有门在 loop 工具派发前逐调用 `allow(tool_call)`（loop.py:695），但只看工具名。扩展为双级：
-  - **名级**（既有 `allow`）：工具被整体禁用 → 维持整轮 blocked；
-  - **参数级**（新增，如 `path_denial(tool_call) -> str | None`）：`read`/`edit`/`write` 的 path 经 `Path.resolve()` 归一（消化 `..`/symlink）后必须落在允许根内；不满足 → 单调用拒绝；
+- 现有门在 loop 工具派发前逐调用 `allow(tool_call)`（loop.py:695），但只看工具名，且拒绝语义为整轮 blocked。重构为统一**单调用拒绝**：
+  - 门 API 收敛为 `check(tool_call) -> str | None`（None=放行；str=拒绝原因），同时覆盖**名级**（工具被整体禁用 → "工具 X 已被禁用"）与**参数级**（`read`/`edit`/`write` 的 path 经 `Path.resolve()` 归一（消化 `..`/symlink）后必须落在允许根内 → "路径不在允许范围内。允许的根：…"）；
+  - loop 站点改为：被拒调用合成错误 ToolResult（原因+指引入观察流，前端可见），跳过派发，loop 继续；删除"收集 denied → 整轮 blocked"路径与 `errors.permission_denied` 整轮文案调用；
+  - 既有 `test_loop_permissions_block_tool` 断言从整轮 blocked 更新为单调用拒绝；
 - **fail-closed**：策略解析异常一律拒绝；
 - 允许根在 `build_agent` 按会话构造门时确定（携带 sid 派生的会话工作区路径）；
 - 额外允许根留 settings 前向扩展位（将来"uploads 只读"纯配置）。
@@ -77,7 +78,7 @@ settings：保留 `memory_auto_inject_enabled`、`memory_auto_inject_max_chars`�
 1. `docs` 本计划。
 2. `feat(tools)` read/write/edit 三工具 + 单元测试（分页/行号/目录清单/覆盖/唯一匹配）。
 3. `feat(permissions)` 权限门参数级路径策略（归一/白名单/fail-closed/拒绝消息）+ 单元测试。
-4. `feat(loop)` 单调用拒绝语义（名级熔断保持）+ loop 级测试。⚠️ 触碰 `core/loop.py` 门站点——与并行会话（错误模板化）同文件，落地顺序需协调。
+4. `feat(loop)` 统一单调用拒绝语义（名级+参数级，门站点重构 + 既有 blocked 用例断言更新）+ loop 级测试。⚠️ 触碰 `core/loop.py` 门站点——与并行会话（错误模板化）同文件，落地顺序需协调。
 5. `feat(memory)` 索引制注入（MemoryManager 瘦身 + DomainActivator 通知接线 + settings 调整 + 模板文案）+ 测试。
 6. `chore` 退役清单执行（删工具/删存储/回退 fork 分派/改注册/迁数据）+ 回归。
 7. `test` E2E 实测（并行会话落地后重启服务）：存记忆→同轮/跨轮召回→清单问答（read MEMORY.md）→跨会话隔离（B 会话读 A 工作区被拒）→子代理越权被拒。
@@ -86,7 +87,7 @@ settings：保留 `memory_auto_inject_enabled`、`memory_auto_inject_max_chars`�
 
 - 全套件 `uv run pytest -m "not integration"` 全绿；触碰文件 ruff/mypy 干净；
 - 权限门测试覆盖：穿越、symlink、根外绝对路径、fail-closed、白名单内放行、拒绝消息含根指引；
-- 单调用拒绝：一次越界后 run 继续并完成；
+- 单调用拒绝（两级一致）：名级禁用与路径越界都只拒该次调用，run 继续并完成；
 - 注入：跟随活跃领域、双帽生效、同轮去重、禁用开关；
 - E2E：文件制记忆三场景（存/召回/清单）真实会话通过。
 
