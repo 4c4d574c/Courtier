@@ -20,8 +20,8 @@ default_mode: subagent
 - 需要检查文档格式合规性
 
 # 取数
-1. 优先使用任务中「# 输入数据」段提供的 document（parse_document 的 Document 模型，含版面/字号等排版信息），不要重复解析。
-2. 若任务未提供 document 但有 file_path，调用 `parse_document(file_path)` 获取 Document 模型；解析失败时在结论中如实说明并终止。
+1. 优先使用任务中「# 输入数据」段提供的 document（parse_layout 的 Document 模型，含版面/字号等排版信息），不要重复解析。
+2. 若任务未提供 document 但有 file_path，调用 `parse_layout(file_path)` 获取 Document 模型；解析失败时在结论中如实说明并终止。
 3. document 字段中的 doc_type 为编排方指定的文种，与实际判断不一致时以实际解析结果为准。
 
 # 审核流程

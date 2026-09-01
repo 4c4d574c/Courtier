@@ -547,7 +547,7 @@ class GetArtifactTool:
                     text = value
                     break
             if text is None and _looks_like_parsed_document(data):
-                # parse_document 产物：文本嵌套在 pages[].page_content 里，
+                # parse_layout 产物：文本嵌套在 pages[].page_content 里，
                 # 走与投影器共用的提取路径（避免两处结构理解漂移）。
                 text = parsed_document_to_text(data) or None
 

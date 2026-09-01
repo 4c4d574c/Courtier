@@ -199,7 +199,7 @@ class OrchestratorAgent(Agent):
         self._audit_results = {}
 
         # Build dispatch context — file_path (when present) is available for
-        # the LLM to call parse_document / convert_document.  Sessions without
+        # the LLM to call parse_layout / convert_document.  Sessions without
         # an upload are plain conversations and proceed without it.
         dispatch_context = dict(context) if context else {}
 

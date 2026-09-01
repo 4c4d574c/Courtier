@@ -112,7 +112,7 @@ class TestPromptPipeline:
 
     def test_tool_usage_notes_rendered_after_tools(self):
         pp = PromptPipeline()
-        pp.set_tools("可用工具: parse_document")
+        pp.set_tools("可用工具: parse_layout")
         pp.set_tool_usage_notes("## parse\n解析插件用法")
         pp.set_context_instructions("ref 说明")
         result = pp.build()

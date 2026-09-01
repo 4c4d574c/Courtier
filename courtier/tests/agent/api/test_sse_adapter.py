@@ -302,7 +302,7 @@ class TestRunRecorder:
         q = _LogQueue(log_q)
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()  # consume think event
         await adapter.on_content_token("文档已解析，共1页。")
         q.get_nowait()  # consume conclusion_token event
@@ -395,9 +395,9 @@ class TestRunRecorder:
         q = _LogQueue(log_q)
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
-        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
+        await adapter.on_tool_result("parse_layout", ToolResult(success=True), "parsed")
 
         item = q.get_nowait()
         parsed = json.loads(item[1].replace("data: ", "").strip())
@@ -488,7 +488,7 @@ class TestRunRecorder:
         q = _LogQueue(log_q)
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
         result = ToolResult(
             success=True,
@@ -498,7 +498,7 @@ class TestRunRecorder:
                 "subagent_name": 123,
             },
         )
-        await adapter.on_tool_result("parse_document", result, "parsed")
+        await adapter.on_tool_result("parse_layout", result, "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["callKind"] == "tool"
@@ -596,9 +596,9 @@ class TestRunRecorder:
 
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", tool_registry=registry)
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
-        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
+        await adapter.on_tool_result("parse_layout", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["type"] == "tool_result"
@@ -620,7 +620,7 @@ class TestRunRecorder:
 
         # Register a mock tool with display_name
         class _MockTool:
-            name: str = "parse_document"
+            name: str = "parse_layout"
             description: str = "parses documents"
             display_name: str | None = "文档解析"
             parameters: dict = {"type": "object", "properties": {}}
@@ -639,9 +639,9 @@ class TestRunRecorder:
 
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", tool_registry=registry)
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
-        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
+        await adapter.on_tool_result("parse_layout", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["type"] == "tool_result"
@@ -660,9 +660,9 @@ class TestRunRecorder:
         q = _LogQueue(log_q)
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
-        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
+        await adapter.on_tool_result("parse_layout", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert parsed["type"] == "tool_result"
@@ -727,11 +727,11 @@ class TestRunRecorder:
         q = _LogQueue(log_q)
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
         await adapter.on_tool_result(
-            "parse_document",
-            ExecutionResult(success=True, actor_type="tool", actor_name="parse_document"),
+            "parse_layout",
+            ExecutionResult(success=True, actor_type="tool", actor_name="parse_layout"),
             "完成 (无返回数据)",
         )
 
@@ -1409,9 +1409,9 @@ class TestRunRecorderIssueCounts:
         q = _LogQueue(log_q)
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5")
 
-        await adapter.on_step("think", "tool_calls: parse_document")
+        await adapter.on_step("think", "tool_calls: parse_layout")
         q.get_nowait()
-        await adapter.on_tool_result("parse_document", ToolResult(success=True), "parsed")
+        await adapter.on_tool_result("parse_layout", ToolResult(success=True), "parsed")
 
         parsed = json.loads(q.get_nowait()[1].replace("data: ", "").strip())
         assert "issueCounts" not in parsed

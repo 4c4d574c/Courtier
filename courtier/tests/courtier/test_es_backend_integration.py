@@ -67,7 +67,7 @@ async def test_persist_recovers_via_es_from_a_fresh_store(tmp_path, es_index):
     store_a = ArtifactStore(cache_dir=str(tmp_path / "a"), primary_backend=backend_a)
     payload = {"pages": [{"text": "上下文管理集成测试 " * 50}]}
 
-    marker = (await store_a.persist(payload, "parse_document", force=True)).data
+    marker = (await store_a.persist(payload, "parse_layout", force=True)).data
     assert marker["__persisted_output__"] is True
     ref_id = marker["ref_id"]
 

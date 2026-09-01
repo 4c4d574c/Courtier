@@ -591,7 +591,7 @@ class PluginRuntime:
 
 | 插件 | 目录 | 提供能力 |
 |------|------|----------|
-| parse | `plugins/common/parse/` | Tool: `parse_document` |
+| parse | `plugins/common/parse/` | Tool: `parse_layout` |
 | search | `plugins/common/search/` | Tool: `search_documents` |
 | annotate | `plugins/common/annotate/` | Tool: `annotate_document` |
 | template | `plugins/common/template/` | Tool: `load_template` |
@@ -611,7 +611,7 @@ class PluginRuntime:
 |------|------|----------|-------|
 | 定义方式 | 插件 `plugin.yaml` 的 `capabilities.tools` | 无独立定义（由 Skill 动态生成的 `Agent`） | `skills/*.md`（frontmatter + 正文） |
 | 主机侧创建 | `ProxyTool` | `AgentRuntime` 运行时创建 | 启动时 `SkillRegistry` 预编译 `SkillConfig` |
-| LLM 看到的名字 | `audit_format`、`parse_document` | 不直接可见（被 SkillTool 包裹） | `format_audit(task=...)` |
+| LLM 看到的名字 | `audit_format`、`parse_layout` | 不直接可见（被 SkillTool 包裹） | `format_audit(task=...)` |
 | RPC / 执行 | `tool.execute` | 通用 `agent_loop` | = 一个 SubAgent 的配置来源 |
 | 业务专家可改 | 否 | 否 | **是**（编辑 `.md`） |
 
@@ -620,10 +620,10 @@ class PluginRuntime:
 
 #### 调用链路
 
-**普通工具**（以 `parse_document` 为例）：
+**普通工具**（以 `parse_layout` 为例）：
 
 ```
-LLM → parse_document
+LLM → parse_layout
   └── ProxyTool.execute()
         └── JSON-RPC tool.execute → parse plugin → 返回 ToolResult
 ```
@@ -638,7 +638,7 @@ LLM → format_audit(task="...")
         ├── 从 ToolRegistry 解析 frontmatter 声明的工具
         ├── 若声明 input_model：校验/构建结构化输入
         └── AgentRuntime.delegate() 运行通用 Agent（role = Skill 正文，tools = 声明工具）
-              └── 子代理 agent_loop：THINK → 调用 parse_document/audit_format → 返回 AgentResult
+              └── 子代理 agent_loop：THINK → 调用 parse_layout/audit_format → 返回 AgentResult
         └── 统一为 ExecutionResult（metadata: is_subagent_result、skill 名）
 ```
 
@@ -778,9 +778,9 @@ Layer 3: 全量压缩
 
 大型数据在组件间通过 `$ref` 引用传递：
 ```
-工具 A 产生大型输出 → CacheStore.persist() → 返回 "$ref:parse_document:1"
+工具 A 产生大型输出 → CacheStore.persist() → 返回 "$ref:parse_layout:1"
                                                    ↓
-LLM 将 "$ref:parse_document:1" 传递给工具 B → CacheStore.resolve_refs() → 加载真实数据
+LLM 将 "$ref:parse_layout:1" 传递给工具 B → CacheStore.resolve_refs() → 加载真实数据
 ```
 
 CacheStore 独立于 ContextManager，可被 ToolRegistry 直接使用。
@@ -1357,7 +1357,7 @@ agent_span (session_id, task)
 ├── llm_span (turn 1)
 │   ├── prompt event
 │   └── completion event (token usage)
-├── tool_span: parse_document
+├── tool_span: parse_layout
 ├── tool_span: format_audit (SkillTool)
 │   └── subagent_span (通用 Agent 内部循环)
 │       ├── llm_span (子代理 LLM 调用)
@@ -1506,14 +1506,14 @@ FastAPI 中间件，自动记录 HTTP 请求的追踪信息和指标。
 ┌──────────────────────────────────────────────────────────────────────┐
 │                    OrchestratorAgent.run()                            │
 │                                                                       │
-│  Turn 1: LLM → 调用 parse_document 工具                              │
+│  Turn 1: LLM → 调用 parse_layout 工具                              │
 │    │                                                                  │
-│    ├── ProxyTool.execute("parse_document")                            │
+│    ├── ProxyTool.execute("parse_layout")                            │
 │    │   └── JSON-RPC → parse plugin 独立服务                           │
 │    │       └── docparse 解析引擎（PDF/DOCX/扫描件）                    │
 │    │           └── 返回 ParsedDocument 结构                           │
 │    │                                                                  │
-│    └── $ref:parse_document:1  ← CacheStore 持久化                     │
+│    └── $ref:parse_layout:1  ← CacheStore 持久化                     │
 │        └── ArtifactStore.register(parsed_document)                     │
 │                                                                       │
 │  Turn 2: LLM → 调用 format_audit(task="...")                          │

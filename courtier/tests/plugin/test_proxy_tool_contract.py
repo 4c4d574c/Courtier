@@ -17,7 +17,7 @@ class TestProxyToolContractPropagation:
 
     def test_reads_output_artifact_type(self):
         tool_spec = {
-            "name": "parse_document",
+            "name": "parse_layout",
             "description": "Parse a document",
             "output_artifact_type": "docaudit.parsed_document",
         }

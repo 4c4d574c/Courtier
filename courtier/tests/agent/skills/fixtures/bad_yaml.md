@@ -1,7 +1,7 @@
 ---
 name: bad_yaml
 description: "unclosed string
-tools: [parse_document
+tools: [parse_layout
 ---
 
 内容。

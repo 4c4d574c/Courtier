@@ -232,7 +232,7 @@ class TestLayer1Refs:
     async def test_repeated_resolve_is_idempotent(self, mgr):
         """2.6 同 ref 重复 resolve 幂等，源文件不动。"""
         data = {"pages": [{"text": "x" * 800}]}
-        marker = (await mgr._cache.persist(data, "parse_document")).data
+        marker = (await mgr._cache.persist(data, "parse_layout")).data
         ref_id = marker["ref_id"]
         file = Path(mgr._cache.ref_map[ref_id])
         before = file.read_text(encoding="utf-8")
@@ -247,8 +247,8 @@ class TestLayer1Refs:
     async def test_ref_string_resolves_to_disk_data(self, mgr):
         """迁移：$ref 字符串参数被替换为盘上数据。"""
         data = {"pages": [{"text": "x" * 1000}]}
-        (await mgr._cache.persist(data, "parse_document")).data
-        resolved = mgr.resolve_refs({"document": "$ref:parse_document:1", "doc_type": "通知"})
+        (await mgr._cache.persist(data, "parse_layout")).data
+        resolved = mgr.resolve_refs({"document": "$ref:parse_layout:1", "doc_type": "通知"})
         assert resolved["document"] == data
         assert resolved["doc_type"] == "通知"
 
@@ -263,9 +263,9 @@ class TestLayer1Refs:
         d1 = {"result": "x" * 1000}
         d2 = {"pages": "x" * 1000}
         (await mgr._cache.persist(d1, "audit_format")).data
-        (await mgr._cache.persist(d2, "parse_document")).data
+        (await mgr._cache.persist(d2, "parse_layout")).data
         resolved = mgr.resolve_refs(
-            {"items": ["$ref:audit_format:1", "plain"], "outer": {"doc": "$ref:parse_document:1"}}
+            {"items": ["$ref:audit_format:1", "plain"], "outer": {"doc": "$ref:parse_layout:1"}}
         )
         assert resolved["items"] == [d1, "plain"]
         assert resolved["outer"] == {"doc": d2}
@@ -273,10 +273,10 @@ class TestLayer1Refs:
     async def test_multiple_refs_in_one_call(self, mgr):
         """迁移：一次调用解析多个不同工具的 ref。"""
         d1, d2 = {"pages": "x" * 1000}, {"violations": "x" * 1000}
-        (await mgr._cache.persist(d1, "parse_document")).data
+        (await mgr._cache.persist(d1, "parse_layout")).data
         (await mgr._cache.persist(d2, "audit_format")).data
         resolved = mgr.resolve_refs(
-            {"document": "$ref:parse_document:1", "audit_result": "$ref:audit_format:1"}
+            {"document": "$ref:parse_layout:1", "audit_result": "$ref:audit_format:1"}
         )
         assert resolved == {"document": d1, "audit_result": d2}
 
@@ -296,7 +296,7 @@ class TestLayer1Refs:
     async def test_marker_dict_resolves_to_disk_data(self, mgr):
         """迁移：LLM 把 __persisted_output__ 标记字典整体当参数 → 解析为数据。"""
         data = {"pages": [{"text": "x" * 1000}]}
-        marker = (await mgr._cache.persist(data, "parse_document")).data
+        marker = (await mgr._cache.persist(data, "parse_layout")).data
         assert mgr.resolve_refs({"document": marker, "doc_type": "通知"}) == {
             "document": data,
             "doc_type": "通知",
@@ -316,8 +316,8 @@ class TestLayer1Refs:
 
     def test_set_ref_tracks_mapping(self, mgr):
         """迁移：set_ref 直接登记 ref → 路径映射。"""
-        mgr._cache.set_ref("$ref:parse_document:1", ".agent_cache/parse_document_123.json")
-        assert mgr._cache.ref_map["$ref:parse_document:1"] == ".agent_cache/parse_document_123.json"
+        mgr._cache.set_ref("$ref:parse_layout:1", ".agent_cache/parse_layout_123.json")
+        assert mgr._cache.ref_map["$ref:parse_layout:1"] == ".agent_cache/parse_layout_123.json"
 
     def test_get_ref_instructions_content(self, mgr):
         """迁移：ref 使用说明包含关键要素且足够简短。"""
@@ -329,7 +329,7 @@ class TestLayer1Refs:
     async def test_persist_resolve_roundtrip_and_compact_keeps_refs(self, mgr):
         """迁移：persist → resolve 往返；全量压缩后 ref_map 仍可解析。"""
         original = {"pages": [{"text": "Document paragraph " * 100}]}
-        marker = (await mgr._cache.persist(original, "parse_document")).data
+        marker = (await mgr._cache.persist(original, "parse_layout")).data
         assert mgr.resolve_refs({"document": marker["ref_id"]}) == {"document": original}
 
         msgs = tuple(user("x" * 3000) for _ in range(3))
@@ -560,11 +560,11 @@ class TestLayer2MicroCompact:
 
     async def test_placeholder_reuses_layer1_marker(self, mgr):
         """迁移：Layer 1 已落盘的结果复用原 ref_id/file，不二次落盘。"""
-        marker = (await mgr._cache.persist({"pages": "x" * 600}, "parse_document")).data
+        marker = (await mgr._cache.persist({"pages": "x" * 600}, "parse_layout")).data
         msgs = (
             system("S"),
             user("U"),
-            tool_msg(json.dumps({"success": True, "raw_data": marker}), "t1", "parse_document"),
+            tool_msg(json.dumps({"success": True, "raw_data": marker}), "t1", "parse_layout"),
             tool_msg('{"raw_data":"n1"}', "t2", "t2"),
             tool_msg('{"raw_data":"n2"}', "t3", "t3"),
         )
@@ -576,14 +576,14 @@ class TestLayer2MicroCompact:
     async def test_placeholder_keeps_ref_and_success_three_shapes(self, mgr):
         """迁移：三种持久化形态的占位符都保留 ref_id 与 success 标志。"""
         # (a) summarizer 形态：顶层 result_id + metadata.stored
-        await mgr._cache.persist({"pages": []}, "parse_document", force=True)
+        await mgr._cache.persist({"pages": []}, "parse_layout", force=True)
         envelope_a = json.dumps(
             {
                 "success": True,
-                "actor_name": "parse_document",
-                "result_id": "$ref:parse_document:1",
+                "actor_name": "parse_layout",
+                "result_id": "$ref:parse_layout:1",
                 "raw_data": None,
-                "metadata": {"stored": {"result_id": "$ref:parse_document:1"}},
+                "metadata": {"stored": {"result_id": "$ref:parse_layout:1"}},
             },
             ensure_ascii=False,
         )
@@ -594,9 +594,9 @@ class TestLayer2MicroCompact:
         msgs = (
             system("S"),
             user("U"),
-            tool_msg(envelope_a, "t1", "parse_document"),
-            tool_msg(envelope_b, "t2", "parse_document"),
-            tool_msg(envelope_c, "t3", "parse_document"),
+            tool_msg(envelope_a, "t1", "parse_layout"),
+            tool_msg(envelope_b, "t2", "parse_layout"),
+            tool_msg(envelope_c, "t3", "parse_layout"),
             tool_msg('{"raw_data":"n1"}', "t4", "t4"),
             tool_msg('{"raw_data":"n2"}', "t5", "t5"),
         )
@@ -604,9 +604,9 @@ class TestLayer2MicroCompact:
         pa = json.loads(result[2].content or "")
         pb = json.loads(result[3].content or "")
         pc = json.loads(result[4].content or "")
-        assert pa["ref_id"] == "$ref:parse_document:1" and pa["success"] is True
+        assert pa["ref_id"] == "$ref:parse_layout:1" and pa["success"] is True
         assert pb["success"] is False and "ref_id" not in pb
-        assert pc["ref_id"].startswith("$ref:parse_document:") and pc["success"] is True
+        assert pc["ref_id"].startswith("$ref:parse_layout:") and pc["success"] is True
 
     async def test_fresh_persist_placeholder_carries_file_on_disk(self, mgr):
         """迁移补充：fresh-persist 占位符带 file 路径且文件真实存在。"""
@@ -631,8 +631,8 @@ class TestLayer2MicroCompact:
         observation = json.dumps(
             {
                 "success": True,
-                "actor_name": "parse_document",
-                "result_id": "$ref:parse_document:1",
+                "actor_name": "parse_layout",
+                "result_id": "$ref:parse_layout:1",
                 "raw_data": None,
             },
             ensure_ascii=False,
@@ -640,14 +640,14 @@ class TestLayer2MicroCompact:
         msgs = (
             system("S"),
             user("审核文档"),
-            assistant(tool_calls=(tool_call("t1", "parse_document", {"file_path": file_path}),)),
-            tool_msg(observation, "t1", "parse_document"),
+            assistant(tool_calls=(tool_call("t1", "parse_layout", {"file_path": file_path}),)),
+            tool_msg(observation, "t1", "parse_layout"),
             tool_msg('{"raw_data":"n1"}', "t2", "t2"),
             tool_msg('{"raw_data":"n2"}', "t3", "t3"),
         )
         compacted = await mgr.micro_compact(msgs)
         assert "_omitted" in (compacted[3].content or "")
-        assert _has_successful_call_for(compacted, "parse_document", file_path) is True
+        assert _has_successful_call_for(compacted, "parse_layout", file_path) is True
 
 
 class TestReminderDeduplication:
@@ -1139,16 +1139,16 @@ class TestBuildSummary:
                 "success": True,
                 "raw_data": {
                     "__persisted_output__": True,
-                    "ref_id": "$ref:parse_document:1",
+                    "ref_id": "$ref:parse_layout:1",
                     "title": "通知",
                     "pages": 3,
                 },
             }
         )
-        digest = _summarize_tool_message(tool_msg(content, "t1", "parse_document"))
-        assert "工具=parse_document" in digest
+        digest = _summarize_tool_message(tool_msg(content, "t1", "parse_layout"))
+        assert "工具=parse_layout" in digest
         assert "状态=成功" in digest
-        assert "ref_id=$ref:parse_document:1" in digest
+        assert "ref_id=$ref:parse_layout:1" in digest
 
     def test_tool_digest_plain_and_failed(self):
         """迁移：纯文本与失败结果的摘要行。"""

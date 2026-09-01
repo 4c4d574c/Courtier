@@ -36,7 +36,7 @@ def _make_simple(
         artifact_type=atype,
         data={"text": "test"},
         metadata=ArtifactMetadata(
-            created_by="parse_document",
+            created_by="parse_layout",
             semantic_role=role,
             subject=subject,
             content_hash="sha256:abc",

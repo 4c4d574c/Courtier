@@ -38,7 +38,7 @@ async def test_call_timeout_raises_actionable_chinese_message():
     client = JSONRPCClient(_NeverEndingReader(), _FakeWriter(), "parse", default_timeout=120.0)
     try:
         with pytest.raises(asyncio.TimeoutError) as exc_info:
-            await client.call("tool.execute", {"tool": "parse_document"}, timeout=0.05)
+            await client.call("tool.execute", {"tool": "parse_layout"}, timeout=0.05)
         message = str(exc_info.value)
         assert message  # never the empty string
         assert "插件 'parse' 调用超时" in message
@@ -53,7 +53,7 @@ async def test_call_timeout_message_formats_seconds():
     client = JSONRPCClient(_NeverEndingReader(), _FakeWriter(), "parse", default_timeout=120.0)
     try:
         with pytest.raises(asyncio.TimeoutError) as exc_info:
-            await client.call("tool.execute", {"tool": "parse_document"}, timeout=0.01)
+            await client.call("tool.execute", {"tool": "parse_layout"}, timeout=0.01)
         # Fractional timeouts render as-is; integral floats render without ".0".
         assert "（0.01s）" in str(exc_info.value)
     finally:

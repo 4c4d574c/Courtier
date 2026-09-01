@@ -20,7 +20,7 @@ class AnyDocPlugin(PluginRuntime):
                 "输出按阅读顺序拼接的 Markdown。\n"
                 "## 限制\n"
                 "不提供版面格式信息；需要公文版面结构（GB/T 9704）时改用\n"
-                "parse_document（公文审计流程）。\n"
+                "parse_layout（公文审计流程）。\n"
                 "## 使用方式\n"
                 "调用 `convert_document` 工具，传入 `file_path` 参数（绝对路径），\n"
                 "返回结果中的 `markdown` 字段即为文档内容。\n"

@@ -430,7 +430,7 @@ async def test_backend_client_does_not_double_wrap_tool_schemas():
     tool_schema = {
         "type": "function",
         "function": {
-            "name": "parse_document",
+            "name": "parse_layout",
             "description": "Parse a document",
             "parameters": {"type": "object", "properties": {}},
         },

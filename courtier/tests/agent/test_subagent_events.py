@@ -18,19 +18,19 @@ class TestSubAgentStreamEvent:
     def test_create_think_event(self):
         event = SubAgentStreamEvent(
             kind="think", subagent_name="parser",
-            detail="tool_calls:parse_document"
+            detail="tool_calls:parse_layout"
         )
         assert event.kind == "think"
-        assert event.detail == "tool_calls:parse_document"
+        assert event.detail == "tool_calls:parse_layout"
 
     def test_create_tool_result_event(self):
         event = SubAgentStreamEvent(
             kind="tool_result", subagent_name="parser",
-            tool_name="parse_document", tool_status="ok",
+            tool_name="parse_layout", tool_status="ok",
             tool_duration=1.5, tool_summary="解析完成"
         )
         assert event.kind == "tool_result"
-        assert event.tool_name == "parse_document"
+        assert event.tool_name == "parse_layout"
         assert event.tool_status == "ok"
         assert event.tool_duration == 1.5
         assert event.tool_summary == "解析完成"

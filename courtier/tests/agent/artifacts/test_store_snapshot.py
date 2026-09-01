@@ -30,7 +30,7 @@ def _make_disk_ref_artifact(
     return store.register_cached_ref(
         ref_id=ref_id,
         artifact_type="docaudit.parsed_document",
-        created_by="parse_document",
+        created_by="parse_layout",
         data=data,
         **metadata_kwargs,
     )
@@ -184,11 +184,11 @@ async def test_load_snapshot_restores_ref_counters_multi_prefix(tmp_path):
     ``$ref:<tool>:1`` and silently overwriting the restored entry."""
     source = ArtifactStore(cache_dir=str(tmp_path))
     big = {"text": "x" * 4000}  # above the default 3000-char persist threshold
-    r1 = await source.persist(dict(big), "parse_document")
-    r2 = await source.persist({"text": "y" * 4000}, "parse_document")
+    r1 = await source.persist(dict(big), "parse_layout")
+    r2 = await source.persist({"text": "y" * 4000}, "parse_layout")
     r3 = await source.persist(dict(big), "search_documents")
-    assert r1.ref_id == "$ref:parse_document:1"
-    assert r2.ref_id == "$ref:parse_document:2"
+    assert r1.ref_id == "$ref:parse_layout:1"
+    assert r2.ref_id == "$ref:parse_layout:2"
     assert r3.ref_id == "$ref:search_documents:1"
     parse_file_v2 = source.ref_map[r2.ref_id]
 
@@ -196,13 +196,13 @@ async def test_load_snapshot_restores_ref_counters_multi_prefix(tmp_path):
     restored = ArtifactStore.restore(snapshot, cache_dir=str(tmp_path))
 
     # Counters were inferred from the restored ref_map keys.
-    assert restored._backend.ref_counters["parse_document"] == 2
+    assert restored._backend.ref_counters["parse_layout"] == 2
     assert restored._backend.ref_counters["search_documents"] == 1
 
     # New persists continue each sequence instead of wrapping to 1.
-    r4 = await restored.persist({"text": "z" * 4000}, "parse_document")
+    r4 = await restored.persist({"text": "z" * 4000}, "parse_layout")
     r5 = await restored.persist({"text": "w" * 4000}, "search_documents")
-    assert r4.ref_id == "$ref:parse_document:3"
+    assert r4.ref_id == "$ref:parse_layout:3"
     assert r5.ref_id == "$ref:search_documents:2"
 
     # The previously persisted document is still intact under its old ref.
@@ -214,10 +214,10 @@ async def test_load_snapshot_restores_ref_counters_multi_prefix(tmp_path):
 async def test_ref_counter_restore_ignores_non_numeric_refs(tmp_path):
     """``$ref:<tool>:latest`` style aliases must not disturb numbering."""
     store = ArtifactStore(cache_dir=str(tmp_path))
-    store.set_ref("$ref:parse_document:latest", str(tmp_path / "f.json"))
-    store.set_ref("$ref:parse_document:4", str(tmp_path / "g.json"))
+    store.set_ref("$ref:parse_layout:latest", str(tmp_path / "f.json"))
+    store.set_ref("$ref:parse_layout:4", str(tmp_path / "g.json"))
     store.set_ref("plain-artifact-id", str(tmp_path / "h.json"))
-    assert store._backend.ref_counters == {"parse_document": 4}
+    assert store._backend.ref_counters == {"parse_layout": 4}
 
 
 def test_snapshot_carries_ref_counters(tmp_path):

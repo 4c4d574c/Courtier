@@ -82,7 +82,7 @@ def _courtier_config() -> CourtierConfig:
 def _gated_registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(_fake_plugin_tool("search_documents", "search"))
-    reg.register(_fake_plugin_tool("parse_document", "parse"))
+    reg.register(_fake_plugin_tool("parse_layout", "parse"))
     reg.register(_fake_plugin_tool("format_audit", "format_audit"))
     return reg
 
@@ -134,7 +134,7 @@ async def test_build_agent_gates_domain_tools_by_default():
 
     visible = {t.name for t in agent.tool_registry.list_tools()}
     assert "search_documents" in visible
-    assert "parse_document" not in visible  # docaudit domain tool hidden
+    assert "parse_layout" not in visible  # docaudit domain tool hidden
     assert "format_audit" not in visible
 
 
@@ -153,7 +153,7 @@ async def test_build_agent_replays_active_domains():
 
     assert agent._domain_activator.active_domains == {"docaudit"}
     visible = {t.name for t in agent.tool_registry.list_tools()}
-    assert "parse_document" in visible
+    assert "parse_layout" in visible
     assert "format_audit" in visible
     # Domain skills are registered as SkillTools (real docaudit skills dir).
     skill_tools = [t for t in agent.tool_registry.list_tools() if isinstance(t, SkillTool)]

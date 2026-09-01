@@ -130,12 +130,12 @@ class TestGetArtifactViaRef:
         """$ref + artifact_type resolves and projects the data."""
         store = ArtifactStore(cache_dir=str(tmp_path))
         data = {"text": "hello world", "language": "en", "source_scope": "full_document"}
-        await store.persist(data, "parse_document", force=True)
+        await store.persist(data, "parse_layout", force=True)
 
         store.register_cached_ref(
-            ref_id="$ref:parse_document:1",
+            ref_id="$ref:parse_layout:1",
             artifact_type="core.plain_text",
-            created_by="parse_document",
+            created_by="parse_layout",
             data=data,
             role="primary_document",
             subject="current_upload",
@@ -145,7 +145,7 @@ class TestGetArtifactViaRef:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             artifact_type="core.plain_text",
         )
         assert result.success
@@ -481,11 +481,11 @@ PARSED_DOC_DATA = {
 class TestGetArtifactRefAutoProjection:
     """$ref + 投影参数（无 artifact_type）自动推断目标类型。"""
 
-    def _register_parsed_doc(self, store: ArtifactStore, ref_id: str = "$ref:parse_document:1"):
+    def _register_parsed_doc(self, store: ArtifactStore, ref_id: str = "$ref:parse_layout:1"):
         store.register_cached_ref(
             ref_id=ref_id,
             artifact_type="docaudit.parsed_document",
-            created_by="parse_document",
+            created_by="parse_layout",
             data=PARSED_DOC_DATA,
         )
 
@@ -496,7 +496,7 @@ class TestGetArtifactRefAutoProjection:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             materialize_as="string",
             source_scope="body",
         )
@@ -517,7 +517,7 @@ class TestGetArtifactRefAutoProjection:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             materialize_as="string",
         )
         assert result.success, result.error
@@ -534,7 +534,7 @@ class TestGetArtifactRefAutoProjection:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             source_scope="body",
         )
         assert result.success, result.error
@@ -550,7 +550,7 @@ class TestGetArtifactRefAutoProjection:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
         )
         assert result.success, result.error
         assert result.data == PARSED_DOC_DATA  # raw-read 行为不变
@@ -590,13 +590,13 @@ class TestGetArtifactRefAutoProjection:
 
 
 class TestGetArtifactOutlineParsedDocument:
-    """parse_document 产物的大纲/按节读取（Phase 4）。"""
+    """parse_layout 产物的大纲/按节读取（Phase 4）。"""
 
     def _register(self, store: ArtifactStore):
         store.register_cached_ref(
-            ref_id="$ref:parse_document:1",
+            ref_id="$ref:parse_layout:1",
             artifact_type="docaudit.parsed_document",
-            created_by="parse_document",
+            created_by="parse_layout",
             data=PARSED_DOC_DATA,
         )
 
@@ -607,7 +607,7 @@ class TestGetArtifactOutlineParsedDocument:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             outline=True,
         )
         assert result.success, result.error
@@ -622,7 +622,7 @@ class TestGetArtifactOutlineParsedDocument:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             section="一、项目背景与建设必要性",
         )
         assert result.success, result.error

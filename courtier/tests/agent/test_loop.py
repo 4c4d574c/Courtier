@@ -664,22 +664,22 @@ class TestForcedFirstToolCall:
             tool_calls=[ToolCall(id="c1", name="echo", arguments={"text": "hi"})]
         )
         forced = ToolCall(
-            id="forced-first-parse_document",
-            name="parse_document",
+            id="forced-first-parse_layout",
+            name="parse_layout",
             arguments={"file_path": "/tmp/x.docx"},
         )
 
         final = await self._run(model, forced, registry)
 
-        assert executed[0] == "parse_document"
+        assert executed[0] == "parse_layout"
         tool_msgs = [m for m in final.messages if m.role == "tool"]
-        assert tool_msgs[0].tool_call_id == "forced-first-parse_document"
+        assert tool_msgs[0].tool_call_id == "forced-first-parse_layout"
         # The assistant message carrying the forced call pairs correctly.
         assistant_with_calls = [m for m in final.messages if m.role == "assistant" and m.tool_calls]
-        assert assistant_with_calls[0].tool_calls[0].id == "forced-first-parse_document"
+        assert assistant_with_calls[0].tool_calls[0].id == "forced-first-parse_layout"
 
     async def test_no_override_when_model_complies(self):
-        """Model already calls parse_document first — nothing is rewritten."""
+        """Model already calls parse_layout first — nothing is rewritten."""
         from courtier.agent.core.model import MockModelClient, ToolCall
 
         executed: list[str] = []
@@ -688,20 +688,20 @@ class TestForcedFirstToolCall:
             tool_calls=[
                 ToolCall(
                     id="c9",
-                    name="parse_document",
+                    name="parse_layout",
                     arguments={"file_path": "/tmp/x.docx"},
                 )
             ]
         )
         forced = ToolCall(
-            id="forced-first-parse_document",
-            name="parse_document",
+            id="forced-first-parse_layout",
+            name="parse_layout",
             arguments={"file_path": "/tmp/x.docx"},
         )
 
         final = await self._run(model, forced, registry)
 
-        assert executed[0] == "parse_document"
+        assert executed[0] == "parse_layout"
         tool_msgs = [m for m in final.messages if m.role == "tool"]
         # The model's own call id survived — no synthetic call was injected.
         assert tool_msgs[0].tool_call_id == "c9"
@@ -714,18 +714,18 @@ class TestForcedFirstToolCall:
         registry = self._registry(executed)
         model = MockModelClient(tool_calls=[])
         forced = ToolCall(
-            id="forced-first-parse_document",
-            name="parse_document",
+            id="forced-first-parse_layout",
+            name="parse_layout",
             arguments={"file_path": "/tmp/x.docx"},
         )
 
         final = await self._run(model, forced, registry)
 
-        assert executed == ["parse_document"]
+        assert executed == ["parse_layout"]
         assert final.status == "completed"
 
     async def test_override_when_model_calls_same_tool_with_wrong_path(self):
-        """Model called parse_document but for the WRONG file — that is not
+        """Model called parse_layout but for the WRONG file — that is not
         compliance, so the forced call for the session file still wins."""
         from courtier.agent.core.model import MockModelClient, ToolCall
 
@@ -735,23 +735,23 @@ class TestForcedFirstToolCall:
             tool_calls=[
                 ToolCall(
                     id="c9",
-                    name="parse_document",
+                    name="parse_layout",
                     arguments={"file_path": "/tmp/wrong.docx"},
                 )
             ]
         )
         forced = ToolCall(
-            id="forced-first-parse_document-1",
-            name="parse_document",
+            id="forced-first-parse_layout-1",
+            name="parse_layout",
             arguments={"file_path": "/tmp/x.docx"},
         )
 
         final = await self._run(model, forced, registry)
 
-        assert executed[0] == "parse_document"
+        assert executed[0] == "parse_layout"
         tool_msgs = [m for m in final.messages if m.role == "tool"]
         # The model's wrong-path call was replaced by the forced one.
-        assert tool_msgs[0].tool_call_id == "forced-first-parse_document-1"
+        assert tool_msgs[0].tool_call_id == "forced-first-parse_layout-1"
 
     async def test_forced_call_survives_failed_first_think(self):
         """A transient model error on the first think must not kill the run
@@ -773,18 +773,18 @@ class TestForcedFirstToolCall:
         executed: list[str] = []
         registry = self._registry(executed)
         forced = ToolCall(
-            id="forced-first-parse_document-1",
-            name="parse_document",
+            id="forced-first-parse_layout-1",
+            name="parse_layout",
             arguments={"file_path": "/tmp/x.docx"},
         )
 
         final = await self._run(_FlakyModel(), forced, registry)
 
-        assert executed == ["parse_document"]
+        assert executed == ["parse_layout"]
         assert final.status == "completed"
         assert final.termination_reason != "Model error: transient LLM outage"
         # The injected assistant/tool pair is consistent.
         tool_msgs = [m for m in final.messages if m.role == "tool"]
-        assert tool_msgs[0].tool_call_id == "forced-first-parse_document-1"
+        assert tool_msgs[0].tool_call_id == "forced-first-parse_layout-1"
         assistant_with_calls = [m for m in final.messages if m.role == "assistant" and m.tool_calls]
-        assert assistant_with_calls[0].tool_calls[0].id == "forced-first-parse_document-1"
+        assert assistant_with_calls[0].tool_calls[0].id == "forced-first-parse_layout-1"

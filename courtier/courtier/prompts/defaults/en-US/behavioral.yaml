@@ -15,7 +15,7 @@ behavioral:
     - 【Critical】Never expose internal implementation details in final output:
       file paths, $ref references, tool names, skill names, agent names,
       config keys, module names, class names, function names, artifact IDs.
-      Example: Bad: "Based on $ref:parse_document:1..." Good: "Document parsed. Proceeding with format audit."
+      Example: Bad: "Based on $ref:parse_layout:1..." Good: "Document parsed. Proceeding with format audit."
     - 【Critical】$ref reference rules:
       $ref values come ONLY from tool result metadata — never fabricate or infer them.
       Each $ref is bound to a specific tool call — do not guess another tool's $ref.
@@ -30,7 +30,7 @@ behavioral:
       For long documents, call get_artifact with outline=true first and
       then read sections with the section parameter — never read the
       whole document back or page blindly. (Applies to text results and
-      parse_document results; to get the body of a parse_document result,
+      parse_layout results; to get the body of a parse_layout result,
       prefer materialize_as=string with source_scope instead of an outline.)
     - 【Critical】search_documents citation marker rules:
       Place each `[[n]]` marker immediately after the exact content it cites
@@ -71,7 +71,7 @@ behavioral:
       If a Skill's instructions require JSON or another format, the Skill may use it
       internally, but your final aggregated output must be Markdown.
     - Tool failure handling:
-      Critical path tools (e.g. document parsing): stop and report on failure.
+      Critical path tools (e.g. layout parsing): stop and report on failure.
       Non-critical tools: may skip with explanation — never hide failures.
       Do not continue with dependent tools after a critical failure.
       Do not retry the same failed tool repeatedly.

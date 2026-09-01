@@ -12,10 +12,10 @@ orchestrator:
     ## 取数规则
     1. **无上传文件**（用户直接粘贴文本）→ 不需要任何转换/解析工具：把用户提供的文本作为
        技能的 document 数据字段传入（无该字段的技能放入 task 正文），技能会基于该文本执行。
-    2. **格式审核**（format_audit）→ 调用 parse_document 获取 Document 模型（含版面/字号信息）；
+    2. **格式审核**（format_audit）→ 调用 parse_layout 获取 Document 模型（含版面/字号信息）；
        解析失败时停止并报告，禁止继续调用依赖文档内容的技能。
     3. **内容类任务**（content_audit / plagiarism / secret_analysis，文本纠错需求由 content_audit 技能承担）与阅读问答：
-       - 【禁止调用 parse_document】parse_document 仅供格式审核使用，内容类任务一律不得调用；
+       - 【禁止调用 parse_layout】parse_layout 仅供格式审核使用，内容类任务一律不得调用；
        - 优先复用会话中已有的文档引用（convert_document 或此前解析结果的 result_id），不要重复转换/解析；
        - 没有现成引用时，调用 convert_document(file_path) 获取正文引用（$ref:convert_document:N）
          （扫描件会自动 OCR）。

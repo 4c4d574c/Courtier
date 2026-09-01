@@ -907,7 +907,7 @@ class _PersistenceBackend:
 
             # Fallback: resolve $ref patterns embedded inside a longer string.
             # This handles cases where the LLM writes a $ref inside a prose
-            # task description (e.g. "审计文档：$ref:parse_document:1") instead
+            # task description (e.g. "审计文档：$ref:parse_layout:1") instead
             # of passing it as a standalone parameter value.
             if self._EMBEDDED_REF_PATTERN.search(value):
                 resolved_val = self._resolve_embedded_refs(value, depth)

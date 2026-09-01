@@ -1,7 +1,7 @@
 """validator 格式检查端到端测试（真实解析链路）。
 
 链路：程序化生成 PDF（PyMuPDF/fitz）/ DOCX（python-docx）→ docparse.parse
-→ ``Document.model_dump(exclude_none=True)``（与 parse_document 插件输出一致）
+→ ``Document.model_dump(exclude_none=True)``（与 parse_layout 插件输出一致）
 → ``validator.validator(doc_dict, doc_type="通知")``。
 
 覆盖：

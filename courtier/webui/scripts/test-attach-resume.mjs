@@ -199,14 +199,14 @@ try {
     const snapshotStep = {
       index: 1,
       numeral: "一",
-      label: "parse_document",
+      label: "parse_layout",
       skill: "",
       turnIndex: 1,
       startSegmentIndex: 3,
       tools: [
         {
           id: "tool-3",
-          name: "parse_document",
+          name: "parse_layout",
           status: "done",
           callKind: "tool",
           callScope: "orchestrator",

@@ -40,7 +40,7 @@
                                                       │             Agent Loop(Think→Act→Observe)
                                                       │               ├─ activate_domain ──► 域工具/技能 SkillTool
                                                       │               ├─ 共享代理工具 convert/search/annotate/template
-                                                      │               └─ 域代理工具 parse_document/check_format/
+                                                      │               └─ 域代理工具 parse_layout/check_format/
                                                       │                  check_content/detect_plagiarism
                                                       ▼
                           NotificationHub ──GET /api/events──► 全局徽标/toast
@@ -390,7 +390,7 @@ cd webui && npm ci && npm run dev        # E2E 手工测试用 dev server；验�
   2. 检索事件流中 activate_domain 的相关事件（think 的 toolCalls / tool_start / tool_result）。
 - 预期：
   1. 会话早期出现 `tool_result{name:"activate_domain", status:"ok"}`；
-  2. 激活后同流内后续出现域工具调用（parse_document/check_format 或技能子代理）；
+  2. 激活后同流内后续出现域工具调用（parse_layout/check_format 或技能子代理）；
   3. 无需任何手动注册动作（自激活），共享阶段看不到域工具（负检查：激活前的 act 不含 check_format）。
 
 #### DOM-002 技能以子代理形态调度 ★P0
@@ -436,7 +436,7 @@ cd webui && npm ci && npm run dev        # E2E 手工测试用 dev server；验�
 - 前置：D1 已上传；chore 参照《党政机关公文格式》标准设计且经 rules 全绿（开发侧曾单测通过）。
 - 步骤：`task=审核这份通知的格式规范&fileId=` 跑完整个会话。
 - 预期：
-  1. 链路触发 load_template（或域内等价取默认模板）→ parse_document → check_format；
+  1. 链路触发 load_template（或域内等价取默认模板）→ parse_layout → check_format；
   2. conclude 给出"格式总体符合规范"性质的明确结论；
   3. 无 error/stopped 终态。
 
@@ -455,7 +455,7 @@ cd webui && npm ci && npm run dev        # E2E 手工测试用 dev server；验�
 #### FMT-004 版式三段式解析 ★P1
 - 前置：D3(pdf) 已上传。
 - 步骤：task 指明"这份文件的版头/主体/版记布局是否正确"，跑完后检查 check_format 所依赖的解析质量（由结论回推）。
-- 预期：parse_document 链路 status=ok；结论能引用到具体的页眉/正文/页脚位置要素（说明 Document dict 的 pages[].page_content{header,body,footer} 投影生效）。
+- 预期：parse_layout 链路 status=ok；结论能引用到具体的页眉/正文/页脚位置要素（说明 Document dict 的 pages[].page_content{header,body,footer} 投影生效）。
 
 #### FMT-005 违规批注闭环 ★P1
 - 前置：D2 会话进行中或紧接 FMT-002；MinIO 传输桶就绪（ENV-003）。

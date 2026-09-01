@@ -13,7 +13,7 @@ from courtier.agent.artifacts.projectors import (
 
 def _parsed_document_artifact() -> Artifact:
     return Artifact(
-        artifact_id="$ref:parse_document:1",
+        artifact_id="$ref:parse_layout:1",
         artifact_type="docaudit.parsed_document",
         data={
             "pages": [
@@ -38,7 +38,7 @@ def _parsed_document_artifact() -> Artifact:
             ]
         },
         metadata=ArtifactMetadata(
-            created_by="parse_document",
+            created_by="parse_layout",
             semantic_role="primary_document",
             subject="current_upload",
         ),

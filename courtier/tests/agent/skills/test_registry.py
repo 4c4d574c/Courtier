@@ -16,7 +16,7 @@ def test_registry_scans_valid_skill():
     assert config is not None
     assert config.name == "valid_skill"
     assert config.description == "有效 Skill"
-    assert config.tools == ("parse_document", "audit_format")
+    assert config.tools == ("parse_layout", "audit_format")
     assert config.skills == ()
     assert "你是格式审核专家" in config.system_prompt
 

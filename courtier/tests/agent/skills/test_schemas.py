@@ -40,9 +40,9 @@ def test_format_auditor_input_requires_document():
     with pytest.raises(ValidationError):
         FormatAuditorInput(task="audit")
 
-    input_obj = FormatAuditorInput(task="audit", document="$ref:parse_document:1")
+    input_obj = FormatAuditorInput(task="audit", document="$ref:parse_layout:1")
     assert input_obj.task == "audit"
-    assert input_obj.document == "$ref:parse_document:1"
+    assert input_obj.document == "$ref:parse_layout:1"
     assert input_obj.doc_type == "通知"
 
 

@@ -2,7 +2,7 @@
 name: valid_skill
 description: 有效 Skill
 tools:
-  - parse_document
+  - parse_layout
   - audit_format
 ---
 

@@ -20,7 +20,7 @@ async def test_parse_plugin_registers_with_system_prompt():
     plugin._setup_handlers()
     caps, system_prompt = plugin._collect_capabilities()
     tool_names = [c["name"] for c in caps if c["type"] == "tool"]
-    assert "parse_document" in tool_names
+    assert "parse_layout" in tool_names
     assert len(system_prompt) > 0
 
 

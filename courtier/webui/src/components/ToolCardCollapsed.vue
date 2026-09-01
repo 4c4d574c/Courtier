@@ -130,7 +130,7 @@ watch(
 
 onUnmounted(clearTimer);
 const displayName = computed(() => {
-  // 优先展示 plugin.yaml 的 display_name（如"解析文档"），回退到工具名。
+  // 优先展示 plugin.yaml 的 display_name(如"格式解析")，回退到工具名。
   if (props.tool.displayName) {
     const name = props.tool.displayName;
     return props.tool.skill ? `${props.tool.skill} (${name})` : name;

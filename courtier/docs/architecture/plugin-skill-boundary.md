@@ -47,7 +47,7 @@
 
 | 术语 | 含义 | 示例 |
 |------|------|------|
-| **Tool（工具）** | 单次调用的原子能力，直接注册到 `ToolRegistry` | `parse_document`、`audit_format` |
+| **Tool（工具）** | 单次调用的原子能力，直接注册到 `ToolRegistry` | `parse_layout`、`audit_format` |
 | **Plugin（插件）** | 独立运行的 TCP 服务、通过换行分隔 JSON-RPC 提供 Tool 的能力包 | `plugins/docaudit/audit/check_format/` |
 | **SubAgent（子代理）** | 执行某个 Skill 的通用 `Agent` 实例，拥有自己的 Think-Act-Observe 循环 | `AgentRuntime` 创建的 `Agent` |
 | **Skill（技能）** | 用 Markdown 文档定义的 SubAgent 配置与任务流程 | `skills/format_audit.md` |
@@ -144,7 +144,7 @@ skills/
 name: format_audit
 description: 政府公文格式审核
 tools:
-  - parse_document
+  - parse_layout
   - detect_document_type
   - audit_format
 input_model: skills.schemas.format_audit.FormatAuditorInput
@@ -155,7 +155,7 @@ enabled: true
 你是政府公文格式审核专家。收到任务后按以下流程执行……
 
 # 执行流程
-1. 调用 parse_document 解析输入文档
+1. 调用 parse_layout 解析输入文档
 2. 调用 detect_document_type 确定文种
 3. 调用 audit_format 检查格式
 4. 汇总违规项，返回 JSON 结果
@@ -207,7 +207,7 @@ enabled: true
 
 | 目录 | 插件 | 提供的 Tool |
 |------|------|------------|
-| `common` | `parse` | `parse_document` |
+| `common` | `parse` | `parse_layout` |
 | `common` | `search` | `search_documents` |
 | `common` | `annotate` | `annotate_document` |
 | `common` | `template` | `load_template` |

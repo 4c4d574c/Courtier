@@ -53,15 +53,15 @@ def test_register_cached_ref_creates_artifact_with_metadata():
     store = ArtifactStore()
 
     artifact = store.register_cached_ref(
-        ref_id="$ref:parse_document:1",
+        ref_id="$ref:parse_layout:1",
         artifact_type="docaudit.parsed_document",
-        created_by="parse_document",
+        created_by="parse_layout",
         data={"pages": []},
         role="primary_document",
         subject="current_upload",
     )
 
-    assert artifact.artifact_id == "$ref:parse_document:1"
+    assert artifact.artifact_id == "$ref:parse_layout:1"
     assert artifact.artifact_type == "docaudit.parsed_document"
     assert artifact.metadata.semantic_role == "primary_document"
     assert artifact.metadata.subject == "current_upload"
@@ -340,7 +340,7 @@ class TestPersistLargeOutput:
     async def test_all_tools_persisted_no_passthrough(self, tmp_path):
         """迁移：审计类工具结果同样落盘（无白名单直通）。"""
         store = ArtifactStore(cache_dir=str(tmp_path), large_output_threshold=500)
-        for tool_name in ["parse_document", "audit_format", "audit_content"]:
+        for tool_name in ["parse_layout", "audit_format", "audit_content"]:
             result = (await store.persist({"text": "x" * 1000}, tool_name)).data
             assert result["__persisted_output__"] is True
 

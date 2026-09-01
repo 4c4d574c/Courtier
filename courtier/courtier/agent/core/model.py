@@ -35,7 +35,7 @@ def _parse_tool_arguments(raw: str) -> dict[str, Any]:
         result = json.loads(raw)
     except json.JSONDecodeError:
         # Some models emit $ref values with quotes inside a larger string value,
-        # e.g. "use "$ref:parse_document:1" as input". Try to fix those.
+        # e.g. "use "$ref:parse_layout:1" as input". Try to fix those.
         fixed = _fix_unescaped_ref_quotes(raw)
         if fixed != raw:
             try:
@@ -80,7 +80,7 @@ def _fix_unescaped_ref_quotes(raw: str) -> str:
 
     Models sometimes write::
 
-        {"task": "use "$ref:parse_document:1" as input"}
+        {"task": "use "$ref:parse_layout:1" as input"}
 
     where the inner quotes around $ref are not escaped. We detect such
     patterns by checking whether the surrounding quotes sit inside a larger

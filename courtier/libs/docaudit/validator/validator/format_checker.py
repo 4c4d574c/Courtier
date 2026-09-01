@@ -159,7 +159,7 @@ def compare_document_to_spec(doc: dict, spec: DocumentFormatSpec) -> dict[str, A
     """
     将文档字典与 DocumentFormatSpec 进行比较。
 
-    doc 为 parsed Document 的 dict 形式（如 parse_document 工具的输出）。
+    doc 为 parsed Document 的 dict 形式（如 parse_layout 工具的输出）。
 
     返回可序列化为 JSON 的字典，包含：
         - total_pages: int
@@ -392,7 +392,7 @@ def _compare_paragraph(
     Args:
         all_errors: 累积错误列表，直接 append。
         unchecked: 累积被跳过的检查项（如文档侧间距字段未提取），直接 append。
-        paragraph: 段落 dict（parse_document 输出中的段落对象），可为 None
+        paragraph: 段落 dict（parse_layout 输出中的段落对象），可为 None
         check_element_count: 是否按固定结构块校验。固定块（如标题、发文字号）为 True，
             校验拼接文本（规范化空白后）是否为空——元素个数差异不再报错
             （DOCX 按 run 分组，一行多格式 = 多元素，个数差异是必然现象）；
@@ -707,7 +707,7 @@ def validator(
     """验证文档格式是否符合公文规范。
 
     Args:
-        doc: 解析后的文档 dict（parse_document 工具的输出）
+        doc: 解析后的文档 dict（parse_layout 工具的输出）
         doc_type: 公文类型，默认为"通知"
         spec: 可选的格式规范，若为 None 则从本地规则文件加载
 

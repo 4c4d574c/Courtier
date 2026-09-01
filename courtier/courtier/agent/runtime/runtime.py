@@ -543,7 +543,7 @@ class AgentRuntime:
         """Build the run-time context for the spawned agent.
 
         If the parent passed explicit context (e.g. file_path), surface it as
-        task context so the sub-agent can call tools like parse_document.
+        task context so the sub-agent can call tools like parse_layout.
         """
         return handle.context
 

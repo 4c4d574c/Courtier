@@ -24,7 +24,7 @@ default_mode: subagent
 - 识别可能的抄袭段落
 
 # 取数
-1. 优先使用任务中「# 输入数据」段提供的 document 文本（convert_document 的 Markdown 或 parse_document 的文本投影），不要重复转换/解析。
+1. 优先使用任务中「# 输入数据」段提供的 document 文本（convert_document 的 Markdown 或 parse_layout 的文本投影），不要重复转换/解析。
 2. 没有上传文件时（用户直接粘贴文本），document 即用户粘贴的文本，直接基于该文本执行，不要调用 convert_document。
 3. 若任务未提供 document 但有 file_path，调用 `convert_document(file_path)` 获取 Markdown 作为待检测文本（扫描件 PDF/图片会自动 OCR）。
 

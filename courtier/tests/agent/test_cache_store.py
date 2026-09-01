@@ -60,7 +60,7 @@ class TestCacheStorePersistJson:
             "title": "测试文档",
             "padding": "x" * 3500,  # ensure above persist threshold
         }
-        result = await cache_store.persist(data, "parse_document")
+        result = await cache_store.persist(data, "parse_layout")
         shape = result.data["data_shape"]
 
         assert shape["type"] == "object"
@@ -514,21 +514,21 @@ class TestCacheStoreEndToEnd:
         store = CacheStore(cache_dir=str(tmp_path))
 
         doc_data = {"docs": [{"id": 1, "text": "x" * 3000}, {"id": 2, "text": "y" * 3000}]}
-        await store.persist(doc_data, "parse_document", force=True)
+        await store.persist(doc_data, "parse_layout", force=True)
 
         # Persist two different query results
         r1 = await store.persist(
             {"id": 1},
             "debug_tool",
             force=True,
-            source_ref_id="$ref:parse_document:1",
+            source_ref_id="$ref:parse_layout:1",
             source_query=".docs[0].id",
         )
         r2 = await store.persist(
             {"id": 2},
             "debug_tool",
             force=True,
-            source_ref_id="$ref:parse_document:1",
+            source_ref_id="$ref:parse_layout:1",
             source_query=".docs[1].id",
         )
 
@@ -573,8 +573,8 @@ class TestCacheStoreHashIndexSalt:
     async def test_dedup_hit_within_same_salt(self, tmp_path):
         store = CacheStore(cache_dir=str(tmp_path), cache_salt="v1")
         data = {"text": "x" * 4000}
-        r1 = await store.persist(data, "parse_document")
-        r2 = await store.persist(data, "parse_document")
+        r1 = await store.persist(data, "parse_layout")
+        r2 = await store.persist(data, "parse_layout")
         assert r2.data.get("dedup_hit") is True
         assert r2.ref_id == r1.ref_id
 
@@ -583,10 +583,10 @@ class TestCacheStoreHashIndexSalt:
         instead of reusing the previous generation's cache file."""
         data = {"text": "x" * 4000}
         old_store = CacheStore(cache_dir=str(tmp_path), cache_salt="v1")
-        r1 = await old_store.persist(data, "parse_document")
+        r1 = await old_store.persist(data, "parse_layout")
 
         new_store = CacheStore(cache_dir=str(tmp_path), cache_salt="v2")
-        r2 = await new_store.persist(data, "parse_document")
+        r2 = await new_store.persist(data, "parse_layout")
 
         assert not r2.data.get("dedup_hit")
         # Re-persisted to a NEW cache file rather than reusing the old one.
@@ -604,7 +604,7 @@ class TestCacheStoreHashIndexSalt:
         """Writing the index drops entries whose cache file was removed, so
         .hash_index.json does not grow unboundedly."""
         store = CacheStore(cache_dir=str(tmp_path), cache_salt="v1")
-        r1 = await store.persist({"text": "x" * 4000}, "parse_document")
+        r1 = await store.persist({"text": "x" * 4000}, "parse_layout")
         index_path = tmp_path / ".hash_index.json"
         index_before = json.loads(index_path.read_text(encoding="utf-8"))
         assert len(index_before) == 1

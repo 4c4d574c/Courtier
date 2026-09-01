@@ -31,11 +31,11 @@ def test_terminal_ready_hints_hide_source_ids_for_projection():
     store = ArtifactStore()
     store.put(
         Artifact(
-            artifact_id="$ref:parse_document:1",
+            artifact_id="$ref:parse_layout:1",
             artifact_type="docaudit.parsed_document",
             data={"pages": []},
             metadata=ArtifactMetadata(
-                created_by="parse_document",
+                created_by="parse_layout",
                 semantic_role="primary_document",
                 subject="current_upload",
             ),
@@ -62,7 +62,7 @@ def test_terminal_ready_hints_hide_source_ids_for_projection():
         "  - new_doc（通过 2 步投影）"
     )
     assert "projected:" not in hints
-    assert "$ref:parse_document:1" not in hints
+    assert "$ref:parse_layout:1" not in hints
 
 
 def test_terminal_ready_hints_hide_source_ids_for_direct_match():

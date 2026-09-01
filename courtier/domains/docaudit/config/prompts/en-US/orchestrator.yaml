@@ -15,13 +15,13 @@ orchestrator:
        parsing tools needed: pass the user's text as the skill's structured
        document field (or the task body for skills without one); the skill
        works on that text.
-    2. **Format audit** (format_audit) → call parse_document to obtain the
+    2. **Format audit** (format_audit) → call parse_layout to obtain the
        Document model (layout/font metrics). If parsing fails, stop and
        report — do not continue.
     3. **Content tasks** (content_audit / plagiarism / secret_analysis;
        text-correction requests are handled by the content_audit skill) and
        read-and-answer:
-       - 【Never call parse_document】parse_document is for format audit only;
+       - 【Never call parse_layout】parse_layout is for format audit only;
          content tasks must not call it;
        - Prefer reusing a document reference already in the session (the
          result_id from convert_document or an earlier parse) — do not

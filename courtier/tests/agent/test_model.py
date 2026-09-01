@@ -38,33 +38,33 @@ class TestParseToolArguments:
 
     def test_bare_ref_inside_string_value(self):
         """Bare $ref inside a JSON string gets quoted and then fixed."""
-        raw = '{"task": "使用 $ref:parse_document:1 作为输入。"}'
+        raw = '{"task": "使用 $ref:parse_layout:1 作为输入。"}'
         result = _parse_tool_arguments(raw)
-        assert result["task"] == '使用 "$ref:parse_document:1" 作为输入。'
+        assert result["task"] == '使用 "$ref:parse_layout:1" 作为输入。'
 
     def test_unescaped_quotes_around_ref_inside_string(self):
         """Model emits unescaped quotes around $ref inside a larger string."""
-        raw = '{"task": "使用 "$ref:parse_document:1" 作为输入。"}'
+        raw = '{"task": "使用 "$ref:parse_layout:1" 作为输入。"}'
         result = _parse_tool_arguments(raw)
-        assert result["task"] == '使用 "$ref:parse_document:1" 作为输入。'
+        assert result["task"] == '使用 "$ref:parse_layout:1" 作为输入。'
 
     def test_bare_ref_as_top_level_value(self):
         """Bare $ref as a JSON value gets quoted into a string."""
-        raw = '{"document": $ref:parse_document:1}'
+        raw = '{"document": $ref:parse_layout:1}'
         result = _parse_tool_arguments(raw)
-        assert result["document"] == "$ref:parse_document:1"
+        assert result["document"] == "$ref:parse_layout:1"
 
     def test_already_quoted_ref_unchanged(self):
         """Properly quoted $ref is parsed as-is."""
-        raw = '{"document": "$ref:parse_document:1"}'
+        raw = '{"document": "$ref:parse_layout:1"}'
         result = _parse_tool_arguments(raw)
-        assert result["document"] == "$ref:parse_document:1"
+        assert result["document"] == "$ref:parse_layout:1"
 
     def test_multiple_bare_refs_in_array(self):
         """Multiple bare $ref values in a JSON array get quoted."""
-        raw = '{"refs": [$ref:parse_document:1, $ref:parse_document:2]}'
+        raw = '{"refs": [$ref:parse_layout:1, $ref:parse_layout:2]}'
         result = _parse_tool_arguments(raw)
-        assert result["refs"] == ["$ref:parse_document:1", "$ref:parse_document:2"]
+        assert result["refs"] == ["$ref:parse_layout:1", "$ref:parse_layout:2"]
 
     def test_mixed_quote_styles_not_repaired(self):
         """Mixed single/double quotes fall through to _parse_error —
@@ -92,7 +92,7 @@ class TestToolArgRepairMetrics:
 
     def test_ref_quote_fix_recorded(self):
         before = _repair_count("ref_quote_fix")
-        _parse_tool_arguments('{"task": "使用 "$ref:parse_document:1" 作为输入。"}')
+        _parse_tool_arguments('{"task": "使用 "$ref:parse_layout:1" 作为输入。"}')
         assert _repair_count("ref_quote_fix") == before + 1
 
     def test_json_repair_recorded(self):

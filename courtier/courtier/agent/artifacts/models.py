@@ -525,7 +525,7 @@ class ProjectionEvent(BaseModel, frozen=True):
 # and uses the projector graph for indirect reachability.  This replaces the
 # old _UPSTREAM_PRODUCERS static mapping that was impossible to keep in sync
 # and contained semantically-incorrect entries (e.g. "core.plain_text" →
-# "parse_document" when parse_document actually outputs parsed_document).
+# "parse_layout" when parse_layout actually outputs parsed_document).
 
 
 class ProjectionTraceStep(BaseModel, frozen=True):

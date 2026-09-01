@@ -341,7 +341,7 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     ),
     "errors.artifact_outline_unsupported": (
         "Result {{ id }} does not support outline/section reading: only text "
-        "results (Markdown/plain text) and parse_document output qualify. "
+        "results (Markdown/plain text) and parse_layout output qualify. "
         "Read the raw data via get_artifact directly, or add "
         "materialize_as=string to extract the body text.\n"
     ),

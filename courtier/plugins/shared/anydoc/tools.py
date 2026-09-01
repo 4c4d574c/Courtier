@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ConvertDocumentTool:
     """Convert an office document file into GitHub-Flavored Markdown.
 
-    Unlike parse_document (docaudit domain, GB/T 9704 Document model), this
+    Unlike parse_layout (docaudit domain, GB/T 9704 Document model), this
     tool is format-agnostic and content-only: it covers the office formats
     the audit pipeline does not read (doc, xls/xlsx, ppt/pptx, ODF, RTF,
     EPUB, CSV) as well as DOCX and text-based PDF, and returns Markdown
@@ -132,7 +132,7 @@ class ConvertDocumentTool:
                         success=False,
                         error=(
                             f"不支持的格式或纯扫描/图片型文件（{exc}）。"
-                            "扫描件请使用 parse_document。"
+                            "扫描件请使用 parse_layout。"
                         ),
                     )
                 try:
@@ -175,7 +175,7 @@ class ConvertDocumentTool:
                     error=(
                         f"文档转换完成但未提取到任何文本内容（{fmt}）。"
                         "可能是空文档、纯图片型文件，或内容位于不受支持的容器中；"
-                        "扫描件请使用 parse_document。"
+                        "扫描件请使用 parse_layout。"
                     ),
                 )
             return ToolResult(success=True, data={"markdown": markdown, "format": fmt})
@@ -185,7 +185,7 @@ class ConvertDocumentTool:
     async def _ocr_fallback(self, resolved: Path, fmt: str, page_count: int) -> ToolResult:
         """OCR *resolved* via the configured endpoint and return the result.
 
-        Returns an error pointing at parse_document when the OCR endpoint is
+        Returns an error pointing at parse_layout when the OCR endpoint is
         not configured, or the OCR service fails.
         """
         if not ocr.is_ocr_configured():
@@ -193,7 +193,7 @@ class ConvertDocumentTool:
                 success=False,
                 error=(
                     f"{fmt} 文件需要 OCR 服务，但 ANYDOC_OCR_API_URL 未配置。"
-                    "请配置 OCR 服务，或使用 parse_document。"
+                    "请配置 OCR 服务，或使用 parse_layout。"
                 ),
             )
         try:

@@ -217,7 +217,7 @@ async def build_agent(
         prompt_engine=prompt_engine,
         agent_name="Courtier",
         # No first_required_tool: parsing choice is left to the LLM guided
-        # by the activation payload (format audit → parse_document,
+        # by the activation payload (format audit → parse_layout,
         # content tasks → convert_document).
         extra_tools=[activate_tool],
         tool_filter=activator.visible,

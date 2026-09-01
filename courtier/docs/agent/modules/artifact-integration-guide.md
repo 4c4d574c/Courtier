@@ -72,7 +72,7 @@ from src.agent.tools.protocol import ToolResult
 
 
 class ParseTool:
-    name = "parse_document"
+    name = "parse_layout"
     description = "解析 PDF/DOCX 文档，返回内部 Document 模型"
     parameters = { ... }
 
@@ -733,11 +733,11 @@ return ToolResult(success=True, data=result, metadata={"label": "主文档"})
 
 | 类型 | 典型生产者 |
 |------|-----------|
-| `docaudit.parsed_document` | `parse_document` |
+| `docaudit.parsed_document` | `parse_layout` |
 | `docaudit.paragraph_list` | 投影产物 |
 | `docaudit.search_results` | `search` |
-| `docaudit.document_metadata` | `parse_document` |
-| `docaudit.document_structure` | `parse_document` |
+| `docaudit.document_metadata` | `parse_layout` |
+| `docaudit.document_structure` | `parse_layout` |
 | `docaudit.audit_finding_list` | `format_audit`, `content_audit` |
 | `docaudit.audit_report` | `generate_report` |
 | `docaudit.reference_text_list` | 投影产物 |

@@ -142,9 +142,9 @@ async def test_sibling_subagents_do_not_see_each_others_artifacts(tmp_path):
 
     # The orchestrator's own parse result lives in the root store (public).
     store.register_cached_ref(
-        ref_id="$ref:parse_document:1",
+        ref_id="$ref:parse_layout:1",
         artifact_type="core.plain_text",
-        created_by="parse_document",
+        created_by="parse_layout",
         data={"text": "document"},
     )
 
@@ -171,7 +171,7 @@ async def test_sibling_subagents_do_not_see_each_others_artifacts(tmp_path):
 
     # The younger sibling sees the public orchestrator artifact but not the
     # older sibling's output — on every read path.
-    assert "$ref:parse_document:1" in seen["ids"]
+    assert "$ref:parse_layout:1" in seen["ids"]
     assert "$ref:format_audit:1" not in seen["ids"]
     assert seen["get"] is None
     assert seen["read"] == {
@@ -184,7 +184,7 @@ async def test_sibling_subagents_do_not_see_each_others_artifacts(tmp_path):
     artifact = store.get("$ref:format_audit:1")
     assert artifact is not None
     assert artifact.metadata.subject == older.handle_id
-    assert store.get("$ref:parse_document:1").metadata.subject == "unknown"
+    assert store.get("$ref:parse_layout:1").metadata.subject == "unknown"
 
 
 @pytest.mark.asyncio

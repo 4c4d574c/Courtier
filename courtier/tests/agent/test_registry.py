@@ -98,7 +98,7 @@ class TestToolRegistryWithCacheStore:
 
         store = CacheStore(cache_dir=str(tmp_path))
         data = {"text": "x" * 5000}
-        await store.persist(data, "parse_document")
+        await store.persist(data, "parse_layout")
 
         registry = ToolRegistry()
 
@@ -116,7 +116,7 @@ class TestToolRegistryWithCacheStore:
         result = await registry.execute(
             "fake",
             artifact_store=store,
-            value="$ref:parse_document:1",
+            value="$ref:parse_layout:1",
         )
         assert result.success
         # The registry preserves the original resolved data in raw_data (not
@@ -192,7 +192,7 @@ class TestToolRegistryWithCacheStore:
 
         store = CacheStore(cache_dir=str(tmp_path))
         data = {"text": "x" * 5000}
-        await store.persist(data, "parse_document")
+        await store.persist(data, "parse_layout")
 
         class ReadCacheLikeTool:
             name = "read_cache"
@@ -218,11 +218,11 @@ class TestToolRegistryWithCacheStore:
         result = await registry.execute(
             "read_cache",
             artifact_store=store,
-            ref_id="$ref:parse_document:1",
+            ref_id="$ref:parse_layout:1",
         )
         assert result.success
         # ref_id should remain as the raw $ref string, NOT resolved to full JSON
-        assert result.raw_data["received_ref_id"] == "$ref:parse_document:1"
+        assert result.raw_data["received_ref_id"] == "$ref:parse_layout:1"
         assert result.raw_data["is_string"] is True
 
     @pytest.mark.asyncio
@@ -232,7 +232,7 @@ class TestToolRegistryWithCacheStore:
 
         store = CacheStore(cache_dir=str(tmp_path))
         data = {"text": "x" * 5000}
-        await store.persist(data, "parse_document")
+        await store.persist(data, "parse_layout")
 
         class NormalTool:
             name = "normal_tool"
@@ -257,7 +257,7 @@ class TestToolRegistryWithCacheStore:
         result = await registry.execute(
             "normal_tool",
             artifact_store=store,
-            ref_id="$ref:parse_document:1",
+            ref_id="$ref:parse_layout:1",
         )
         assert result.success
         # Without skip_ref_resolution, the resolved $ref produces large data,
@@ -270,7 +270,7 @@ class TestToolRegistryWithCacheStore:
             # Small data case — check that ref_id was resolved, not kept as $ref.
             # A single-string-field object now adapts to the text itself.
             received = result.raw_data.get("received_ref_id", "")
-            assert received != "$ref:parse_document:1"
+            assert received != "$ref:parse_layout:1"
             assert "x" * 100 in received
 
     @pytest.mark.asyncio
@@ -303,12 +303,12 @@ class TestToolRegistryWithCacheStore:
         result = await registry.execute(
             "read_cache",
             context_manager=mock_cm,
-            ref_id="$ref:parse_document:1",
+            ref_id="$ref:parse_layout:1",
         )
         # context_manager.resolve_refs should NOT be called
         mock_cm.resolve_refs.assert_not_called()
         assert result.success
-        assert result.raw_data["received_ref_id"] == "$ref:parse_document:1"
+        assert result.raw_data["received_ref_id"] == "$ref:parse_layout:1"
 
 
 @pytest.mark.asyncio
@@ -347,15 +347,15 @@ class TestAutoRegisterArtifacts:
         assert "core.cached_output" in artifact_types
 
     @pytest.mark.asyncio
-    async def test_parse_document_gets_correct_artifact_type(self, tmp_path):
-        """parse_document → auto-registered as docaudit.parsed_document."""
+    async def test_parse_layout_gets_correct_artifact_type(self, tmp_path):
+        """parse_layout → auto-registered as docaudit.parsed_document."""
         from courtier.agent.artifacts.store import ArtifactStore
 
         store = ArtifactStore(cache_dir=str(tmp_path))
         registry = ToolRegistry()
 
         class ParseDocumentTool:
-            name: str = "parse_document"
+            name: str = "parse_layout"
             description: str = "Parse a document"
             parameters: dict = {"type": "object", "properties": {}}
 
@@ -365,7 +365,7 @@ class TestAutoRegisterArtifacts:
         registry.register(ParseDocumentTool())
 
         result = await registry.execute(
-            "parse_document",
+            "parse_layout",
             artifact_store=store,
         )
         assert result.success

@@ -128,7 +128,7 @@ class TestMaybeForcedFirstTool:
     @staticmethod
     def _agent():
         class _ParseStub:
-            name = "parse_document"
+            name = "parse_layout"
             description = "stub"
             parameters = {"type": "object", "properties": {}}
 
@@ -139,7 +139,7 @@ class TestMaybeForcedFirstTool:
             name="A",
             role="r",
             model=MagicMock(),
-            first_required_tool="parse_document",
+            first_required_tool="parse_layout",
         )
         agent.tool_registry.register(_ParseStub())
         return agent
@@ -148,7 +148,7 @@ class TestMaybeForcedFirstTool:
         agent = self._agent()
         call = agent._maybe_forced_first_tool({"file_path": "/tmp/a.docx"}, None)
         assert call is not None
-        assert call.name == "parse_document"
+        assert call.name == "parse_layout"
         assert call.arguments == {"file_path": "/tmp/a.docx"}
 
     def test_forced_call_ids_are_unique(self):
@@ -158,7 +158,7 @@ class TestMaybeForcedFirstTool:
             agent._maybe_forced_first_tool({"file_path": "/tmp/a.docx"}, None).id for _ in range(5)
         }
         assert len(ids) == 5
-        assert all(id_.startswith("forced-first-parse_document-") for id_ in ids)
+        assert all(id_.startswith("forced-first-parse_layout-") for id_ in ids)
 
     def test_skipped_without_file_path(self):
         agent = self._agent()
@@ -166,7 +166,7 @@ class TestMaybeForcedFirstTool:
         assert agent._maybe_forced_first_tool(None, None) is None
 
     def test_skipped_when_tool_not_registered(self):
-        agent = Agent(name="A", role="r", model=MagicMock(), first_required_tool="parse_document")
+        agent = Agent(name="A", role="r", model=MagicMock(), first_required_tool="parse_layout")
         assert agent._maybe_forced_first_tool({"file_path": "/tmp/a.docx"}, None) is None
 
     def test_skipped_when_already_parsed_same_path(self):
@@ -186,7 +186,7 @@ class TestMaybeForcedFirstTool:
                 tool_calls=(
                     ToolCall(
                         id=call_id,
-                        name="parse_document",
+                        name="parse_layout",
                         arguments={"file_path": "/tmp/a.docx"},
                     ),
                 ),
@@ -195,7 +195,7 @@ class TestMaybeForcedFirstTool:
                 role="tool",
                 content=_json.dumps({"success": True, "raw_data": {"pages": []}}),
                 tool_call_id=call_id,
-                name="parse_document",
+                name="parse_layout",
             ),
         )
         state = AgentState.initial(task="t", system_prompt="s").model_copy(
@@ -218,7 +218,7 @@ class TestMaybeForcedFirstTool:
                 tool_calls=(
                     ToolCall(
                         id=call_id,
-                        name="parse_document",
+                        name="parse_layout",
                         arguments={"file_path": "/tmp/old.docx"},
                     ),
                 ),
@@ -227,7 +227,7 @@ class TestMaybeForcedFirstTool:
                 role="tool",
                 content=_json.dumps({"success": True, "raw_data": {"pages": []}}),
                 tool_call_id=call_id,
-                name="parse_document",
+                name="parse_layout",
             ),
         )
         state = AgentState.initial(task="t", system_prompt="s").model_copy(
@@ -259,7 +259,7 @@ class TestHasSuccessfulCallFor:
                 tool_calls=(
                     ToolCall(
                         id="tc-1",
-                        name="parse_document",
+                        name="parse_layout",
                         arguments={"file_path": file_path},
                     ),
                 ),
@@ -268,7 +268,7 @@ class TestHasSuccessfulCallFor:
                 role="tool",
                 content=_json.dumps(tool_payload, ensure_ascii=False),
                 tool_call_id="tc-1",
-                name="parse_document",
+                name="parse_layout",
             ),
         )
 
@@ -276,33 +276,33 @@ class TestHasSuccessfulCallFor:
         from courtier.agent.agents.base import _has_successful_call_for
 
         msgs = self._messages({"success": True, "raw_data": None, "result_id": "$ref:x:1"})
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/a.docx") is True
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/a.docx") is True
 
     def test_live_failure(self):
         from courtier.agent.agents.base import _has_successful_call_for
 
         msgs = self._messages({"success": False, "error": "boom"})
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/a.docx") is False
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/a.docx") is False
 
     def test_other_file_not_matched(self):
         from courtier.agent.agents.base import _has_successful_call_for
 
         msgs = self._messages({"success": True})
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/other.docx") is False
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/other.docx") is False
 
     def test_omitted_placeholder_success(self):
         from courtier.agent.agents.base import _has_successful_call_for
 
         msgs = self._messages(
-            {"_omitted": True, "tool": "parse_document", "success": True, "ref_id": "$ref:x:1"}
+            {"_omitted": True, "tool": "parse_layout", "success": True, "ref_id": "$ref:x:1"}
         )
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/a.docx") is True
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/a.docx") is True
 
     def test_omitted_placeholder_failure(self):
         from courtier.agent.agents.base import _has_successful_call_for
 
-        msgs = self._messages({"_omitted": True, "tool": "parse_document", "success": False})
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/a.docx") is False
+        msgs = self._messages({"_omitted": True, "tool": "parse_layout", "success": False})
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/a.docx") is False
 
     def test_compaction_summary_with_ref_and_path(self):
         import json as _json
@@ -314,7 +314,7 @@ class TestHasSuccessfulCallFor:
             role="system",
             content=(
                 "[上下文压缩 #1] 以下为之前对话的摘要，请继续完成任务：\n\n"
-                "已解析 /tmp/a.docx，结果见 $ref:parse_document:1。"
+                "已解析 /tmp/a.docx，结果见 $ref:parse_layout:1。"
             ),
         )
         msgs = (
@@ -327,9 +327,9 @@ class TestHasSuccessfulCallFor:
                 name="echo",
             ),
         )
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/a.docx") is True
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/a.docx") is True
         # A summary about a different file must not match.
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/b.docx") is False
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/b.docx") is False
 
     def test_non_json_tool_content_skipped(self):
         from courtier.agent.agents.base import _has_successful_call_for
@@ -343,14 +343,14 @@ class TestHasSuccessfulCallFor:
                 tool_calls=(
                     ToolCall(
                         id="tc-1",
-                        name="parse_document",
+                        name="parse_layout",
                         arguments={"file_path": "/tmp/a.docx"},
                     ),
                 ),
             ),
-            Message(role="tool", content="not-json", tool_call_id="tc-1", name="parse_document"),
+            Message(role="tool", content="not-json", tool_call_id="tc-1", name="parse_layout"),
         )
-        assert _has_successful_call_for(msgs, "parse_document", "/tmp/a.docx") is False
+        assert _has_successful_call_for(msgs, "parse_layout", "/tmp/a.docx") is False
 
 
 class TestProxyReplacementOnSync:
@@ -381,19 +381,19 @@ class TestProxyReplacementOnSync:
         from courtier.agent.tools.registry import ToolRegistry
 
         shared = ToolRegistry()
-        old_proxy = self._proxy("parse_document", "parse")
+        old_proxy = self._proxy("parse_layout", "parse")
         shared.register(old_proxy)
 
         agent = Agent(name="A", role="r", model=MagicMock(), tool_registry=shared)
-        assert agent.tool_registry.get("parse_document") is old_proxy
+        assert agent.tool_registry.get("parse_layout") is old_proxy
 
         # Plugin restarts: shared registry swaps in a new proxy instance.
-        new_proxy = self._proxy("parse_document", "parse")
-        shared.unregister("parse_document")
+        new_proxy = self._proxy("parse_layout", "parse")
+        shared.unregister("parse_layout")
         shared.register(new_proxy)
 
         await self._run_sync(agent)
-        assert agent.tool_registry.get("parse_document") is new_proxy
+        assert agent.tool_registry.get("parse_layout") is new_proxy
 
     @pytest.mark.asyncio
     async def test_scoped_wrapper_preserved_around_new_proxy(self):
@@ -426,12 +426,12 @@ class TestProxyReplacementOnSync:
         from courtier.agent.tools.registry import ToolRegistry
 
         shared = ToolRegistry()
-        proxy = self._proxy("parse_document", "parse")
+        proxy = self._proxy("parse_layout", "parse")
         shared.register(proxy)
         agent = Agent(name="A", role="r", model=MagicMock(), tool_registry=shared)
 
         await self._run_sync(agent)
-        assert agent.tool_registry.get("parse_document") is proxy
+        assert agent.tool_registry.get("parse_layout") is proxy
 
 
 class TestPluginGuidesInjection:
@@ -442,7 +442,7 @@ class TestPluginGuidesInjection:
         from types import SimpleNamespace
 
         proxy = SimpleNamespace(
-            name="parse_document",
+            name="parse_layout",
             description="",
             parameters={"type": "object", "properties": {}},
             _client=SimpleNamespace(plugin_name="parse"),

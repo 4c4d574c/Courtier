@@ -38,7 +38,7 @@ def test_artifact_defaults_to_projection_allowed_business_artifact():
         artifact_type="docaudit.parsed_document",
         schema_version="1.0",
         data={"pages": []},
-        metadata=ArtifactMetadata(created_by="parse_document"),
+        metadata=ArtifactMetadata(created_by="parse_layout"),
     )
 
     assert artifact.metadata.projection_allowed is True
@@ -276,13 +276,13 @@ def test_projection_policy_includes_feature_flags():
 
 
 def test_parse_artifact_ref_uri():
-    parsed = parse_artifact_ref("artifact://docaudit.parsed_document/parse_document/1")
-    assert parsed == {"type": "docaudit.parsed_document", "tool": "parse_document", "n": "1"}
+    parsed = parse_artifact_ref("artifact://docaudit.parsed_document/parse_layout/1")
+    assert parsed == {"type": "docaudit.parsed_document", "tool": "parse_layout", "n": "1"}
 
 
 def test_parse_artifact_ref_legacy_dollar_ref():
     """Legacy $ref format is no longer parsed — returns None."""
-    parsed = parse_artifact_ref("$ref:parse_document:1")
+    parsed = parse_artifact_ref("$ref:parse_layout:1")
     assert parsed is None
 
 

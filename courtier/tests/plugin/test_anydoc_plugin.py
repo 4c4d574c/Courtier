@@ -155,10 +155,10 @@ class TestConvertDocument:
         assert "无法识别" in result.error
 
     @pytest.mark.asyncio
-    async def test_unsupported_points_to_parse_document(self, tmp_path, monkeypatch):
+    async def test_unsupported_points_to_parse_layout(self, tmp_path, monkeypatch):
         monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
         # Without an OCR endpoint configured the fallback is disabled, so the
-        # error keeps pointing at parse_document.
+        # error keeps pointing at parse_layout.
         monkeypatch.delenv("ANYDOC_OCR_API_URL", raising=False)
         monkeypatch.setitem(sys.modules, "anydoc", _raising_anydoc("UnsupportedError"))
         import plugins.shared.anydoc.tools as tools_mod
@@ -168,7 +168,7 @@ class TestConvertDocument:
         tool = tools_mod.ConvertDocumentTool()
         result = await tool.execute(file_path=str(doc))
         assert result.success is False
-        assert "parse_document" in result.error
+        assert "parse_layout" in result.error
 
     @pytest.mark.asyncio
     async def test_encrypted_error(self, tmp_path, monkeypatch):
@@ -278,7 +278,7 @@ class TestConvertDocumentOCR:
         assert seen["mime"] == "image/jpeg"
 
     @pytest.mark.asyncio
-    async def test_image_unconfigured_points_to_parse_document(self, tmp_path, monkeypatch):
+    async def test_image_unconfigured_points_to_parse_layout(self, tmp_path, monkeypatch):
         monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
         monkeypatch.delenv("ANYDOC_OCR_API_URL", raising=False)
         import plugins.shared.anydoc.tools as tools_mod
@@ -288,7 +288,7 @@ class TestConvertDocumentOCR:
         tool = tools_mod.ConvertDocumentTool()
         result = await tool.execute(file_path=str(img))
         assert result.success is False
-        assert "parse_document" in result.error
+        assert "parse_layout" in result.error
 
     @pytest.mark.asyncio
     async def test_scanned_pdf_uses_ocr_path(self, tmp_path, monkeypatch):
@@ -321,7 +321,7 @@ class TestConvertDocumentOCR:
         assert "内容1" in md and "内容2" in md
 
     @pytest.mark.asyncio
-    async def test_scanned_pdf_unconfigured_points_to_parse_document(self, tmp_path, monkeypatch):
+    async def test_scanned_pdf_unconfigured_points_to_parse_layout(self, tmp_path, monkeypatch):
         monkeypatch.setenv("COURTIER_UPLOAD_DIR", str(tmp_path))
         monkeypatch.delenv("ANYDOC_OCR_API_URL", raising=False)
         monkeypatch.setitem(sys.modules, "anydoc", _raising_anydoc("UnsupportedError"))
@@ -332,7 +332,7 @@ class TestConvertDocumentOCR:
         tool = tools_mod.ConvertDocumentTool()
         result = await tool.execute(file_path=str(pdf))
         assert result.success is False
-        assert "parse_document" in result.error
+        assert "parse_layout" in result.error
 
     @pytest.mark.asyncio
     async def test_ocr_failure_reports_page_number(self, tmp_path, monkeypatch):
@@ -374,7 +374,7 @@ class TestEmptyExtraction:
         result = await tools_mod.ConvertDocumentTool().execute(file_path=str(doc))
         assert result.success is False
         assert "未提取到任何文本内容" in result.error
-        assert "parse_document" in result.error
+        assert "parse_layout" in result.error
 
     @pytest.mark.asyncio
     async def test_whitespace_only_markdown_also_fails(self, tmp_path, monkeypatch):

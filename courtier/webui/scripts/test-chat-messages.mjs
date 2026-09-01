@@ -530,7 +530,7 @@ try {
       {
         message: { role: "user", text: "审核", timestamp: 1 },
         steps: [
-          mkStep(1, "parse_document", "done"),
+          mkStep(1, "parse_layout", "done"),
           mkStep(2, "content_audit", "running"),
         ],
       },
@@ -557,7 +557,7 @@ try {
       {
         message: { role: "user", text: "审核", timestamp: 1 },
         steps: [
-          mkStep(1, "parse_document", "done"),
+          mkStep(1, "parse_layout", "done"),
           mkStep(2, "content_audit", "done", "现在并行执行审核："),
         ],
       },
@@ -603,7 +603,7 @@ try {
       {
         message: { role: "user", text: "审核", timestamp: 1 },
         steps: [
-          mkStep(1, "parse_document", "done"),
+          mkStep(1, "parse_layout", "done"),
           mkStep(2, "content_audit", "running"),
         ],
       },

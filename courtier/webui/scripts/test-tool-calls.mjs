@@ -46,7 +46,7 @@ try {
 
   const parentTool = normalizeToolResult({
     id: 'tool-1',
-    name: 'parse_document',
+    name: 'parse_layout',
     status: 'done',
   })
   assert.equal(parentTool.callKind, 'tool')
@@ -318,7 +318,7 @@ try {
 
   const noCountsTool = normalizeToolResult({
     id: 'tool-ic2',
-    name: 'parse_document',
+    name: 'parse_layout',
     status: 'done',
   })
   assert.equal(noCountsTool.issueCounts, undefined)

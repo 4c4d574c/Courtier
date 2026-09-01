@@ -260,12 +260,12 @@ class TestSessionStore:
         )
         await store.add_step(
             "sess_000000000001",
-            StepRecord(index=1, label="parse_document", skill="parse"),
+            StepRecord(index=1, label="parse_layout", skill="parse"),
         )
         await store.add_tool_info(
             "sess_000000000001",
             ToolInfo(
-                name="parse_document",
+                name="parse_layout",
                 skill="parse",
                 status="done",
                 duration=0.3,
@@ -294,11 +294,11 @@ class TestSessionStore:
               "steps": [
                 {
                   "index": 1,
-                  "label": "parse_document",
+                  "label": "parse_layout",
                   "skill": "parse",
                   "tools": [
                     {
-                      "name": "parse_document",
+                      "name": "parse_layout",
                       "skill": "parse",
                       "status": "done",
                       "duration": 0.2,
@@ -337,11 +337,11 @@ class TestSessionStore:
               "steps": [
                 {
                   "index": 1,
-                  "label": "parse_document",
+                  "label": "parse_layout",
                   "skill": "parse",
                   "tools": [
                     {
-                      "name": "parse_document",
+                      "name": "parse_layout",
                       "skill": "parse",
                       "status": "done",
                       "duration": 0.2,

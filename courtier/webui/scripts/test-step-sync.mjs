@@ -58,7 +58,7 @@ function replaceStepAt(session, stepIndex, updatedStep) {
 const session = createMockSession()
 const currentTurnIndex = 1
 const currentTurn = session.turns[currentTurnIndex - 1]
-const step = createStep(1, ['parse_document'], currentTurnIndex)
+const step = createStep(1, ['parse_layout'], currentTurnIndex)
 session.steps.push(step)
 currentTurn.steps.push(step)
 
@@ -68,7 +68,7 @@ assert.equal(currentTurn.steps[0].tools[0].status, 'pending')
 // Simulate tool_start: pending -> running
 let lastIndex = session.steps.length - 1
 let currentStep = session.steps[lastIndex]
-let targetToolIndex = currentStep.tools.findIndex(t => t.name === 'parse_document')
+let targetToolIndex = currentStep.tools.findIndex(t => t.name === 'parse_layout')
 let updatedTool = { ...currentStep.tools[targetToolIndex], status: 'running', startTime: 1_000_000 }
 replaceStepAt(session, lastIndex, {
   ...currentStep,
@@ -86,7 +86,7 @@ assert.strictEqual(
 // Simulate tool_result: running -> done with summary and duration
 lastIndex = session.steps.length - 1
 currentStep = session.steps[lastIndex]
-targetToolIndex = currentStep.tools.findIndex(t => t.name === 'parse_document')
+targetToolIndex = currentStep.tools.findIndex(t => t.name === 'parse_layout')
 updatedTool = {
   ...currentStep.tools[targetToolIndex],
   status: 'done',

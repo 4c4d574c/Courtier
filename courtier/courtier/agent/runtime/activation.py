@@ -261,7 +261,7 @@ class DomainActivator:
         # next run, so same-turn use after activation would otherwise fail.
         self._inject_domain_tools(domain)
         # Report callable tool names (plugin names like "parse" differ from
-        # their tool names like "parse_document" — the model calls the
+        # their tool names like "parse_layout" — the model calls the
         # latter).
         new_tools = self._domain_plugin_tool_names(domain)
         logger.info(

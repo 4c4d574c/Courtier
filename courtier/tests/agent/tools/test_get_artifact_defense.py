@@ -15,12 +15,12 @@ class TestGetArtifactDefense:
         """$ref id without artifact_type returns raw data — the most common path."""
         store = ArtifactStore(cache_dir=str(tmp_path))
         data = {"text": "some content"}
-        await store.persist(data, "parse_document", force=True)
+        await store.persist(data, "parse_layout", force=True)
 
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
         )
         # Should succeed with raw data, no projection error.
         assert result.success
@@ -31,12 +31,12 @@ class TestGetArtifactDefense:
         """$ref id with artifact_type runs type projection."""
         store = ArtifactStore(cache_dir=str(tmp_path))
         data = {"text": "hello world", "language": "en", "source_scope": "full_document"}
-        await store.persist(data, "parse_document", force=True)
+        await store.persist(data, "parse_layout", force=True)
 
         store.register_cached_ref(
-            ref_id="$ref:parse_document:1",
+            ref_id="$ref:parse_layout:1",
             artifact_type="core.plain_text",
-            created_by="parse_document",
+            created_by="parse_layout",
             data=data,
             role="primary_document",
             subject="current_upload",
@@ -46,7 +46,7 @@ class TestGetArtifactDefense:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:1",
+            id="$ref:parse_layout:1",
             artifact_type="core.plain_text",
         )
         assert result.success
@@ -102,7 +102,7 @@ class TestGetArtifactDefense:
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
-            id="$ref:parse_document:9",
+            id="$ref:parse_layout:9",
         )
         assert not result.success
         assert "可见范围" in result.error

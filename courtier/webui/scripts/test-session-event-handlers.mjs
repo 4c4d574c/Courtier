@@ -66,22 +66,22 @@ try {
     const { handlers, session } = makeDeps();
     handlers.handleSessionEvent({
       type: "think",
-      detail: "tool_calls:parse_document",
+      detail: "tool_calls:parse_layout",
     });
     assert.equal(session.steps.length, 1);
     assert.equal(session.steps[0].tools.length, 1);
-    assert.equal(session.steps[0].tools[0].name, "parse_document");
+    assert.equal(session.steps[0].tools[0].name, "parse_layout");
     assert.equal(session.steps[0].tools[0].status, "pending");
 
     handlers.handleSessionEvent({
       type: "act",
-      detail: "executing:parse_document",
+      detail: "executing:parse_layout",
     });
     assert.equal(session.steps[0].tools[0].status, "running");
 
     handlers.handleSessionEvent({
       type: "tool_result",
-      name: "parse_document",
+      name: "parse_layout",
       status: "ok",
       callKind: "tool",
       callScope: "parent",
@@ -425,11 +425,11 @@ try {
     const { handlers, session } = makeDeps();
     handlers.handleSessionEvent({
       type: "think",
-      detail: "tool_calls:parse_document,check_format",
+      detail: "tool_calls:parse_layout,check_format",
     });
     handlers.handleSessionEvent({
       type: "act",
-      detail: "executing:parse_document,check_format",
+      detail: "executing:parse_layout,check_format",
     });
     const startTime = Date.now() - 1200;
     session.steps[0].tools[0].startTime = startTime;
@@ -486,11 +486,11 @@ try {
     const { handlers, session } = makeDeps();
     handlers.handleSessionEvent({
       type: "think",
-      detail: "tool_calls:parse_document",
+      detail: "tool_calls:parse_layout",
     });
     handlers.handleSessionEvent({
       type: "act",
-      detail: "executing:parse_document",
+      detail: "executing:parse_layout",
     });
 
     handlers.handleSessionEvent({ type: "stopped" });
@@ -556,7 +556,7 @@ try {
 
     handlers.handleSessionEvent({
       type: "think",
-      detail: "tool_calls:parse_document",
+      detail: "tool_calls:parse_layout",
     });
     assert.equal(session.steps.length, 1);
 
@@ -622,7 +622,7 @@ try {
     assert.equal(session.pendingVerdictAfterStepIndex, 0); // 渲染在 step 1 框之前
     handlers.handleSessionEvent({
       type: "think",
-      detail: "tool_calls:parse_document",
+      detail: "tool_calls:parse_layout",
     });
     assert.equal(session.steps.length, 1); // 补丁到占位 step，不新建
     handlers.handleSessionEvent({
@@ -696,7 +696,7 @@ try {
     state.currentTurn = turn;
     handlers.handleSessionEvent({
       type: "think",
-      detail: "tool_calls:parse_document",
+      detail: "tool_calls:parse_layout",
     });
     handlers.handleSessionEvent({ type: "conclusion_token", text: "写到一半" });
     assert.equal(session.pendingVerdictAfterStepIndex, 0);

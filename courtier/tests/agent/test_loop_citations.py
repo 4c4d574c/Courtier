@@ -173,7 +173,7 @@ def test_search_tool_attributes_recorded():
 
 def test_search_tool_attributes_ignore_other_tools():
     span = _FakeSpan()
-    _set_search_tool_attributes(span, _FakeRecord("parse_document", {"hits": [1]}))
+    _set_search_tool_attributes(span, _FakeRecord("parse_layout", {"hits": [1]}))
     assert span.attrs == {}
 
 

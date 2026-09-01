@@ -1,7 +1,7 @@
 """诊断脚本：追踪 $ref 在子代理 dispatch 链路中的解析状态。
 
 对比两种场景：
-  Scenario A: 同一轮 session 内调用 parse_document → ref 在 CacheStore 中 → 应能解析
+  Scenario A: 同一轮 session 内调用 parse_layout → ref 在 CacheStore 中 → 应能解析
   Scenario B: 多轮 session（模拟），ArtifactStore 有 artifact 但 CacheStore.ref_map 为空
 
 用法: PYTHONPATH=. uv run python scripts/diagnose_subagent_ref.py
@@ -95,7 +95,7 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
     sep(f"Scenario: {scenario}")
 
     param_props = build_param_props()
-    ref_id = "$ref:parse_document:1"
+    ref_id = "$ref:parse_layout:1"
 
     # Step 1: Check if ref is in CacheStore
     print(
@@ -191,14 +191,14 @@ def trace_ref_resolution(cache_store: CacheStore, scenario: str) -> None:
 def main() -> None:
     cache_dir = tempfile.mkdtemp(prefix="diag_cache_")
 
-    # ── Scenario A: 同一轮 session，parse_document 已被调用 ──
+    # ── Scenario A: 同一轮 session，parse_layout 已被调用 ──
     cache_a = CacheStore(cache_dir=cache_dir)
-    cache_a.persist(MOCK_DOC, "parse_document", force=True)
+    cache_a.persist(MOCK_DOC, "parse_layout", force=True)
     trace_ref_resolution(cache_a, "A: 同一轮 session (CacheStore 有 ref)")
 
     # ── Scenario B: 多轮 session，新 CacheStore 但旧缓存文件 ──
     # 模拟：新请求创建新的 CacheStore（ref_map 为空），
-    # 但磁盘上还有 parse_document 的缓存文件（历史上由 rehydrate 加载；
+    # 但磁盘上还有 parse_layout 的缓存文件（历史上由 rehydrate 加载；
     # 现恢复路径已统一为 artifact snapshot）
     cache_b = CacheStore(cache_dir=cache_dir)  # ref_map 为空！
     trace_ref_resolution(cache_b, "B: 多轮 session (CacheStore.ref_map 为空，文件在磁盘)")
@@ -206,7 +206,7 @@ def main() -> None:
     # ── 结论 ──
     sep("结论")
     print("""
-  Scenario A 中，CacheStore.ref_map 有 $ref:parse_document:1 → resolve_refs 成功 → dict
+  Scenario A 中，CacheStore.ref_map 有 $ref:parse_layout:1 → resolve_refs 成功 → dict
   Scenario B 中，CacheStore.ref_map 为空（新实例）→ resolve_refs 失败 → 仍是 str
 
   这就是日志中看到的 bug：

@@ -11,7 +11,7 @@ class FormatAuditorInput(SubAgentInput):
     """格式审计器的结构化输入。"""
 
     document: str | dict = Field(
-        description="待审计的文档数据。可传入 $ref:parse_document:1 引用"
+        description="待审计的文档数据。可传入 $ref:parse_layout:1 引用"
     )
     doc_type: str = Field(
         default="通知",

@@ -32,7 +32,7 @@ def test_materializes_plain_text_as_string():
 def test_executor_runs_two_step_plan_and_materializes_text():
     store = ArtifactStore()
     source = Artifact(
-        artifact_id="$ref:parse_document:1",
+        artifact_id="$ref:parse_layout:1",
         artifact_type="docaudit.parsed_document",
         data={
             "pages": [
@@ -48,7 +48,7 @@ def test_executor_runs_two_step_plan_and_materializes_text():
             ]
         },
         metadata=ArtifactMetadata(
-            created_by="parse_document",
+            created_by="parse_layout",
             semantic_role="primary_document",
             subject="current_upload",
         ),

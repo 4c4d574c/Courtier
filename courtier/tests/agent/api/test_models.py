@@ -59,7 +59,7 @@ class TestToolInfo:
 
     def test_to_dict_includes_default_call_classification(self):
         ti = ToolInfo(
-            name="parse_document",
+            name="parse_layout",
             skill="parse",
             status="done",
             duration=0.1,
@@ -68,7 +68,7 @@ class TestToolInfo:
 
         data = ti.to_dict()
 
-        assert data["name"] == "parse_document"
+        assert data["name"] == "parse_layout"
         assert data["callKind"] == "tool"
         assert data["callScope"] == "parent"
         assert data["subagentName"] is None
@@ -138,7 +138,7 @@ class TestToolInfo:
 
     def test_to_dict_includes_display_name_when_provided(self):
         ti = ToolInfo(
-            name="parse_document",
+            name="parse_layout",
             skill="parse",
             status="done",
             duration=0.1,
@@ -148,12 +148,12 @@ class TestToolInfo:
 
         data = ti.to_dict()
 
-        assert data["name"] == "parse_document"
+        assert data["name"] == "parse_layout"
         assert data["displayName"] == "文档解析"
 
     def test_to_dict_display_name_is_null_when_not_provided(self):
         ti = ToolInfo(
-            name="parse_document",
+            name="parse_layout",
             skill="parse",
             status="done",
             duration=0.1,
@@ -162,7 +162,7 @@ class TestToolInfo:
 
         data = ti.to_dict()
 
-        assert data["name"] == "parse_document"
+        assert data["name"] == "parse_layout"
         assert data["displayName"] is None
 
     def test_creation_without_display_name_defaults_to_none(self):

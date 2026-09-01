@@ -38,11 +38,12 @@ def _sanitize(obj: Any) -> Any:
 class ParseTool:
     """Parse a document file (PDF/DOCX/image) into the Document model."""
 
-    name: str = "parse_document"
-    display_name: str | None = "解析文档"
+    name: str = "parse_layout"
+    display_name: str | None = "格式解析"
     description: str = (
-        "Parse a document file from disk into the internal Document model. "
-        "Supports PDF, DOCX, and scanned images. Returns the parsed Document as a dict."
+        "Parse the layout of a document file (PDF/DOCX/scanned image) into the "
+        "internal Document model: pages, header/body/footer blocks, fonts, and "
+        "spacing. Returns the parsed Document as a dict."
     )
     parameters: dict[str, Any] = {
         "type": "object",

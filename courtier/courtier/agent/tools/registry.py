@@ -750,7 +750,7 @@ class ToolRegistry:
     # ``output_artifact_type`` take precedence; this mapping provides sensible
     # defaults for tools that don't.
     _TOOL_ARTIFACT_TYPE: dict[str, str] = {
-        "parse_document": "docaudit.parsed_document",
+        "parse_layout": "docaudit.parsed_document",
     }
 
     @classmethod

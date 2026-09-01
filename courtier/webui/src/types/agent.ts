@@ -42,7 +42,7 @@ export interface CitationHit {
 export interface ToolResult {
   id: string
   name: string
-  /** plugin.yaml display_name（如"解析文档"），优先于 name 展示 */
+  /** plugin.yaml display_name(如"格式解析")，优先于 name 展示 */
   displayName?: string | null
   skill: string
   skillDescription?: string

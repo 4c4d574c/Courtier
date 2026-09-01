@@ -21,7 +21,7 @@ orchestrator:
 
     ## convert_document 失败降级
     - convert_document 返回失败时，如实向用户说明原因；
-      如失败源于未配置 OCR 服务，说明扫描件需改用领域解析工具（如 parse_document）。
+      如失败源于未配置 OCR 服务，说明扫描件需改用领域解析工具（如 parse_layout）。
     {% if available_skills %}
     ## 已激活领域技能
     {% for skill in available_skills %}

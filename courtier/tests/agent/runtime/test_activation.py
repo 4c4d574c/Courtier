@@ -24,7 +24,7 @@ version: '1.0'
 enabled: true
 display_name: 格式审核
 description: 按 GB/T 9704 审核公文格式
-tools: [parse_document]
+tools: [parse_layout]
 ---
 
 对公文进行格式审核，输出 JSON。

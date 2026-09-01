@@ -92,7 +92,7 @@ class TestScopedTool:
 
         registry = ToolRegistry()
         registry.register(fake_tool("search_documents"))
-        registry.register(fake_tool("parse_document"))
+        registry.register(fake_tool("parse_layout"))
         agent = SimpleNamespace(tool_registry=registry)
 
         apply_owner_scope(agent, 7)
@@ -100,7 +100,7 @@ class TestScopedTool:
         wrapped = registry.get("search_documents")
         assert type(wrapped).__name__ == "ScopedTool"
         assert wrapped._injections == {"_owner_scope": 7}
-        assert type(registry.get("parse_document")).__name__ != "ScopedTool"
+        assert type(registry.get("parse_layout")).__name__ != "ScopedTool"
 
         # Anonymous caller: injected as None (public-only), still wrapped.
         apply_owner_scope(agent, None)

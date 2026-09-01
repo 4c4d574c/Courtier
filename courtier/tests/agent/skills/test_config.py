@@ -13,7 +13,7 @@ def test_skill_config_creation():
         description="格式审核",
         source_path=Path("skills/format_audit.md"),
         system_prompt="你是格式审核专家",
-        tools=("parse_document", "audit_format"),
+        tools=("parse_layout", "audit_format"),
         skills=("content_audit",),
         input_model=None,
         output_artifact_type="format_audit_result",
@@ -23,7 +23,7 @@ def test_skill_config_creation():
     )
 
     assert config.name == "format_audit"
-    assert config.tools == ("parse_document", "audit_format")
+    assert config.tools == ("parse_layout", "audit_format")
     assert config.skills == ("content_audit",)
     assert config.enabled is True
 

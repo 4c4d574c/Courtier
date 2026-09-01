@@ -26,9 +26,9 @@ class TestGcOrphanCacheFiles:
         cache_dir.mkdir()
         store = SessionStore(str(sessions_dir))
 
-        victim = cache_dir / "parse_document_1_1.json"
+        victim = cache_dir / "parse_layout_1_1.json"
         victim.write_text('{"a": 1}', encoding="utf-8")
-        (cache_dir / "parse_document_1_1.schema.json").write_text("{}", encoding="utf-8")
+        (cache_dir / "parse_layout_1_1.schema.json").write_text("{}", encoding="utf-8")
         keep = cache_dir / "search_documents_1_2.json"
         keep.write_text('{"b": 2}', encoding="utf-8")
 
@@ -41,12 +41,12 @@ class TestGcOrphanCacheFiles:
         )
 
         deleted = await store.gc_orphan_cache_files(
-            _snapshot({"$ref:parse_document:1": str(victim)}), str(cache_dir)
+            _snapshot({"$ref:parse_layout:1": str(victim)}), str(cache_dir)
         )
 
         assert deleted == 1
         assert not victim.exists()
-        assert not (cache_dir / "parse_document_1_1.schema.json").exists()
+        assert not (cache_dir / "parse_layout_1_1.schema.json").exists()
         assert keep.exists()
 
     async def test_keeps_files_shared_with_other_sessions(self, tmp_path):
@@ -58,18 +58,18 @@ class TestGcOrphanCacheFiles:
         cache_dir.mkdir()
         store = SessionStore(str(sessions_dir))
 
-        shared = cache_dir / "parse_document_1_1.json"
+        shared = cache_dir / "parse_layout_1_1.json"
         shared.write_text('{"a": 1}', encoding="utf-8")
 
         remaining_id = f"sess_{_rid()}"
         await store.create(remaining_id, "t", "", owner="alice")
         await store.update(
             remaining_id,
-            artifact_snapshot=_snapshot({"$ref:parse_document:1": str(shared)}),
+            artifact_snapshot=_snapshot({"$ref:parse_layout:1": str(shared)}),
         )
 
         deleted = await store.gc_orphan_cache_files(
-            _snapshot({"$ref:parse_document:1": str(shared)}), str(cache_dir)
+            _snapshot({"$ref:parse_layout:1": str(shared)}), str(cache_dir)
         )
 
         assert deleted == 0
@@ -105,10 +105,10 @@ class TestHashDedup:
         request) dedups against files written by a previous instance."""
         data = {"text": "x" * 1000}
         store1 = ArtifactStore(cache_dir=str(tmp_path))
-        r1 = await store1.persist(data, "parse_document", force=True)
+        r1 = await store1.persist(data, "parse_layout", force=True)
 
         store2 = ArtifactStore(cache_dir=str(tmp_path))
-        r2 = await store2.persist(data, "parse_document", force=True)
+        r2 = await store2.persist(data, "parse_layout", force=True)
 
         assert r1.persisted and r2.persisted
         assert r1.ref_id == r2.ref_id
@@ -128,18 +128,18 @@ class TestHashDedup:
         dropped and the data is re-persisted under a new ref."""
         data = {"text": "x" * 1000}
         store1 = ArtifactStore(cache_dir=str(tmp_path))
-        await store1.persist(data, "parse_document", force=True)
+        await store1.persist(data, "parse_layout", force=True)
         for p in tmp_path.iterdir():
-            if p.name.startswith("parse_document_") and p.suffix == ".json":
+            if p.name.startswith("parse_layout_") and p.suffix == ".json":
                 p.unlink()
 
         store2 = ArtifactStore(cache_dir=str(tmp_path))
-        r2 = await store2.persist(data, "parse_document", force=True)
+        r2 = await store2.persist(data, "parse_layout", force=True)
 
         assert r2.persisted
         assert r2.data.get("dedup_hit") is not True
         # The data was re-written to disk (a fresh store restarts ref
         # numbering, so the ref_id itself may coincide).
         assert (tmp_path / r2.data["file"].split("/")[-1]).exists() or any(
-            p.name.startswith("parse_document_") and p.suffix == ".json" for p in tmp_path.iterdir()
+            p.name.startswith("parse_layout_") and p.suffix == ".json" for p in tmp_path.iterdir()
         )

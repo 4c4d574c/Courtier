@@ -378,7 +378,7 @@ class TestParagraphSpacing:
 
         走 docparse 扫描侧真实函数：compute_paragraph_spacing（单行页
         line_spacing=None，而非旧的硬编码 0.0）→ merge_spacing_into_page_content
-        → model_dump(exclude_none=True)（与 parse_document 插件输出一致）。
+        → model_dump(exclude_none=True)（与 parse_layout 插件输出一致）。
         """
         para = Paragraph(
             elements=[

@@ -15,7 +15,7 @@ class FormatAuditTool:
     display_name: str | None = "格式审查"
     description: str = (
         "Check a parsed document's formatting against GB/T 9704-2012 rules. "
-        "Takes a parsed document dict (from parse_document tool output) and returns "
+        "Takes a parsed document dict (from parse_layout tool output) and returns "
         "a list of format violations with block names, error types, details, and page numbers."
     )
     parameters: dict[str, Any] = {
@@ -23,7 +23,7 @@ class FormatAuditTool:
         "properties": {
             "doc": {
                 "type": "object",
-                "description": "Parsed document dict (parse_document tool output).",
+                "description": "Parsed document dict (parse_layout tool output).",
             },
             "doc_type": {
                 "type": "string",

@@ -108,7 +108,7 @@ function makeSession(numSteps, thoughtsPerStep) {
     steps.push({
       index: i,
       numeral: String(i + 1),
-      label: "check_format, parse_document",
+      label: "check_format, parse_layout",
       skill: "format_audit",
       tools: [
         makeTool(`tool-${i}a`, i, "done"),
