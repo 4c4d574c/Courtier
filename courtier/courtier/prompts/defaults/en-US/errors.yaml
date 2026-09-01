@@ -69,5 +69,5 @@ errors:
   artifact_hint_persisted_ref: "(Hint: {{ artifact_id }} is a persisted reference — pass it directly as id to read the raw data; no need to call list_artifacts first.)"
   artifact_hint_list_artifacts: "Call list_artifacts first to see available artifacts and their artifact_id."
   artifact_projection_resolve_failed: "Cannot obtain the requested artifact: {{ messages }}{% if suggested_tools %}. Consider calling these upstream tools first: {{ suggested_tools }}{% endif %}"
-  artifact_projection_exec_failed_typed: "Projection failed: {{ error }}. Materializable artifact types: {{ available_types }}. If the source artifact type (e.g. docaudit.parsed_document) is not directly materializable, request a projection target type (e.g. core.plain_text or docaudit.paragraph_list); the system runs the type-projection chain automatically."
+  artifact_projection_exec_failed_typed: "Projection failed: {{ error }}. Materializable artifact types: {{ available_types }}. If the source artifact type (e.g. docaudit.parsed_layout) is not directly materializable, request a projection target type (e.g. core.plain_text or docaudit.paragraph_list); the system runs the type-projection chain automatically."
   artifact_projection_exec_failed: "Projection failed: {{ error }}"

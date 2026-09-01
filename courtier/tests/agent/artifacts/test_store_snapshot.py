@@ -29,7 +29,7 @@ def _make_disk_ref_artifact(
     store.set_ref(ref_id, str(path))
     return store.register_cached_ref(
         ref_id=ref_id,
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         created_by="parse_layout",
         data=data,
         **metadata_kwargs,
@@ -38,7 +38,7 @@ def _make_disk_ref_artifact(
 
 def test_snapshot_restore_roundtrip(tmp_path):
     store = ArtifactStore(cache_dir=str(tmp_path))
-    store.set_type_policy("docaudit.parsed_document", persist="always", llm_visible="summary")
+    store.set_type_policy("docaudit.parsed_layout", persist="always", llm_visible="summary")
     disk_data = {"pages": [{"index": 0, "text": "正文"}]}
     _make_disk_ref_artifact(
         store,
@@ -68,7 +68,7 @@ def test_snapshot_restore_roundtrip(tmp_path):
     # Disk-backed artifact: metadata intact, data re-loaded from the file.
     disk_artifact = restored.get("ref-parse-1")
     assert disk_artifact is not None
-    assert disk_artifact.artifact_type == "docaudit.parsed_document"
+    assert disk_artifact.artifact_type == "docaudit.parsed_layout"
     assert disk_artifact.data == disk_data
     assert disk_artifact.metadata.semantic_role == "primary_document"
     assert disk_artifact.metadata.subject == "current_upload"
@@ -81,8 +81,8 @@ def test_snapshot_restore_roundtrip(tmp_path):
     assert inline_artifact.metadata.source_refs == ("ref-parse-1",)
 
     # Type policies and ref_map are restored too.
-    assert restored._persist_policies["docaudit.parsed_document"] == "always"
-    assert restored._visible_policies["docaudit.parsed_document"] == "summary"
+    assert restored._persist_policies["docaudit.parsed_layout"] == "always"
+    assert restored._visible_policies["docaudit.parsed_layout"] == "summary"
     assert restored.ref_map == store.ref_map
 
 

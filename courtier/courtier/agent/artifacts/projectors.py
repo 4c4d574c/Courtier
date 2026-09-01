@@ -227,8 +227,8 @@ def _build_default_projector_registry() -> ProjectorRegistry:
     registry.register(
         Projector(
             ProjectorSpec(
-                name="docaudit.parsed_document.to_paragraph_list",
-                source_type="docaudit.parsed_document",
+                name="docaudit.parsed_layout.to_paragraph_list",
+                source_type="docaudit.parsed_layout",
                 target_type="docaudit.paragraph_list",
                 owner="document",
                 quality_score=0.95,
@@ -237,7 +237,7 @@ def _build_default_projector_registry() -> ProjectorRegistry:
                 supported_constraints=("source_scope",),
                 description="Extract document paragraphs in reading order.",
             ),
-            _parsed_document_to_paragraph_list,
+            _parsed_layout_to_paragraph_list,
         )
     )
     registry.register(
@@ -345,9 +345,9 @@ def _append_paragraph(
 
 
 def _iter_body_paragraphs(data: dict) -> Iterator[tuple[str, dict[str, Any], str]]:
-    """遍历 parsed_document 正文段落：yield (section, paragraph, source_path)。
+    """遍历 parsed_layout 正文段落：yield (section, paragraph, source_path)。
 
-    parsed_document → paragraph_list 投影与 parsed_document_to_text 共用此
+    parsed_layout → paragraph_list 投影与 parsed_layout_to_text 共用此
     提取路径，避免两处对 pages[].page_content.body.{title,main_text} 结构的
     理解漂移。
     """
@@ -369,10 +369,10 @@ def _iter_body_paragraphs(data: dict) -> Iterator[tuple[str, dict[str, Any], str
                 )
 
 
-def parsed_document_to_text(data: dict, source_scope: str | None = None) -> str:
-    """parsed_document 数据 → 按阅读序拼接的正文文本。
+def parsed_layout_to_text(data: dict, source_scope: str | None = None) -> str:
+    """parsed_layout 数据 → 按阅读序拼接的正文文本。
 
-    与 _parsed_document_to_paragraph_list 共用 _iter_body_paragraphs 提取路径；
+    与 _parsed_layout_to_paragraph_list 共用 _iter_body_paragraphs 提取路径；
     source_scope="body" 时仅取正文段落，缺省取 title + body。
     """
     lines: list[str] = []
@@ -385,7 +385,7 @@ def parsed_document_to_text(data: dict, source_scope: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def _parsed_document_to_paragraph_list(
+def _parsed_layout_to_paragraph_list(
     artifact: Artifact,
     constraints: dict[str, Any],
 ) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:

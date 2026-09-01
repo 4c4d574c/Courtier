@@ -69,5 +69,5 @@ errors:
   artifact_hint_persisted_ref: "（提示：{{ artifact_id }} 是持久化引用，直接作为 id 传入即可读取原始数据，无需先调 list_artifacts。）"
   artifact_hint_list_artifacts: "请先调用 list_artifacts 查看可用工件及其 artifact_id。"
   artifact_projection_resolve_failed: "无法获取请求的 artifact：{{ messages }}{% if suggested_tools %}。建议先调用以下上游工具：{{ suggested_tools }}{% endif %}"
-  artifact_projection_exec_failed_typed: "投影执行失败: {{ error }}。当前可物化的 artifact_type: {{ available_types }}。如果源 artifact 类型（如 docaudit.parsed_document）不可直接物化，请尝试请求投影目标类型（如 core.plain_text 或 docaudit.paragraph_list），系统会自动执行类型投影链。"
+  artifact_projection_exec_failed_typed: "投影执行失败: {{ error }}。当前可物化的 artifact_type: {{ available_types }}。如果源 artifact 类型（如 docaudit.parsed_layout）不可直接物化，请尝试请求投影目标类型（如 core.plain_text 或 docaudit.paragraph_list），系统会自动执行类型投影链。"
   artifact_projection_exec_failed: "投影执行失败: {{ error }}"

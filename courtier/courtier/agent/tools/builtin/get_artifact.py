@@ -19,7 +19,7 @@ from courtier.agent.artifacts.models import (
 from courtier.agent.artifacts.outline import find_section, parse_sections
 from courtier.agent.artifacts.projectors import (
     create_default_projector_registry,
-    parsed_document_to_text,
+    parsed_layout_to_text,
 )
 from courtier.agent.artifacts.resolver import ProjectionResolver
 from courtier.agent.core.cache_store import _TEXT_FIELD_PRIORITY
@@ -129,8 +129,8 @@ def _infer_projection_target(
     return None
 
 
-def _looks_like_parsed_document(data: dict) -> bool:
-    """探测 parsed_document 形状：pages 列表且首页含 page_content。"""
+def _looks_like_parsed_layout(data: dict) -> bool:
+    """探测 parsed_layout 形状：pages 列表且首页含 page_content。"""
     pages = data.get("pages")
     if not isinstance(pages, list) or not pages:
         return False
@@ -546,10 +546,10 @@ class GetArtifactTool:
                 if isinstance(value, str) and value.strip():
                     text = value
                     break
-            if text is None and _looks_like_parsed_document(data):
+            if text is None and _looks_like_parsed_layout(data):
                 # parse_layout 产物：文本嵌套在 pages[].page_content 里，
                 # 走与投影器共用的提取路径（避免两处结构理解漂移）。
-                text = parsed_document_to_text(data) or None
+                text = parsed_layout_to_text(data) or None
 
         on_progress({"status": "done", "message": "执行完成", "detail": None})
         if text is None:
@@ -960,7 +960,7 @@ def _default_materialize_as(artifact_type: str) -> str:
         "docaudit.paragraph_list": "dict",
         "docaudit.reference_text_list": "dict",
         "docaudit.search_results": "dict",
-        "docaudit.parsed_document": "dict",
+        "docaudit.parsed_layout": "dict",
         "docaudit.audit_finding_list": "dict",
         "docaudit.audit_report": "dict",
         "docaudit.document_structure": "dict",

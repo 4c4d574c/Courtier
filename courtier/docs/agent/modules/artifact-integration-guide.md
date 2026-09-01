@@ -77,7 +77,7 @@ class ParseTool:
     parameters = { ... }
 
     # ★ 加这一行即可
-    output_artifact_type: str | None = "docaudit.parsed_document"
+    output_artifact_type: str | None = "docaudit.parsed_layout"
 
     async def execute(self, **kwargs) -> ToolResult:
         file_path = kwargs["file_path"]
@@ -733,7 +733,7 @@ return ToolResult(success=True, data=result, metadata={"label": "主文档"})
 
 | 类型 | 典型生产者 |
 |------|-----------|
-| `docaudit.parsed_document` | `parse_layout` |
+| `docaudit.parsed_layout` | `parse_layout` |
 | `docaudit.paragraph_list` | 投影产物 |
 | `docaudit.search_results` | `search` |
 | `docaudit.document_metadata` | `parse_layout` |
@@ -746,7 +746,7 @@ return ToolResult(success=True, data=result, metadata={"label": "主文档"})
 ### 10.2 已有投影器图
 
 ```
-docaudit.parsed_document ──[0.95]──▶ docaudit.paragraph_list ──[0.98]──▶ core.plain_text
+docaudit.parsed_layout ──[0.95]──▶ docaudit.paragraph_list ──[0.98]──▶ core.plain_text
 docaudit.search_results   ──[0.92]──▶ docaudit.reference_text_list ──[0.97]──▶ core.text_collection
 ```
 
@@ -754,7 +754,7 @@ docaudit.search_results   ──[0.92]──▶ docaudit.reference_text_list ─
 
 ```python
 # 纯生产者
-output_artifact_type = "docaudit.parsed_document"
+output_artifact_type = "docaudit.parsed_layout"
 
 # 纯消费者
 input_fields = (

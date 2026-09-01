@@ -683,7 +683,7 @@ LLM 据此决定调用哪个 Skill 工具。
 class Artifact(BaseModel):
     """类型化的数据工件。"""
     id: str                         # 唯一标识符
-    type: str                       # 工件类型（如 "parsed_document", "audit_result"）
+    type: str                       # 工件类型（如 "parsed_layout", "audit_result"）
     data: Any                       # 工件数据
     metadata: dict                  # 元数据
 
@@ -1514,7 +1514,7 @@ FastAPI 中间件，自动记录 HTTP 请求的追踪信息和指标。
 │    │           └── 返回 ParsedDocument 结构                           │
 │    │                                                                  │
 │    └── $ref:parse_layout:1  ← CacheStore 持久化                     │
-│        └── ArtifactStore.register(parsed_document)                     │
+│        └── ArtifactStore.register(parsed_layout)                     │
 │                                                                       │
 │  Turn 2: LLM → 调用 format_audit(task="...")                          │
 │    │                                                                  │

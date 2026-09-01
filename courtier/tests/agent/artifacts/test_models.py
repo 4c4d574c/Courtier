@@ -35,7 +35,7 @@ def test_artifact_metadata_explicit_schema_version():
 def test_artifact_defaults_to_projection_allowed_business_artifact():
     artifact = Artifact(
         artifact_id="a1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         schema_version="1.0",
         data={"pages": []},
         metadata=ArtifactMetadata(created_by="parse_layout"),
@@ -222,11 +222,11 @@ def test_derive_upstream_producers_direct():
 
     class FakeTool:
         name = "parse"
-        output_artifact_type = "docaudit.parsed_document"
+        output_artifact_type = "docaudit.parsed_layout"
 
     producers = derive_upstream_producers([FakeTool()], create_default_projector_registry())
-    assert "docaudit.parsed_document" in producers
-    assert "parse" in producers["docaudit.parsed_document"]
+    assert "docaudit.parsed_layout" in producers
+    assert "parse" in producers["docaudit.parsed_layout"]
 
 
 def test_derive_upstream_producers_unknown_type_absent():
@@ -276,8 +276,8 @@ def test_projection_policy_includes_feature_flags():
 
 
 def test_parse_artifact_ref_uri():
-    parsed = parse_artifact_ref("artifact://docaudit.parsed_document/parse_layout/1")
-    assert parsed == {"type": "docaudit.parsed_document", "tool": "parse_layout", "n": "1"}
+    parsed = parse_artifact_ref("artifact://docaudit.parsed_layout/parse_layout/1")
+    assert parsed == {"type": "docaudit.parsed_layout", "tool": "parse_layout", "n": "1"}
 
 
 def test_parse_artifact_ref_legacy_dollar_ref():

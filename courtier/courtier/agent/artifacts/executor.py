@@ -60,7 +60,7 @@ class MaterializerRegistry:
             "list_string",
             lambda artifact: [item.get("text", "") for item in artifact.data.get("items", [])],
         )
-        registry.register("docaudit.parsed_document", "dict", lambda artifact: artifact.data)
+        registry.register("docaudit.parsed_layout", "dict", lambda artifact: artifact.data)
         registry.register(
             "docaudit.paragraph_list",
             "list_string",

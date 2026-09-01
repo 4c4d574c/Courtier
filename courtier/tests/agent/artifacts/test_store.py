@@ -54,7 +54,7 @@ def test_register_cached_ref_creates_artifact_with_metadata():
 
     artifact = store.register_cached_ref(
         ref_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         created_by="parse_layout",
         data={"pages": []},
         role="primary_document",
@@ -62,7 +62,7 @@ def test_register_cached_ref_creates_artifact_with_metadata():
     )
 
     assert artifact.artifact_id == "$ref:parse_layout:1"
-    assert artifact.artifact_type == "docaudit.parsed_document"
+    assert artifact.artifact_type == "docaudit.parsed_layout"
     assert artifact.metadata.semantic_role == "primary_document"
     assert artifact.metadata.subject == "current_upload"
 
@@ -249,7 +249,7 @@ def test_find_by_type_returns_matching_artifacts():
         data={"text": "hello"}, metadata=ArtifactMetadata(created_by="test"),
     ))
     store.put(Artifact(
-        artifact_id="a2", artifact_type="docaudit.parsed_document",
+        artifact_id="a2", artifact_type="docaudit.parsed_layout",
         data={"pages": []}, metadata=ArtifactMetadata(created_by="test"),
     ))
     store.put(Artifact(
@@ -258,7 +258,7 @@ def test_find_by_type_returns_matching_artifacts():
     ))
 
     assert len(store.find_by_type("core.plain_text")) == 2
-    assert len(store.find_by_type("docaudit.parsed_document")) == 1
+    assert len(store.find_by_type("docaudit.parsed_layout")) == 1
     assert store.find_by_type("nonexistent") == []
 
 

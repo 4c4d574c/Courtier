@@ -484,7 +484,7 @@ class TestGetArtifactRefAutoProjection:
     def _register_parsed_doc(self, store: ArtifactStore, ref_id: str = "$ref:parse_layout:1"):
         store.register_cached_ref(
             ref_id=ref_id,
-            artifact_type="docaudit.parsed_document",
+            artifact_type="docaudit.parsed_layout",
             created_by="parse_layout",
             data=PARSED_DOC_DATA,
         )
@@ -595,13 +595,13 @@ class TestGetArtifactOutlineParsedDocument:
     def _register(self, store: ArtifactStore):
         store.register_cached_ref(
             ref_id="$ref:parse_layout:1",
-            artifact_type="docaudit.parsed_document",
+            artifact_type="docaudit.parsed_layout",
             created_by="parse_layout",
             data=PARSED_DOC_DATA,
         )
 
     @pytest.mark.asyncio
-    async def test_outline_for_parsed_document(self, tmp_path):
+    async def test_outline_for_parsed_layout(self, tmp_path):
         store = ArtifactStore(cache_dir=str(tmp_path))
         self._register(store)
         result = await GetArtifactTool().execute(
@@ -616,7 +616,7 @@ class TestGetArtifactOutlineParsedDocument:
         assert "（一）国家战略导向与政策机遇" in titles
 
     @pytest.mark.asyncio
-    async def test_section_read_for_parsed_document(self, tmp_path):
+    async def test_section_read_for_parsed_layout(self, tmp_path):
         store = ArtifactStore(cache_dir=str(tmp_path))
         self._register(store)
         result = await GetArtifactTool().execute(

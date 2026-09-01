@@ -19,10 +19,10 @@ class TestProxyToolContractPropagation:
         tool_spec = {
             "name": "parse_layout",
             "description": "Parse a document",
-            "output_artifact_type": "docaudit.parsed_document",
+            "output_artifact_type": "docaudit.parsed_layout",
         }
         proxy = ProxyTool(MockClient(), tool_spec)
-        assert proxy.output_artifact_type == "docaudit.parsed_document"
+        assert proxy.output_artifact_type == "docaudit.parsed_layout"
 
     def test_reads_input_fields(self):
         from courtier.agent.artifacts.models import InputField

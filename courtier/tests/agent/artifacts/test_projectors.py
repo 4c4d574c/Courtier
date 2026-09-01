@@ -11,10 +11,10 @@ from courtier.agent.artifacts.projectors import (
 )
 
 
-def _parsed_document_artifact() -> Artifact:
+def _parsed_layout_artifact() -> Artifact:
     return Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         data={
             "pages": [
                 {
@@ -79,18 +79,18 @@ def _search_results_artifact() -> Artifact:
 def test_registry_rejects_duplicate_projector_names():
     registry = ProjectorRegistry()
     default_registry = create_default_projector_registry()
-    projector = default_registry.get("docaudit.parsed_document.to_paragraph_list")
+    projector = default_registry.get("docaudit.parsed_layout.to_paragraph_list")
 
     registry.register(projector)
     with pytest.raises(ValueError, match="Duplicate projector"):
         registry.register(projector)
 
 
-def test_parsed_document_projects_to_paragraph_list():
+def test_parsed_layout_projects_to_paragraph_list():
     registry = create_default_projector_registry()
-    projector = registry.get("docaudit.parsed_document.to_paragraph_list")
+    projector = registry.get("docaudit.parsed_layout.to_paragraph_list")
 
-    result = projector.project(_parsed_document_artifact(), constraints={})
+    result = projector.project(_parsed_layout_artifact(), constraints={})
 
     assert result.artifact.artifact_type == "docaudit.paragraph_list"
     paragraphs = result.artifact.data["paragraphs"]
@@ -105,10 +105,10 @@ def test_parsed_document_projects_to_paragraph_list():
 
 def test_paragraph_list_projects_to_plain_text_body_only():
     registry = create_default_projector_registry()
-    paragraph_projector = registry.get("docaudit.parsed_document.to_paragraph_list")
+    paragraph_projector = registry.get("docaudit.parsed_layout.to_paragraph_list")
     text_projector = registry.get("docaudit.paragraph_list.to_plain_text")
 
-    paragraph_result = paragraph_projector.project(_parsed_document_artifact(), constraints={})
+    paragraph_result = paragraph_projector.project(_parsed_layout_artifact(), constraints={})
     text_result = text_projector.project(
         paragraph_result.artifact,
         constraints={"source_scope": "body", "normalize_whitespace": True},
@@ -188,7 +188,7 @@ def test_reference_text_list_projects_to_core_text_collection():
 
 def test_default_projectors_have_distinct_quality_scores():
     registry = create_default_projector_registry()
-    p1 = registry.get("docaudit.parsed_document.to_paragraph_list")
+    p1 = registry.get("docaudit.parsed_layout.to_paragraph_list")
     p2 = registry.get("docaudit.paragraph_list.to_plain_text")
     p3 = registry.get("docaudit.search_results.to_reference_text_list")
     p4 = registry.get("docaudit.reference_text_list.to_text_collection")
@@ -209,7 +209,7 @@ def test_default_projectors_have_distinct_quality_scores():
 
 def test_promote_projector_to_higher_layer():
     registry = create_default_projector_registry()
-    name = "docaudit.parsed_document.to_paragraph_list"
+    name = "docaudit.parsed_layout.to_paragraph_list"
 
     assert registry.get(name).spec.layer == "domain"
     registry.promote(name, "core")
@@ -218,7 +218,7 @@ def test_promote_projector_to_higher_layer():
 
 def test_promote_rejects_lower_layer():
     registry = create_default_projector_registry()
-    name = "docaudit.parsed_document.to_paragraph_list"
+    name = "docaudit.parsed_layout.to_paragraph_list"
 
     with pytest.raises(ValueError, match="must move to a higher layer"):
         registry.promote(name, "local")
@@ -297,9 +297,9 @@ def test_projector_validates_output_schema():
     """Ensure projector output that doesn't match target schema gets diagnostics."""
     registry = create_default_projector_registry()
     # Use a valid artifact so the projector runs, but the output must still be valid
-    projector = registry.get("docaudit.parsed_document.to_paragraph_list")
+    projector = registry.get("docaudit.parsed_layout.to_paragraph_list")
 
-    result = projector.project(_parsed_document_artifact(), constraints={})
+    result = projector.project(_parsed_layout_artifact(), constraints={})
     # Output should have "paragraphs" key (required by docaudit.paragraph_list schema)
     assert "paragraphs" in result.artifact.data
     # No schema errors should be emitted for valid output
@@ -330,9 +330,9 @@ def test_registry_by_target_unknown_type_returns_empty():
 def test_registry_by_edge_index():
     registry = create_default_projector_registry()
 
-    edge = registry.by_edge("docaudit.parsed_document", "docaudit.paragraph_list")
+    edge = registry.by_edge("docaudit.parsed_layout", "docaudit.paragraph_list")
     assert len(edge) == 1
-    assert edge[0].spec.name == "docaudit.parsed_document.to_paragraph_list"
+    assert edge[0].spec.name == "docaudit.parsed_layout.to_paragraph_list"
 
 
 def test_registry_by_edge_unknown_returns_empty():

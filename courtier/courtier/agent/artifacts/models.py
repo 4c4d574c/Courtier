@@ -158,7 +158,7 @@ def _build_artifact_type_schemas() -> dict[str, ArtifactSchema]:
     )
 
     # -- Docaudit types ------------------------------------------------------
-    schemas["docaudit.parsed_document"] = ArtifactSchema(
+    schemas["docaudit.parsed_layout"] = ArtifactSchema(
         schema_version="1.0",
         schema_format="type_hint",
         schema_body={
@@ -525,7 +525,7 @@ class ProjectionEvent(BaseModel, frozen=True):
 # and uses the projector graph for indirect reachability.  This replaces the
 # old _UPSTREAM_PRODUCERS static mapping that was impossible to keep in sync
 # and contained semantically-incorrect entries (e.g. "core.plain_text" →
-# "parse_layout" when parse_layout actually outputs parsed_document).
+# "parse_layout" when parse_layout actually outputs parsed_layout).
 
 
 class ProjectionTraceStep(BaseModel, frozen=True):
@@ -580,7 +580,7 @@ _MATERIALIZE_AS_DEFAULTS: dict[str, str] = {
     "core.json_object": "dict",
     "core.error_report": "dict",
     "core.debug_view": "dict",
-    "docaudit.parsed_document": "dict",
+    "docaudit.parsed_layout": "dict",
     "docaudit.paragraph_list": "list_dict",
     "docaudit.search_results": "dict",
     "docaudit.document_structure": "dict",

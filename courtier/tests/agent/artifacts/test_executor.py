@@ -33,7 +33,7 @@ def test_executor_runs_two_step_plan_and_materializes_text():
     store = ArtifactStore()
     source = Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         data={
             "pages": [
                 {
@@ -60,8 +60,8 @@ def test_executor_runs_two_step_plan_and_materializes_text():
         source_artifact_id=source.artifact_id,
         steps=(
             ProjectionStep(
-                projector_name="docaudit.parsed_document.to_paragraph_list",
-                source_type="docaudit.parsed_document",
+                projector_name="docaudit.parsed_layout.to_paragraph_list",
+                source_type="docaudit.parsed_layout",
                 target_type="docaudit.paragraph_list",
                 constraints={},
             ),
@@ -88,7 +88,7 @@ def test_executor_runs_two_step_plan_and_materializes_text():
     assert result.trace.field == "new_doc"
     assert result.trace.source_artifact == source.artifact_id
     assert len(result.trace.steps) == 2
-    assert result.trace.steps[0].projector.startswith("docaudit.parsed_document.to_paragraph_list@")
+    assert result.trace.steps[0].projector.startswith("docaudit.parsed_layout.to_paragraph_list@")
     assert result.trace.steps[0].cache == "miss"
     assert result.trace.steps[1].projector.startswith("docaudit.paragraph_list.to_plain_text@")
     assert result.trace.materializer["output_type"] == "string"

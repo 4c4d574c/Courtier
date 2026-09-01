@@ -25,14 +25,14 @@ def test_terminal_ready_hints_hide_source_ids_for_projection():
     """Projected artifact IDs are internal and must not appear in LLM hints,
     otherwise the model may copy them verbatim into tool arguments.
 
-    This test uses a multi-step projection (parsed_document -> plain_text)
+    This test uses a multi-step projection (parsed_layout -> plain_text)
     because that is where projected: IDs are generated.
     """
     store = ArtifactStore()
     store.put(
         Artifact(
             artifact_id="$ref:parse_layout:1",
-            artifact_type="docaudit.parsed_document",
+            artifact_type="docaudit.parsed_layout",
             data={"pages": []},
             metadata=ArtifactMetadata(
                 created_by="parse_layout",

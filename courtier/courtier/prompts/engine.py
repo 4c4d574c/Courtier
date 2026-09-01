@@ -378,7 +378,7 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     "errors.artifact_projection_exec_failed_typed": (
         "Projection failed: {{ error }}. Materializable artifact types: "
         "{{ available_types }}. If the source artifact type (e.g. "
-        "docaudit.parsed_document) is not directly materializable, request a "
+        "docaudit.parsed_layout) is not directly materializable, request a "
         "projection target type (e.g. core.plain_text or "
         "docaudit.paragraph_list); the system runs the type-projection chain "
         "automatically.\n"

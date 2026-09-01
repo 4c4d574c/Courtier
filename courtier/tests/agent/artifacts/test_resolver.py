@@ -13,7 +13,7 @@ from courtier.agent.artifacts.resolver import ProjectionResolver
 def test_resolves_two_step_plain_text_path():
     artifact = Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         data={"pages": []},
         metadata=ArtifactMetadata(
             created_by="parse_layout",
@@ -41,7 +41,7 @@ def test_resolves_two_step_plain_text_path():
     assert resolution.status == "resolved"
     plan = resolution.plans["new_doc"]
     assert [step.projector_name for step in plan.steps] == [
-        "docaudit.parsed_document.to_paragraph_list",
+        "docaudit.parsed_layout.to_paragraph_list",
         "docaudit.paragraph_list.to_plain_text",
     ]
 
@@ -202,7 +202,7 @@ def test_resolver_enforces_policy_min_quality():
     """Projector with quality_score below policy.min_quality should be skipped."""
     artifact = Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         data={"pages": []},
         metadata=ArtifactMetadata(
             created_by="parse_layout",
@@ -256,7 +256,7 @@ def test_resolver_skips_projector_with_incompatible_source_schema_version():
     """Projector requiring >=1.0,<2.0 should skip artifact with schema_version=2.0."""
     artifact = Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         schema_version="2.0",  # incompatible with default source_schema_version=">=1.0,<2.0"
         data={"pages": []},
         metadata=ArtifactMetadata(
@@ -284,7 +284,7 @@ def test_resolver_accepts_compatible_schema_version():
     """Artifact with schema_version=1.0 should be compatible with >=1.0,<2.0."""
     artifact = Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         schema_version="1.0",
         data={"pages": []},
         metadata=ArtifactMetadata(
@@ -311,7 +311,7 @@ def test_resolver_default_schema_version_is_compatible():
     """Artifact without explicit schema_version (defaults to '1.0') should work."""
     artifact = Artifact(
         artifact_id="$ref:parse_layout:1",
-        artifact_type="docaudit.parsed_document",
+        artifact_type="docaudit.parsed_layout",
         # schema_version defaults to "1.0"
         data={"pages": []},
         metadata=ArtifactMetadata(

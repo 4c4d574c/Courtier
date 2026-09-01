@@ -41,7 +41,7 @@ class ListArtifactsTool:
             "artifact_type": {
                 "type": "string",
                 "description": (
-                    "按类型过滤，如 core.plain_text、docaudit.parsed_document、"
+                    "按类型过滤，如 core.plain_text、docaudit.parsed_layout、"
                     "core.text_collection 等。不传则返回所有类型。"
                 ),
             },

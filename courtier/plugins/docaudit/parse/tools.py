@@ -102,7 +102,7 @@ class ParseTool:
         },
     }
 
-    output_artifact_type: str | None = "docaudit.parsed_document"
+    output_artifact_type: str | None = "docaudit.parsed_layout"
 
     _MAX_CACHE_SIZE = 64
 

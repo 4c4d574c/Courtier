@@ -348,7 +348,7 @@ class TestAutoRegisterArtifacts:
 
     @pytest.mark.asyncio
     async def test_parse_layout_gets_correct_artifact_type(self, tmp_path):
-        """parse_layout → auto-registered as docaudit.parsed_document."""
+        """parse_layout → auto-registered as docaudit.parsed_layout."""
         from courtier.agent.artifacts.store import ArtifactStore
 
         store = ArtifactStore(cache_dir=str(tmp_path))
@@ -372,7 +372,7 @@ class TestAutoRegisterArtifacts:
 
         artifacts = list(store.list_all())
         artifact_types = {a.artifact_type for a in artifacts}
-        assert "docaudit.parsed_document" in artifact_types
+        assert "docaudit.parsed_layout" in artifact_types
 
     @pytest.mark.asyncio
     async def test_skip_artifact_registration_flag(self, tmp_path):
