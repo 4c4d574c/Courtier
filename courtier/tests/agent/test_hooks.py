@@ -426,26 +426,27 @@ class TestPermissionGate:
     def test_default_allows_all(self):
         gate = PermissionGate()
         tc = ToolCall(id="1", name="any_tool", arguments={})
-        assert gate.allow(tc) is True
+        assert gate.check(tc) is None
 
     def test_blocked_tool_denied(self):
         gate = PermissionGate()
         gate.block("delete_rule")
         tc = ToolCall(id="1", name="delete_rule", arguments={})
-        assert gate.allow(tc) is False
+        reason = gate.check(tc)
+        assert reason is not None and "delete_rule" in reason
 
     def test_require_confirmation_still_allows(self):
         gate = PermissionGate()
         gate.require_confirmation("delete_rule", "Are you sure?")
         tc = ToolCall(id="1", name="delete_rule", arguments={})
         # Confirmation is a soft gate — allow for now
-        assert gate.allow(tc) is True
+        assert gate.check(tc) is None
 
     def test_unrelated_tool_allowed_after_block(self):
         gate = PermissionGate()
         gate.block("delete_rule")
-        assert gate.allow(ToolCall(id="1", name="delete_rule", arguments={})) is False
-        assert gate.allow(ToolCall(id="2", name="echo", arguments={})) is True
+        assert gate.check(ToolCall(id="1", name="delete_rule", arguments={})) is not None
+        assert gate.check(ToolCall(id="2", name="echo", arguments={})) is None
 
     def test_needs_confirmation_returns_message(self):
         gate = PermissionGate()

@@ -262,8 +262,12 @@ async def execute_tools_phase(
     on_tool_start: Callable[..., Awaitable[None]] | None = None,
     on_tool_progress: Callable[[str, Any], Awaitable[None]] | None = None,
     audit_logger: Any | None = None,
+    permissions: Any | None = None,
 ) -> tuple[list[ExecutionResult], list[Any]]:
     """Execute all tool calls in the current state.
+
+    Permission gate: a denied call becomes that call's error result
+    (single-call rejection — the run continues) and never dispatches.
 
     Returns: (results: list[ExecutionResult], records: list[ToolExecutionRecord])
     """
@@ -308,6 +312,36 @@ async def execute_tools_phase(
             )
             results.append(result)
             continue
+
+        # Permission gate — single-call rejection: a denied call becomes its
+        # own error result (reason + guidance for the model) and is never
+        # dispatched; the run continues with the remaining calls.
+        if permissions is not None:
+            denial = permissions.check(tool_call)
+            if denial is not None:
+                result = ExecutionResult.from_error(
+                    actor_type="tool",
+                    actor_name=tool_call.name,
+                    error=denial,
+                    metadata={"error_code": "permission_denied"},
+                )
+                tool_duration_ms = int((time.perf_counter() - tool_start) * 1000)
+                if on_tool_result:
+                    summary = tool_result_summary(result)
+                    await on_tool_result(tool_call.name, result, summary, tool_call.id)
+                records.append(
+                    ToolExecutionRecord(
+                        tool_name=tool_call.name,
+                        tool_call_id=tool_call.id,
+                        arguments=dict(tool_call.arguments),
+                        result_success=result.success,
+                        result_data=result.raw_data,
+                        result_error=result.error,
+                        duration_ms=tool_duration_ms,
+                    )
+                )
+                results.append(result)
+                continue
 
         try:
             # ArtifactStore now subsumes CacheStore functionality

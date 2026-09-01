@@ -691,21 +691,8 @@ async def _run_tool_phase(
                 consecutive_exploratory=consecutive_exploratory,
             )
 
-    # GATE: permission check
-    if permissions:
-        denied_tools = [
-            tool_call.name
-            for tool_call in current_state.tool_calls
-            if not permissions.allow(tool_call)
-        ]
-        if denied_tools:
-            reason = render_error("errors.permission_denied", denied_tools=", ".join(denied_tools))
-            current_state = await state_machine.transition_async(
-                current_state,
-                "blocked",
-                reason,
-            )
-
+    # Permission gate: enforced per call inside execute_tools_phase —
+    # single-call rejection (denied call → error result, run continues).
     if current_state.is_terminal():
         _maybe_write_audit_turn(audit_logger, turn_index, timestamp, think)
         return _ToolPhaseOutcome(
@@ -775,6 +762,7 @@ async def _run_tool_phase(
         on_tool_start=on_tool_start,
         on_tool_progress=on_tool_progress,
         audit_logger=audit_logger,
+        permissions=permissions,
     )
 
     # Give search hits explicit, cross-call citation indices so [[n]]

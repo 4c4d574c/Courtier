@@ -239,8 +239,8 @@ class TestAgentLoop:
         assert "Connection refused" in (final.termination_reason or "")
 
     @pytest.mark.asyncio
-    async def test_loop_permissions_block_tool(self, registry_with_echo):
-        """When permission gate denies a tool call, loop is blocked."""
+    async def test_loop_permissions_denial_is_single_call(self, registry_with_echo):
+        """名级拒绝 = 单调用拒绝：被拒调用得到错误结果，run 继续完成。"""
         from courtier.agent.permissions.gate import PermissionGate
 
         tc = ToolCall(id="call_1", name="echo", arguments={"text": "secret"})
@@ -254,9 +254,33 @@ class TestAgentLoop:
             state=state, model=model, tool_registry=registry_with_echo, permissions=gate
         )
 
-        assert final.status == "blocked"
-        assert "权限不足" in (final.termination_reason or "")
-        assert "echo" in (final.termination_reason or "")
+        assert final.status == "completed"  # not blocked — the run continues
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        assert tool_msgs, "denied call must surface as a tool observation"
+        assert any("已被禁用" in (m.content or "") for m in tool_msgs)
+
+    async def test_loop_path_policy_denial_is_single_call(self, tmp_path):
+        """参数级拒绝：read 越界路径 → 该调用被拒，run 继续完成。"""
+        from courtier.agent.permissions.gate import PermissionGate
+        from courtier.agent.tools.builtin.file_tools import ReadTool
+
+        registry = ToolRegistry()
+        registry.register(ReadTool())
+
+        outside = tmp_path.parent / "outside-secret.txt"
+        tc = ToolCall(id="call_1", name="read", arguments={"path": str(outside)})
+        model = MockModelClient(tool_calls=[tc])
+
+        gate = PermissionGate(allowed_roots=[tmp_path / "memory"])
+
+        state = AgentState.initial(task="read the file")
+        final = await agent_loop(
+            state=state, model=model, tool_registry=registry, permissions=gate
+        )
+
+        assert final.status == "completed"
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        assert any("不在允许范围内" in (m.content or "") for m in tool_msgs)
 
     @pytest.mark.asyncio
     async def test_tool_execution_error(self):

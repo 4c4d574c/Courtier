@@ -31,6 +31,8 @@ EventType = Literal[
     "subagent.event",
     "model.selected",
     "model.fallback",
+    "context.compacting",
+    "context.compacted",
 ]
 
 

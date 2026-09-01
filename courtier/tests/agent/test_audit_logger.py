@@ -353,8 +353,8 @@ class TestAuditLoggerIntegration:
         assert resp_1["tool_calls"] == []
 
     @pytest.mark.asyncio
-    async def test_permission_blocked_records_turn(self, tmp_path, registry_with_echo):
-        """When permission gate blocks a tool, the turn is still recorded."""
+    async def test_permission_denied_call_is_recorded(self, tmp_path, registry_with_echo):
+        """Single-call rejection: the denied call is audited, the run completes."""
         from courtier.agent.permissions.gate import PermissionGate
 
         logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
@@ -373,13 +373,15 @@ class TestAuditLoggerIntegration:
             audit_logger=logger,
         )
 
-        assert final.status == "blocked"
+        assert final.status == "completed"
 
-        # Turn should be recorded with empty tool executions
         turn_dir = logger.run_dir / "turn_000"
         assert turn_dir.exists()
         tools_data = json.loads((turn_dir / "tool_executions.json").read_text())
-        assert tools_data == []
+        assert len(tools_data) == 1
+        assert tools_data[0]["tool_name"] == "echo"
+        assert tools_data[0]["result_success"] is False
+        assert "已被禁用" in (tools_data[0]["result_error"] or "")
 
         manifest = json.loads((logger.run_dir / "run.json").read_text())
-        assert manifest["final_status"] == "blocked"
+        assert manifest["final_status"] == "completed"

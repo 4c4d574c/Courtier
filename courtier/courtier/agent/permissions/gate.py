@@ -71,10 +71,6 @@ class PermissionGate:
             return self._check_path(name, (tool_call.arguments or {}).get("path"))
         return None
 
-    def allow(self, tool_call: ToolCall) -> bool:
-        """Boolean form of :meth:`check` (legacy loop seam until it migrates)."""
-        return self.check(tool_call) is None
-
     def _check_path(self, tool_name: str, path: object) -> str | None:
         if path is None:
             # Absent path → the tool's own "必须提供 path" error is clearer.

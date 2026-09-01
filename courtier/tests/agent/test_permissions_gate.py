@@ -29,7 +29,6 @@ class TestNameLevelDenial:
         gate.block("deploy")
         reason = gate.check(_call("deploy"))
         assert reason is not None and "deploy" in reason and "禁用" in reason
-        assert gate.allow(_call("deploy")) is False
 
     def test_unblocked_tool_passes(self):
         gate = PermissionGate()
