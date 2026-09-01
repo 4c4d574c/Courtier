@@ -180,3 +180,14 @@ class TestEditTool:
             new_string="b",
         )
         assert result.success is False
+
+
+class TestAgentRegistration:
+    def test_file_tools_registered_on_every_agent(self):
+        """通用文件工具对每个 agent 无条件注册（边界在权限门，不在注册）。"""
+        from courtier.agent.agents.base import Agent
+        from courtier.agent.testing import MockModelClient
+
+        agent = Agent(name="T", role="r", tools=[], model=MockModelClient())
+        names = {t.name for t in agent.tool_registry.list_tools()}
+        assert {"read", "edit", "write"} <= names

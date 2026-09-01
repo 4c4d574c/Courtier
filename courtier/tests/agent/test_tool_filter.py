@@ -76,7 +76,7 @@ class TestConstructorFiltering:
             tool_filter=_domain_filter({"anydoc"}, set()),
         )
         names = {t.name for t in agent.tool_registry.list_tools()}
-        assert names == {"shared_convert", "builtin_tool"}
+        assert names == {"shared_convert", "builtin_tool", "read", "edit", "write"}
         assert "domain_parse" not in names
 
     def test_activated_domain_tools_surface(self, shared_registry):
@@ -88,7 +88,7 @@ class TestConstructorFiltering:
             tool_filter=_domain_filter({"anydoc"}, {"docaudit"}),
         )
         names = {t.name for t in agent.tool_registry.list_tools()}
-        assert names == {"shared_convert", "domain_parse", "builtin_tool"}
+        assert names == {"shared_convert", "domain_parse", "builtin_tool", "read", "edit", "write"}
 
     def test_explicit_tools_list_is_filtered_too(self, shared_registry):
         builtin = _BuiltinTool()
@@ -101,7 +101,7 @@ class TestConstructorFiltering:
             tool_filter=_domain_filter(set(), set()),
         )
         names = {t.name for t in agent.tool_registry.list_tools()}
-        assert names == {"builtin_tool"}
+        assert names == {"builtin_tool", "read", "edit", "write"}
         assert "hidden_meta" not in names
 
     def test_no_filter_keeps_everything(self, shared_registry):
@@ -112,7 +112,7 @@ class TestConstructorFiltering:
             model=MockModelClient(),
         )
         names = {t.name for t in agent.tool_registry.list_tools()}
-        assert names == {"shared_convert", "domain_parse", "builtin_tool"}
+        assert names == {"shared_convert", "domain_parse", "builtin_tool", "read", "edit", "write"}
 
 
 class TestRunSyncFiltering:
@@ -172,4 +172,11 @@ class TestRunSyncFiltering:
             model=MockModelClient(),
             tool_filter=broken_filter,
         )
-        assert agent.tool_registry.list_tools() == []
+        # Fail-closed: no plugin/domain tools surface. The universal file
+        # primitives remain — they bypass tool_filter by design and are
+        # bounded by the permission gate instead.
+        assert {t.name for t in agent.tool_registry.list_tools()} == {
+            "read",
+            "edit",
+            "write",
+        }

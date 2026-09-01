@@ -23,7 +23,6 @@ from ..core.model import BackendModelClient, ModelClient
 from ..core.state import AgentState, AgentStatus, Message
 from ..core.tool_call import ToolCall
 from ..hooks.chain import HookChain
-from ..memory.store import MemoryStore
 from ..permissions.gate import PermissionGate
 from ..prompts.pipeline import PromptPipeline
 from ..tools.protocol import ToolProgress, ToolProtocol
@@ -193,7 +192,6 @@ class Agent:
         tools: list[ToolProtocol] | None = None,
         model: ModelClient | None = None,
         backend: Any | None = None,
-        memory: MemoryStore | None = None,
         hooks: HookChain | None = None,
         permissions: PermissionGate | None = None,
         tool_registry: ToolRegistry | None = None,
@@ -231,7 +229,6 @@ class Agent:
         elif model is not None:
             # The guard above guarantees model is set when backend is None.
             self.model = model
-        self.memory = memory
         self.hooks = hooks or HookChain()
         self.permissions = permissions or PermissionGate()
 
@@ -263,6 +260,11 @@ class Agent:
         for tool in tools or []:
             if self._tool_visible(tool):
                 self.tool_registry.register(tool)
+
+        # Universal file primitives (read/edit/write) — every agent gets
+        # them; path boundaries are the permission gate's job, not the
+        # tools' (see docs/architecture/memory-file-tools-plan.md).
+        _ensure_file_tools(self.tool_registry)
 
         self._sync_lock = asyncio.Lock()
 
@@ -488,8 +490,6 @@ class Agent:
             # actually callable when a context_manager is provided.
             if context_manager is not None:
                 self._ensure_builtin_artifact_tools()
-                if hasattr(context_manager, "session_get"):
-                    self._ensure_builtin_memory_tools()
 
         # Refresh tool names in the system prompt after syncing plugins
         all_tools = self.tool_registry.list_tools()
@@ -639,36 +639,20 @@ class Agent:
         if "get_artifact" not in existing:
             self.tool_registry.register(GetArtifactTool())
 
-    def _ensure_builtin_memory_tools(self) -> None:
-        """Register memory_save/get/delete/recall/list for memory-capable managers.
 
-        The registry injects the run-scoped context_manager into execute()
-        at dispatch time, so a sub-agent whose manager is a per-handle fork
-        automatically reads and writes its isolated session namespace.
-        """
-        existing = {t.name for t in self.tool_registry.list_tools()}
-        needed = ("memory_save", "memory_get", "memory_delete", "memory_recall", "memory_list")
-        if all(name in existing for name in needed):
-            return
 
-        # Lazy import to avoid circular dependencies at module load time.
-        from ..tools.builtin.memory import (
-            MemoryDeleteTool,
-            MemoryGetTool,
-            MemoryListTool,
-            MemoryRecallTool,
-            MemorySaveTool,
-        )
+def _ensure_file_tools(registry: "ToolRegistry") -> None:
+    """Register the universal read/edit/write primitives if absent."""
+    existing = {t.name for t in registry.list_tools()}
+    if {"read", "edit", "write"} <= existing:
+        return
 
-        for tool in (
-            MemorySaveTool(),
-            MemoryGetTool(),
-            MemoryDeleteTool(),
-            MemoryRecallTool(),
-            MemoryListTool(),
-        ):
-            if tool.name not in existing:
-                self.tool_registry.register(tool)
+    # Lazy import to avoid circular dependencies at module load time.
+    from ..tools.builtin.file_tools import EditTool, ReadTool, WriteTool
+
+    for tool in (ReadTool(), WriteTool(), EditTool()):
+        if tool.name not in existing:
+            registry.register(tool)
 
 
 def parse_audit_result(
