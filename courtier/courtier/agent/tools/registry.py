@@ -406,13 +406,35 @@ class ToolRegistry:
                     task = asyncio.create_task(result)
                     task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
-        raw_result = await tool.execute(
-            on_progress=on_progress,
-            context_manager=context_manager,
-            artifact_store=artifact_store,
-            audit_logger=audit_logger,
-            **kwargs,
-        )
+        try:
+            raw_result = await self._execute_with_timeout(
+                tool,
+                name,
+                on_progress=on_progress,
+                context_manager=context_manager,
+                artifact_store=artifact_store,
+                audit_logger=audit_logger,
+                **kwargs,
+            )
+        except asyncio.TimeoutError as exc:
+            timeout = self._resolve_execution_timeout(tool)
+            # An empty message is this layer's own wait_for expiry; a non-empty
+            # one is an inner timeout (plugin RPC) with a more specific message.
+            inner_message = str(exc)
+            error = (
+                inner_message
+                if inner_message
+                else render_error("errors.tool_timeout", timeout_seconds=timeout, tool_name=name)
+            )
+            logger.warning("Tool %s timed out after %ss", name, timeout)
+            return await self._to_execution_result(
+                name,
+                ToolResult(
+                    success=False,
+                    error=error,
+                    metadata={"blocked_reason": "tool_timeout", "timeout_seconds": timeout},
+                ),
+            )
 
         # Result post-processors run before persistence/summarization so
         # the stored artifact and the model observation see the same final
@@ -540,6 +562,31 @@ class ToolRegistry:
                 )
 
         return result
+
+    def _resolve_execution_timeout(self, tool: ToolProtocol) -> float:
+        """Effective execution timeout: tool override first, then settings.
+
+        ``execution_timeout`` <= 0 on the tool disables the wrapper (for tools
+        that manage their own deadline, e.g. SkillTool via the runtime budget).
+        """
+        override = getattr(tool, "execution_timeout", None)
+        if override is not None:
+            return float(override)
+        from courtier.config import get_settings
+
+        return float(getattr(get_settings(), "tool_timeout_seconds", 0.0) or 0.0)
+
+    async def _execute_with_timeout(
+        self,
+        tool: ToolProtocol,
+        name: str,
+        **execute_kwargs: Any,
+    ) -> Any:
+        """Run tool.execute() under the effective timeout (0 = unlimited)."""
+        timeout = self._resolve_execution_timeout(tool)
+        if timeout <= 0:
+            return await tool.execute(**execute_kwargs)
+        return await asyncio.wait_for(tool.execute(**execute_kwargs), timeout=timeout)
 
     def _check_runtime_policy(
         self, name: str, policy: RuntimePolicy, kwargs: dict[str, Any] | None = None

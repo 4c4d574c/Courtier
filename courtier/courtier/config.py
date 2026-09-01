@@ -480,6 +480,11 @@ class Settings(BaseSettings):
         description="连续探索性工具调用上限，超过则强制终止",
     )
 
+    tool_timeout_seconds: float = Field(
+        default=120.0,
+        description="单次工具执行超时（秒），0=不限制；工具可用 execution_timeout 类属性覆盖",
+    )
+
     # Sub-agent runtime budget — tunable via environment variables
     subagent_max_runtime_seconds: float = Field(
         default=300.0,
@@ -814,51 +819,59 @@ SETTING_CATEGORIES: dict[str, str] = {
 #: Fields the DB must never override — bootstrap/topology concerns whose
 #: values stay in the deployment layer (Tier 0).  admin_user/admin_password
 #: leave with the Phase 3 setup wizard.
-TIER0_SETTING_FIELDS: frozenset[str] = frozenset({
-    "mysql_url",
-    "upload_dir",
-    "cache_dir",
-    "audit_log_dir",
-    "deployment_env",
-    "admin_user",
-    "admin_password",
-})
+TIER0_SETTING_FIELDS: frozenset[str] = frozenset(
+    {
+        "mysql_url",
+        "upload_dir",
+        "cache_dir",
+        "audit_log_dir",
+        "deployment_env",
+        "admin_user",
+        "admin_password",
+    }
+)
 
-_SECRET_SETTING_FIELDS: frozenset[str] = frozenset({
-    "llm_api_key",
-    "minio_access_key",
-    "minio_secret_key",
-    "es_password",
-    "courtier_plugin_token",
-    "jwt_secret",
-})
+_SECRET_SETTING_FIELDS: frozenset[str] = frozenset(
+    {
+        "llm_api_key",
+        "minio_access_key",
+        "minio_secret_key",
+        "es_password",
+        "courtier_plugin_token",
+        "jwt_secret",
+    }
+)
 
-_RESTART_SETTING_FIELDS: frozenset[str] = frozenset({
-    "cors_origins",
-    "cors_allow_credentials",
-    "otel_service_name",
-    "otel_exporter_otlp_endpoint",
-    "otel_log_level",
-})
+_RESTART_SETTING_FIELDS: frozenset[str] = frozenset(
+    {
+        "cors_origins",
+        "cors_allow_credentials",
+        "otel_service_name",
+        "otel_exporter_otlp_endpoint",
+        "otel_log_level",
+    }
+)
 
-_REBUILD_SETTING_FIELDS: frozenset[str] = frozenset({
-    "es_hosts",
-    "es_username",
-    "es_password",
-    "es_index_chunks",
-    "es_index_results",
-    "minio_endpoint",
-    "minio_access_key",
-    "minio_secret_key",
-    "minio_secure",
-    "minio_bucket_docs",
-    "minio_bucket_library",
-    "minio_bucket_resources",
-    "minio_bucket_documents",
-    "minio_bucket_plugin_io",
-    "courtier_plugin_endpoints",
-    "courtier_plugin_token",
-})
+_REBUILD_SETTING_FIELDS: frozenset[str] = frozenset(
+    {
+        "es_hosts",
+        "es_username",
+        "es_password",
+        "es_index_chunks",
+        "es_index_results",
+        "minio_endpoint",
+        "minio_access_key",
+        "minio_secret_key",
+        "minio_secure",
+        "minio_bucket_docs",
+        "minio_bucket_library",
+        "minio_bucket_resources",
+        "minio_bucket_documents",
+        "minio_bucket_plugin_io",
+        "courtier_plugin_endpoints",
+        "courtier_plugin_token",
+    }
+)
 
 
 def _setting_category(field: str) -> str:

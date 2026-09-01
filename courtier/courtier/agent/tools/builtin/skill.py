@@ -43,6 +43,9 @@ class SkillTool:
     # repeatedly (e.g. because sub-agent results are summarised away)
     # will be stopped after 3 consecutive calls or 10 total calls.
     runtime_policy = RuntimePolicy(max_calls=10, max_consecutive=3)
+    # SkillTool enforces its own deadline via the AgentRuntime budget;
+    # the registry-level wrapper stays off to avoid a double timeout.
+    execution_timeout = 0
 
     def __init__(
         self,

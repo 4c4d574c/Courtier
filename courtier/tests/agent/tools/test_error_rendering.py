@@ -9,6 +9,8 @@ locale coverage, registry/loop wiring, and the never-empty guarantee.
 from __future__ import annotations
 
 
+import asyncio
+
 import pytest
 
 from courtier.agent.core.loop_phases import execute_tools_phase
@@ -71,6 +73,17 @@ def test_zh_templates_render(key, params, expected):
         ("errors.tool_not_found", {"tool_name": "t", "available_tools": "a"}, "not registered"),
         ("errors.memory_unavailable", {}, "Memory is unavailable"),
         ("errors.subagent_timeout", {"timeout_seconds": 5}, "timed out"),
+        (
+            "errors.artifact_section_not_found",
+            {"section": "X", "candidates": "a; b", "truncated": True},
+            "not found",
+        ),
+        (
+            "errors.artifact_projection_unsatisfied",
+            {"artifact_type": "t", "materialize_as": "string", "constraints": "[]"},
+            "projectable_to_types",
+        ),
+        ("errors.artifact_data_not_found", {"id": "r1"}, "list_artifacts"),
     ],
 )
 def test_en_templates_render(key, params, expected):
@@ -152,3 +165,73 @@ async def test_parse_error_uses_template():
     assert "参数解析失败" in (results[0].error or "")
     assert "{oops" in (results[0].error or "")
     assert results[0].metadata.get("error_code") == "tool_arg_parse"
+
+
+class _SlowTool:
+    name = "slow"
+    description = "sleeps past its deadline"
+    parameters: dict = {"type": "object", "properties": {}}
+    execution_timeout = 0.05
+
+    async def execute(self, **kwargs):
+        await asyncio.sleep(5)
+        return ToolResult(success=True, data="ok")
+
+
+@pytest.mark.asyncio
+async def test_registry_tool_timeout_uses_template():
+    registry = ToolRegistry()
+    registry.register(_SlowTool())
+
+    result = await registry.execute("slow")
+
+    assert not result.success
+    assert "超时" in (result.error or "")
+    assert "slow" in (result.error or "")
+    assert result.metadata.get("blocked_reason") == "tool_timeout"
+    assert result.metadata.get("timeout_seconds") == 0.05
+
+
+@pytest.mark.asyncio
+async def test_registry_tool_timeout_settings_default(monkeypatch):
+    class _Settings:
+        tool_timeout_seconds = 0.05
+
+    import courtier.config as config_module
+
+    monkeypatch.setattr(config_module, "get_settings", lambda: _Settings())
+
+    class _NoOverrideTool:
+        name = "slow2"
+        description = "no per-tool override"
+        parameters: dict = {"type": "object", "properties": {}}
+        execution_timeout = None
+
+        async def execute(self, **kwargs):
+            await asyncio.sleep(5)
+            return ToolResult(success=True, data="ok")
+
+    registry = ToolRegistry()
+    registry.register(_NoOverrideTool())
+    result = await registry.execute("slow2")
+
+    assert not result.success
+    assert "超时" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_registry_tool_timeout_disabled_when_zero():
+    class _UnlimitedTool:
+        name = "unlimited"
+        description = "manages its own deadline"
+        parameters: dict = {"type": "object", "properties": {}}
+        execution_timeout = 0
+
+        async def execute(self, **kwargs):
+            await asyncio.sleep(0.01)
+            return ToolResult(success=True, data="ok")
+
+    registry = ToolRegistry()
+    registry.register(_UnlimitedTool())
+    result = await registry.execute("unlimited")
+    assert result.success
