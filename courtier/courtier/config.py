@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from courtier.domain.loader import DomainConfig, DomainLoader
@@ -97,6 +97,66 @@ class ModelRoutingConfig(BaseModel):
     fallback_backends: list[str] = Field(default_factory=list)
     cost_threshold_chars: int | None = None
     ab_split: float = 0.5
+
+
+class PoolModelConfig(BaseModel):
+    """A selectable model entry inside a pool endpoint."""
+
+    id: str
+    name: str
+    model: str
+    context_window_tokens: int | None = Field(default=None, ge=1)
+    max_tokens: int | None = Field(default=None, ge=1)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+
+
+class PoolEndpointConfig(BaseModel):
+    """An OpenAI-compatible endpoint hosting one or more pool models."""
+
+    id: str
+    name: str
+    base_url: str
+    enabled: bool = True
+    models: list[PoolModelConfig] = Field(default_factory=list)
+
+
+class ModelPoolConfig(BaseModel):
+    """Two-level model pool (endpoints → models) plus the pool default.
+
+    Stored as the ``llm_model_pool`` setting; api keys live separately in
+    the secret ``llm_endpoint_keys`` map (endpoint id → key) so the pool
+    body stays non-secret and editable in the admin UI.
+    """
+
+    endpoints: list[PoolEndpointConfig] = Field(default_factory=list)
+    default_model_id: str = ""
+
+    @model_validator(mode="after")
+    def _validate_references(self) -> "ModelPoolConfig":
+        endpoint_ids = [ep.id for ep in self.endpoints]
+        model_ids = [m.id for ep in self.endpoints for m in ep.models]
+        duplicate_endpoints = sorted({i for i in endpoint_ids if endpoint_ids.count(i) > 1})
+        if duplicate_endpoints:
+            raise ValueError(f"duplicate endpoint ids: {duplicate_endpoints}")
+        duplicate_models = sorted({i for i in model_ids if model_ids.count(i) > 1})
+        if duplicate_models:
+            raise ValueError(f"duplicate model ids: {duplicate_models}")
+        if any(not i.strip() for i in endpoint_ids + model_ids):
+            raise ValueError("pool ids must be non-empty")
+        if self.default_model_id:
+            for endpoint in self.endpoints:
+                if any(m.id == self.default_model_id for m in endpoint.models):
+                    if not endpoint.enabled:
+                        raise ValueError(
+                            f"default_model_id {self.default_model_id!r} "
+                            "resolves to a disabled endpoint"
+                        )
+                    break
+            else:
+                raise ValueError(
+                    f"default_model_id {self.default_model_id!r} not found in pool"
+                )
+        return self
 
 
 _DEFAULT_MEMORY_LAYERS: list[Literal["working", "session", "long_term", "retrieval"]] = [
@@ -216,6 +276,59 @@ class Settings(BaseSettings):
         alias="llm_embedding_batch_size",
         description="单次 embedding 请求的文本批量大小（环境变量: LLM_EMBEDDING_BATCH_SIZE）",
     )
+    llm_embedding_base_url: str = Field(
+        default="",
+        alias="llm_embedding_base_url",
+        description=(
+            "Embedding API 端点 URL（环境变量: LLM_EMBEDDING_BASE_URL）。"
+            "空 = 复用 llm_base_url；模型池不影响 embedding。"
+        ),
+    )
+    llm_embedding_api_key: str = Field(
+        default="",
+        alias="llm_embedding_api_key",
+        description=(
+            "Embedding API 密钥（环境变量: LLM_EMBEDDING_API_KEY）。空 = 复用 llm_api_key。"
+        ),
+    )
+
+    # -- Model pool (multi-model selection; the chat chain follows the pick) --
+    llm_model_pool: ModelPoolConfig = Field(
+        default_factory=ModelPoolConfig,
+        alias="llm_model_pool",
+        description=(
+            "模型池（JSON）：endpoints（id/name/base_url/enabled/models）+ "
+            "default_model_id。空池 = 回退 llm_base_url/llm_model 标量。"
+        ),
+    )
+    llm_endpoint_keys: dict[str, str] = Field(
+        default_factory=dict,
+        alias="llm_endpoint_keys",
+        description="模型池接入点的 API 密钥映射（JSON：endpoint id → key）。",
+    )
+
+    @field_validator("llm_endpoint_keys", mode="before")
+    @classmethod
+    def parse_llm_endpoint_keys(cls, v: Any) -> dict[str, str]:
+        """Accept a dict or a JSON-object string — the secret round-trip
+        (SettingsStore.save encrypts ``str(value)``) comes back as text."""
+        if v is None or v == "":
+            return {}
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError(f"llm_endpoint_keys must be a valid JSON string, got: {v!r}")
+            if not isinstance(parsed, dict):
+                raise ValueError(
+                    f"llm_endpoint_keys must be a JSON object, got: {type(parsed).__name__}"
+                )
+            return parsed
+        raise ValueError(
+            f"llm_endpoint_keys must be a dict, JSON string, or null, got: {type(v).__name__}"
+        )
 
     @field_validator("llm_extra_body", mode="before")
     @classmethod
@@ -834,6 +947,8 @@ TIER0_SETTING_FIELDS: frozenset[str] = frozenset(
 _SECRET_SETTING_FIELDS: frozenset[str] = frozenset(
     {
         "llm_api_key",
+        "llm_embedding_api_key",
+        "llm_endpoint_keys",
         "minio_access_key",
         "minio_secret_key",
         "es_password",
