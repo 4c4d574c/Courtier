@@ -4,14 +4,10 @@ import pytest
 
 from courtier.agent.core.guardrails import (
     BusinessArtifactProgressGuard,
-    DangerousToolGuard,
-    EmptyOutputGuard,
     ExploreLoopGuard,
     GuardContext,
     GuardrailSystem,
     GuardResult,
-    RefusalOutputGuard,
-    SensitiveInputGuard,
 )
 from courtier.agent.core.state import AgentState, Message
 from courtier.agent.core.tool_call import ToolCall
@@ -34,6 +30,14 @@ class _LoggingOutputGuard:
 
     async def check(self, context: GuardContext) -> GuardResult:
         return GuardResult.log(self.name, "output logged")
+
+
+class _BlockingToolGuard:
+    name = "block_tool"
+    layer = "tool"
+
+    async def check(self, context: GuardContext) -> GuardResult:
+        return GuardResult.block(self.name, "tool blocked")
 
 
 class TestGuardrailSystem:
@@ -80,56 +84,6 @@ class TestGuardrailSystem:
         assert events[0].guard_name == "log_output"
 
 
-class TestSensitiveInputGuard:
-    @pytest.mark.asyncio
-    async def test_detects_credit_card(self):
-        guard = SensitiveInputGuard()
-        result = await guard.check(
-            GuardContext(messages=[Message(role="user", content="My card is 1234 5678 9012 3456")])
-        )
-        assert result.action == "log"
-
-    @pytest.mark.asyncio
-    async def test_allows_clean_input(self):
-        guard = SensitiveInputGuard()
-        result = await guard.check(
-            GuardContext(messages=[Message(role="user", content="Hello")])
-        )
-        assert result.action == "allow"
-
-
-class TestOutputGuards:
-    @pytest.mark.asyncio
-    async def test_empty_output(self):
-        guard = EmptyOutputGuard()
-        result = await guard.check(GuardContext(response_text="   "))
-        assert result.action == "log"
-
-    @pytest.mark.asyncio
-    async def test_refusal_output(self):
-        guard = RefusalOutputGuard()
-        result = await guard.check(GuardContext(response_text="I'm sorry, I cannot do that."))
-        assert result.action == "log"
-
-
-class TestToolGuards:
-    @pytest.mark.asyncio
-    async def test_dangerous_tool_blocked(self):
-        guard = DangerousToolGuard()
-        result = await guard.check(
-            GuardContext(tool_calls=[ToolCall(id="1", name="rm", arguments={})])
-        )
-        assert result.action == "block"
-
-    @pytest.mark.asyncio
-    async def test_safe_tool_allowed(self):
-        guard = DangerousToolGuard()
-        result = await guard.check(
-            GuardContext(tool_calls=[ToolCall(id="1", name="echo", arguments={})])
-        )
-        assert result.action == "allow"
-
-
 class TestGuardrailsInAgentLoop:
     @pytest.mark.asyncio
     async def test_input_guard_blocks_loop(self):
@@ -156,7 +110,7 @@ class TestGuardrailsInAgentLoop:
 
         state = AgentState.initial("say hi")
         system = GuardrailSystem()
-        system.register(DangerousToolGuard(dangerous_names={"echo"}))
+        system.register(_BlockingToolGuard())
 
         final = await agent_loop(
             state=state,
