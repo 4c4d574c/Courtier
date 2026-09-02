@@ -22,7 +22,6 @@ from ..core.loop import agent_loop
 from ..core.model import BackendModelClient, ModelClient
 from ..core.state import AgentState, AgentStatus, Message
 from ..core.tool_call import ToolCall
-from ..hooks.chain import HookChain
 from ..prompts.pipeline import PromptPipeline
 from ..tools.protocol import ToolProgress, ToolProtocol
 
@@ -191,7 +190,6 @@ class Agent:
         tools: list[ToolProtocol] | None = None,
         model: ModelClient | None = None,
         backend: Any | None = None,
-        hooks: HookChain | None = None,
         guardrail_system: Any | None = None,
         tool_registry: ToolRegistry | None = None,
         courtier_md_content: str | None = None,
@@ -228,7 +226,6 @@ class Agent:
         elif model is not None:
             # The guard above guarantees model is set when backend is None.
             self.model = model
-        self.hooks = hooks or HookChain()
         # Session guardrail system (permission guards); None lets agent_loop
         # default-construct one (loop guards only, allow-all permissions).
         self.guardrail_system = guardrail_system
@@ -415,6 +412,7 @@ class Agent:
         session_id: str = "",
         event_bus: EventBus | None = None,
         use_tree: bool = False,
+        confirmation_handler: Any | None = None,
     ) -> AgentResult:
         """Entry point: receive task, run agent loop, return result.
 
@@ -560,8 +558,8 @@ class Agent:
                 state=current_state,
                 model=self.model,
                 tool_registry=self.tool_registry,
-                hooks=self.hooks,
                 guardrail_system=self.guardrail_system,
+                confirmation_handler=confirmation_handler,
                 on_step=on_step,
                 on_token=on_token,
                 on_content_token=on_content_token,

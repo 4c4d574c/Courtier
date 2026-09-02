@@ -11,6 +11,7 @@ from .base import (
     GuardResult,
 )
 from .guardrail_system import GuardMode, GuardrailSystem
+from .confirmation import ConfirmationGuard
 from .loop_guardrails import BusinessArtifactProgressGuard, ExploreLoopGuard
 from .permission_guards import PathPolicyGuard, ToolDisabledGuard
 
@@ -29,4 +30,5 @@ __all__ = [
     "BusinessArtifactProgressGuard",
     "PathPolicyGuard",
     "ToolDisabledGuard",
+    "ConfirmationGuard",
 ]

@@ -288,6 +288,7 @@ async def build_agent(
     session_id: str = "",
     shared_plugin_names: set[str] | None = None,
     active_domains: tuple[str, ...] = (),
+    approved_tools: set[str] | None = None,
     model_profile: ModelProfile | None = None,
 ) -> tuple[Any, Any, str]:
     """Create the unified domain-gated orchestrator agent + MemoryManager.
@@ -311,7 +312,12 @@ async def build_agent(
 
     from ...agents.orch import OrchestratorAgent
     from ...core.capability import CapabilityRegistry
-    from ...core.guardrails import GuardrailSystem, PathPolicyGuard, ToolDisabledGuard
+    from ...core.guardrails import (
+        ConfirmationGuard,
+        GuardrailSystem,
+        PathPolicyGuard,
+        ToolDisabledGuard,
+    )
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
     from ...runtime.activation import DomainActivator, build_domain_catalog
@@ -367,6 +373,13 @@ async def build_agent(
             capability_registry=capability_registry,
         )
     )
+    if getattr(settings, "tool_confirmation", None):
+        session_guardrails.register(
+            ConfirmationGuard(
+                rules=settings.tool_confirmation,
+                approved_tools=approved_tools,
+            )
+        )
 
     agent_runtime = AgentRuntime(
         tool_registry=session_registry,

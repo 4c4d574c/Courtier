@@ -128,6 +128,13 @@ class PoolEndpointConfig(BaseModel):
     models: list[PoolModelConfig] = Field(default_factory=list)
 
 
+class ToolConfirmationRule(BaseModel):
+    """One entry of the tool confirmation list (settings key tool_confirmation)."""
+
+    tool: str
+    message: str = ""
+
+
 class ModelPoolConfig(BaseModel):
     """Two-level model pool (endpoints → models) plus the pool default.
 
@@ -300,6 +307,16 @@ class Settings(BaseSettings):
         alias="llm_embedding_api_key",
         description=(
             "Embedding API 密钥（环境变量: LLM_EMBEDDING_API_KEY）。仅在端点需要鉴权时填写。"
+        ),
+    )
+
+    # -- Tool confirmation (guards category) ---------------------------------
+    tool_confirmation: list[ToolConfirmationRule] = Field(
+        default_factory=list,
+        alias="tool_confirmation",
+        description=(
+            "工具确认名单（JSON）：[{tool, message}]。名单内工具每次调用前挂起"
+            "等待用户确认（仅本次 / 本会话放行 / 拒绝）；空名单 = 不需要确认。"
         ),
     )
 
@@ -1010,6 +1027,7 @@ def _setting_category(field: str) -> str:
     if field.startswith(("loop_", "subagent_", "run_")) or field in (
         "max_runs_per_user",
         "max_total_runs",
+        "tool_confirmation",
     ):
         return "guards"
     if field.startswith(("otel_", "audit_log_")) or field == "logger_level":

@@ -330,6 +330,7 @@ async def _run_think_phase(
     current_state: AgentState,
     hooks: Any | None,
     guardrail_system: Any | None,
+    confirmation_handler: Any | None = None,
     state_machine: AgentStateMachine,
     model: ModelClient,
     tool_registry: Any | None,
@@ -642,6 +643,7 @@ async def _run_tool_phase(
     current_state: AgentState,
     think: Any,
     guardrail_system: Any | None,
+    confirmation_handler: Any | None = None,
     state_machine: AgentStateMachine,
     tool_registry: Any | None,
     context_manager: Any | None,
@@ -761,6 +763,7 @@ async def _run_tool_phase(
         on_tool_progress=on_tool_progress,
         audit_logger=audit_logger,
         guardrail_system=guardrail_system,
+        confirmation_handler=confirmation_handler,
     )
 
     # Give search hits explicit, cross-call citation indices so [[n]]
@@ -955,6 +958,7 @@ async def agent_loop(
     agent_name: str = "",
     event_bus: EventBus | None = None,
     guardrail_system: GuardrailSystem | None = None,
+    confirmation_handler: Any | None = None,
     forced_first_tool_call: ToolCall | None = None,
     pre_turn_reminder: str = "",
     periodic_reminder: str = "",
@@ -1209,6 +1213,7 @@ async def agent_loop(
                         current_state=current_state,
                         hooks=hooks,
                         guardrail_system=guardrail_system,
+                        confirmation_handler=confirmation_handler,
                         state_machine=state_machine,
                         model=model,
                         tool_registry=tool_registry,
@@ -1236,6 +1241,7 @@ async def agent_loop(
                         current_state=current_state,
                         think=think_outcome.think,
                         guardrail_system=guardrail_system,
+                        confirmation_handler=confirmation_handler,
                         state_machine=state_machine,
                         tool_registry=tool_registry,
                         context_manager=context_manager,

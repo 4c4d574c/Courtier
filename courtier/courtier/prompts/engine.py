@@ -82,6 +82,8 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.guard_no_artifact_progress",
         "errors.guard_tool_blocked",
         "errors.guard_call_failed",
+        "errors.confirmation_denied",
+        "errors.confirmation_unavailable",
         "errors.plugin_arg_path_escape",
         "errors.plugin_arg_file_missing",
         "errors.plugin_file_transfer_failed",
@@ -268,6 +270,14 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     "errors.guard_tool_blocked": ("Tool {{ tool_name }} is blocked by policy: {{ cause }}"),
     "errors.guard_call_failed": (
         "Call guard {{ guard_name }} failed — the call was denied as a precaution"
+    ),
+    "errors.confirmation_denied": (
+        "The user rejected the confirmation for tool {{ tool_name }}; the call was not "
+        "executed. Adjust your approach or answer the user directly. (Note: {{ message }})"
+    ),
+    "errors.confirmation_unavailable": (
+        "Tool {{ tool_name }} requires user confirmation, but no confirmation channel is "
+        "available here — the call was not executed."
     ),
     "errors.subagent_failed": ("Sub-agent execution failed: {{ error }}\n"),
     "errors.plugin_arg_path_escape": (

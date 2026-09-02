@@ -263,6 +263,7 @@ async def execute_tools_phase(
     on_tool_progress: Callable[[str, Any], Awaitable[None]] | None = None,
     audit_logger: Any | None = None,
     guardrail_system: Any | None = None,
+    confirmation_handler: Any | None = None,
 ) -> tuple[list[ExecutionResult], list[Any]]:
     """Execute all tool calls in the current state.
 
@@ -348,6 +349,49 @@ async def execute_tools_phase(
                 )
                 results.append(result)
                 continue
+            elif decision.action == "confirm":
+                # Confirmation chain: the handler (wired by RunManager)
+                # suspends until the user resolves; without a handler the
+                # call fails closed. Approval falls through to dispatch.
+                approved = False
+                if confirmation_handler is not None:
+                    approved = await confirmation_handler(tool_call, decision.reason)
+                if not approved:
+                    denial_reason = (
+                        render_error(
+                            "errors.confirmation_unavailable",
+                            tool_name=tool_call.name,
+                        )
+                        if confirmation_handler is None
+                        else render_error(
+                            "errors.confirmation_denied",
+                            tool_name=tool_call.name,
+                            message=decision.reason,
+                        )
+                    )
+                    result = ExecutionResult.from_error(
+                        actor_type="tool",
+                        actor_name=tool_call.name,
+                        error=denial_reason,
+                        metadata={"error_code": "confirmation_denied"},
+                    )
+                    tool_duration_ms = int((time.perf_counter() - tool_start) * 1000)
+                    if on_tool_result:
+                        summary = tool_result_summary(result)
+                        await on_tool_result(tool_call.name, result, summary, tool_call.id)
+                    records.append(
+                        ToolExecutionRecord(
+                            tool_name=tool_call.name,
+                            tool_call_id=tool_call.id,
+                            arguments=dict(tool_call.arguments),
+                            result_success=result.success,
+                            result_data=result.raw_data,
+                            result_error=result.error,
+                            duration_ms=tool_duration_ms,
+                        )
+                    )
+                    results.append(result)
+                    continue
 
         try:
             # ArtifactStore now subsumes CacheStore functionality

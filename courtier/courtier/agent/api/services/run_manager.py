@@ -144,6 +144,11 @@ class AgentRun:
         self.spec: RunSpec | None = None
         self.recorder: RunRecorder | None = None
         self.task: asyncio.Task | None = None
+        # Pending tool confirmations: cid -> {future, tool_name, message, decision}
+        self.confirmations: dict[str, dict[str, Any]] = {}
+        # Live approve-session sink (ConfirmationGuard.approve_session), set
+        # by the runner when the session guardrail system carries one.
+        self.confirmation_sink: Any | None = None
         self.created_at = _time.time()
         self.finished_at: float | None = None
 
@@ -217,6 +222,109 @@ class RunManager:
             )
         except Exception:
             logger.warning("Notification publish failed for %s", run.session_id, exc_info=True)
+
+    # -- Confirmations ---------------------------------------------------------
+
+    @staticmethod
+    def session_confirmation_guard(agent: Any) -> Any | None:
+        """Find the ConfirmationGuard in the agent's session system, if any."""
+        system = getattr(agent, "guardrail_system", None)
+        if system is None:
+            return None
+        for guard in getattr(system, "guardrails", []):
+            if getattr(guard, "name", "") == "tool_confirmation":
+                return guard
+        return None
+
+    def _confirmation_handler(self, run: AgentRun, guard: Any) -> Any:
+        """Loop-side handler: register a pending confirmation, publish the
+        request to the run log (SSE replay) and await the user's decision."""
+
+        async def handle(tool_call: Any, message: str) -> bool:
+            cid = "cf_" + secrets.token_hex(8)
+            future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+            entry: dict[str, Any] = {
+                "future": future,
+                "tool_name": getattr(tool_call, "name", ""),
+                "tool_call_id": getattr(tool_call, "id", ""),
+                "message": message,
+                "decision": None,
+            }
+            run.confirmations[cid] = entry
+            run.log.append(
+                {
+                    "type": "confirmation_requested",
+                    "confirmationId": cid,
+                    "toolName": entry["tool_name"],
+                    "toolCallId": entry["tool_call_id"],
+                    "message": message,
+                }
+            )
+            try:
+                return await future
+            finally:
+                run.log.append(
+                    {
+                        "type": "confirmation_resolved",
+                        "confirmationId": cid,
+                        "toolName": entry["tool_name"],
+                        "decision": entry["decision"] or "stopped",
+                    }
+                )
+                run.confirmations.pop(cid, None)
+
+        return handle
+
+    def list_pending_confirmations(self, session_id: str) -> list[dict[str, Any]]:
+        """Unresolved confirmations for the session's active run (may be empty)."""
+        run = self._active_run(session_id)
+        if run is None:
+            return []
+        return [
+            {
+                "confirmationId": cid,
+                "toolName": entry["tool_name"],
+                "message": entry["message"],
+            }
+            for cid, entry in run.confirmations.items()
+            if entry["decision"] is None
+        ]
+
+    def resolve_confirmation(
+        self, session_id: str, confirmation_id: str, decision: str
+    ) -> dict[str, Any] | None:
+        """Resolve a pending confirmation: approve | approve_session | deny.
+
+        Idempotent for already-resolved ids; returns None for unknown ids
+        (or sessions without an active run). ``approve_session`` also feeds
+        the live guard's approved set via the runner-installed sink; the
+        DB persistence of SessionRecord.approved_tools happens in the API
+        layer, which owns the session store write path.
+        """
+        if decision not in ("approve", "approve_session", "deny"):
+            raise ValueError(f"invalid confirmation decision: {decision!r}")
+        run = self._active_run(session_id)
+        if run is None:
+            return None
+        entry = run.confirmations.get(confirmation_id)
+        if entry is None:
+            return None
+        if entry["decision"] is not None:
+            return {
+                "confirmationId": confirmation_id,
+                "decision": entry["decision"],
+                "alreadyResolved": True,
+            }
+        entry["decision"] = decision
+        if decision == "deny":
+            if not entry["future"].done():
+                entry["future"].set_result(False)
+        else:
+            if decision == "approve_session" and run.confirmation_sink is not None:
+                run.confirmation_sink(entry["tool_name"])
+            if not entry["future"].done():
+                entry["future"].set_result(True)
+        return {"confirmationId": confirmation_id, "decision": decision}
 
     # -- Registry ------------------------------------------------------------
 
@@ -489,6 +597,11 @@ class RunManager:
                 spec.artifact_snapshot,
                 session_id=session_id,
             )
+            confirmation_guard = self.session_confirmation_guard(spec.agent)
+            confirmation_handler = None
+            if confirmation_guard is not None:
+                run.confirmation_sink = confirmation_guard.approve_session
+                confirmation_handler = self._confirmation_handler(run, confirmation_guard)
             result = await spec.agent.run(
                 task=spec.task,
                 context=spec.agent_context,
@@ -501,6 +614,7 @@ class RunManager:
                 audit_logger=audit_logger,
                 artifact_store=artifact_store,
                 use_tree=_conversation_tree_enabled_from_settings(self._settings),
+                confirmation_handler=confirmation_handler,
             )
             # Let the bus listener finish dispatching events published just
             # before completion (e.g. final usage) so they land in the log.
