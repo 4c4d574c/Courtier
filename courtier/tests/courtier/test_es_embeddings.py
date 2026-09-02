@@ -77,3 +77,75 @@ async def test_embedding_failure_degrades_to_none(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", FailingClient)
     vectors = await embed_chunks(_settings(), ["甲", "乙"])
     assert vectors == [None, None]
+
+
+class TestIndependentEndpoint:
+    """embedding 独立端点键：专用键优先，空值回退标量（聊天模型池不影响它）。"""
+
+    def _settings(self, **overrides) -> SimpleNamespace:
+        base = dict(
+            llm_base_url="https://chat.example.com/v1",
+            llm_api_key="sk-chat",
+            llm_embedding_model="text-embedding-v3",
+            llm_embedding_batch_size=2,
+            llm_embedding_base_url="",
+            llm_embedding_api_key="",
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    @pytest.mark.asyncio
+    async def test_defaults_fall_back_to_scalar_url_and_key(self, monkeypatch):
+        class RecordingClient(_FakeAsyncClient):
+            last_headers = None
+
+            async def post(self, url, json=None, headers=None):
+                type(self).last_headers = headers
+                return await super().post(url, json=json, headers=headers)
+
+        _FakeAsyncClient.calls.clear()
+        monkeypatch.setattr(httpx, "AsyncClient", RecordingClient)
+        await embed_chunks(self._settings(), ["甲"])
+
+        url, _payload = _FakeAsyncClient.calls[0]
+        assert url == "https://chat.example.com/v1/embeddings"
+        assert RecordingClient.last_headers["Authorization"] == "Bearer sk-chat"
+
+    @pytest.mark.asyncio
+    async def test_dedicated_url_and_key_win(self, monkeypatch):
+        class RecordingClient(_FakeAsyncClient):
+            last_headers = None
+
+            async def post(self, url, json=None, headers=None):
+                type(self).last_headers = headers
+                return await super().post(url, json=json, headers=headers)
+
+        _FakeAsyncClient.calls.clear()
+        monkeypatch.setattr(httpx, "AsyncClient", RecordingClient)
+        settings = self._settings(
+            llm_embedding_base_url="https://emb.example.com/v1",
+            llm_embedding_api_key="sk-emb",
+        )
+        await embed_chunks(settings, ["甲"])
+
+        url, _payload = _FakeAsyncClient.calls[0]
+        assert url == "https://emb.example.com/v1/embeddings"
+        assert RecordingClient.last_headers["Authorization"] == "Bearer sk-emb"
+
+    def test_enabled_requires_effective_url(self):
+        assert embedding_enabled(self._settings(llm_base_url="")) is False
+        assert (
+            embedding_enabled(
+                self._settings(llm_base_url="", llm_embedding_base_url="https://emb/v1")
+            )
+            is True
+        )
+
+    def test_legacy_settings_shape_still_works(self):
+        # SimpleNamespace without the new attrs (mocked settings in old tests)
+        legacy = SimpleNamespace(
+            llm_base_url="https://legacy/v1",
+            llm_api_key="k",
+            llm_embedding_model="emb",
+        )
+        assert embedding_enabled(legacy) is True

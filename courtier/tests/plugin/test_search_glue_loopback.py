@@ -213,7 +213,7 @@ class TestSearchGlueLoopback:
         port, _ = search_server
         monkeypatch.setattr("courtier.config.get_settings", lambda: _FAKE_SETTINGS)
 
-        async def reverse_rerank(query, hits, *, settings, prompt_engine):
+        async def reverse_rerank(query, hits, *, settings, prompt_engine, profile=None):
             return list(reversed(hits)), False
 
         monkeypatch.setattr(rerank_mod, "rerank_hits", reverse_rerank)

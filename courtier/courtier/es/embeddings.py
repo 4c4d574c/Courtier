@@ -19,14 +19,28 @@ logger = logging.getLogger(__name__)
 _TIMEOUT_SECONDS = 30.0
 
 
+def _effective_base_url(settings: Any) -> str:
+    """Embedding endpoint URL: dedicated key first, scalar fallback.
+
+    The model pool selects the chat model per run; embedding stays
+    independent — it only detaches from the scalar endpoint when the
+    admin explicitly configures ``llm_embedding_base_url``."""
+    dedicated = getattr(settings, "llm_embedding_base_url", "") or ""
+    return dedicated or getattr(settings, "llm_base_url", "")
+
+
+def _effective_api_key(settings: Any) -> str:
+    dedicated = getattr(settings, "llm_embedding_api_key", "") or ""
+    return dedicated or getattr(settings, "llm_api_key", "")
+
+
 def embedding_enabled(settings: Any) -> bool:
-    """True when both the LLM base URL and an embedding model are configured.
+    """True when both the effective embedding base URL and an embedding
+    model are configured.
 
     Defensive getattr keeps mocked settings objects (tests, partial configs)
     from failing the check."""
-    return bool(
-        getattr(settings, "llm_base_url", "") and getattr(settings, "llm_embedding_model", "")
-    )
+    return bool(_effective_base_url(settings) and getattr(settings, "llm_embedding_model", ""))
 
 
 async def embed_chunks(settings: Any, texts: list[str]) -> list[list[float] | None]:
@@ -35,10 +49,11 @@ async def embed_chunks(settings: Any, texts: list[str]) -> list[list[float] | No
     if not embedding_enabled(settings) or not texts:
         return [None] * len(texts)
 
-    url = f"{settings.llm_base_url.rstrip('/')}/embeddings"
+    url = f"{_effective_base_url(settings).rstrip('/')}/embeddings"
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    if settings.llm_api_key:
-        headers["Authorization"] = f"Bearer {settings.llm_api_key}"
+    api_key = _effective_api_key(settings)
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     vectors: list[list[float] | None] = [None] * len(texts)
     batch_size = max(1, settings.llm_embedding_batch_size)

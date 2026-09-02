@@ -27,6 +27,7 @@ from typing import Any, AsyncGenerator
 
 from ...core.audit_logger import AuditLogger
 from ...core.event_bus import EventBus
+from ...runtime.run_context import run_model_profile
 from ...telemetry.metrics import set_conversation_tree_branches
 from ..session_store import SessionStore
 from ..sse_adapter import RunRecorder
@@ -118,6 +119,9 @@ class RunSpec:
     model_name: str = ""
     # 模型池条目 id（空 = 标量模型）；随 model_selected 事件广播给前端。
     model_id: str = ""
+    # 本次运行解析出的模型档案；runner 经 run_context 广播给 rerank 等
+    # app 级注册、per-run 执行的宿主侧消费者。
+    model_profile: Any = None
     agent_context: dict[str, Any] = field(default_factory=dict)
     prior_state: Any = None
     artifact_snapshot: str = ""
@@ -425,6 +429,7 @@ class RunManager:
 
         session_id = spec.session_id
         store = self._store
+        profile_token = run_model_profile.set(spec.model_profile)
         try:
             if spec.is_new:
                 run.log.append(
@@ -612,6 +617,7 @@ class RunManager:
                 run.log.seal()
             run.status = "error"
         finally:
+            run_model_profile.reset(profile_token)
             run.finished_at = _time.time()
             if run.recorder is not None:
                 run.recorder.stop_listening()
@@ -691,6 +697,7 @@ async def generate_sse_stream(
     context_manager: Any = None,
     model_name: str = "",
     model_id: str = "",
+    model_profile: Any = None,
     initial_seq: int = 0,
 ) -> AsyncGenerator[str, None]:
     """Start a run via *run_manager* and stream it (live-only).
@@ -705,6 +712,7 @@ async def generate_sse_stream(
         context_manager=context_manager,
         model_name=model_name,
         model_id=model_id,
+        model_profile=model_profile,
         agent_context=agent_context,
         prior_state=prior_state,
         artifact_snapshot=artifact_snapshot,

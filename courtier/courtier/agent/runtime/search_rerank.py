@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 def _noop_progress(_progress: Any) -> None:
     """Progress sink for the finalize re-dispatch (no SSE to fan out)."""
 
+
 _TIMEOUT_SECONDS = 30.0
 #: Per-candidate evidence clamp: 50 candidates ≈ 480 chars each; short
 #: candidate lists get richer evidence (budget split, see _candidate_chars).
@@ -132,6 +133,7 @@ async def rerank_hits(
     *,
     settings: Any,
     prompt_engine: Any,
+    profile: Any = None,
 ) -> tuple[list[dict], bool]:
     """Return (*hits* reordered, partial).
 
@@ -140,10 +142,17 @@ async def rerank_hits(
     is treated as an untrustworthy ordering and keeps the original order
     entirely.  Raises on configuration/request/parse failure; the caller
     keeps the original order in that case.
+
+    ``profile`` (the run's resolved model-pool entry) routes the rerank
+    call through the model the run itself uses — the chat chain follows
+    the pick; absent, the scalar llm_* settings apply.
     """
     if len(hits) <= 1 or not query.strip():
         return hits, False
-    if not settings.llm_base_url or not settings.llm_model:
+    base_url = profile.base_url if profile is not None else settings.llm_base_url
+    api_key = profile.api_key if profile is not None else settings.llm_api_key
+    model_name = profile.model if profile is not None else settings.llm_model
+    if not base_url or not model_name:
         raise RuntimeError("llm_base_url/llm_model not configured for rerank")
 
     budget = settings.search_rerank_candidate_budget_chars
@@ -158,16 +167,16 @@ async def rerank_hits(
     # occasional, so a per-call backend beats lifecycle management and
     # keeps this path independent of the conversational agent loop.
     backend = OpenAIModelBackend(
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        model=settings.llm_model,
+        base_url=base_url,
+        api_key=api_key,
+        model=model_name,
         temperature=0.0,
         timeout=_TIMEOUT_SECONDS,
     )
     try:
         response = await backend.chat(
             ChatRequest(
-                model=settings.llm_model,
+                model=model_name,
                 messages=(
                     ChatMessage(role="system", content=system),
                     ChatMessage(role="user", content=user),
@@ -230,7 +239,10 @@ def make_search_rerank_post_processor(
 
         from courtier.config import get_settings
 
+        from .run_context import run_model_profile
+
         settings = get_settings()
+        profile = run_model_profile.get()
         fetch = max(1, settings.search_rerank_fetch)
         head = data["hits"][:fetch]
         tail = data["hits"][fetch:]
@@ -240,6 +252,7 @@ def make_search_rerank_post_processor(
                 head,
                 settings=settings,
                 prompt_engine=prompt_engine,
+                profile=profile,
             )
             reranked = True
         except Exception:

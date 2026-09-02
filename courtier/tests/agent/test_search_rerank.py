@@ -17,8 +17,7 @@ from courtier.agent.tools.protocol import ToolResult
 from courtier.agent.tools.registry import ToolRegistry
 
 COARSE_HITS = [
-    {"title": f"文档{i}", "chunk_text": f"第{i}号文的相关内容。" * 10}
-    for i in range(1, 4)
+    {"title": f"文档{i}", "chunk_text": f"第{i}号文的相关内容。" * 10} for i in range(1, 4)
 ]
 
 
@@ -45,11 +44,12 @@ class _FakeBackend:
     """Captures the chat request and returns a canned completion."""
 
     last_request = None
+    last_kwargs: dict = {}
     response_content = "[2, 1, 3]"
     raise_on_call: Exception | None = None
 
     def __init__(self, **kwargs):
-        pass
+        _FakeBackend.last_kwargs = dict(kwargs)
 
     async def chat(self, request):
         if _FakeBackend.raise_on_call:
@@ -64,6 +64,7 @@ class _FakeBackend:
 @pytest.fixture(autouse=True)
 def _fake_backend():
     _FakeBackend.last_request = None
+    _FakeBackend.last_kwargs = {}
     _FakeBackend.response_content = "[2, 1, 3]"
     _FakeBackend.raise_on_call = None
     yield
@@ -151,6 +152,65 @@ class TestRerankHits:
         assert ordered == COARSE_HITS[:1]
         assert partial is False
         assert _FakeBackend.last_request is None
+
+
+class TestProfileFollow:
+    """rerank 跟随本次运行所选的模型档案（聊天链跟随不变式）。"""
+
+    async def test_rerank_uses_profile_endpoint(self, monkeypatch):
+        monkeypatch.setattr(rerank_mod, "OpenAIModelBackend", _FakeBackend)
+        profile = SimpleNamespace(base_url="http://pool/v1", api_key="sk-pool", model="pool-model")
+        await rerank_hits(
+            "查询",
+            COARSE_HITS,
+            settings=_settings(),
+            prompt_engine=_FakeEngine(),
+            profile=profile,
+        )
+        assert _FakeBackend.last_kwargs["base_url"] == "http://pool/v1"
+        assert _FakeBackend.last_kwargs["api_key"] == "sk-pool"
+        assert _FakeBackend.last_kwargs["model"] == "pool-model"
+        assert _FakeBackend.last_request.model == "pool-model"
+
+    async def test_profile_applies_even_with_unconfigured_scalars(self, monkeypatch):
+        monkeypatch.setattr(rerank_mod, "OpenAIModelBackend", _FakeBackend)
+        profile = SimpleNamespace(base_url="http://pool/v1", api_key="", model="pool-model")
+        ordered, _partial = await rerank_hits(
+            "查询",
+            COARSE_HITS,
+            settings=_settings(llm_base_url="", llm_api_key="", llm_model=""),
+            prompt_engine=_FakeEngine(),
+            profile=profile,
+        )
+        assert [h["title"] for h in ordered] == ["文档2", "文档1", "文档3"]
+
+    async def test_no_profile_keeps_scalar_path(self, monkeypatch):
+        monkeypatch.setattr(rerank_mod, "OpenAIModelBackend", _FakeBackend)
+        await rerank_hits("查询", COARSE_HITS, settings=_settings(), prompt_engine=_FakeEngine())
+        assert _FakeBackend.last_kwargs["base_url"] == "http://llm/v1"
+        assert _FakeBackend.last_kwargs["model"] == "chat-model"
+
+    async def test_post_processor_reads_run_context_profile(self, monkeypatch):
+        from courtier.agent.runtime.run_context import run_model_profile
+
+        registry = ToolRegistry()
+        tool = _FinalizeSearchTool()
+        registry.register(tool)
+        monkeypatch.setattr("courtier.config.get_settings", lambda: _settings())
+        monkeypatch.setattr(rerank_mod, "OpenAIModelBackend", _FakeBackend)
+        processor = make_search_rerank_post_processor(_FakeEngine(), registry)
+
+        profile = SimpleNamespace(base_url="http://pool/v1", api_key="sk-run", model="run-model")
+        token = run_model_profile.set(profile)
+        try:
+            original = ToolResult(success=True, data={"hits": [dict(h) for h in COARSE_HITS]})
+            await processor("search_documents", {"query": "q", "rerank": True}, original)
+        finally:
+            run_model_profile.reset(token)
+
+        assert _FakeBackend.last_kwargs["base_url"] == "http://pool/v1"
+        assert _FakeBackend.last_kwargs["api_key"] == "sk-run"
+        assert tool.calls[0]["finalize"]["reranked"] is True
 
 
 class _FinalizeSearchTool:

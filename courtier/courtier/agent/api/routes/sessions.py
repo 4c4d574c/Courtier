@@ -369,6 +369,7 @@ async def handle_session_stream(
             context_manager=context_manager,
             model_name=model_name,
             model_id=run_model_id,
+            model_profile=model_profile,
             initial_seq=initial_seq,
         ),
         media_type="text/event-stream",
