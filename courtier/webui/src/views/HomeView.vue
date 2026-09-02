@@ -27,6 +27,7 @@
     @close-preview="closePreview"
     @submit="handleSubmit"
     @stop="stop"
+    @resolve-confirmation="resolveConfirmation"
     @edit-submit="handleEditSubmit"
     :can-edit="!isRunning"
     :edit-hint="editHint"
@@ -63,6 +64,7 @@ const {
   editAndResend,
   isRunning,
   isCompacted,
+  resolveConfirmation,
 } = useAgentSession();
 const {
   sessions: historySessions,

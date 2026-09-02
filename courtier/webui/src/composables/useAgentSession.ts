@@ -349,6 +349,8 @@ export function useAgentSession() {
     state.pendingSubagents = [];
     session.eventSeq = loaded.eventSeq;
     session.queuePosition = undefined;
+    // 确认链路：详情载荷携带挂起中的确认（重连恢复用），事件重放兜底。
+    session.pendingConfirmations = loaded.pendingConfirmations ?? [];
 
     // Still running server-side (left the page mid-run): re-attach to the
     // live stream. The server replays events after the snapshot's watermark
@@ -469,6 +471,25 @@ export function useAgentSession() {
     };
 
     eventSource.value = es;
+  }
+
+  /** 确认链路：裁决一条挂起的工具确认。乐观撤卡，失败回滚为待确认。 */
+  async function resolveConfirmation(
+    confirmationId: string,
+    decision: "approve" | "approve_session" | "deny",
+  ) {
+    const sid = session.id;
+    if (!sid) return;
+    const backup = session.pendingConfirmations;
+    session.pendingConfirmations = (session.pendingConfirmations ?? []).filter(
+      (c) => c.confirmationId !== confirmationId,
+    );
+    try {
+      await api.resolveConfirmation(sid, confirmationId, decision);
+    } catch (err) {
+      session.pendingConfirmations = backup;
+      session.errorMessage = err instanceof Error ? err.message : String(err);
+    }
   }
 
   async function stop() {
@@ -632,5 +653,6 @@ export function useAgentSession() {
     editAndResend,
     isRunning,
     isCompacted,
+    resolveConfirmation,
   };
 }

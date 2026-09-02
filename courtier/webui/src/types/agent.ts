@@ -229,6 +229,9 @@ export interface Session {
    * queued 事件置位、首个运行事件（think/tool_start 等）清除。
    */
   queuePosition?: number
+
+  /** 确认链路：挂起中的工具确认（confirmation_requested 事件 / 详情回放） */
+  pendingConfirmations?: PendingConfirmation[]
 }
 
 /** History list item (lightweight) */
@@ -245,6 +248,13 @@ export interface SessionSummary {
   pinned?: boolean
   /** 服务端排队位置（前面还有 N 个任务）；仅 status === 'queued' 时存在 */
   queuePosition?: number
+}
+
+/** 一次挂起中的工具确认（工具名级三选：仅本次 / 本会话放行 / 拒绝） */
+export interface PendingConfirmation {
+  confirmationId: string
+  toolName: string
+  message: string
 }
 
 /** Runtime event emitted by backend for guard/model/hint/loop lifecycle */
@@ -275,9 +285,14 @@ export interface CompactionNotice {
 
 /** SSE event from backend */
 export interface AgentEvent {
-  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting' | 'queued' | 'resync'
+  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting' | 'queued' | 'resync' | 'confirmation_requested' | 'confirmation_resolved'
   detail?: string
   text?: string
+  /** confirmation_requested/resolved: 确认 id、工具名、提示文案与裁决结果 */
+  confirmationId?: string
+  toolName?: string
+  message?: string
+  decision?: string
   stepIndex?: number
   name?: string
   summary?: string
@@ -295,7 +310,6 @@ export interface AgentEvent {
   handleId?: string | null
   parentHandleId?: string | null
   task?: string
-  toolName?: string
   toolStatus?: 'ok' | ToolStatus
   toolDuration?: number
   toolSummary?: string

@@ -382,6 +382,22 @@ export const api = {
     await request("DELETE", `/sessions/${id}`);
   },
 
+  async resolveConfirmation(
+    sessionId: string,
+    confirmationId: string,
+    decision: "approve" | "approve_session" | "deny",
+  ): Promise<{
+    confirmationId: string;
+    decision: string;
+    toolName?: string;
+    alreadyResolved?: boolean;
+  }> {
+    return postJson(
+      `/sessions/${sessionId}/confirmations/${confirmationId}`,
+      { decision },
+    );
+  },
+
   /**
    * Resolve a resource-library document to a viewable PDF URL.
    * DOCX/TXT/MD are converted on demand server-side (cached in MinIO).

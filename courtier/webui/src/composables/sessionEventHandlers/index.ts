@@ -21,6 +21,10 @@ import { handleSubagentEvent } from "./handlers/subagent";
 import { handleUsageEvent } from "./handlers/usage";
 import { handleCompletionEvent } from "./handlers/completion";
 import { handleRuntimeEvent } from "./handlers/runtime";
+import {
+  handleConfirmationRequested,
+  handleConfirmationResolved,
+} from "./handlers/confirmation";
 
 export { finalizeRunningOperations };
 export type { MutableState, HandlerDeps, DepsFn };
@@ -90,6 +94,14 @@ export function createSessionEventHandlers(deps: () => HandlerDeps) {
         const { session } = deps();
         session.queuePosition = undefined;
         handleCompletionEvent(deps, event);
+        break;
+      }
+      case "confirmation_requested": {
+        handleConfirmationRequested(deps, event);
+        break;
+      }
+      case "confirmation_resolved": {
+        handleConfirmationResolved(deps, event);
         break;
       }
       case "queued": {

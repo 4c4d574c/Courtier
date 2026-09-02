@@ -31,6 +31,10 @@
           @citation-click="$emit('citation-click', $event)"
           @edit-submit="$emit('edit-submit', $event)"
         />
+        <ConfirmationCard
+          :items="session.pendingConfirmations ?? []"
+          @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
+        />
         <InputArea
           :model-name="session.modelName"
           :uploading="uploading"
@@ -57,6 +61,7 @@ import ChatSidebar from "./ChatSidebar.vue";
 import ChatHeader from "./ChatHeader.vue";
 import ChatArea from "./ChatArea.vue";
 import InputArea from "./InputArea.vue";
+import ConfirmationCard from "./ConfirmationCard.vue";
 import FilePreviewPanel from "./FilePreviewPanel.vue";
 
 interface Props {
@@ -96,6 +101,10 @@ defineEmits<{
   "close-preview": [];
   submit: [task: string, file?: File];
   stop: [];
+  "resolve-confirmation": [
+    confirmationId: string,
+    decision: "approve" | "approve_session" | "deny",
+  ];
   "edit-submit": [payload: { turnIndex: number; text: string }];
 }>();
 </script>
