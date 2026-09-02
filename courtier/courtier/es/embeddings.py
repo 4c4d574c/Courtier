@@ -20,23 +20,22 @@ _TIMEOUT_SECONDS = 30.0
 
 
 def _effective_base_url(settings: Any) -> str:
-    """Embedding endpoint URL: dedicated key first, scalar fallback.
+    """Embedding endpoint URL — the dedicated setting, nothing else.
 
-    The model pool selects the chat model per run; embedding stays
-    independent — it only detaches from the scalar endpoint when the
-    admin explicitly configures ``llm_embedding_base_url``."""
-    dedicated = getattr(settings, "llm_embedding_base_url", "") or ""
-    return dedicated or getattr(settings, "llm_base_url", "")
+    Embedding shares nothing with the chat LLM endpoint: the two may live
+    on different hosts, and the chat model pool never affects it.  Unset
+    URL = vector retrieval off (callers degrade to lexical-only)."""
+    return getattr(settings, "llm_embedding_base_url", "") or ""
 
 
 def _effective_api_key(settings: Any) -> str:
-    dedicated = getattr(settings, "llm_embedding_api_key", "") or ""
-    return dedicated or getattr(settings, "llm_api_key", "")
+    return getattr(settings, "llm_embedding_api_key", "") or ""
 
 
 def embedding_enabled(settings: Any) -> bool:
-    """True when both the effective embedding base URL and an embedding
-    model are configured.
+    """True when the dedicated embedding endpoint URL and an embedding
+    model are both configured — embedding never falls back to the chat
+    LLM endpoint or key.
 
     Defensive getattr keeps mocked settings objects (tests, partial configs)
     from failing the check."""

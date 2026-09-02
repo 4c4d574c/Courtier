@@ -70,7 +70,8 @@
 
 运行选择：`GET /api/sessions/run?modelId=` 每次运行可换；缺省依次回退 会话上次所用 →
 池默认 → 标量 `llm_base_url/llm_api_key/llm_model`（池为空即完全旧行为）。聊天链
-（orchestrator / subagent / rerank）跟随所选档案；embedding 用独立的
-`llm_embedding_base_url / llm_embedding_api_key`（空值回退标量键），不进池。
+（orchestrator / subagent / rerank）跟随所选档案；embedding 与聊天端点完全解耦，
+只用 `llm_embedding_base_url / llm_embedding_api_key`（端点未设置 = 向量检索关闭，
+不回退标量配置），不进池。
 升级播种：DB 模式下池为空且标量可组端点时，一次性写入 `ep_main/mdl_main`
 （审计 actor=system-migrate；此后清空池不会被重新播种）。

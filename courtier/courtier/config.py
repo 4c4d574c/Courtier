@@ -292,14 +292,14 @@ class Settings(BaseSettings):
         alias="llm_embedding_base_url",
         description=(
             "Embedding API 端点 URL（环境变量: LLM_EMBEDDING_BASE_URL）。"
-            "空 = 复用 llm_base_url；模型池不影响 embedding。"
+            "未设置 = 向量检索关闭，搜索与入库退化为纯词法；与聊天端点无关。"
         ),
     )
     llm_embedding_api_key: str = Field(
         default="",
         alias="llm_embedding_api_key",
         description=(
-            "Embedding API 密钥（环境变量: LLM_EMBEDDING_API_KEY）。空 = 复用 llm_api_key。"
+            "Embedding API 密钥（环境变量: LLM_EMBEDDING_API_KEY）。仅在端点需要鉴权时填写。"
         ),
     )
 

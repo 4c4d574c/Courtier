@@ -45,6 +45,8 @@ def _settings(enabled: bool = True) -> SimpleNamespace:
     return SimpleNamespace(
         llm_base_url="https://example.com/v1",
         llm_api_key="k",
+        llm_embedding_base_url="https://example.com/v1",
+        llm_embedding_api_key="k",
         llm_embedding_model="text-embedding-v3" if enabled else "",
         llm_embedding_batch_size=2,
     )
@@ -80,7 +82,8 @@ async def test_embedding_failure_degrades_to_none(monkeypatch):
 
 
 class TestIndependentEndpoint:
-    """embedding 独立端点键：专用键优先，空值回退标量（聊天模型池不影响它）。"""
+    """embedding 与聊天 LLM 端点彻底解耦：专用端点未设置 = 向量检索关闭，
+    不回退 llm_base_url / llm_api_key。"""
 
     def _settings(self, **overrides) -> SimpleNamespace:
         base = dict(
@@ -95,24 +98,15 @@ class TestIndependentEndpoint:
         return SimpleNamespace(**base)
 
     @pytest.mark.asyncio
-    async def test_defaults_fall_back_to_scalar_url_and_key(self, monkeypatch):
-        class RecordingClient(_FakeAsyncClient):
-            last_headers = None
-
-            async def post(self, url, json=None, headers=None):
-                type(self).last_headers = headers
-                return await super().post(url, json=json, headers=headers)
-
-        _FakeAsyncClient.calls.clear()
-        monkeypatch.setattr(httpx, "AsyncClient", RecordingClient)
-        await embed_chunks(self._settings(), ["甲"])
-
-        url, _payload = _FakeAsyncClient.calls[0]
-        assert url == "https://chat.example.com/v1/embeddings"
-        assert RecordingClient.last_headers["Authorization"] == "Bearer sk-chat"
+    async def test_unset_endpoint_disables_vector_retrieval(self, monkeypatch):
+        # 标量端点/密钥即使配置齐全，专用端点未设置也一律关闭
+        settings = self._settings()
+        assert embedding_enabled(settings) is False
+        vectors = await embed_chunks(settings, ["甲", "乙"])
+        assert vectors == [None, None]
 
     @pytest.mark.asyncio
-    async def test_dedicated_url_and_key_win(self, monkeypatch):
+    async def test_dedicated_url_enables_and_uses_dedicated_key(self, monkeypatch):
         class RecordingClient(_FakeAsyncClient):
             last_headers = None
 
@@ -132,20 +126,38 @@ class TestIndependentEndpoint:
         assert url == "https://emb.example.com/v1/embeddings"
         assert RecordingClient.last_headers["Authorization"] == "Bearer sk-emb"
 
-    def test_enabled_requires_effective_url(self):
-        assert embedding_enabled(self._settings(llm_base_url="")) is False
-        assert (
-            embedding_enabled(
-                self._settings(llm_base_url="", llm_embedding_base_url="https://emb/v1")
-            )
-            is True
-        )
+    @pytest.mark.asyncio
+    async def test_dedicated_key_optional(self, monkeypatch):
+        # 端点不需要鉴权时可不填密钥：不发 Authorization 头
+        class RecordingClient(_FakeAsyncClient):
+            last_headers = None
 
-    def test_legacy_settings_shape_still_works(self):
-        # SimpleNamespace without the new attrs (mocked settings in old tests)
+            async def post(self, url, json=None, headers=None):
+                type(self).last_headers = headers
+                return await super().post(url, json=json, headers=headers)
+
+        _FakeAsyncClient.calls.clear()
+        monkeypatch.setattr(httpx, "AsyncClient", RecordingClient)
+        settings = self._settings(llm_embedding_base_url="https://emb.example.com/v1")
+        await embed_chunks(settings, ["甲"])
+
+        assert "Authorization" not in (RecordingClient.last_headers or {})
+        assert embedding_enabled(settings) is True
+
+    def test_scalar_llm_key_never_leaks_into_embedding(self):
+        # 聊天密钥存在与否不影响 embedding 的鉴权来源
+        settings = self._settings(
+            llm_embedding_base_url="https://emb.example.com/v1", llm_embedding_api_key=""
+        )
+        from courtier.es.embeddings import _effective_api_key
+
+        assert _effective_api_key(settings) == ""
+
+    def test_legacy_settings_shape_is_disabled(self):
+        # 无 llm_embedding_base_url 属性的旧 mock 配置 = 关闭（新契约）
         legacy = SimpleNamespace(
             llm_base_url="https://legacy/v1",
             llm_api_key="k",
             llm_embedding_model="emb",
         )
-        assert embedding_enabled(legacy) is True
+        assert embedding_enabled(legacy) is False

@@ -186,6 +186,10 @@ Settings 新字段（`llm_` 前缀自动归 `model` 类、hot、进入 admin 面
   语义变化：清空高级字段保存 = 重置为当前全局默认（此后按模型独立）。标量 llm_* 仅剩兜底/
   播种/embedding 回退三个后台角色。**embedding 不随前端切换模型**是设计决定（查询向量必须与
   入库向量同模型/同向量空间），换 embedding 端点用 Embedding 专用字段。
+- 2026-09-02（追加 4，用户设计决定）：**embedding 与聊天 LLM 端点彻底解耦**——不再回退
+  llm_base_url/llm_api_key，`llm_embedding_base_url` 未设置 = 向量检索关闭（纯词法降级），
+  密钥同理只认专用键。运维影响：存量部署若专用端点为空，升级后向量检索关闭，需在
+  Embedding 组填入端点 URL 恢复 hybrid 检索。
 - 实施偏差（均已在对应提交中实现并测试）：
   1. 播种门控比计划更严：需 `store.codec` 可用（无加密密钥时跳过播种保持标量行为），
      并以 `key_has_history`（审计表存在性）保证严格一次性——admin 清空池后重启不会重新播种。

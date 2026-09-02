@@ -165,7 +165,7 @@ class TestEmbeddingInjector:
 
     async def test_blank_query_returns_none(self, monkeypatch):
         settings = _FakeSettings()
-        settings.llm_base_url = "http://llm"
+        settings.llm_embedding_base_url = "http://llm"
         settings.llm_embedding_model = "emb"
         monkeypatch.setattr("courtier.config.get_settings", lambda: settings)
 
@@ -174,7 +174,7 @@ class TestEmbeddingInjector:
 
     async def test_embeds_query_via_host_client(self, monkeypatch):
         settings = _FakeSettings()
-        settings.llm_base_url = "http://llm"
+        settings.llm_embedding_base_url = "http://llm"
         settings.llm_embedding_model = "emb"
         monkeypatch.setattr("courtier.config.get_settings", lambda: settings)
 
