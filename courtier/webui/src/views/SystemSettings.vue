@@ -225,6 +225,7 @@
                         <span>窗口</span>
                         <span>max_tokens</span>
                         <span>温度</span>
+                        <span>高级</span>
                         <span />
                       </div>
                       <div
@@ -273,6 +274,15 @@
                           @input="writePool"
                         />
                         <button
+                          class="pool-adv-toggle"
+                          :class="{ active: isAdvancedOpen(m.id) || hasAdvancedValues(m) }"
+                          type="button"
+                          :title="hasAdvancedValues(m) ? '已设置高级参数' : '高级参数（留空采用全局默认）'"
+                          @click="toggleAdvanced(m.id)"
+                        >
+                          {{ isAdvancedOpen(m.id) ? "收起" : "高级" }}
+                        </button>
+                        <button
                           class="endpoint-remove"
                           type="button"
                           :aria-label="`删除模型 ${m.name || m.id}`"
@@ -281,6 +291,56 @@
                         >
                           ×
                         </button>
+                        <div v-if="isAdvancedOpen(m.id)" class="pool-adv">
+                          <div class="pool-adv-grid">
+                            <label class="pool-adv-item">
+                              <span>超时（秒）</span>
+                              <input
+                                v-model="m.timeout_seconds"
+                                class="pool-box"
+                                :disabled="!editable"
+                                placeholder="如 120"
+                                spellcheck="false"
+                                @input="writePool"
+                              />
+                            </label>
+                            <label class="pool-adv-item">
+                              <span>频率惩罚</span>
+                              <input
+                                v-model="m.frequency_penalty"
+                                class="pool-box"
+                                :disabled="!editable"
+                                placeholder="如 0.5"
+                                spellcheck="false"
+                                @input="writePool"
+                              />
+                            </label>
+                            <label class="pool-adv-item">
+                              <span>存在惩罚</span>
+                              <input
+                                v-model="m.presence_penalty"
+                                class="pool-box"
+                                :disabled="!editable"
+                                placeholder="如 0.5"
+                                spellcheck="false"
+                                @input="writePool"
+                              />
+                            </label>
+                          </div>
+                          <label class="pool-adv-item">
+                            <span>额外请求体（JSON）</span>
+                            <textarea
+                              v-model="m.extra_body"
+                              class="pool-box pool-box--area"
+                              rows="2"
+                              :disabled="!editable"
+                              placeholder='如 {"top_p": 0.9}'
+                              spellcheck="false"
+                              @input="writePool"
+                            />
+                          </label>
+                          <p class="pool-adv-note">留空的项采用「LLM 接入」中的全局默认值。</p>
+                        </div>
                       </div>
                       <button
                         class="endpoint-add"
@@ -588,6 +648,7 @@ import {
   type KeyView,
   type PoolDoc,
   type PoolEndpointRow,
+  type PoolModelRow,
 } from "../utils/modelPool";
 import {
   CATEGORY_DESCRIPTIONS,
@@ -828,6 +889,26 @@ async function testEndpoint(row: PoolEndpointRow) {
 
 function poolEditorErrors(): string {
   return validatePool(poolRows.value, poolDefault.value);
+}
+
+/** Per-model advanced panel (timeout / penalties / extra body). UI-only
+ * open state — the values themselves live on the row. */
+const advancedOpenIds = ref<Array<string>>([]);
+
+function isAdvancedOpen(modelId: string): boolean {
+  return advancedOpenIds.value.includes(modelId);
+}
+
+function toggleAdvanced(modelId: string): void {
+  advancedOpenIds.value = isAdvancedOpen(modelId)
+    ? advancedOpenIds.value.filter((id) => id !== modelId)
+    : [...advancedOpenIds.value, modelId];
+}
+
+function hasAdvancedValues(m: PoolModelRow): boolean {
+  return [m.timeout_seconds, m.frequency_penalty, m.presence_penalty, m.extra_body].some(
+    (t) => t.trim() !== "",
+  );
 }
 
 /**
@@ -2033,9 +2114,70 @@ onMounted(load);
 .pool-model-head,
 .pool-model-row {
   display: grid;
-  grid-template-columns: 1.2fr 1.4fr 0.8fr 0.8fr 0.6fr 28px;
+  grid-template-columns: 1.2fr 1.4fr 0.7fr 0.7fr 0.5fr auto 28px;
   gap: 8px;
   align-items: center;
+}
+.pool-adv-toggle {
+  padding: 4px 8px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 150ms,
+    border-color 150ms;
+}
+.pool-adv-toggle:hover:not(:disabled) {
+  color: var(--chat-accent);
+  border-color: var(--chat-accent);
+}
+.pool-adv-toggle.active {
+  color: var(--chat-accent);
+  border-color: color-mix(in srgb, var(--chat-accent) 45%, transparent);
+  background: var(--chat-accent-soft);
+}
+.pool-adv {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 10px;
+  border: 1px dashed var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+}
+.pool-adv-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.pool-adv-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.pool-adv-item > span {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--chat-text-tertiary);
+}
+.pool-box--area {
+  min-height: 44px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.pool-adv-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--chat-text-tertiary);
 }
 .pool-model-head {
   font-size: 11px;
@@ -2060,6 +2202,12 @@ onMounted(load);
   }
   .pool-model-row {
     grid-template-columns: 1fr 1fr 28px;
+  }
+  .pool-model-row .pool-adv-toggle {
+    display: none;
+  }
+  .pool-adv-grid {
+    grid-template-columns: 1fr;
   }
   .pool-frow {
     grid-template-columns: 1fr;

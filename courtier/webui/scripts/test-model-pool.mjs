@@ -38,6 +38,7 @@ fixRelativeImports(outDir);
 
 const {
   parsePool,
+  serializeEndpoint,
   serializePool,
   buildKeyOps,
   keyOpsDirty,
@@ -63,6 +64,8 @@ const SAVED_DOC = {
           model: "model-a2",
           context_window_tokens: 65536,
           temperature: 0.5,
+          timeout_seconds: 120,
+          extra_body: { top_p: 0.9 },
         },
       ],
     },
@@ -81,6 +84,8 @@ const KEYS_VIEW = { ep_a: { set: true, tail: "sk-1" } };
   assert.equal(rows[0].keyDraft, "");
   assert.equal(rows[0].models[1].context_window_tokens, "65536");
   assert.equal(rows[0].models[1].temperature, "0.5");
+  assert.equal(rows[0].models[1].timeout_seconds, "120");
+  assert.equal(rows[0].models[1].extra_body, '{"top_p":0.9}');
   assert.equal(defaultModelId, "mdl_a1");
 }
 {
@@ -94,6 +99,28 @@ const KEYS_VIEW = { ep_a: { set: true, tail: "sk-1" } };
   const { rows, defaultModelId } = parsePool(SAVED_DOC, KEYS_VIEW);
   const reparsed = JSON.parse(serializePool(rows, defaultModelId));
   assert.deepEqual(reparsed, SAVED_DOC);
+}
+
+// --- advanced fields: unset stays unset; typing a value round-trips ---
+{
+  const { rows, defaultModelId } = parsePool(SAVED_DOC, KEYS_VIEW);
+  const entry = JSON.parse(serializeEndpoint(rows[0]));
+  assert.ok(!("timeout_seconds" in entry.models[0]));
+  assert.ok(!("extra_body" in entry.models[0]));
+
+  rows[0].models[0].frequency_penalty = "0.5";
+  rows[0].models[0].presence_penalty = "-0.3";
+  rows[0].models[0].extra_body = '{ "top_k": 40 }';
+  const edited = JSON.parse(serializeEndpoint(rows[0]));
+  assert.equal(edited.models[0].frequency_penalty, 0.5);
+  assert.equal(edited.models[0].presence_penalty, -0.3);
+  assert.deepEqual(edited.models[0].extra_body, { top_k: 40 });
+
+  // invalid extra_body is omitted from serialization (poolErrors reports it)
+  rows[0].models[0].extra_body = "not-json";
+  const invalid = JSON.parse(serializeEndpoint(rows[0]));
+  assert.ok(!("extra_body" in invalid.models[0]));
+  assert.ok(poolErrors(rows, "mdl_a1").includes("额外请求体"));
 }
 
 // --- buildKeyOps / keyOpsDirty ---
@@ -162,6 +189,18 @@ const KEYS_VIEW = { ep_a: { set: true, tail: "sk-1" } };
   const badNumber = parsePool(SAVED_DOC, KEYS_VIEW);
   badNumber.rows[0].models[1].context_window_tokens = "abc";
   assert.ok(poolErrors(badNumber.rows, "mdl_a1").includes("必须是数字"));
+
+  const badTimeout = parsePool(SAVED_DOC, KEYS_VIEW);
+  badTimeout.rows[0].models[1].timeout_seconds = "0";
+  assert.ok(poolErrors(badTimeout.rows, "mdl_a1").includes("超时必须大于 0"));
+
+  const badPenalty = parsePool(SAVED_DOC, KEYS_VIEW);
+  badPenalty.rows[0].models[1].frequency_penalty = "3";
+  assert.ok(poolErrors(badPenalty.rows, "mdl_a1").includes("惩罚系数"));
+
+  const badTemp = parsePool(SAVED_DOC, KEYS_VIEW);
+  badTemp.rows[0].models[1].temperature = "2.5";
+  assert.ok(poolErrors(badTemp.rows, "mdl_a1").includes("温度需在 0 ~ 2"));
 }
 
 // --- genId / empty rows ---

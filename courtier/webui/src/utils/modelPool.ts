@@ -14,10 +14,16 @@ export interface PoolModelRow {
   id: string;
   name: string;
   model: string;
-  /** Text inputs; "" = unset. */
+  /** Text inputs; "" = unset (the scalar llm_* default applies). */
   context_window_tokens: string;
   max_tokens: string;
   temperature: string;
+  /** Advanced per-model overrides, same "" = default semantics. */
+  timeout_seconds: string;
+  frequency_penalty: string;
+  presence_penalty: string;
+  /** Raw JSON object text; "" = unset. */
+  extra_body: string;
 }
 
 export interface PoolEndpointRow {
@@ -44,6 +50,10 @@ interface PoolModelDoc {
   context_window_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;
+  timeout_seconds?: number | null;
+  frequency_penalty?: number | null;
+  presence_penalty?: number | null;
+  extra_body?: Record<string, unknown> | null;
 }
 
 interface PoolEndpointDoc {
@@ -77,6 +87,10 @@ export function emptyModelRow(): PoolModelRow {
     context_window_tokens: "",
     max_tokens: "",
     temperature: "",
+    timeout_seconds: "",
+    frequency_penalty: "",
+    presence_penalty: "",
+    extra_body: "",
   };
 }
 
@@ -123,6 +137,10 @@ export function parsePool(
         context_window_tokens: optText(m.context_window_tokens),
         max_tokens: optText(m.max_tokens),
         temperature: optText(m.temperature),
+        timeout_seconds: optText(m.timeout_seconds),
+        frequency_penalty: optText(m.frequency_penalty),
+        presence_penalty: optText(m.presence_penalty),
+        extra_body: m.extra_body == null ? "" : JSON.stringify(m.extra_body),
       })),
     };
     row.savedSnapshot = serializeEndpoint(row);
@@ -140,9 +158,14 @@ function optNum(text: string): number | null {
 
 function invalidNumbers(row: PoolEndpointRow): boolean {
   return row.models.some((m) =>
-    [m.context_window_tokens, m.max_tokens, m.temperature].some(
-      (t) => t.trim() !== "" && !Number.isFinite(Number(t)),
-    ),
+    [
+      m.context_window_tokens,
+      m.max_tokens,
+      m.temperature,
+      m.timeout_seconds,
+      m.frequency_penalty,
+      m.presence_penalty,
+    ].some((t) => t.trim() !== "" && !Number.isFinite(Number(t))),
   );
 }
 
@@ -167,6 +190,24 @@ export function serializeEndpoint(row: PoolEndpointRow): string {
       if (max_tokens !== null) entry.max_tokens = max_tokens;
       const temperature = optNum(m.temperature);
       if (temperature !== null) entry.temperature = temperature;
+      const timeout_seconds = optNum(m.timeout_seconds);
+      if (timeout_seconds !== null) entry.timeout_seconds = timeout_seconds;
+      const frequency_penalty = optNum(m.frequency_penalty);
+      if (frequency_penalty !== null) entry.frequency_penalty = frequency_penalty;
+      const presence_penalty = optNum(m.presence_penalty);
+      if (presence_penalty !== null) entry.presence_penalty = presence_penalty;
+      const rawExtra = m.extra_body.trim();
+      if (rawExtra !== "") {
+        try {
+          const parsed = JSON.parse(rawExtra);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            entry.extra_body = parsed;
+          }
+        } catch {
+          // Invalid JSON is surfaced by poolErrors; omitting it here keeps
+          // the change fingerprint stable instead of throwing.
+        }
+      }
       return entry;
     }),
   });
@@ -230,7 +271,34 @@ export function poolErrors(rows: PoolEndpointRow[], defaultModelId: string): str
       if (!model.model.trim()) return `模型 ${model.id} 的模型 ID 不能为空`;
     }
     if (invalidNumbers(row)) {
-      return "窗口/max_tokens/temperature 必须是数字（可留空）";
+      return "数字字段必须是数字（可留空）";
+    }
+    for (const model of row.models) {
+      if (
+        model.timeout_seconds.trim() !== "" &&
+        Number(model.timeout_seconds) <= 0
+      ) {
+        return `模型 ${model.id} 的超时必须大于 0`;
+      }
+      for (const penalty of [model.frequency_penalty, model.presence_penalty]) {
+        if (penalty.trim() !== "" && (Number(penalty) < -2 || Number(penalty) > 2)) {
+          return `模型 ${model.id} 的惩罚系数需在 -2 ~ 2 之间`;
+        }
+      }
+      if (model.temperature.trim() !== "" && Number(model.temperature) > 2) {
+        return `模型 ${model.id} 的温度需在 0 ~ 2 之间`;
+      }
+      const rawExtra = model.extra_body.trim();
+      if (rawExtra !== "") {
+        try {
+          const parsed = JSON.parse(rawExtra);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return `模型 ${model.id} 的额外请求体必须是 JSON 对象`;
+          }
+        } catch {
+          return `模型 ${model.id} 的额外请求体必须是合法 JSON`;
+        }
+      }
     }
   }
   if (allModelIds.length > 0 && !defaultModelId) {

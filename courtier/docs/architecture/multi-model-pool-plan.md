@@ -172,6 +172,11 @@ Settings 新字段（`llm_` 前缀自动归 `model` 类、hot、进入 admin 面
   端点 → `ep_main/mdl_main`），且管理后台池编辑器已实测可用（第二个接入点经前端添加成功）。
   **真实双端点 LLM 运行验收（切换模型跑真实任务、subagent/rerank 跟随核对）待用户执行**——
   需要真实可用端点与密钥。
+- 2026-09-02（追加）：池编辑器两轮 UI 重设计（`18fb28a` 单卡片化、`1e1f431` 子卡片统一标签列表单）；
+  并将「LLM 接入」中与池不重叠的参数（timeout / frequency_penalty / presence_penalty / extra_body）
+  下沉为每个模型条目的**高级参数**——PoolModelConfig 扩展四字段（None=全局默认）、ModelProfile/
+  build_model_client 透传覆盖、前端"高级"按钮按模型展开面板，留空回退全局默认。提交 `6fa10ab`
+  （密钥行提示）、高级参数提交见后续。
 - 实施偏差（均已在对应提交中实现并测试）：
   1. 播种门控比计划更严：需 `store.codec` 可用（无加密密钥时跳过播种保持标量行为），
      并以 `key_has_history`（审计表存在性）保证严格一次性——admin 清空池后重启不会重新播种。

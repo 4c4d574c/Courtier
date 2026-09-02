@@ -168,6 +168,48 @@ class TestBuildModelClientWithProfile:
         assert client.model_name == "model-a2"
         assert client.temperature == 0.5
 
+    def test_advanced_overrides_shadow_globals(self, captured_backend):
+        pool = _pool()
+        pool["endpoints"][0]["models"][0].update(
+            {
+                "timeout_seconds": 60.0,
+                "frequency_penalty": 0.5,
+                "presence_penalty": 0.3,
+                "extra_body": {"per_model": True},
+            }
+        )
+        settings = Settings(
+            _env_file=None,
+            llm_model_pool=pool,
+            llm_endpoint_keys={"ep_a": "sk-a"},
+            llm_timeout=180.0,
+            llm_frequency_penalty=0.0,
+            llm_presence_penalty=0.0,
+            llm_extra_body={"global": True},
+        )
+        profile = resolve_model_profile(settings, model_id="mdl_a1")
+        build_model_client(settings, profile)
+
+        assert captured_backend["timeout"] == 60.0
+        assert captured_backend["frequency_penalty"] == 0.5
+        assert captured_backend["presence_penalty"] == 0.3
+        assert captured_backend["extra_body"] == {"per_model": True}
+
+    def test_advanced_unset_falls_back_to_globals(self, captured_backend):
+        settings = _settings(
+            llm_timeout=42.0,
+            llm_frequency_penalty=0.7,
+            llm_presence_penalty=0.8,
+            llm_extra_body={"g": 1},
+        )
+        profile = resolve_model_profile(settings, model_id="mdl_a1")
+        build_model_client(settings, profile)
+
+        assert captured_backend["timeout"] == 42.0
+        assert captured_backend["frequency_penalty"] == 0.7
+        assert captured_backend["presence_penalty"] == 0.8
+        assert captured_backend["extra_body"] == {"g": 1}
+
     def test_entry_overrides_fall_back_to_globals(self, captured_backend):
         settings = _settings(llm_temperature=0.9, llm_max_tokens=777)
         profile = resolve_model_profile(settings, model_id="mdl_a1")

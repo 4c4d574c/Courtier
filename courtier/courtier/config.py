@@ -100,7 +100,11 @@ class ModelRoutingConfig(BaseModel):
 
 
 class PoolModelConfig(BaseModel):
-    """A selectable model entry inside a pool endpoint."""
+    """A selectable model entry inside a pool endpoint.
+
+    The optional overrides shadow the scalar ``llm_*`` defaults; ``None``
+    means "use the global default" — the scalars stay the single source
+    for everything an entry does not explicitly set."""
 
     id: str
     name: str
@@ -108,6 +112,10 @@ class PoolModelConfig(BaseModel):
     context_window_tokens: int | None = Field(default=None, ge=1)
     max_tokens: int | None = Field(default=None, ge=1)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    timeout_seconds: float | None = Field(default=None, gt=0)
+    frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+    extra_body: dict[str, Any] | None = None
 
 
 class PoolEndpointConfig(BaseModel):

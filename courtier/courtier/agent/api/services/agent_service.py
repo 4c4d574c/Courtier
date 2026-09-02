@@ -40,6 +40,11 @@ class ModelProfile:
     context_window_tokens: int | None = None
     max_tokens: int | None = None
     temperature: float | None = None
+    # Per-entry advanced overrides; None = the scalar llm_* default applies.
+    timeout_seconds: float | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    extra_body: dict[str, Any] | None = None
 
 
 def resolve_model_profile(
@@ -91,6 +96,10 @@ def resolve_model_profile(
         context_window_tokens=entry.context_window_tokens,
         max_tokens=entry.max_tokens,
         temperature=entry.temperature,
+        timeout_seconds=getattr(entry, "timeout_seconds", None),
+        frequency_penalty=getattr(entry, "frequency_penalty", None),
+        presence_penalty=getattr(entry, "presence_penalty", None),
+        extra_body=getattr(entry, "extra_body", None),
     )
 
 
@@ -152,27 +161,36 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
     Without *profile*: builds the scalar ``llm_*`` client, wrapped in a
     ``ModelRouter`` when ``settings.agent_runtime.model`` configures
     fallback backends (same-endpoint clones).  With *profile* (a resolved
-    pool entry): targets that endpoint/model — per-entry
-    temperature/max_tokens override the globals, timeout/penalties/
-    extra_body stay global, and fallback routing is not applied (pool
-    selection and fallback chains are separate mechanisms for now).
+    pool entry): targets that endpoint/model — every scalar LLM parameter
+    (temperature, max_tokens, timeout, penalties, extra_body) is overridden
+    by the entry's explicit value when set, the scalar default otherwise;
+    fallback routing is not applied (pool selection and fallback chains
+    are separate mechanisms for now).
     """
     from courtier.agent.core.backends.openai_backend import OpenAIModelBackend
     from courtier.agent.core.model import BackendModelClient
 
     def _backend(
-        base_url: str, api_key: str, model: str, temperature: float, max_tokens: int
+        base_url: str,
+        api_key: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        timeout: float,
+        extra_body: dict[str, Any] | None,
+        frequency_penalty: float,
+        presence_penalty: float,
     ) -> OpenAIModelBackend:
         return OpenAIModelBackend(
             base_url=base_url,
             api_key=api_key,
             model=model,
             temperature=temperature,
-            timeout=settings.llm_timeout,
+            timeout=timeout,
             max_tokens=max_tokens if max_tokens > 0 else None,
-            extra_body=settings.llm_extra_body,
-            frequency_penalty=settings.llm_frequency_penalty,
-            presence_penalty=settings.llm_presence_penalty,
+            extra_body=extra_body,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
         )
 
     if profile is not None:
@@ -187,6 +205,24 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
                 profile.model,
                 temperature,
                 max_tokens,
+                timeout=(
+                    settings.llm_timeout
+                    if profile.timeout_seconds is None
+                    else profile.timeout_seconds
+                ),
+                extra_body=(
+                    settings.llm_extra_body if profile.extra_body is None else profile.extra_body
+                ),
+                frequency_penalty=(
+                    settings.llm_frequency_penalty
+                    if profile.frequency_penalty is None
+                    else profile.frequency_penalty
+                ),
+                presence_penalty=(
+                    settings.llm_presence_penalty
+                    if profile.presence_penalty is None
+                    else profile.presence_penalty
+                ),
             ),
             model=profile.model,
             temperature=temperature,
@@ -198,6 +234,10 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
         settings.llm_model,
         settings.llm_temperature,
         settings.llm_max_tokens,
+        timeout=settings.llm_timeout,
+        extra_body=settings.llm_extra_body,
+        frequency_penalty=settings.llm_frequency_penalty,
+        presence_penalty=settings.llm_presence_penalty,
     )
 
     routing = getattr(getattr(settings, "agent_runtime", None), "model", None)
@@ -215,6 +255,10 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
                 name,
                 settings.llm_temperature,
                 settings.llm_max_tokens,
+                timeout=settings.llm_timeout,
+                extra_body=settings.llm_extra_body,
+                frequency_penalty=settings.llm_frequency_penalty,
+                presence_penalty=settings.llm_presence_penalty,
             )
             for name in fallback_names
         ]
