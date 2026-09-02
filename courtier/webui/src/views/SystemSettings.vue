@@ -74,32 +74,22 @@
               <h3>{{ group.label }}</h3>
               <span v-if="groupHint(group)" class="group-hint">{{ groupHint(group) }}</span>
             </header>
-            <div
-              v-for="field in group.fields"
-              :key="field.name"
-              class="field-row"
-              :class="{
-                stacked: field.name === ENDPOINTS_FIELD || field.name === POOL_FIELD,
-                dirty: isFieldDirty(field.name),
-                error: formErrors[field.name],
-              }"
-            >
-              <div class="field-info">
-                <div class="field-title">
-                  <span class="field-name">{{ fieldDisplayName(field) }}</span>
-                  <span v-if="isFieldDirty(field.name)" class="badge badge-dirty">已修改</span>
-                  <span v-else-if="field.effect === 'restart'" class="badge badge-restart">需重启</span>
-                  <span v-else-if="field.effect === 'rebuild'" class="badge badge-rebuild">保存后重建</span>
-                </div>
-                <div class="field-meta">
-                  <code>{{ field.env_name }}</code>
-                  <span v-if="field.source === 'db'" class="badge badge-db">数据库</span>
-                </div>
-                <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
-              </div>
-              <div class="field-control">
-                <div v-if="field.name === POOL_FIELD" class="pool-editor">
-                  <div class="pool-default-row">
+            <template v-for="field in group.fields" :key="field.name">
+              <div
+                v-if="field.name === POOL_FIELD"
+                class="pool-row"
+                :class="{ error: formErrors[POOL_FIELD] }"
+              >
+                <div class="pool-topbar">
+                  <div class="pool-topbar-status">
+                    <span v-if="isFieldDirty(POOL_FIELD)" class="badge badge-dirty">已修改</span>
+                    <span v-if="isFieldDirty(KEYS_FIELD)" class="badge badge-dirty">密钥有改动</span>
+                    <span v-if="field.source === 'db'" class="badge badge-db">数据库</span>
+                    <span class="pool-lede">
+                      用户在对话输入区按次选用模型，默认模型兜底；保存后下一次运行生效。
+                    </span>
+                  </div>
+                  <label class="pool-topbar-default">
                     <span class="pool-default-label">默认模型</span>
                     <select
                       class="pool-default-select"
@@ -108,7 +98,7 @@
                       @change="onPoolDefaultChange($event)"
                     >
                       <option v-if="!poolRows.some((r) => r.models.length)" value="">
-                        （空池 · 回退下方标量配置）
+                        （空池 · 回退标量配置）
                       </option>
                       <optgroup
                         v-for="row in poolRows"
@@ -120,17 +110,20 @@
                         </option>
                       </optgroup>
                     </select>
-                  </div>
+                  </label>
+                </div>
+
+                <div class="pool-list">
                   <div
                     v-for="(row, i) in poolRows"
                     :key="row.id"
-                    class="pool-endpoint"
+                    class="pool-endpoint-card"
                     :class="{ off: !row.enabled }"
                   >
-                    <div class="pool-ep-row">
+                    <div class="pool-ep-head">
                       <input
                         v-model="row.name"
-                        class="pool-input"
+                        class="pool-input pool-ep-name"
                         :disabled="!editable"
                         placeholder="接入点名称"
                         spellcheck="false"
@@ -138,20 +131,23 @@
                       />
                       <input
                         v-model="row.base_url"
-                        class="pool-input pool-input--mono"
+                        class="pool-input pool-input--mono pool-ep-url"
                         :disabled="!editable"
                         placeholder="https://…/compatible-mode/v1"
                         spellcheck="false"
                         @input="writePool"
                       />
-                      <label class="pool-enable">
-                        <input
-                          type="checkbox"
-                          :checked="row.enabled"
-                          :disabled="!editable"
-                          @change="row.enabled = ($event.target as HTMLInputElement).checked; writePool()"
-                        />
-                        启用
+                      <label class="switch-label pool-enable">
+                        <span class="switch">
+                          <input
+                            type="checkbox"
+                            :checked="row.enabled"
+                            :disabled="!editable"
+                            @change="row.enabled = ($event.target as HTMLInputElement).checked; writePool()"
+                          />
+                          <span class="track" />
+                        </span>
+                        <span class="switch-state">{{ row.enabled ? "启用" : "停用" }}</span>
                       </label>
                       <button
                         class="pool-test"
@@ -179,7 +175,7 @@
                         ×
                       </button>
                     </div>
-                    <div class="pool-key-row">
+                    <div class="pool-ep-key">
                       <span class="pool-key-label">API 密钥</span>
                       <input
                         v-model="row.keyDraft"
@@ -211,6 +207,7 @@
                           撤销
                         </button>
                       </span>
+                      <span class="pool-key-note">加密存储 · 不可回读</span>
                     </div>
                     <div class="pool-models">
                       <div class="pool-model-head" aria-hidden="true">
@@ -286,20 +283,67 @@
                       </button>
                     </div>
                   </div>
-                  <button
-                    class="endpoint-add pool-ep-add"
-                    type="button"
-                    :disabled="!editable"
-                    @click="addPoolEndpoint"
-                  >
-                    ＋ 添加接入点
-                  </button>
+                </div>
+
+                <button
+                  class="endpoint-add pool-ep-add"
+                  type="button"
+                  :disabled="!editable"
+                  @click="addPoolEndpoint"
+                >
+                  ＋ 添加接入点
+                </button>
+
+                <div class="pool-foot">
                   <p v-if="formErrors[POOL_FIELD]" class="field-error">{{ formErrors[POOL_FIELD] }}</p>
+                  <template v-if="field.source === 'db'">
+                    <button
+                      v-if="!cleared[activeCategory][POOL_FIELD]"
+                      class="clear-link"
+                      type="button"
+                      :disabled="!editable"
+                      @click="cleared[activeCategory][POOL_FIELD] = true"
+                    >
+                      清空模型池（回退标量配置）
+                    </button>
+                    <span v-else class="cleared-chip">
+                      保存后清空模型池，回退标量配置
+                      <button
+                        class="clear-link"
+                        type="button"
+                        :disabled="!editable"
+                        @click="cleared[activeCategory][POOL_FIELD] = false"
+                      >
+                        撤销
+                      </button>
+                    </span>
+                  </template>
                 </div>
-                <div v-else-if="field.name === KEYS_FIELD" class="pool-keys-hint">
-                  密钥在上方各接入点行内编辑；此处展示总改动状态。密钥加密存储，保存后不可回读。
+              </div>
+              <div
+                v-else-if="field.name !== KEYS_FIELD"
+                class="field-row"
+                :class="{
+                  stacked: field.name === ENDPOINTS_FIELD,
+                  dirty: isFieldDirty(field.name),
+                  error: formErrors[field.name],
+                }"
+              >
+                <div class="field-info">
+                  <div class="field-title">
+                    <span class="field-name">{{ fieldDisplayName(field) }}</span>
+                    <span v-if="isFieldDirty(field.name)" class="badge badge-dirty">已修改</span>
+                    <span v-else-if="field.effect === 'restart'" class="badge badge-restart">需重启</span>
+                    <span v-else-if="field.effect === 'rebuild'" class="badge badge-rebuild">保存后重建</span>
+                  </div>
+                  <div class="field-meta">
+                    <code>{{ field.env_name }}</code>
+                    <span v-if="field.source === 'db'" class="badge badge-db">数据库</span>
+                  </div>
+                  <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
                 </div>
-                <div v-else-if="field.name === ENDPOINTS_FIELD" class="endpoint-editor">
+                <div class="field-control">
+                  <div v-if="field.name === ENDPOINTS_FIELD" class="endpoint-editor">
                   <div class="endpoint-head" aria-hidden="true">
                     <span>插件名称</span>
                     <span>端点地址</span>
@@ -409,7 +453,8 @@
                 </div>
                 <p v-if="formErrors[field.name]" class="field-error">{{ formErrors[field.name] }}</p>
               </div>
-            </div>
+              </div>
+            </template>
           </section>
 
           <section v-if="activeCategory === 'web'" class="group-card danger-zone">
@@ -1774,32 +1819,55 @@ onMounted(load);
 }
 
 /* ---- Model pool editor ----
-   Same table-like idiom as the plugin endpoint editor: bordered container,
-   borderless inputs, dashed add footers — plus one nested model block per
-   endpoint and a default-model select on top. */
-.pool-editor {
-  max-width: 720px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  overflow: hidden;
+   One dedicated surface replacing two raw settings rows: a status topbar
+   (badges + one-line description left, default model right), bordered
+   endpoint sub-cards (header row / key row / model table), and a quiet
+   footer for validation + the clear action. */
+.pool-row {
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.pool-default-row {
+.pool-row + .field-row,
+.field-row + .pool-row {
+  border-top: 1px solid var(--chat-border);
+}
+.pool-row.error .pool-default-select {
+  border-color: var(--err);
+}
+.pool-topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--chat-border);
-  background: var(--chat-bg-hover);
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.pool-topbar-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.pool-lede {
+  font-size: 13px;
+  color: var(--chat-text-tertiary);
+}
+.pool-topbar-default {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .pool-default-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--chat-text-secondary);
+  white-space: nowrap;
 }
 .pool-default-select {
-  flex: 1;
-  max-width: 320px;
-  padding: 5px 8px;
+  max-width: 340px;
+  padding: 6px 10px;
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-card);
@@ -1813,33 +1881,45 @@ onMounted(load);
 .pool-default-select:disabled {
   opacity: 0.55;
 }
-.pool-endpoint {
-  padding: 0 12px;
+.pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.pool-endpoint + .pool-endpoint {
-  border-top: 1px solid var(--chat-border);
+.pool-endpoint-card {
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  background: var(--chat-bg-card);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--chat-shadow);
 }
-.pool-endpoint:hover {
-  background: var(--chat-bg-hover);
-}
-.pool-endpoint.off .pool-input {
+.pool-endpoint-card.off .pool-ep-name,
+.pool-endpoint-card.off .pool-ep-url,
+.pool-endpoint-card.off .pool-model-row .pool-input {
   opacity: 0.5;
 }
-.pool-ep-row {
+.pool-ep-head {
   display: grid;
-  grid-template-columns: 150px 1fr auto auto auto 28px;
+  grid-template-columns: minmax(110px, 180px) 1fr auto auto auto 28px;
   gap: 8px;
   align-items: center;
-  padding-top: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--chat-border);
+}
+.pool-ep-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
+}
+.pool-ep-url {
+  font-size: 12.5px;
+  color: var(--chat-text-secondary);
 }
 .pool-enable {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--chat-text-secondary);
-  white-space: nowrap;
-  cursor: pointer;
+  flex-shrink: 0;
 }
 .pool-test {
   height: 26px;
@@ -1870,11 +1950,10 @@ onMounted(load);
 .pool-test-result.fail {
   color: var(--err);
 }
-.pool-key-row {
+.pool-ep-key {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 0 4px;
 }
 .pool-key-label {
   width: 60px;
@@ -1882,13 +1961,24 @@ onMounted(load);
   font-size: 12px;
   color: var(--chat-text-secondary);
 }
-.pool-key-row .pool-input {
+.pool-ep-key .pool-input {
   max-width: 300px;
   padding: 5px 0;
 }
+.pool-key-note {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--chat-text-tertiary);
+  white-space: nowrap;
+}
+.pool-ep-key .clear-link {
+  white-space: nowrap;
+}
 .pool-models {
-  border-top: 1px dashed var(--chat-border);
-  padding-bottom: 4px;
+  border: 1px dashed var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  padding: 4px 10px 6px;
+  background: var(--chat-bg-body);
 }
 .pool-model-head,
 .pool-model-row {
@@ -1928,13 +2018,14 @@ onMounted(load);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12.5px;
 }
-.pool-keys-hint {
-  font-size: 12px;
-  color: var(--chat-text-tertiary);
-  line-height: 1.6;
-}
 .pool-ep-add {
   border-top: 1px dashed var(--chat-border);
+}
+.pool-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 18px;
 }
 @media (max-width: 768px) {
   .pool-model-head {
@@ -1943,8 +2034,11 @@ onMounted(load);
   .pool-model-row {
     grid-template-columns: 1fr 1fr 28px;
   }
-  .pool-ep-row {
+  .pool-ep-head {
     grid-template-columns: 1fr 1fr 28px;
+  }
+  .pool-key-note {
+    display: none;
   }
 }
 
