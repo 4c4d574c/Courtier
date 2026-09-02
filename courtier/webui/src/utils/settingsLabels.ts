@@ -137,15 +137,30 @@ interface GroupSpec {
 }
 
 /**
+ * Fields removed from the admin UI on purpose — their values stay in the
+ * DB / env and keep working, they just have no editable row.
+ *
+ * LLM 接入的端点三件套：模型池启用后对聊天链不再生效（仅作池清空时的
+ * 兜底、升级播种源、embedding 回退端点），展示出来只会和模型池形成
+ * "两个模型配置入口"的混淆。改值走 env 覆盖或直接改库。
+ */
+export const HIDDEN_SETTING_FIELDS: ReadonlySet<string> = new Set([
+  "llm_base_url",
+  "llm_api_key",
+  "llm_model",
+]);
+
+/**
  * Ordered sub-groups per category. Unknown fields land in a trailing
- * "其他" group so newly added backend fields are never dropped.
+ * "其他" group so newly added backend fields are never dropped (hidden
+ * fields are the one explicit exception — filtered before grouping).
  */
 const CATEGORY_GROUPS: Record<string, GroupSpec[]> = {
   model: [
     // Pool first: exact names must win over the broad "llm_" prefix below.
     { key: "pool", label: "模型池", names: ["llm_model_pool", "llm_endpoint_keys"] },
     { key: "embedding", label: "Embedding 向量", prefixes: ["llm_embedding_"] },
-    { key: "llm", label: "LLM 接入", prefixes: ["llm_"] },
+    { key: "llm", label: "全局默认参数", prefixes: ["llm_"] },
     { key: "context", label: "上下文管理", prefixes: ["context_"] },
   ],
   retrieval: [
@@ -188,6 +203,7 @@ export function groupCategoryFields<F extends LabeledField>(
   const other: SettingsGroup<F> = { key: "other", label: "其他", fields: [] };
 
   for (const field of fields) {
+    if (HIDDEN_SETTING_FIELDS.has(field.name)) continue;
     const spec = matchGroup(specs, field.name);
     const group = spec ? groups.get(spec.key) : null;
     (group ?? other).fields.push(field);

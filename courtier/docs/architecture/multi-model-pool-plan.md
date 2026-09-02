@@ -177,6 +177,9 @@ Settings 新字段（`llm_` 前缀自动归 `model` 类、hot、进入 admin 面
   下沉为每个模型条目的**高级参数**——PoolModelConfig 扩展四字段（None=全局默认）、ModelProfile/
   build_model_client 透传覆盖、前端"高级"按钮按模型展开面板，留空回退全局默认。提交 `6fa10ab`
   （密钥行提示）、高级参数提交见后续。
+- 2026-09-02（追加 2）：「LLM 接入」组端点三件套（llm_base_url/api_key/model）从设置 UI 隐藏
+  （HIDDEN_SETTING_FIELDS 过滤，DB/env 值保留仍生效：池清空兜底、播种源、embedding 回退）；
+  该组更名「全局默认参数」——采样/超时/惩罚/extra_body 的全局默认值来源，即每模型高级参数的回退。
 - 实施偏差（均已在对应提交中实现并测试）：
   1. 播种门控比计划更严：需 `store.codec` 可用（无加密密钥时跳过播种保持标量行为），
      并以 `key_has_history`（审计表存在性）保证严格一次性——admin 清空池后重启不会重新播种。

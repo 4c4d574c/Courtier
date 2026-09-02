@@ -211,19 +211,28 @@ try {
     value: null, type: "string", env_name: name.toUpperCase(), description: "",
   });
   {
+    // 端点三件套（llm_base_url/llm_api_key/llm_model）在 HIDDEN_SETTING_FIELDS
+    // 中被显式排除：模型池启用后它们对聊天链不再生效，仅作兜底。
     const modelFields = [
-      "llm_model", "llm_api_key", "llm_embedding_model", "llm_embedding_dim",
-      "context_budget_ratio", "context_preview_max_chars",
+      "llm_model", "llm_api_key", "llm_temperature", "llm_embedding_model",
+      "llm_embedding_dim", "context_budget_ratio", "context_preview_max_chars",
     ].map((name) => mkField(name, "model"));
     const groups = groupCategoryFields("model", modelFields);
     assert.deepEqual(
       groups.map((g) => g.key),
-      ["embedding", "llm", "context"],
+      ["pool", "embedding", "llm", "context"].filter((k) => k !== "pool"),
       "llm_embedding_ must win over the shorter llm_ prefix (first match)",
     );
     const total = groups.reduce((n, g) => n + g.fields.length, 0);
-    assert.equal(total, modelFields.length, "every field must land in exactly one group");
-    assert.equal(groups.find((g) => g.key === "llm").fields.some((f) => f.name === "llm_model"), true);
+    assert.equal(
+      total,
+      modelFields.length - 2,
+      "hidden endpoint fields are excluded; every other field lands in exactly one group",
+    );
+    const llmGroup = groups.find((g) => g.key === "llm");
+    assert.equal(llmGroup.fields.some((f) => f.name === "llm_temperature"), true);
+    assert.equal(llmGroup.fields.some((f) => f.name === "llm_model"), false);
+    assert.equal(llmGroup.label, "全局默认参数");
   }
   {
     // Unknown category and unknown names both land in a trailing 其他 group.
