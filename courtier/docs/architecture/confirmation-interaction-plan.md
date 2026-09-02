@@ -85,4 +85,5 @@
   - 持久化偏差：`SessionRecord.approved_tools` 走 **JSON 文件存储，无需 Alembic 迁移**（方案按 DB 表假设，侦察结论修正——会话本就存 JSON 文件）。
   - API：`POST /api/sessions/{id}/confirmations/{cid}`（owner-only、幂等、approve_session 合并持久化）+ 会话详情 `pendingConfirmations`（重连恢复）。
   - webui：ConfirmationCard 三按钮（仅本次/本会话放行/拒绝）挂 ChatArea 与输入区之间；乐观撤卡失败回滚；详情预填 + 事件重放双保险。
-  - **偏差：NotificationHub 推送未实现**（v1：确认只关乎当前会话标签页——SSE 重放 + 详情字段已覆盖，侧栏徽标挂起期间保持 running）；批量确认按计划逐个串行。
+  - 批量确认按计划逐个串行。
+  - 2026-09-02 追加（用户定案）：**跨标签页提醒已实现**（e61c028）——挂起/恢复把挂起数经 NotificationHub 推送（`run_status` 载荷新增 `pendingConfirmations`），会话列表 overlay 同名字段（新开页/刷新亦可见），历史会话行显示琥珀色「待确认」徽标；裁决后归零自动熄灭。
