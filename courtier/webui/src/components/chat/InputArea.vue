@@ -43,7 +43,37 @@
           </svg>
         </button>
         <div class="input-card-toolbar-right">
-          <span v-if="modelName" class="input-area-model">{{ MESSAGES.CHAT_MODEL }}: {{ modelName }}</span>
+          <div v-if="pool.endpoints.value.length" class="model-select-wrap">
+            <button
+              class="model-select-trigger"
+              type="button"
+              :disabled="isRunning"
+              :title="MESSAGES.CHAT_MODEL"
+              @click.stop="modelMenuOpen = !modelMenuOpen"
+            >
+              {{ displayModelName }}
+              <svg class="model-caret" :class="{ open: modelMenuOpen }" viewBox="0 0 10 6" fill="currentColor">
+                <path d="M0 0h10L5 6z" />
+              </svg>
+            </button>
+            <div v-if="modelMenuOpen" class="model-menu" @click.stop>
+              <template v-for="group in pool.endpoints.value" :key="group.endpointId">
+                <div class="model-menu-group">{{ group.endpointName }}</div>
+                <button
+                  v-for="m in group.models"
+                  :key="m.id"
+                  class="model-menu-item"
+                  :class="{ active: m.id === pool.selectedModelId.value }"
+                  type="button"
+                  @click="chooseModel(m.id)"
+                >
+                  <span>{{ m.name }}</span>
+                  <span v-if="m.id === pool.defaultModelId.value" class="model-menu-default">默认</span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <span v-else-if="modelName" class="input-area-model">{{ MESSAGES.CHAT_MODEL }}: {{ modelName }}</span>
           <button
             class="input-area-send"
             type="button"
@@ -67,9 +97,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { ALLOWED_EXTS, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } from "../../constants/fileUpload";
 import { MESSAGES } from "../../constants/messages";
+import { useModelPool } from "../../composables/useModelPool";
 
 interface Props {
   modelName?: string;
@@ -83,6 +114,29 @@ const emit = defineEmits<{
   submit: [task: string, file?: File];
   stop: [];
 }>();
+
+const pool = useModelPool();
+const modelMenuOpen = ref(false);
+
+// 池存在时展示所选模型，否则退回会话最近运行的模型名（标量模式）。
+const displayModelName = computed(
+  () => pool.modelName.value || props.modelName || "",
+);
+
+onMounted(() => {
+  pool.loadModels();
+  document.addEventListener("click", closeModelMenu);
+});
+onBeforeUnmount(() => document.removeEventListener("click", closeModelMenu));
+
+function closeModelMenu() {
+  modelMenuOpen.value = false;
+}
+
+function chooseModel(id: string) {
+  pool.selectModel(id);
+  modelMenuOpen.value = false;
+}
 
 const task = ref("");
 const fileError = ref("");
@@ -273,6 +327,105 @@ function clearFile() {
   .input-area-model {
     display: inline;
   }
+}
+
+/* Model pool selector: trigger + upward popover (input area sits at the
+   viewport bottom, so the menu must open above). */
+.model-select-wrap {
+  position: relative;
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .model-select-wrap {
+    display: block;
+  }
+}
+
+.model-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    color 150ms,
+    border-color 150ms;
+}
+.model-select-trigger:hover:not(:disabled) {
+  color: var(--chat-text-primary);
+  border-color: var(--chat-accent);
+}
+.model-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.model-caret {
+  width: 8px;
+  height: 5px;
+  flex-shrink: 0;
+  transition: transform 150ms;
+}
+.model-caret.open {
+  transform: rotate(180deg);
+}
+.model-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  min-width: 220px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: var(--chat-shadow);
+  z-index: 30;
+}
+.model-menu-group {
+  padding: 6px 8px 3px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--chat-text-tertiary);
+}
+.model-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--chat-radius-sm);
+  background: transparent;
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.model-menu-item:hover {
+  background: var(--chat-bg-hover);
+}
+.model-menu-item.active {
+  color: var(--chat-accent);
+  background: var(--chat-accent-soft);
+}
+.model-menu-default {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
 }
 
 /* Right cluster: model label immediately left of the send button. */

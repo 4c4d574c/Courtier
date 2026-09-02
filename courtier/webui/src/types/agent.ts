@@ -171,6 +171,8 @@ export interface Session {
   id: string
   task: string
   modelName: string
+  /** 模型池条目 id：会话最近一次运行所用（选择器预选用；空 = 标量模型） */
+  lastModelId?: string
   status: 'running' | 'paused' | 'completed' | 'error' | 'queued' | 'interrupted'
   errorMessage?: string
   stopReason?: 'user'
@@ -255,6 +257,8 @@ export interface RuntimeEvent {
   hintType?: string
   text?: string
   model?: string
+  /** model_selected: 池条目 id（空 = 标量模型） */
+  modelId?: string
   backend?: string
   strategy?: string
   status?: string
@@ -323,6 +327,8 @@ export interface AgentEvent {
   reason?: string
   hintType?: string
   model?: string
+  /** model_selected: 池条目 id（空 = 标量模型） */
+  modelId?: string
   backend?: string
   strategy?: string
   terminationReason?: string

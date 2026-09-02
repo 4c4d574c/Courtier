@@ -17,7 +17,13 @@ export function handleRuntimeEvent(
       pushRuntimeEvent(session, "hintEvents", event);
       break;
     }
-    case "model_selected":
+    case "model_selected": {
+      pushRuntimeEvent(session, "modelEvents", event);
+      // 每次运行广播实际所用模型 — 输入区展示随切换实时更新。
+      if (event.model) session.modelName = event.model;
+      session.lastModelId = event.modelId || "";
+      break;
+    }
     case "model_fallback": {
       pushRuntimeEvent(session, "modelEvents", event);
       break;

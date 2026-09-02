@@ -3,6 +3,7 @@ import type { Session, Step, Turn } from "../types/agent";
 import type { AgentEvent } from "../types/agent";
 import { api } from "../api/client";
 import { MESSAGES } from "../constants/messages";
+import { useModelPool } from "./useModelPool";
 import {
   createSessionEventHandlers,
   type MutableState,
@@ -28,6 +29,7 @@ export function useAgentSession() {
     id: "",
     task: "",
     modelName: "",
+    lastModelId: "",
     status: "completed",
     turns: [],
     steps: [],
@@ -259,6 +261,7 @@ export function useAgentSession() {
         fileId: fileId || undefined,
         sessionId: currentSessionId.value || undefined,
         editTurn,
+        modelId: useModelPool().selectedModelId.value || undefined,
       })
       .then((es: EventSource) => {
         if (generation !== connectGeneration) {
@@ -316,6 +319,9 @@ export function useAgentSession() {
     session.id = loaded.id || "";
     session.task = loaded.task || "";
     session.modelName = loaded.modelName || "";
+    session.lastModelId = loaded.lastModelId || "";
+    // Per-session provenance: preselect the model this session last used.
+    useModelPool().preselectModel(loaded.lastModelId);
     session.status = loaded.status || "completed";
     session.turns = loaded.turns || [];
     session.steps = loaded.steps || [];

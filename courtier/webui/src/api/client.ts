@@ -413,6 +413,7 @@ export const api = {
     fileId?: string;
     sessionId?: string;
     editTurn?: number;
+    modelId?: string;
   }): Promise<EventSource> {
     // SSE authenticates via the httpOnly access_token cookie set at login —
     // EventSource cannot set an Authorization header, and a ?token= query
@@ -424,8 +425,23 @@ export const api = {
       sessionId: params.sessionId,
       editTurn:
         params.editTurn !== undefined ? String(params.editTurn) : undefined,
+      modelId: params.modelId || undefined,
     })}`;
     return new EventSource(url, { withCredentials: true });
+  },
+
+  /** Model pool public view for the selector (no endpoint internals). */
+  async getModels(): Promise<{
+    endpoints: Array<{
+      endpointId: string;
+      endpointName: string;
+      models: Array<{ id: string; name: string }>;
+    }>;
+    defaultModelId: string;
+  }> {
+    const res = await authFetch(`${API_BASE}/models`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /models failed");
+    return res.json();
   },
 
   /**
