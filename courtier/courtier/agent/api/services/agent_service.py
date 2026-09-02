@@ -310,6 +310,7 @@ async def build_agent(
     from courtier.config import CourtierConfig
 
     from ...agents.orch import OrchestratorAgent
+    from ...core.capability import CapabilityRegistry
     from ...core.guardrails import GuardrailSystem, PathPolicyGuard, ToolDisabledGuard
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
@@ -354,11 +355,17 @@ async def build_agent(
     )
     # Session guardrail system: stateless permission guards shared by the
     # orchestrator and every spawned sub-agent (loop guards stay per-run —
-    # agent_loop registers its own fresh instances).
+    # agent_loop registers its own fresh instances). The capability registry
+    # is shared too, so a meta["permission"] declaration steers the path
+    # policy the same way for every agent in the session.
+    capability_registry = CapabilityRegistry(tool_registry=session_registry)
     session_guardrails = GuardrailSystem(tool_mode="block", tool_call_mode="block")
     session_guardrails.register(ToolDisabledGuard())
     session_guardrails.register(
-        PathPolicyGuard(allowed_roots=[memory_home, session_workspace])
+        PathPolicyGuard(
+            allowed_roots=[memory_home, session_workspace],
+            capability_registry=capability_registry,
+        )
     )
 
     agent_runtime = AgentRuntime(
@@ -370,6 +377,7 @@ async def build_agent(
         cache_dir=settings.cache_dir,
         prompt_engine=prompt_engine,
         guardrail_system=session_guardrails,
+        capability_registry=capability_registry,
     )
 
     # Live catalog: domain descriptions + current skill list (mtime-cached),

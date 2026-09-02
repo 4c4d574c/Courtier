@@ -151,3 +151,64 @@ class TestPathPolicy:
         assert (
             await guard.check_call(_call("get_artifact", id="$ref:tool:1"), _ctx())
         ).action == "allow"
+
+
+class TestCapabilityDeclaredPolicy:
+    """meta["permission"]["path_policy"] 声明优先，未声明回退默认名单。"""
+
+    def _registry(self):
+        from courtier.agent.core.capability import Capability, CapabilityRegistry
+
+        registry = CapabilityRegistry()
+        registry.register(
+            Capability(
+                type="tool",
+                name="archive_dump",
+                meta={"permission": {"path_policy": True}},
+            )
+        )
+        registry.register(
+            Capability(
+                type="tool",
+                name="read",
+                meta={"permission": {"path_policy": False}},
+            )
+        )
+        return registry
+
+    @pytest.mark.asyncio
+    async def test_declared_opt_in_denies_custom_tool(self, roots):
+        allowlist, _, _ = roots
+        guard = PathPolicyGuard(
+            allowed_roots=allowlist, capability_registry=self._registry()
+        )
+        result = await guard.check_call(
+            _call("archive_dump", path="/etc/passwd"), _ctx()
+        )
+        assert result.action == "deny"
+
+    @pytest.mark.asyncio
+    async def test_declared_opt_out_overrides_default_list(self, roots):
+        allowlist, _, _ = roots
+        guard = PathPolicyGuard(
+            allowed_roots=allowlist, capability_registry=self._registry()
+        )
+        result = await guard.check_call(_call("read", path="/etc/passwd"), _ctx())
+        assert result.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_undeclared_tool_falls_back_to_default_list(self, roots):
+        allowlist, _, _ = roots
+        guard = PathPolicyGuard(
+            allowed_roots=allowlist, capability_registry=self._registry()
+        )
+        # "edit" has no capability declaration -> legacy list applies.
+        result = await guard.check_call(_call("edit", path="/etc/passwd"), _ctx())
+        assert result.action == "deny"
+
+    @pytest.mark.asyncio
+    async def test_without_registry_fallback_list_unchanged(self, roots):
+        allowlist, _, _ = roots
+        guard = PathPolicyGuard(allowed_roots=allowlist)
+        assert (await guard.check_call(_call("read", path="/etc/passwd"), _ctx())).action == "deny"
+        assert (await guard.check_call(_call("echo", text="x"), _ctx())).action == "allow"

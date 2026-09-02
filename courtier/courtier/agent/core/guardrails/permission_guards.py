@@ -44,6 +44,12 @@ class ToolDisabledGuard:
 class PathPolicyGuard:
     """Parameter-level rule: file-tool paths must resolve inside the roots.
 
+    Which tools the policy applies to: an explicit capability declaration
+    (``Capability.meta["permission"]["path_policy"]``) wins when present —
+    including an explicit ``False`` opt-out for a default-list tool;
+    otherwise the tool must be on ``path_policy_tools`` (the legacy
+    read/edit/write list).
+
     Inactive when no roots are configured (allow-all, preserving legacy
     behavior). Path resolution exceptions are fail-closed: deny.
     """
@@ -55,16 +61,27 @@ class PathPolicyGuard:
         self,
         allowed_roots: Sequence[str | Path] | None = None,
         path_policy_tools: Sequence[str] = DEFAULT_PATH_POLICY_TOOLS,
+        capability_registry: Any | None = None,
     ) -> None:
         self._path_tools = frozenset(path_policy_tools)
+        self._capabilities = capability_registry
         self._roots = (
             [Path(root).expanduser().resolve() for root in allowed_roots]
             if allowed_roots
             else []
         )
 
+    def _policy_applies(self, tool_name: str) -> bool:
+        if self._capabilities is not None:
+            capability = self._capabilities.get("tool", tool_name)
+            if capability is not None and isinstance(
+                capability.meta.get("permission"), dict
+            ):
+                return bool(capability.meta["permission"].get("path_policy", False))
+        return tool_name in self._path_tools
+
     async def check_call(self, call: "ToolCall", context: Any) -> CallGuardResult:
-        if not self._roots or call.name not in self._path_tools:
+        if not self._roots or not self._policy_applies(call.name):
             return CallGuardResult.allow(self.name)
         denial = self._check_path(call.name, (call.arguments or {}).get("path"))
         if denial is None:
