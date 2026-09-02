@@ -36,6 +36,7 @@ errors:
   guard_consecutive_exploratory: "连续 {{ count }} 次探索性工具调用（list_artifacts/get_artifact）而无业务产出"
   guard_no_artifact_progress: "连续 {{ turns }} 轮未产生新的业务工件"
   guard_tool_blocked: "工具 {{ tool_name }} 已被安全策略拦截：{{ cause }}"
+  guard_call_failed: "权限检查器 {{ guard_name }} 异常，该调用已按拒绝处理"
   subagent_failed: "子代理执行失败：{{ error }}"
   # —— 插件通道 ——
   plugin_arg_path_escape: "参数 {{ param_name }} 的路径越出上传目录，已拒绝: {{ value }}"

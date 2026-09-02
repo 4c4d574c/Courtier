@@ -81,6 +81,7 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.guard_consecutive_exploratory",
         "errors.guard_no_artifact_progress",
         "errors.guard_tool_blocked",
+        "errors.guard_call_failed",
         "errors.plugin_arg_path_escape",
         "errors.plugin_arg_file_missing",
         "errors.plugin_file_transfer_failed",
@@ -265,6 +266,9 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     ),
     "errors.guard_no_artifact_progress": ("{{ turns }} turns without new business artifacts"),
     "errors.guard_tool_blocked": ("Tool {{ tool_name }} is blocked by policy: {{ cause }}"),
+    "errors.guard_call_failed": (
+        "Call guard {{ guard_name }} failed — the call was denied as a precaution"
+    ),
     "errors.subagent_failed": ("Sub-agent execution failed: {{ error }}\n"),
     "errors.plugin_arg_path_escape": (
         "Argument {{ param_name }} escapes the upload directory and was " "rejected: {{ value }}\n"
