@@ -81,6 +81,9 @@ class AgentRuntime:
     #: sub-agents — without it they would default to an allow-all gate and
     #: bypass the parent's file-path boundaries.
     permissions: Any | None = None
+    #: Session guardrail system (permission guards) inherited by spawned
+    #: sub-agents so the parent's file-path boundaries hold for them too.
+    guardrail_system: Any | None = None
     #: Prompt engine shared with spawned sub-agents so they render the same
     #: behavioral rules / reminders from the YAML bundles as the orchestrator
     #: (instead of hardcoded fallbacks).  ``None`` lets Agent pick its default.
@@ -521,6 +524,7 @@ class AgentRuntime:
             agent_name=self._skill_display_name(config.name) or "",
             prompt_engine=self.prompt_engine,
             permissions=self.permissions,
+            guardrail_system=self.guardrail_system,
         )
         # Sync summarizer / result_store from the runtime's shared registry
         # so large tool results are summarised before entering the sub-agent's

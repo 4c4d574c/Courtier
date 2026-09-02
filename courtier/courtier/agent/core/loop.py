@@ -1137,173 +1137,182 @@ async def agent_loop(
         agent_name=agent_name,
     )
 
-    # Default guardrail system includes migrated loop guards. Callers can supply
-    # their own GuardrailSystem to override or extend checks.
+    # Callers can supply a session GuardrailSystem (see build_agent) with
+    # permission guards; loop guards are registered per-run below either way.
     if guardrail_system is None:
         guardrail_system = GuardrailSystem(tool_mode="block")
-        guardrail_system.register(ExploreLoopGuard())
-        guardrail_system.register(BusinessArtifactProgressGuard())
     guardrail_system.on_event = _on_guardrail_event
 
-    with tracer.agent_span(agent_name, session_id=session_id, task=_task):
-        # Provide session-level context to hook handlers.
-        if hooks:
-            hooks.set_context(agent_name=agent_name, session_id=session_id)
-        current_state = state
-        recent_reasoning: list[str] = []
-        # Accumulate token usage for the agent span
-        total_prompt_tokens = 0
-        total_completion_tokens = 0
-        # Track consecutive exploratory (read-only) tool calls for hint injection
-        # and terminal-tool detection. The ExploreLoopGuard itself tracks null
-        # results and repeated calls; we mirror the exploratory count here.
-        consecutive_exploratory: int = 0
-        # Cross-phase citation numbering: one running offset per agent_loop
-        # run (= one turn), mutated in place by _annotate_search_citations.
-        citation_offset: list[int] = [0]
-        # Mirror counter for emitted tool.result events: lets the frontend
-        # build an absolute [[n]] → hit map without relying on event order.
-        # Same math as the annotation (successful search results, citable
-        # hits capped at _CITATION_MAX_HITS, execution order).
-        emitted_citation_offset: list[int] = [0]
-        # Reset ToolRuntimePolicy per-run counters
-        if tool_registry is not None:
-            tool_registry.reset_run_state()
+    # Loop guards are stateful per run: fresh instances registered for the
+    # duration of this loop and unregistered afterwards, so a shared
+    # session system (built by build_agent) never mixes guard history
+    # across agents or nested sub-agent loops.
+    _run_guards = [ExploreLoopGuard(), BusinessArtifactProgressGuard()]
+    for _run_guard in _run_guards:
+        guardrail_system.register(_run_guard)
+    try:
+        with tracer.agent_span(agent_name, session_id=session_id, task=_task):
+            # Provide session-level context to hook handlers.
+            if hooks:
+                hooks.set_context(agent_name=agent_name, session_id=session_id)
+            current_state = state
+            recent_reasoning: list[str] = []
+            # Accumulate token usage for the agent span
+            total_prompt_tokens = 0
+            total_completion_tokens = 0
+            # Track consecutive exploratory (read-only) tool calls for hint injection
+            # and terminal-tool detection. The ExploreLoopGuard itself tracks null
+            # results and repeated calls; we mirror the exploratory count here.
+            consecutive_exploratory: int = 0
+            # Cross-phase citation numbering: one running offset per agent_loop
+            # run (= one turn), mutated in place by _annotate_search_citations.
+            citation_offset: list[int] = [0]
+            # Mirror counter for emitted tool.result events: lets the frontend
+            # build an absolute [[n]] → hit map without relying on event order.
+            # Same math as the annotation (successful search results, citable
+            # hits capped at _CITATION_MAX_HITS, execution order).
+            emitted_citation_offset: list[int] = [0]
+            # Reset ToolRuntimePolicy per-run counters
+            if tool_registry is not None:
+                tool_registry.reset_run_state()
 
-        # A turn is recorded into the conversation tree exactly once: by the
-        # tool phase right after its observation, or — when the loop ends
-        # right after a think phase (final text, model error, max_steps) —
-        # once at the tail below. Turns aborted before tool execution
-        # (blocked / guard-forced stops) are intentionally not recorded.
-        turn_pending_record = False
-        # The forced first tool call applies only to the first think of the
-        # run; it is cleared after that think regardless of the outcome.
-        pending_forced_call = forced_first_tool_call
-        try:
-            while not current_state.is_terminal():
-                # Mid-run pipeline mutations (e.g. domain activation overlaying
-                # workflow rules) must reach the model on the next turn: the
-                # system message is materialized once per run() otherwise, so
-                # an activation at turn N would stay invisible for the rest of
-                # the run.  Provider returns None while nothing changed.
-                if system_prompt_provider is not None:
-                    refreshed = system_prompt_provider()
-                    if (
-                        refreshed
-                        and current_state.messages
-                        and current_state.messages[0].role == "system"
-                        and current_state.messages[0].content != refreshed
-                    ):
-                        current_state = current_state.model_copy(
-                            update={
-                                "messages": (
-                                    Message(role="system", content=refreshed),
-                                    *current_state.messages[1:],
-                                )
-                            }
-                        )
-                think_outcome = await _run_think_phase(
-                    current_state=current_state,
-                    hooks=hooks,
-                    guardrail_system=guardrail_system,
-                    state_machine=state_machine,
-                    model=model,
-                    tool_registry=tool_registry,
-                    context_manager=context_manager,
-                    recent_reasoning=recent_reasoning,
-                    on_step=_on_step,
-                    on_token=_on_token,
-                    on_content_token=_on_content_token,
-                    _publish=_publish,
-                    tracer=tracer,
-                    audit_logger=audit_logger,
-                    agent_name=agent_name,
-                    forced_first_tool_call=pending_forced_call,
-                    pre_turn_reminder=pre_turn_reminder,
+            # A turn is recorded into the conversation tree exactly once: by the
+            # tool phase right after its observation, or — when the loop ends
+            # right after a think phase (final text, model error, max_steps) —
+            # once at the tail below. Turns aborted before tool execution
+            # (blocked / guard-forced stops) are intentionally not recorded.
+            turn_pending_record = False
+            # The forced first tool call applies only to the first think of the
+            # run; it is cleared after that think regardless of the outcome.
+            pending_forced_call = forced_first_tool_call
+            try:
+                while not current_state.is_terminal():
+                    # Mid-run pipeline mutations (e.g. domain activation overlaying
+                    # workflow rules) must reach the model on the next turn: the
+                    # system message is materialized once per run() otherwise, so
+                    # an activation at turn N would stay invisible for the rest of
+                    # the run.  Provider returns None while nothing changed.
+                    if system_prompt_provider is not None:
+                        refreshed = system_prompt_provider()
+                        if (
+                            refreshed
+                            and current_state.messages
+                            and current_state.messages[0].role == "system"
+                            and current_state.messages[0].content != refreshed
+                        ):
+                            current_state = current_state.model_copy(
+                                update={
+                                    "messages": (
+                                        Message(role="system", content=refreshed),
+                                        *current_state.messages[1:],
+                                    )
+                                }
+                            )
+                    think_outcome = await _run_think_phase(
+                        current_state=current_state,
+                        hooks=hooks,
+                        guardrail_system=guardrail_system,
+                        state_machine=state_machine,
+                        model=model,
+                        tool_registry=tool_registry,
+                        context_manager=context_manager,
+                        recent_reasoning=recent_reasoning,
+                        on_step=_on_step,
+                        on_token=_on_token,
+                        on_content_token=_on_content_token,
+                        _publish=_publish,
+                        tracer=tracer,
+                        audit_logger=audit_logger,
+                        agent_name=agent_name,
+                        forced_first_tool_call=pending_forced_call,
+                        pre_turn_reminder=pre_turn_reminder,
+                    )
+                    pending_forced_call = None
+                    current_state = think_outcome.state
+                    total_prompt_tokens += think_outcome.prompt_tokens
+                    total_completion_tokens += think_outcome.completion_tokens
+                    turn_pending_record = True
+                    if think_outcome.break_loop:
+                        break
+
+                    tool_outcome = await _run_tool_phase(
+                        current_state=current_state,
+                        think=think_outcome.think,
+                        guardrail_system=guardrail_system,
+                        permissions=permissions,
+                        state_machine=state_machine,
+                        tool_registry=tool_registry,
+                        context_manager=context_manager,
+                        artifact_store=artifact_store,
+                        audit_logger=audit_logger,
+                        on_step=_on_step,
+                        on_tool_result=_on_tool_result,
+                        on_tool_start=_on_tool_start,
+                        on_tool_progress=_on_tool_progress,
+                        _publish=_publish,
+                        tracer=tracer,
+                        agent_name=agent_name,
+                        session_id=session_id,
+                        turn_index=think_outcome.turn_index,
+                        timestamp=think_outcome.timestamp,
+                        consecutive_exploratory=consecutive_exploratory,
+                        event_bus=event_bus,
+                        hooks=hooks,
+                        periodic_reminder=periodic_reminder,
+                        citation_offset=citation_offset,
+                    )
+                    current_state = tool_outcome.state
+                    consecutive_exploratory = tool_outcome.consecutive_exploratory
+                    turn_pending_record = False
+                    if tool_outcome.break_loop:
+                        break
+            except Exception as exc:
+                # Last-resort containment: an unexpected failure in any phase must
+                # still end in a terminal state, so the shared tail below publishes
+                # loop.completed, finalizes the audit log, and records metrics.
+                # CancelledError (BaseException) propagates untouched.
+                logger.exception("Agent loop failed unexpectedly")
+                current_state = await state_machine.transition_async(
+                    current_state,
+                    "error",
+                    render_error("errors.internal_error", message=str(exc)),
                 )
-                pending_forced_call = None
-                current_state = think_outcome.state
-                total_prompt_tokens += think_outcome.prompt_tokens
-                total_completion_tokens += think_outcome.completion_tokens
-                turn_pending_record = True
-                if think_outcome.break_loop:
-                    break
 
-                tool_outcome = await _run_tool_phase(
-                    current_state=current_state,
-                    think=think_outcome.think,
-                    guardrail_system=guardrail_system,
-                    permissions=permissions,
-                    state_machine=state_machine,
-                    tool_registry=tool_registry,
-                    context_manager=context_manager,
-                    artifact_store=artifact_store,
-                    audit_logger=audit_logger,
-                    on_step=_on_step,
-                    on_tool_result=_on_tool_result,
-                    on_tool_start=_on_tool_start,
-                    on_tool_progress=_on_tool_progress,
-                    _publish=_publish,
-                    tracer=tracer,
-                    agent_name=agent_name,
-                    session_id=session_id,
-                    turn_index=think_outcome.turn_index,
-                    timestamp=think_outcome.timestamp,
-                    consecutive_exploratory=consecutive_exploratory,
-                    event_bus=event_bus,
-                    hooks=hooks,
-                    periodic_reminder=periodic_reminder,
-                    citation_offset=citation_offset,
+            if turn_pending_record:
+                current_state = current_state.record_turn()
+
+            await _publish(
+                "loop.completed",
+                {
+                    "status": current_state.status,
+                    "termination_reason": current_state.termination_reason,
+                    "total_steps": current_state.current_step,
+                },
+            )
+
+            if audit_logger:
+                audit_logger.finalize(
+                    final_status=current_state.status,
+                    termination_reason=current_state.termination_reason,
                 )
-                current_state = tool_outcome.state
-                consecutive_exploratory = tool_outcome.consecutive_exploratory
-                turn_pending_record = False
-                if tool_outcome.break_loop:
-                    break
-        except Exception as exc:
-            # Last-resort containment: an unexpected failure in any phase must
-            # still end in a terminal state, so the shared tail below publishes
-            # loop.completed, finalizes the audit log, and records metrics.
-            # CancelledError (BaseException) propagates untouched.
-            logger.exception("Agent loop failed unexpectedly")
-            current_state = await state_machine.transition_async(
-                current_state,
-                "error",
-                render_error("errors.internal_error", message=str(exc)),
+
+            record_agent_request(
+                agent_name=agent_name,
+                status=current_state.status,
             )
+            # Set span attributes from accumulated state
+            agent_span = otel_trace.get_current_span()
+            if agent_span:
+                agent_span.set_attribute("agent.iterations", current_state.current_step)
+                agent_span.set_attribute("agent.final_status", current_state.status)
+                agent_span.set_attribute(
+                    "agent.total_tokens",
+                    total_prompt_tokens + total_completion_tokens,
+                )
+                agent_span.set_attribute("agent.input_tokens", total_prompt_tokens)
+                agent_span.set_attribute("agent.output_tokens", total_completion_tokens)
 
-        if turn_pending_record:
-            current_state = current_state.record_turn()
-
-        await _publish(
-            "loop.completed",
-            {
-                "status": current_state.status,
-                "termination_reason": current_state.termination_reason,
-                "total_steps": current_state.current_step,
-            },
-        )
-
-        if audit_logger:
-            audit_logger.finalize(
-                final_status=current_state.status,
-                termination_reason=current_state.termination_reason,
-            )
-
-        record_agent_request(
-            agent_name=agent_name,
-            status=current_state.status,
-        )
-        # Set span attributes from accumulated state
-        agent_span = otel_trace.get_current_span()
-        if agent_span:
-            agent_span.set_attribute("agent.iterations", current_state.current_step)
-            agent_span.set_attribute("agent.final_status", current_state.status)
-            agent_span.set_attribute(
-                "agent.total_tokens",
-                total_prompt_tokens + total_completion_tokens,
-            )
-            agent_span.set_attribute("agent.input_tokens", total_prompt_tokens)
-            agent_span.set_attribute("agent.output_tokens", total_completion_tokens)
-
-    return current_state
+        return current_state
+    finally:
+        for _run_guard in _run_guards:
+            guardrail_system.unregister(_run_guard)

@@ -290,6 +290,37 @@ class TestAgentLoop:
         assert any("不在允许范围内" in (m.content or "") for m in tool_msgs)
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_session_system_gets_loop_guards_and_permissions(self, tmp_path):
+        """Provided 会话系统：权限 guard 生效 + loop 护栏运行期注册/结束释放。"""
+        from courtier.agent.core.guardrails import GuardrailSystem, PathPolicyGuard
+        from courtier.agent.tools.builtin.file_tools import ReadTool
+
+        registry = ToolRegistry()
+        registry.register(ReadTool())
+
+        outside = tmp_path.parent / "outside-secret.txt"
+        tc = ToolCall(id="call_1", name="read", arguments={"path": str(outside)})
+        model = MockModelClient(tool_calls=[tc])
+
+        system = GuardrailSystem()
+        system.register(PathPolicyGuard(allowed_roots=[tmp_path / "memory"]))
+        names_before = [g.name for g in system.guardrails]
+
+        state = AgentState.initial(task="read the file")
+        final = await agent_loop(
+            state=state,
+            model=model,
+            tool_registry=registry,
+            guardrail_system=system,
+        )
+
+        assert final.status == "completed"
+        tool_msgs = [m for m in final.messages if m.role == "tool"]
+        assert any("不在允许范围内" in (m.content or "") for m in tool_msgs)
+        # Loop guards were registered for the run and released afterwards.
+        assert [g.name for g in system.guardrails] == names_before
+
     async def test_tool_execution_error(self):
         """When a tool raises, the result is success=False."""
 

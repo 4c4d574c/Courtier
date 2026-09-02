@@ -194,6 +194,7 @@ class Agent:
         backend: Any | None = None,
         hooks: HookChain | None = None,
         permissions: PermissionGate | None = None,
+        guardrail_system: Any | None = None,
         tool_registry: ToolRegistry | None = None,
         courtier_md_content: str | None = None,
         prompt_engine: PromptEngine | None = None,
@@ -231,6 +232,9 @@ class Agent:
             self.model = model
         self.hooks = hooks or HookChain()
         self.permissions = permissions or PermissionGate()
+        # Session guardrail system (permission guards); None lets agent_loop
+        # default-construct one (loop guards only, allow-all permissions).
+        self.guardrail_system = guardrail_system
 
         # Use provided shared registry as base, or create new one.
         # Plugin tools registered after agent construction are discovered
@@ -561,6 +565,7 @@ class Agent:
                 tool_registry=self.tool_registry,
                 hooks=self.hooks,
                 permissions=self.permissions,
+                guardrail_system=self.guardrail_system,
                 on_step=on_step,
                 on_token=on_token,
                 on_content_token=on_content_token,
