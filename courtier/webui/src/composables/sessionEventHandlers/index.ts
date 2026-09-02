@@ -25,6 +25,10 @@ import {
   handleConfirmationRequested,
   handleConfirmationResolved,
 } from "./handlers/confirmation";
+import {
+  handleThinkRetryEvent,
+  handleRefusalExhaustedEvent,
+} from "./handlers/thinkRetry";
 
 export { finalizeRunningOperations };
 export type { MutableState, HandlerDeps, DepsFn };
@@ -94,6 +98,14 @@ export function createSessionEventHandlers(deps: () => HandlerDeps) {
         const { session } = deps();
         session.queuePosition = undefined;
         handleCompletionEvent(deps, event);
+        break;
+      }
+      case "think_retry": {
+        handleThinkRetryEvent(deps, event);
+        break;
+      }
+      case "refusal_exhausted": {
+        handleRefusalExhaustedEvent(deps, event);
         break;
       }
       case "confirmation_requested": {

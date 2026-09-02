@@ -31,6 +31,9 @@
           @citation-click="$emit('citation-click', $event)"
           @edit-submit="$emit('edit-submit', $event)"
         />
+        <div v-if="session.refusalNotice" class="refusal-banner">
+          {{ session.refusalNotice }}
+        </div>
         <ConfirmationCard
           :items="session.pendingConfirmations ?? []"
           @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
@@ -135,5 +138,14 @@ defineEmits<{
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+.refusal-banner {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-md);
+  border-left: 3px solid #ef4444;
+  background: var(--chat-bg-card);
+  font-size: 14px;
+  color: var(--chat-text-secondary, inherit);
 }
 </style>
