@@ -180,12 +180,14 @@
                       </button>
                     </div>
                     <div class="pool-key-row">
+                      <span class="pool-key-label">API 密钥</span>
                       <input
                         v-model="row.keyDraft"
                         class="pool-input pool-input--mono"
                         type="password"
                         autocomplete="new-password"
                         :disabled="!editable"
+                        title="此接入点调用模型 API 用的密钥：加密存储，保存后不可回读（只显示是否已设置与尾号）；不需要鉴权的内网端点可留空"
                         :placeholder="keyPlaceholder(row)"
                         @input="row.keyRemove = false; writePoolKeys()"
                       />
@@ -746,7 +748,7 @@ function onPoolDefaultChange(event: Event) {
 function keyPlaceholder(row: PoolEndpointRow): string {
   if (row.keyRemove) return "将删除已存密钥";
   if (row.keySet) return `已配置（••••${row.keyTail}）— 留空保持不变`;
-  return "未设置";
+  return "未设置 · 可填 API Key，无需鉴权的端点留空";
 }
 
 function canTestEndpoint(row: PoolEndpointRow): boolean {
@@ -1873,6 +1875,12 @@ onMounted(load);
   align-items: center;
   gap: 10px;
   padding: 2px 0 4px;
+}
+.pool-key-label {
+  width: 60px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--chat-text-secondary);
 }
 .pool-key-row .pool-input {
   max-width: 300px;
