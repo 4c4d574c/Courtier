@@ -158,3 +158,30 @@ Settings 新字段（`llm_` 前缀自动归 `model` 类、hot、进入 admin 面
 ## 实施状态（滚动更新）
 
 - 2026-09-01：需求对齐完成（见对齐结论），方案成文，待批准后按 T1 起步。
+- 2026-09-02：T1-T8 全部落地，后端 `uv run pytest -m "not integration"` 1995 通过，
+  webui `npm run lint / test / build` 全绿。提交清单：
+  - T1 `504b675` feat(config): model pool config types and settings fields
+  - T2 `26a5b5a` feat(settings): model pool admin API surface and one-shot scalar migration
+  - T3 `49a7ba7` feat(agent): model profile resolution and per-profile model client
+  - T4 `0eaf02c` feat(sessions): per-run model selection with pool provenance and /api/models view
+  - T5 `4b5d367` feat(runtime): rerank follows the run's model profile; independent embedding endpoint keys
+  - T6 `3a214c7` feat(webui): admin model pool editor with per-endpoint key drafts and entry tests
+  - T7 `7e3e757` feat(webui): per-run model selector in the input area with session preselect
+- 2026-09-02：真机（只读）验证：`--reload` 服务器加载新代码后 `GET /api/models` 正常
+  （无 token 401、登录后返回公开视图）；升级播种已在本机 DB 自动发生（标量 deepseek
+  端点 → `ep_main/mdl_main`），且管理后台池编辑器已实测可用（第二个接入点经前端添加成功）。
+  **真实双端点 LLM 运行验收（切换模型跑真实任务、subagent/rerank 跟随核对）待用户执行**——
+  需要真实可用端点与密钥。
+- 实施偏差（均已在对应提交中实现并测试）：
+  1. 播种门控比计划更严：需 `store.codec` 可用（无加密密钥时跳过播种保持标量行为），
+     并以 `key_has_history`（审计表存在性）保证严格一次性——admin 清空池后重启不会重新播种。
+  2. 空池 + 显式 `modelId` 也报 400（计划表述未覆盖；静默忽略会"所答非所选"）。
+  3. `llm_endpoint_keys` 的前端脏检测用 formState 哨兵值驱动，保存时替换为真实条目级
+     ops（secret 不可回读，通用 changed-only 管线无法表达条目级合并）。
+  4. 接入点级"测试"按钮仅对**已保存且未修改**的接入点开放（走 endpointId 路径由服务端
+     取密钥）；未保存行密钥明文不在客户端，无法等价测试。
+  5. `tests/courtier/test_config.py` 会 `importlib.reload(courtier.config)`（仓库既有
+     惯例），BaseModel 字段是 Settings 中首个结构化字段，暴露了该缝隙——修复
+     `seed_from_env` 的比较/落库均走 `model_dump()` 归一（`_json_safe`）；
+     相关测试的 isinstance 改为 call-time import。
+  6. `test_changes_listed`（audit 顺序断言）按 key 过滤——迁移播种会写入自己的审计行。

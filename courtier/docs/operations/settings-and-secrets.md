@@ -55,3 +55,22 @@
 `COURTIER_PLUGIN_TOKEN` 是主进程与插件共享的通道密钥：主进程侧存数据库（设置页
 "插件"组），插件侧在各自 env。**修改任一侧必须同步另一侧**，否则全部插件 401 阻断
 （保存页有确认弹窗提示；保存后主进程自动断开重连）。
+
+
+## 模型池（多模型接入，2026-09-02）
+
+「模型与上下文」分组下的 **模型池** 子组维护两级结构：接入点（名称 / base_url / 启用）→ 模型
+（显示名 / 模型 ID / 可选窗口与采样覆盖）。存储为两个字段：
+
+- `llm_model_pool`（JSON，非敏感）：`{endpoints: [...], default_model_id}`，保存时经
+  pydantic `ModelPoolConfig` 校验（id 唯一、默认模型可解析且其接入点启用）。
+- `llm_endpoint_keys`（secret，整字段 Fernet 加密）：endpoint id → api key 映射。
+  服务端按条目遮蔽回读（`{set, tail}`）；PUT 为**条目级合并**（有值=覆盖、缺省=保留、
+  null=删除），前端密钥草稿不可回读故由服务端合并。
+
+运行选择：`GET /api/sessions/run?modelId=` 每次运行可换；缺省依次回退 会话上次所用 →
+池默认 → 标量 `llm_base_url/llm_api_key/llm_model`（池为空即完全旧行为）。聊天链
+（orchestrator / subagent / rerank）跟随所选档案；embedding 用独立的
+`llm_embedding_base_url / llm_embedding_api_key`（空值回退标量键），不进池。
+升级播种：DB 模式下池为空且标量可组端点时，一次性写入 `ep_main/mdl_main`
+（审计 actor=system-migrate；此后清空池不会被重新播种）。
