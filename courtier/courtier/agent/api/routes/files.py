@@ -1,13 +1,23 @@
-"""File upload route."""
+"""File upload/download routes."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse
+from fastapi import UploadFile
 
 from ..middleware.auth import get_current_user
 from ..rate_limiter import limiter
+from ..services.file_service import ALLOWED_MIME_TYPES
 
 router = APIRouter()
+
+
+def _media_type_for(name: str) -> str:
+    """First registered MIME for the extension; downloads fall back to octet-stream."""
+    ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    mimes = ALLOWED_MIME_TYPES.get(ext)
+    return next(iter(mimes)) if mimes else "application/octet-stream"
 
 
 @router.post("/files")
@@ -28,4 +38,35 @@ async def upload_file(
         settings,
         file_store,
         owner=current_user_payload.get("sub", ""),
+    )
+
+
+@router.get("/files/{file_id}")
+@limiter.limit("60/minute")
+async def download_file(
+    request: Request,
+    file_id: str,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Serve a previously uploaded file (inline preview / download).
+
+    Authentication relies on the access_token cookie for <iframe> and
+    <a download> consumers, which cannot send an Authorization header.
+    """
+    settings = request.app.state.settings
+    file_store = request.app.state.file_store
+
+    path = await file_store.authorized_path(
+        file_id,
+        settings.upload_dir,
+        current_user_payload.get("sub", ""),
+        current_user_payload.get("role") == "admin",
+    )
+    info = await file_store.resolve(file_id)
+    name = info.original_name if info else file_id
+    return FileResponse(
+        path,
+        media_type=_media_type_for(name),
+        filename=name,
+        content_disposition_type="inline",
     )

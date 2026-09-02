@@ -51,15 +51,9 @@ async def _resolve_audit_file_owned_or_404(
     is_admin: bool,
 ) -> Path:
     """Resolve a file_id and verify ownership before returning its path."""
-    file_info = cast(Any | None, await file_store.resolve(file_id))
-    if file_info is None:
-        raise HTTPException(404, f"文件不存在: {file_id}")
-    if not is_admin and file_info.owner and file_info.owner != current_user:
-        raise HTTPException(403, "无权访问该文件")
-    file_path = cast(Path | None, await file_store.resolve_path(file_id, upload_dir))
-    if file_path is None or not file_path.exists():
-        raise HTTPException(404, f"文件不存在: {file_id}")
-    return file_path
+    return await file_store.authorized_path(
+        file_id, upload_dir, current_user, is_admin
+    )
 
 
 async def _build_agent_or_500(

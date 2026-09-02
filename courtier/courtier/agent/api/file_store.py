@@ -86,6 +86,32 @@ class FileStore:
             return None
         return self._safe_resolve(Path(upload_dir), info.stored_path)
 
+    async def authorized_path(
+        self,
+        file_id: str,
+        upload_dir: str,
+        user: str,
+        is_admin: bool,
+    ) -> Path:
+        """Resolve a fileId and verify ownership, returning the absolute path.
+
+        Shared authorization semantics for every route handing a stored
+        upload back to a client: 404 for unknown/deleted files, 403 for
+        non-owners (legacy records with an empty owner stay readable by any
+        logged-in user), admins always pass.
+        """
+        from fastapi import HTTPException
+
+        info = await self.resolve(file_id)
+        if info is None:
+            raise HTTPException(404, f"文件不存在: {file_id}")
+        if not is_admin and info.owner and info.owner != user:
+            raise HTTPException(403, "无权访问该文件")
+        path = await self.resolve_path(file_id, upload_dir)
+        if path is None or not path.exists():
+            raise HTTPException(404, f"文件不存在: {file_id}")
+        return path
+
     # -- internal -----------------------------------------------------------
 
     async def _save_index(self) -> None:
