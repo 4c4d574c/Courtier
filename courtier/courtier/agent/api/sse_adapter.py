@@ -639,6 +639,7 @@ class RunRecorder:
                 parent_handle_id=parent_handle_id,
                 task=event.task or "",
                 status="running",
+                display_name=event.display_name,
             )
             self._current_subagents[handle_id] = new_run
             self._subagent_parent_map[handle_id] = parent_handle_id
@@ -682,6 +683,7 @@ class RunRecorder:
                     summary=event.tool_summary or "",
                     handle_id=event.handle_id,
                     issue_counts=event.tool_issue_counts,
+                    display_name=self._tool_meta_for(event.tool_name)["display_name"],
                 )
                 self._current_subagents[handle_id] = replace(run, tools=run.tools + [tool])
 

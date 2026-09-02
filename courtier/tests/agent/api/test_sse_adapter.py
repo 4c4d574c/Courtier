@@ -278,6 +278,72 @@ class TestRunRecorder:
         assert placeholder_step.subagents == []
 
     @pytest.mark.asyncio
+    async def test_subagent_records_carry_display_names(self, store):
+        """Sub-agent run and sub-tool records persist their Chinese display
+        names so restored sessions render them instead of raw names."""
+        from courtier.agent.agents.subagent.events import SubAgentStreamEvent
+        from courtier.agent.tools.registry import ToolRegistry
+
+        class _MockTool:
+            name = "convert_document"
+            description = "converts documents"
+            display_name = "文档解析"
+            skill = ""
+            parameters: dict = {"type": "object", "properties": {}}
+            output_schema: dict | None = None
+            skip_persist = False
+            output_content_type: str | None = None
+            input_contract = None
+            output_contract = None
+            runtime_policy = None
+
+            async def execute(self, **kwargs):
+                return ToolResult(success=True)
+
+        registry = ToolRegistry()
+        registry.register(_MockTool())
+
+        await store.create("sess_7e57e57e57e5", "task", "file_test1234")
+        log_q = RunEventLog()
+        q = _LogQueue(log_q)
+        adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", tool_registry=registry)
+
+        await adapter.on_step("think", "tool_calls: content_audit")
+        q.get_nowait()
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="start",
+                subagent_name="content_audit",
+                handle_id="hdl_1",
+                task="audit",
+                display_name="内容审核与纠错",
+            )
+        )
+        q.get_nowait()
+        await adapter.on_subagent_event(
+            SubAgentStreamEvent(
+                kind="tool_result",
+                subagent_name="content_audit",
+                handle_id="hdl_1",
+                tool_name="convert_document",
+                tool_status="done",
+                tool_duration=1.2,
+                tool_summary="完成",
+            )
+        )
+        q.get_nowait()
+
+        session = await store.get("sess_7e57e57e57e5")
+        run = session.steps[0].subagents[0]
+        assert run.display_name == "内容审核与纠错"
+        assert run.tools[0].display_name == "文档解析"
+
+        # Serialization round-trip (persisted JSON → restored record).
+        restored = type(run).from_dict(run.to_dict())
+        assert restored.display_name == "内容审核与纠错"
+        assert restored.tools[0].display_name == "文档解析"
+
+    @pytest.mark.asyncio
     async def test_on_step_observe(self, store):
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         log_q = RunEventLog()

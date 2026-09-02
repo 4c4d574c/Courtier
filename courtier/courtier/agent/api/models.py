@@ -111,6 +111,8 @@ class SubagentToolRecord:
     call_kind: str = "tool"
     handle_id: str | None = None
     issue_counts: dict[str, int] | None = None
+    #: Chinese display name (registry display_name); None falls back to name.
+    display_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -125,6 +127,8 @@ class SubagentToolRecord:
             result["handleId"] = self.handle_id
         if self.issue_counts is not None:
             result["issueCounts"] = self.issue_counts
+        if self.display_name is not None:
+            result["displayName"] = self.display_name
         return result
 
     @classmethod
@@ -138,6 +142,7 @@ class SubagentToolRecord:
             call_kind=d.get("callKind", d.get("call_kind", "tool")),
             handle_id=d.get("handleId", d.get("handle_id")),
             issue_counts=d.get("issueCounts", d.get("issue_counts")),
+            display_name=d.get("displayName", d.get("display_name")),
         )
 
 
@@ -208,9 +213,11 @@ class SubagentRunRecord:
     thoughts: list[SubagentThoughtRecord] = field(default_factory=list)
     children: list[SubagentRunRecord] = field(default_factory=list)
     tools: list[SubagentToolRecord] = field(default_factory=list)
+    #: Chinese display name from the skill frontmatter; None falls back to name.
+    display_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "name": self.name,
             "handleId": self.handle_id,
             "parentHandleId": self.parent_handle_id,
@@ -222,6 +229,9 @@ class SubagentRunRecord:
             "children": [ch.to_dict() for ch in self.children],
             "tools": [t.to_dict() for t in self.tools],
         }
+        if self.display_name is not None:
+            result["displayName"] = self.display_name
+        return result
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SubagentRunRecord:
@@ -236,6 +246,7 @@ class SubagentRunRecord:
             thoughts=[SubagentThoughtRecord.from_dict(th) for th in d.get("thoughts", [])],
             children=[SubagentRunRecord.from_dict(ch) for ch in d.get("children", [])],
             tools=[SubagentToolRecord.from_dict(t) for t in d.get("tools", [])],
+            display_name=d.get("displayName", d.get("display_name")),
         )
 
 
