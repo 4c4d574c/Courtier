@@ -166,7 +166,7 @@ class TestRunManagerBridge:
         assert len(pending) == 1 and pending[0]["toolName"] == "deploy"
         cid = pending[0]["confirmationId"]
         outcome = manager.resolve_confirmation("sess1", cid, "approve")
-        assert outcome == {"confirmationId": cid, "decision": "approve"}
+        assert outcome["decision"] == "approve" and outcome["toolName"] == "deploy"
         assert await task is True
         types = [e.payload["type"] for e in run.log._entries]
         assert "confirmation_requested" in types and "confirmation_resolved" in types
@@ -205,7 +205,7 @@ class TestRunManagerBridge:
         await asyncio.sleep(0)
         cid = manager.list_pending_confirmations("sess1")[0]["confirmationId"]
         first = manager.resolve_confirmation("sess1", cid, "deny")
-        assert first == {"confirmationId": cid, "decision": "deny"}
+        assert first["decision"] == "deny"
         second = manager.resolve_confirmation("sess1", cid, "deny")
         assert second["alreadyResolved"] is True
         assert await task is False

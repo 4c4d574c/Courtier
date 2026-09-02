@@ -6,7 +6,7 @@ import json
 import logging
 import secrets
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional, cast
+from typing import Any, Awaitable, Callable, Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -451,7 +451,55 @@ async def get_session_detail(
     )
     if result is None:
         raise HTTPException(404, "Session not found")
+    run_manager = getattr(request.app.state, "run_manager", None)
+    if run_manager is not None:
+        result["pendingConfirmations"] = run_manager.list_pending_confirmations(session_id)
     return result
+
+
+class ConfirmationDecision(BaseModel):
+    decision: Literal["approve", "approve_session", "deny"]
+
+
+@router.post("/sessions/{session_id}/confirmations/{confirmation_id}")
+@limiter.limit("30/minute")
+async def resolve_tool_confirmation(
+    session_id: str,
+    confirmation_id: str,
+    request: Request,
+    body: ConfirmationDecision,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Resolve a pending tool confirmation (owner-only).
+
+    approve → dispatch the call; approve_session → also allow the tool for
+    the rest of the session (persisted on the record); deny → the call gets
+    a ``confirmation_denied`` error result. Idempotent for already-resolved
+    confirmations.
+    """
+    session_store = request.app.state.session_store
+    record = await session_store.get_owned(
+        session_id, current_user_payload["sub"], _is_admin(current_user_payload)
+    )
+    if record is None:
+        raise HTTPException(404, "Session not found")
+    run_manager = getattr(request.app.state, "run_manager", None)
+    if run_manager is None:
+        raise HTTPException(404, "No active run")
+    try:
+        outcome = run_manager.resolve_confirmation(session_id, confirmation_id, body.decision)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if outcome is None:
+        raise HTTPException(404, "Confirmation not found")
+    if (
+        body.decision == "approve_session"
+        and not outcome.get("alreadyResolved")
+        and outcome.get("toolName")
+    ):
+        merged = sorted(set(record.approved_tools or []) | {outcome["toolName"]})
+        await session_store.update(session_id, approved_tools=merged)
+    return outcome
 
 
 @router.delete("/sessions/{session_id}")

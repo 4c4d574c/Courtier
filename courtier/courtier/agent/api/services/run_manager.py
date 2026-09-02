@@ -313,6 +313,7 @@ class RunManager:
             return {
                 "confirmationId": confirmation_id,
                 "decision": entry["decision"],
+                "toolName": entry["tool_name"],
                 "alreadyResolved": True,
             }
         entry["decision"] = decision
@@ -324,7 +325,11 @@ class RunManager:
                 run.confirmation_sink(entry["tool_name"])
             if not entry["future"].done():
                 entry["future"].set_result(True)
-        return {"confirmationId": confirmation_id, "decision": decision}
+        return {
+            "confirmationId": confirmation_id,
+            "decision": decision,
+            "toolName": entry["tool_name"],
+        }
 
     # -- Registry ------------------------------------------------------------
 
