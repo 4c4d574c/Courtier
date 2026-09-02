@@ -80,3 +80,9 @@
 ## 实施状态（滚动更新）
 
 - 2026-09-02：需求对齐完成（对齐结论 4 条），方案成文；依赖 guardrails 计划先行，未排期。
+- 2026-09-02（批准后当日）：**T1-T6 全部落地**（9311bf7 → 915415e）。要点与偏差：
+  - 运行时：ConfirmationGuard（tool_call 层）+ 循环 confirm 分支（批准放行/拒绝合成 `confirmation_denied`/无 handler fail-closed）+ RunManager pending Future 桥接 + `confirmation_requested`/`confirmation_resolved` run-log 事件（SSE 重放天然支持）。
+  - 持久化偏差：`SessionRecord.approved_tools` 走 **JSON 文件存储，无需 Alembic 迁移**（方案按 DB 表假设，侦察结论修正——会话本就存 JSON 文件）。
+  - API：`POST /api/sessions/{id}/confirmations/{cid}`（owner-only、幂等、approve_session 合并持久化）+ 会话详情 `pendingConfirmations`（重连恢复）。
+  - webui：ConfirmationCard 三按钮（仅本次/本会话放行/拒绝）挂 ChatArea 与输入区之间；乐观撤卡失败回滚；详情预填 + 事件重放双保险。
+  - **偏差：NotificationHub 推送未实现**（v1：确认只关乎当前会话标签页——SSE 重放 + 详情字段已覆盖，侧栏徽标挂起期间保持 running）；批量确认按计划逐个串行。

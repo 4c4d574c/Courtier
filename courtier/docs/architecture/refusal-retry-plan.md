@@ -67,3 +67,9 @@ settings 三键（均 hot、`refusal_` 前缀自动进 admin 设置页）：`ref
 ## 实施状态（滚动更新）
 
 - 2026-09-02：需求对齐完成（对齐结论 4 条），方案成文，待批准后排期（无跨计划依赖，可与 guardrails 并行）。
+- 2026-09-02（批准后当日）：**T1-T5 全部落地**（cdecf14 → 725f62f）。要点与偏差：
+  - T1：RefusalDetector（大小写不敏感子串匹配，返回原文片段）+ 三键 settings（guards 类、hot）+ `refusal_total{outcome}` 指标。
+  - T2：think_phase 重试环——被拒响应**不入对话历史**（仅最终响应 add_thought）、usage 跨尝试累加进 `llm.usage`、`refusal.detected` + `think.retry` 事件（sse_adapter 显式分支 → SSE）。
+  - T3：耗尽出口 `refusal.exhausted`（locale 文案经 `errors.refusal_exhausted` 模板随事件载荷下发），轮次正常完成。
+  - T4：`think_retry` 处理器按 currentThoughtTurn 丢弃被拒尝试的流出文本并清空结论缓冲（历史 thought 不动）；`refusal_exhausted` 横幅挂 ChatArea 与输入区之间。
+  - 验收：新增单测/事件测试全绿；与计划唯一细节偏差=think_phase 经显式 `publish` 参数接总线（方案未指明通道，on_step 字符串协议不带结构化载荷）。

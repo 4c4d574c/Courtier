@@ -256,7 +256,8 @@ npm run check
    - `skills/` — Skill registry and loader.
    - `artifacts/` — Artifact system.
    - `prompts/` — Jinja2 PromptEngine, PromptBundle, and core default templates (`defaults/{locale}/`, incl. the domain-agnostic `orchestrator.system_prompt`).
-   - `permissions/`, `hooks/`, `memory/`, `telemetry/` — Cross-cutting concerns.
+   - `memory/`, `telemetry/` — Cross-cutting concerns.
+   - `guardrails/` — Unified run pipeline (GuardrailSystem v2): per-layer guard checks (input/output/tool/tool_call/post_tool), per-call permission guards (ToolDisabledGuard/PathPolicyGuard/ConfirmationGuard), interceptors and observers dispatched per scope with fixed order adapt → enforce → record. The former `permissions/` gate and `hooks/` chain were merged into it (2026-09-02).
 
 4. **Domain/business layer**
    - `domains/docaudit/` — Domain config, prompts, skills (Markdown + typed input schemas).
@@ -276,6 +277,12 @@ npm run check
 ### 5.3 Agent runtime
 
 The runtime follows a Think → Act → Observe loop. During execution it emits events such as `session`, `think`, `act`, `observe`, `tool_result`, `token`, `usage`, and `complete`/`error`. These events are currently produced by callbacks in `loop.py` and are being migrated to an in-process `EventBus` (`courtier/agent/core/event_bus.py`, `events.py`).
+
+**Unified guardrail pipeline + enforcement:** every loop dispatches through `GuardrailSystem` (v2): per-scope order adapt (interceptors, fail-open) → enforce (guards, per-layer modes) → record (observers, always-on). Per-call enforcement (`tool_call` layer, fail-closed) hosts the permission guards — `ToolDisabledGuard`, `PathPolicyGuard` (session roots `memory_home` + session workspace; `Capability.meta["permission"]["path_policy"]` declaration overrides the default read/edit/write list), and `ConfirmationGuard`. Domain packages may contribute guards via `domain.yaml` `guards:` class paths (owner-tagged, replayed on activation). The former standalone `PermissionGate` and `HookChain` were absorbed (2026-09-02; deviations from the Pi plan recorded in `docs/architecture/guardrails-unification-plan.md`).
+
+**Confirmation chain:** tools on the `tool_confirmation` settings list (JSON `[{tool, message}]`, guards category) suspend before dispatch — RunManager holds a pending Future per call, publishes `confirmation_requested`/`confirmation_resolved` run-log events, and the owner resolves via `POST /api/sessions/{id}/confirmations/{cid}` (approve / approve_session / deny; no auto-timeout). `approve_session` merges into `SessionRecord.approved_tools` (persisted; reloaded on rebuild). Sub-agents fail closed: a confirm decision without a handler (no interaction channel) denies the call with `confirmation_denied`.
+
+**Refusal retry policy:** pure-text model responses matching `refusal_patterns` (settings, guards category) are discarded and the same model re-asked unchanged up to `refusal_retry_max` times (`think_retry` SSE event resets the frontend's streamed buffers; usage accumulates across attempts). When the budget is spent and the final answer still refuses, `refusal_exhausted` carries a locale-rendered notice — the turn completes normally. Deliberately outside the guardrails pipeline (model-behavior recovery, not enforcement).
 
 **Background runs + re-attach (task queue):** a session run is a connection-independent background task owned by `RunManager` (`app.state.run_manager`); SSE connections are pure readers of the run's `RunEventLog` (bounded replayable transcript). Disconnecting does NOT terminate a run — only `POST /api/stop` does (or the per-user FIFO queue demotes it to `queued` when `MAX_RUNS_PER_USER` is reached). Returning to a still-running session re-attaches via `GET /api/sessions/{id}/events?since=<snapshot eventSeq>` (watermark replay + live tail); EventSource reconnects resume via `Last-Event-ID`. The `RunRecorder` (evolved `SSEAdapter`) is the single writer of the log and the only component performing per-event persistence (stamped with the event seq — the `event_seq` watermark invariant). A global events channel (`GET /api/events`, `NotificationHub`) pushes run-status transitions for live sidebar badges and completion toasts. On restart, all in-process runs are lost; the startup sweep marks persisted `running`/`queued` sessions `interrupted`.
 
@@ -308,9 +315,8 @@ courtier/courtier/
 │   ├── api/             # FastAPI app, routes, services, SSE, stores
 │   ├── artifacts/       # Artifact registry, store, models
 │   ├── core/            # Loop, state, model, context, guards, streaming, event bus
-│   ├── hooks/           # Hook system
 │   ├── memory/          # Memory abstractions
-│   ├── permissions/     # Permission checks
+│   ├── guardrails/      # Unified guardrail pipeline (guards/interceptors/observers)
 │   ├── prompts/         # PromptEngine, PromptBundle, defaults/{locale}/ (core default templates)
 │   ├── runtime/         # Agent runtime bridge
 │   ├── skills/          # Skill registry/loader

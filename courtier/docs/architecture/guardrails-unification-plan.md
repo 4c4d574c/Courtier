@@ -165,3 +165,11 @@ output（轮）→ tool（轮）→ 逐调用：参数解析 → tool_call 层 �
 ## 实施状态（滚动更新）
 
 - 2026-09-02：需求对齐完成（对齐结论 8 条，含 hooks 统一定案），方案成文，待批准后按 T0 起步。
+- 2026-09-02（批准后当日）：**T0-T11 全部落地**（d1305ef → 704a0e7 + 文档同步）。要点与偏差：
+  - T2 派发实现与设计一致：首拒即胜短路、block mode 异常→deny（`errors.guard_call_failed`）、log 影子放行、confirm 透传（词汇预留）。
+  - T4/T5 合并落地：会话系统只含无状态权限 guard（build_agent 构造，orchestrator/子代理共享）；**有状态 loop 护栏改为 agent_loop 运行期临时注册/finally 注销**（共享系统不能混用历史——设计文档 §6 未预见的实现细节）；PermissionGate 全链删除（gate.py + permissions/ 包 + agent_loop/Agent/orch/runtime 参数链）。
+  - T10 hooks 并入：scope 表落地，`run_scope` 统一派发（think 阶段 pre_think scope 取代原 hook+input guard 两处调用；post_tool scope 单点合并原 post_tool guard 与 post_observe hook）；`PRE_SEARCH` 随包删除；EventBus 未动。
+  - T7：PathPolicyGuard 读 `Capability.meta["permission"]["path_policy"]`（显式 opt-in/opt-out），未声明回退默认名单；build_agent 与 runtime 共享一个 CapabilityRegistry。
+  - T8：domain.yaml `guards:` 声明 + `validate_domain` 校验（可导入/合法 layer）+ activator `_register_domain_guards` seam（owner=domain:<name>，replay 经 activate() 自动重注册）+ `unregister_owner` 对称注销；docaudit 未加真实 guard（按计划）。
+  - 验收：tests/agent 全绿（1480）；全量 pytest 仅存与改动无关的 6 个实机环境失败（ES/OCR/MinIO，改动前基线相同）；webui `npm test` + `npm run build` 通过。
+  - **未执行项**：T9 真机冒烟（越界路径拒绝文案真机比对）待用户在真实会话验证——实施会话内不便重启共享 API 服务。
