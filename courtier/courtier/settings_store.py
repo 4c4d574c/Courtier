@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 import os
 import secrets as _py_secrets
@@ -20,12 +21,23 @@ from contextlib import contextmanager
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from pydantic import BaseModel
 
 from courtier.db.tables.setting import SettingsChangeTable, SettingsTable
 
 logger = logging.getLogger(__name__)
 
 _ENC_KEY = "__enc__"
+
+
+def _json_safe(value: Any) -> Any:
+    """Normalize structured settings values for storage and comparison.
+
+    Structured fields (``llm_model_pool``) are pydantic models — they must
+    never reach the JSON column or ``!=`` comparisons as instances (the
+    column cannot serialize them, and class identity is unstable across
+    the config-module reload in the test suite)."""
+    return value.model_dump() if isinstance(value, BaseModel) else value
 
 
 class SettingsKeyMissing(RuntimeError):
@@ -103,6 +115,24 @@ class SettingsStore:
             rows = (await session.execute(select(SettingsTable))).scalars().all()
             # Detach copies: callers must not depend on the session lifecycle.
             return [row for row in rows]
+
+    async def key_has_history(self, key: str) -> bool:
+        """True when the audit trail has any row for *key*.
+
+        One-shot migrations gate on this instead of row presence so an
+        admin clearing the migrated field (delete writes audit rows too)
+        never gets silently re-seeded on the next refresh."""
+        from sqlalchemy import select
+
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(SettingsChangeTable.id)
+                    .where(SettingsChangeTable.key_name == key)
+                    .limit(1)
+                )
+            ).first()
+            return row is not None
 
     async def load_overrides(self) -> tuple[dict[str, Any], list[str]]:
         """Return (field -> value overrides, unreadable secret keys).
@@ -219,9 +249,7 @@ class SettingsStore:
             existing = {
                 row.key: row
                 for row in (
-                    await session.execute(
-                        select(SettingsTable).where(SettingsTable.key.in_(keys))
-                    )
+                    await session.execute(select(SettingsTable).where(SettingsTable.key.in_(keys)))
                 ).scalars()
             }
             removed: list[str] = []
@@ -229,9 +257,7 @@ class SettingsStore:
                 row = existing.get(key)
                 if row is None:
                     continue
-                await session.execute(
-                    sa_delete(SettingsTable).where(SettingsTable.key == key)
-                )
+                await session.execute(sa_delete(SettingsTable).where(SettingsTable.key == key))
                 session.add(
                     SettingsChangeTable(
                         key_name=key,
@@ -251,9 +277,7 @@ class SettingsStore:
         from sqlalchemy import func, select
 
         async with self._db.session() as session:
-            version = (
-                await session.execute(select(func.max(SettingsChangeTable.id)))
-            ).scalar()
+            version = (await session.execute(select(func.max(SettingsChangeTable.id)))).scalar()
             return int(version or 0)
 
     async def load_audit(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -263,9 +287,9 @@ class SettingsStore:
             rows = (
                 (
                     await session.execute(
-                        select(SettingsChangeTable).order_by(
-                            SettingsChangeTable.id.desc()
-                        ).limit(limit)
+                        select(SettingsChangeTable)
+                        .order_by(SettingsChangeTable.id.desc())
+                        .limit(limit)
                     )
                 )
                 .scalars()
@@ -350,9 +374,9 @@ async def seed_from_env(
 
     defaults = _defaults_settings()
     changed = {
-        k: getattr(base, k)
+        k: _json_safe(getattr(base, k))
         for k in SETTINGS_META
-        if getattr(base, k) != getattr(defaults, k)
+        if _json_safe(getattr(base, k)) != _json_safe(getattr(defaults, k))
     }
     if not changed:
         return []
@@ -387,8 +411,9 @@ async def refresh_settings_snapshot(
     Runs at startup and after admin settings saves.  Degrades to the
     env-only snapshot (mode="env") when *store* is None or the DB is
     unreachable.  Includes one-shot .env seeding (first start, empty
-    audit trail) and JWT-secret bootstrap (generate + encrypt + save when
-    empty and an encryption key exists)."""
+    audit trail), the one-shot scalar→model-pool migration, and
+    JWT-secret bootstrap (generate + encrypt + save when empty and an
+    encryption key exists)."""
     from courtier.config import get_settings
 
     info: dict[str, Any] = {
@@ -423,6 +448,22 @@ async def refresh_settings_snapshot(
                 exc_info=True,
             )
 
+    pool_seeded = False
+    if (
+        "llm_model_pool" not in overrides
+        and store.codec is not None
+        and base.llm_base_url
+        and base.llm_model
+        and not await store.key_has_history("llm_model_pool")
+    ):
+        try:
+            await _seed_model_pool(store, base)
+            overrides, unreadable = await store.load_overrides()
+            pool_seeded = True
+            logger.info("seeded single-endpoint model pool from scalar llm_* settings")
+        except Exception:
+            logger.warning("model pool migration seed failed; continuing", exc_info=True)
+
     jwt_generated = False
     if not overrides.get("jwt_secret") and not base.jwt_secret:
         if store.codec is not None:
@@ -447,9 +488,40 @@ async def refresh_settings_snapshot(
         version=await store.current_version(),
         unreadable=unreadable,
         seeded=seeded,
+        pool_seeded=pool_seeded,
         jwt_generated=jwt_generated,
     )
     return info
+
+
+async def _seed_model_pool(store: "SettingsStore", base: Any) -> None:
+    """One-shot legacy→pool migration (called from refresh_settings_snapshot).
+
+    Existing deployments configure the chat LLM through the scalar
+    ``llm_base_url / llm_api_key / llm_model`` settings; seed them as a
+    single-endpoint pool so the pool selection path is active everywhere
+    with no admin action.  Idempotence is enforced by the caller (audit
+    history gate), so an admin clearing the pool afterwards is respected."""
+    from courtier.config import ModelPoolConfig, PoolEndpointConfig, PoolModelConfig
+
+    pool = ModelPoolConfig(
+        endpoints=[
+            PoolEndpointConfig(
+                id="ep_main",
+                name="默认接入点",
+                base_url=base.llm_base_url,
+                enabled=True,
+                models=[PoolModelConfig(id="mdl_main", name=base.llm_model, model=base.llm_model)],
+            )
+        ],
+        default_model_id="mdl_main",
+    )
+    changes: dict[str, Any] = {"llm_model_pool": pool.model_dump()}
+    if base.llm_api_key:
+        # Secrets persist via Fernet(str(value)) — the map must be a JSON
+        # string, not a dict (str(dict) would store Python repr).
+        changes["llm_endpoint_keys"] = json.dumps({"ep_main": base.llm_api_key})
+    await store.save(changes, actor="system-migrate")
 
 
 # ---------------------------------------------------------------------------

@@ -156,6 +156,10 @@ class TestSettingsFields:
 
 class TestSnapshotComposition:
     def test_pool_db_override_dict_coerced(self):
+        # Call-time import: tests/courtier/test_config.py reloads the config
+        # module, so collection-time classes are not identity-stable.
+        from courtier.config import ModelPoolConfig
+
         merged = compose_snapshot(Settings(_env_file=None), {"llm_model_pool": _pool()})
         assert isinstance(merged.llm_model_pool, ModelPoolConfig)
         assert merged.llm_model_pool.default_model_id == "mdl_main"

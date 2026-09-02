@@ -8,10 +8,12 @@ All routes require the admin role.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from courtier.agent.api.routes.admin_users import require_admin
 from courtier.config import (
@@ -58,6 +60,7 @@ async def _reload_plugin_connections(request: Request) -> None:
             await manager.restart_plugin(name)
     except Exception:
         logger.warning("plugin connection reload failed", exc_info=True)
+
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +131,14 @@ async def get_settings_view(request: Request, user: dict = Depends(require_admin
             value = getattr(settings, name)
             if name in unreadable:
                 rendered: Any = {"set": True, "unreadable": True}
+            elif name == "llm_endpoint_keys":
+                # Secret map: mask per entry so the admin sees WHICH
+                # endpoints have keys configured, never the keys themselves.
+                rendered = {k: _secret_view(v) for k, v in sorted(value.items())}
             elif meta.is_secret:
                 rendered = _secret_view(value)
+            elif isinstance(value, BaseModel):
+                rendered = value.model_dump()
             else:
                 rendered = value
             fields.append(
@@ -210,6 +219,26 @@ async def update_category(
     sets = {k: v for k, v in body.items() if v is not None}
     clears = sorted(k for k, v in body.items() if v is None)
 
+    # llm_endpoint_keys merge: secrets are masked on read, so the frontend
+    # cannot re-send the whole map — entries are entry-level ops against
+    # the current value (key = overwrite, absent = keep, null/"" = delete).
+    # The persisted form is a JSON string (Fernet(str(value)) round-trip).
+    if "llm_endpoint_keys" in sets:
+        submitted = sets["llm_endpoint_keys"]
+        if not isinstance(submitted, dict):
+            raise HTTPException(422, "llm_endpoint_keys 必须是 JSON 对象（endpoint id → key）")
+        if submitted:
+            merged_keys = dict(get_settings().llm_endpoint_keys)
+            for ep_id, key in submitted.items():
+                if key is None or str(key) == "":
+                    merged_keys.pop(ep_id, None)
+                else:
+                    merged_keys[ep_id] = str(key)
+            sets["llm_endpoint_keys"] = json.dumps(merged_keys)
+        else:
+            # {} = no key changes; avoid a no-op audit row.
+            del sets["llm_endpoint_keys"]
+
     current_overrides, _ = await store.load_overrides()
     prospective = {**current_overrides, **sets}
     for key in clears:
@@ -218,8 +247,10 @@ async def update_category(
         prospective_snapshot = compose_snapshot(get_settings(), prospective)
     except ValidationError as exc:
         errors = [
-            {"field": ".".join(str(loc) for loc in e.get("loc", ())[1:]) or str(e.get("loc")),
-             "message": e.get("msg", "")}
+            {
+                "field": ".".join(str(loc) for loc in e.get("loc", ())[1:]) or str(e.get("loc")),
+                "message": e.get("msg", ""),
+            }
             for e in exc.errors()
         ]
         raise HTTPException(422, detail={"message": "校验失败", "errors": errors}) from exc
@@ -262,16 +293,12 @@ async def update_category(
         "cleared": clears,
         "version": info["version"],
         "revalidated": sorted(targets),
-        "restart_required": sorted(
-            k for k in changed if SETTINGS_META[k].effect == "restart"
-        ),
+        "restart_required": sorted(k for k in changed if SETTINGS_META[k].effect == "restart"),
     }
 
 
 @router.post("/jwt/rotate")
-async def rotate_jwt_secret(
-    request: Request, user: dict = Depends(require_admin)
-):
+async def rotate_jwt_secret(request: Request, user: dict = Depends(require_admin)):
     """Generate a fresh JWT secret (invalidates every session; the admin
     stays logged out too and must sign in again)."""
     import secrets as _secrets
@@ -280,9 +307,7 @@ async def rotate_jwt_secret(
     if store is None:
         raise HTTPException(503, "设置存储不可用（env-only 模式）")
     if store.codec is None:
-        raise HTTPException(
-            422, "COURTIER_SETTINGS_KEY 未配置，无法安全存储新的 JWT 密钥"
-        )
+        raise HTTPException(422, "COURTIER_SETTINGS_KEY 未配置，无法安全存储新的 JWT 密钥")
 
     new_secret = _secrets.token_urlsafe(48)
     await store.save({"jwt_secret": new_secret}, actor=str(user.get("sub") or "admin"))
@@ -291,9 +316,7 @@ async def rotate_jwt_secret(
 
 
 @router.get("/audit")
-async def get_audit(
-    request: Request, limit: int = 50, user: dict = Depends(require_admin)
-):
+async def get_audit(request: Request, limit: int = 50, user: dict = Depends(require_admin)):
     store = _get_store(request)
     if store is None:
         raise HTTPException(503, "设置存储不可用（env-only 模式）")
@@ -313,9 +336,7 @@ async def test_target(
     Body may carry field overrides so the admin can test BEFORE saving;
     absent fields use the effective snapshot."""
     if target in ("es", "minio", "plugins"):
-        overrides = {
-            k: v for k, v in (body or {}).items() if v is not None and k in SETTINGS_META
-        }
+        overrides = {k: v for k, v in (body or {}).items() if v is not None and k in SETTINGS_META}
         try:
             snapshot = compose_snapshot(get_settings(), overrides)
         except Exception as exc:
@@ -328,28 +349,49 @@ async def test_target(
     from courtier.agent.core.backends.openai_backend import OpenAIModelBackend
     from courtier.agent.core.protocol import ChatMessage, ChatRequest
 
-    overrides = {
-        k: v for k, v in (body or {}).items() if k.startswith("llm_") and v is not None
-    }
+    overrides = {k: v for k, v in (body or {}).items() if k.startswith("llm_") and v is not None}
     try:
         target_settings = compose_snapshot(get_settings(), overrides)
     except Exception as exc:
         raise HTTPException(422, f"待测试的 LLM 配置无效: {exc}") from exc
 
-    if not target_settings.llm_base_url or not target_settings.llm_model:
+    base_url = target_settings.llm_base_url
+    api_key = target_settings.llm_api_key
+    model_name = target_settings.llm_model
+
+    # Pool-aware test: {endpointId, modelId} selects entries from the
+    # effective snapshot's pool (plus its key map) instead of the scalars.
+    endpoint_id = (body or {}).get("endpointId")
+    if endpoint_id:
+        endpoint = next(
+            (ep for ep in target_settings.llm_model_pool.endpoints if ep.id == endpoint_id),
+            None,
+        )
+        if endpoint is None:
+            return {"ok": False, "error": f"接入点不存在: {endpoint_id}"}
+        base_url = endpoint.base_url
+        api_key = target_settings.llm_endpoint_keys.get(endpoint_id, "")
+        model_id = (body or {}).get("modelId")
+        if model_id:
+            entry = next((m for m in endpoint.models if m.id == model_id), None)
+            if entry is None:
+                return {"ok": False, "error": f"模型不存在: {model_id}"}
+            model_name = entry.model
+
+    if not base_url or not model_name:
         return {"ok": False, "error": "llm_base_url / llm_model 未配置"}
 
     backend = OpenAIModelBackend(
-        base_url=target_settings.llm_base_url,
-        api_key=target_settings.llm_api_key,
-        model=target_settings.llm_model,
+        base_url=base_url,
+        api_key=api_key,
+        model=model_name,
         temperature=0.0,
         timeout=20.0,
     )
     try:
         response = await backend.chat(
             ChatRequest(
-                model=target_settings.llm_model,
+                model=model_name,
                 messages=(ChatMessage(role="user", content="回复一个字：ok"),),
                 temperature=0.0,
                 max_tokens=8,
@@ -357,7 +399,7 @@ async def test_target(
         )
         return {
             "ok": True,
-            "model": target_settings.llm_model,
+            "model": model_name,
             "reply": (response.message.content or "")[:50],
             "latency_ms": round(response.latency_ms),
         }

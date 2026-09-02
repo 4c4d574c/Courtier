@@ -1,5 +1,6 @@
 """Admin settings API — schema view, partial updates, audit, LLM test."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -52,9 +53,7 @@ class TestGetSettingsView:
         keys = [c["key"] for c in body["categories"]]
         assert "model" in keys and "retrieval" in keys and "guards" in keys
 
-        by_name = {
-            f["name"]: f for c in body["categories"] for f in c["fields"]
-        }
+        by_name = {f["name"]: f for c in body["categories"] for f in c["fields"]}
         # secrets are masked: set/tail only, never the plaintext contract
         assert by_name["llm_api_key"]["is_secret"] is True
         assert set(by_name["llm_api_key"]["value"]) == {"set", "tail"}
@@ -97,9 +96,7 @@ class TestUpdateCategory:
         assert cleared.json()["cleared"] == ["llm_temperature"]
 
     def test_restart_effect_reported(self, client):
-        resp = client.put(
-            "/api/admin/settings/web", json={"cors_origins": ["http://x:5173"]}
-        )
+        resp = client.put("/api/admin/settings/web", json={"cors_origins": ["http://x:5173"]})
         body = resp.json()
         assert body["restart_required"] == ["cors_origins"]
 
@@ -112,9 +109,7 @@ class TestUpdateCategory:
         assert resp.status_code == 404
 
     def test_validation_error_422(self, client):
-        resp = client.put(
-            "/api/admin/settings/model", json={"llm_extra_body": "not-json{"}
-        )
+        resp = client.put("/api/admin/settings/model", json={"llm_extra_body": "not-json{"})
         assert resp.status_code == 422
         assert resp.json()["detail"]["errors"]
 
@@ -134,8 +129,155 @@ class TestAuditEndpoint:
         resp = client.get("/api/admin/settings/audit")
         assert resp.status_code == 200
         changes = resp.json()["changes"]
-        assert changes and changes[0]["key"] == "max_total_runs"
-        assert changes[0]["actor"] == "tester"
+        # The scalar→pool migration may interleave its own audit row
+        # (actor system-migrate); assert on the admin's row specifically.
+        entry = next(c for c in changes if c["key"] == "max_total_runs")
+        assert entry["actor"] == "tester"
+
+
+class TestModelPoolSettings:
+    def _pool(self):
+        return {
+            "endpoints": [
+                {
+                    "id": "ep_main",
+                    "name": "主接入点",
+                    "base_url": "https://pool.example.com/v1",
+                    "enabled": True,
+                    "models": [{"id": "mdl_main", "name": "池模型", "model": "pool-model"}],
+                }
+            ],
+            "default_model_id": "mdl_main",
+        }
+
+    def _fields_by_name(self, body):
+        return {f["name"]: f for c in body["categories"] for f in c["fields"]}
+
+    def test_pool_roundtrip_and_per_entry_masking(self, client):
+        resp = client.put(
+            "/api/admin/settings/model",
+            json={
+                "llm_model_pool": self._pool(),
+                "llm_endpoint_keys": {"ep_main": "sk-secret-1"},
+            },
+        )
+        assert resp.status_code == 200
+        assert set(resp.json()["applied"]) == {"llm_model_pool", "llm_endpoint_keys"}
+
+        body = client.get("/api/admin/settings").json()
+        fields = self._fields_by_name(body)
+        assert fields["llm_model_pool"]["value"]["default_model_id"] == "mdl_main"
+        assert fields["llm_model_pool"]["value"]["endpoints"][0]["base_url"] == (
+            "https://pool.example.com/v1"
+        )
+        # keys are masked per entry, never plaintext anywhere in the view
+        assert fields["llm_endpoint_keys"]["value"] == {"ep_main": {"set": True, "tail": "et-1"}}
+        assert "sk-secret-1" not in json.dumps(body)
+
+    def test_endpoint_keys_entry_level_merge(self, client):
+        client.put("/api/admin/settings/model", json={"llm_endpoint_keys": {"ep_a": "sk-aaaa"}})
+        body = client.get("/api/admin/settings").json()
+        assert self._fields_by_name(body)["llm_endpoint_keys"]["value"] == {
+            "ep_a": {"set": True, "tail": "aaaa"}
+        }
+
+        # absent entries survive, new entries land, null deletes
+        client.put(
+            "/api/admin/settings/model",
+            json={"llm_endpoint_keys": {"ep_b": "sk-bbbb", "ep_a": "sk-a2a2", "ep_zzz": None}},
+        )
+        body = client.get("/api/admin/settings").json()
+        assert self._fields_by_name(body)["llm_endpoint_keys"]["value"] == {
+            "ep_a": {"set": True, "tail": "a2a2"},
+            "ep_b": {"set": True, "tail": "bbbb"},
+        }
+
+        # whole-field null = clear back to default (empty)
+        cleared = client.put(
+            "/api/admin/settings/model", json={"llm_endpoint_keys": {"ep_a": None, "ep_b": None}}
+        )
+        assert cleared.status_code == 200
+        body = client.get("/api/admin/settings").json()
+        assert self._fields_by_name(body)["llm_endpoint_keys"]["value"] == {}
+
+    def test_endpoint_keys_empty_dict_is_noop(self, client):
+        client.put("/api/admin/settings/model", json={"llm_endpoint_keys": {"ep_a": "sk-aaaa"}})
+        resp = client.put("/api/admin/settings/model", json={"llm_endpoint_keys": {}})
+        assert resp.status_code == 200
+        assert "llm_endpoint_keys" not in resp.json()["applied"]
+
+    def test_endpoint_keys_non_object_rejected(self, client):
+        resp = client.put("/api/admin/settings/model", json={"llm_endpoint_keys": "nope"})
+        assert resp.status_code == 422
+
+    def test_pool_validation_error_422(self, client):
+        bad = self._pool()
+        bad["default_model_id"] = "mdl_ghost"
+        resp = client.put("/api/admin/settings/model", json={"llm_model_pool": bad})
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["errors"]
+
+    def test_llm_test_uses_pool_entries(self, client, monkeypatch):
+        captured = {}
+
+        class _FakeBackend:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            async def chat(self, request):
+                return SimpleNamespace(message=SimpleNamespace(content="ok"), latency_ms=1.0)
+
+            async def close(self):
+                pass
+
+        import courtier.agent.core.backends.openai_backend as backend_mod
+
+        monkeypatch.setattr(backend_mod, "OpenAIModelBackend", _FakeBackend)
+
+        client.put(
+            "/api/admin/settings/model",
+            json={
+                "llm_model_pool": self._pool(),
+                "llm_endpoint_keys": {"ep_main": "sk-pool"},
+            },
+        )
+
+        resp = client.post(
+            "/api/admin/settings/test/llm",
+            json={"endpointId": "ep_main", "modelId": "mdl_main"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert captured["base_url"] == "https://pool.example.com/v1"
+        assert captured["api_key"] == "sk-pool"
+        assert captured["model"] == "pool-model"
+
+    def test_llm_test_unknown_pool_entries(self, client, monkeypatch):
+        import courtier.agent.core.backends.openai_backend as backend_mod
+
+        class _Noop:
+            def __init__(self, **kwargs):
+                pass
+
+            async def chat(self, request):  # pragma: no cover - never reached
+                raise AssertionError("backend must not be called")
+
+            async def close(self):
+                pass
+
+        monkeypatch.setattr(backend_mod, "OpenAIModelBackend", _Noop)
+        client.put("/api/admin/settings/model", json={"llm_model_pool": self._pool()})
+
+        missing_ep = client.post("/api/admin/settings/test/llm", json={"endpointId": "ep_x"})
+        assert missing_ep.json()["ok"] is False
+        assert "接入点不存在" in missing_ep.json()["error"]
+
+        missing_mdl = client.post(
+            "/api/admin/settings/test/llm",
+            json={"endpointId": "ep_main", "modelId": "mdl_x"},
+        )
+        assert missing_mdl.json()["ok"] is False
+        assert "模型不存在" in missing_mdl.json()["error"]
 
 
 class TestLlmConnectivity:

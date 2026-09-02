@@ -1,5 +1,5 @@
 """Snapshot composition: precedence, CORS escape hatch, .env seeding,
-JWT bootstrap, env-only degradation."""
+scalar→model-pool migration, JWT bootstrap, env-only degradation."""
 
 import pytest
 
@@ -105,6 +105,95 @@ class TestSeedFromEnv:
         assert "llm_api_key" in seeded
         overrides, _ = await _store(db, codec).load_overrides()
         assert overrides["llm_api_key"] == "sk-env"
+
+
+class TestModelPoolSeed:
+    async def _seeded(self, db, monkeypatch):
+        monkeypatch.setenv("LLM_NAME", "legacy-model")
+        monkeypatch.setenv("LLM_API_KEY", "sk-legacy")
+        monkeypatch.delenv("LLM_MODEL_POOL", raising=False)
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        service = ConfigService()
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+        return store, service, info
+
+    async def test_seeds_single_endpoint_pool_from_scalars(self, db, monkeypatch):
+        store, service, info = await self._seeded(db, monkeypatch)
+
+        assert info["pool_seeded"] is True
+        pool = service.get().llm_model_pool
+        assert pool.default_model_id == "mdl_main"
+        assert pool.endpoints[0].id == "ep_main"
+        assert pool.endpoints[0].base_url
+        assert pool.endpoints[0].models[0].model == "legacy-model"
+        assert service.get().llm_endpoint_keys == {"ep_main": "sk-legacy"}
+
+        # Stable on re-refresh: the pool row exists, no re-seed.
+        info2 = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+        assert info2["pool_seeded"] is False
+        assert service.get().llm_model_pool.default_model_id == "mdl_main"
+
+    async def test_admin_clear_is_respected(self, db, monkeypatch):
+        store, service, _ = await self._seeded(db, monkeypatch)
+        await store.delete(["llm_model_pool", "llm_endpoint_keys"], actor="admin")
+
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        assert info["pool_seeded"] is False
+        assert service.get().llm_model_pool.endpoints == []
+        # Scalar fallback stays active after the clear.
+        assert service.get().llm_model == "legacy-model"
+
+    async def test_db_pool_wins_over_seed(self, db, monkeypatch):
+        monkeypatch.setenv("LLM_NAME", "legacy-model")
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        await store.save(
+            {
+                "llm_model_pool": {
+                    "endpoints": [
+                        {
+                            "id": "ep_custom",
+                            "name": "自定义",
+                            "base_url": "https://custom/v1",
+                            "models": [{"id": "mdl_custom", "name": "C", "model": "c"}],
+                        }
+                    ],
+                    "default_model_id": "mdl_custom",
+                }
+            },
+            actor="admin",
+        )
+        service = ConfigService()
+
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        assert info["pool_seeded"] is False
+        assert service.get().llm_model_pool.default_model_id == "mdl_custom"
+
+    async def test_no_seed_without_codec(self, db, monkeypatch):
+        monkeypatch.setenv("LLM_NAME", "legacy-model")
+        store = _store(db, codec=None)
+        service = ConfigService()
+
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        assert info["pool_seeded"] is False
+        assert service.get().llm_model_pool.endpoints == []
+
+    async def test_no_seed_when_scalars_empty(self, db, monkeypatch):
+        monkeypatch.delenv("LLM_NAME", raising=False)
+        monkeypatch.delenv("LLM_IP", raising=False)
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        service = ConfigService()
+        base = Settings(_env_file=None, llm_base_url="", llm_model="")
+
+        info = await refresh_settings_snapshot(service, store, base=base)
+
+        assert info["pool_seeded"] is False
+        assert service.get().llm_model_pool.endpoints == []
 
 
 class TestRefreshSnapshot:
