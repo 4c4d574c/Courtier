@@ -530,6 +530,7 @@ class SessionStore:
         data["turn_artifact_snapshots"] = list(session.turn_artifact_snapshots)
         data["pinned"] = session.pinned
         data["active_domains"] = list(session.active_domains)
+        data["approved_tools"] = list(session.approved_tools)
         data["last_model_id"] = session.last_model_id
         data["event_seq"] = session.event_seq
         try:
@@ -587,6 +588,7 @@ class SessionStore:
             turn_artifact_snapshots=list(raw.get("turn_artifact_snapshots", [])),
             pinned=raw.get("pinned", False),
             active_domains=list(raw.get("active_domains", [])),
+            approved_tools=list(raw.get("approved_tools", [])),
             event_seq=int(raw.get("event_seq", 0) or 0),
         )
 

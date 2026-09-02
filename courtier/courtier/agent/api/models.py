@@ -321,6 +321,8 @@ class SessionRecord:
     turn_artifact_snapshots: list[str] = field(default_factory=list)
     pinned: bool = False  # 置顶会话排在历史列表最前（按用户隔离的展示偏好）
     active_domains: list[str] = field(default_factory=list)  # 已激活领域（域门控）
+    # 本会话内已获"会话级放行"的工具名（确认链路 approve_session），跨重启恢复。
+    approved_tools: list[str] = field(default_factory=list)
     # 事件日志水位线：最近一次随内容变更落盘的 run 事件 seq。不变式
     # 「快照(event_seq=W) + 日志中 seq>W 的全部事件 ≡ 完整前端状态」由
     # SessionStore 的方法级 event_seq 打点与 RunEventLog 的 seq 分配共同保证
@@ -456,6 +458,7 @@ class SessionRecord:
             "treeJson": tree_data,
             "currentNodeId": self.current_node_id,
             "activeDomains": list(self.active_domains),
+            "approvedTools": list(self.approved_tools),
             "contextCompacted": context_state_compacted(self.context_state),
             "eventSeq": self.event_seq,
         }
