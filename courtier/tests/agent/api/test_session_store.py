@@ -883,3 +883,77 @@ class TestEventSeqWatermark:
         s = await reloaded.get("sess_000000000001")
         assert s is not None
         assert s.event_seq == 0
+
+
+@pytest.mark.asyncio
+class TestModelProvenance:
+    """Per-turn model pool provenance: create/add_turn record the model and
+    last_model_id drives the frontend's preselection."""
+
+    async def test_create_records_model(self, store):
+        s = await store.create(
+            "sess_1a2b3c4d5e6f",
+            "task",
+            "file_abc12345",
+            model_name="池模型A",
+            owner="alice",
+            model_id="mdl_a1",
+        )
+        assert s.last_model_id == "mdl_a1"
+        assert s.turn_messages[0]["modelId"] == "mdl_a1"
+        assert s.turn_messages[0]["modelName"] == "池模型A"
+
+    async def test_create_without_model_leaves_empty(self, store):
+        s = await store.create("sess_2b3c4d5e6f1a", "task", "file_abc12345", owner="alice")
+        assert s.last_model_id == ""
+        assert s.turn_messages[0]["modelId"] is None
+        assert s.turn_messages[0]["modelName"] is None
+
+    async def test_add_turn_records_and_updates_last(self, store):
+        sid = "sess_3c4d5e6f1a2b"
+        await store.create(
+            sid,
+            "t1",
+            "file_abc12345",
+            model_name="M1",
+            owner="alice",
+            model_id="mdl_a1",
+        )
+        await store.add_turn(sid, "t2", model_id="mdl_a2", model_name="M2")
+
+        s = await store.get(sid)
+        assert s.last_model_id == "mdl_a2"
+        assert s.turn_messages[1]["modelId"] == "mdl_a2"
+        assert s.turn_messages[0]["modelId"] == "mdl_a1"  # per-turn history intact
+
+    async def test_add_turn_without_model_keeps_previous(self, store):
+        sid = "sess_4d5e6f1a2b3c"
+        await store.create(
+            sid,
+            "t1",
+            "file_abc12345",
+            model_name="M1",
+            owner="alice",
+            model_id="mdl_a1",
+        )
+        await store.add_turn(sid, "t2")
+        assert (await store.get(sid)).last_model_id == "mdl_a1"
+
+    async def test_model_persists_across_store_instances(self, tmp_path):
+        store = SessionStore(str(tmp_path))
+        sid = "sess_5e6f1a2b3c4d"
+        await store.create(
+            sid,
+            "task",
+            "file_abc12345",
+            model_name="M1",
+            owner="alice",
+            model_id="mdl_a1",
+        )
+        await store.update(sid, last_model_id="mdl_a2")
+
+        reloaded = SessionStore(str(tmp_path))
+        s = await reloaded.get(sid)
+        assert s.last_model_id == "mdl_a2"
+        assert s.to_summary_dict()["lastModelId"] == "mdl_a2"
+        assert s.to_detail_dict()["lastModelId"] == "mdl_a2"

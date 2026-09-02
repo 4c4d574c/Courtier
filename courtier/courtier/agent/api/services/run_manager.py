@@ -116,6 +116,8 @@ class RunSpec:
     agent: Any  # prebuilt by the route (queued runs defer build in Task 4.1)
     context_manager: Any = None
     model_name: str = ""
+    # 模型池条目 id（空 = 标量模型）；随 model_selected 事件广播给前端。
+    model_id: str = ""
     agent_context: dict[str, Any] = field(default_factory=dict)
     prior_state: Any = None
     artifact_snapshot: str = ""
@@ -430,8 +432,19 @@ class RunManager:
                         "type": "session",
                         "sessionId": session_id,
                         "modelName": spec.model_name,
+                        "modelId": spec.model_id,
                     }
                 )
+            # Every run announces its model (per-run selection): attached /
+            # replaying observers learn which pool entry this turn uses.
+            run.log.append(
+                {
+                    "type": "model_selected",
+                    "model": spec.model_name,
+                    "modelId": spec.model_id,
+                    "backend": "pool" if spec.model_id else "scalar",
+                }
+            )
             await store.update(session_id, status="running", error_detail=None)
             self._notify(run, "running")
 
@@ -621,9 +634,7 @@ class RunManager:
                     run,
                     run.status,
                     conclusion=(
-                        (record.conclusion if record else "")
-                        if run.status == "completed"
-                        else ""
+                        (record.conclusion if record else "") if run.status == "completed" else ""
                     ),
                     tokens=(
                         {"tokensIn": record.tokens_in, "tokensOut": record.tokens_out}
@@ -679,6 +690,7 @@ async def generate_sse_stream(
     start_step: int = 0,
     context_manager: Any = None,
     model_name: str = "",
+    model_id: str = "",
     initial_seq: int = 0,
 ) -> AsyncGenerator[str, None]:
     """Start a run via *run_manager* and stream it (live-only).
@@ -692,6 +704,7 @@ async def generate_sse_stream(
         agent=agent,
         context_manager=context_manager,
         model_name=model_name,
+        model_id=model_id,
         agent_context=agent_context,
         prior_state=prior_state,
         artifact_snapshot=artifact_snapshot,

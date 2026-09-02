@@ -80,6 +80,7 @@ class SessionStore:
         created_at: float = 0.0,
         owner: str = "",
         status: str = "running",
+        model_id: str = "",
     ) -> SessionRecord:
         import time as _time
 
@@ -90,6 +91,7 @@ class SessionStore:
             file_id=file_id,
             file_name=file_name,
             model_name=model_name,
+            last_model_id=model_id,
             status=status,  # type: ignore[arg-type]
             created_at=now,
             owner=owner,
@@ -99,6 +101,8 @@ class SessionStore:
                     "timestamp": now,
                     "fileName": file_name or None,
                     "fileId": file_id or None,
+                    "modelId": model_id or None,
+                    "modelName": model_name or None,
                 }
             ],
             turn_step_starts=[0],
@@ -330,13 +334,16 @@ class SessionStore:
         file_id: str | None = None,
         *,
         event_seq: int | None = None,
+        model_id: str = "",
+        model_name: str = "",
     ) -> None:
         """Record a new turn boundary for multi-turn continuation.
 
         ``file_name``/``file_id`` keep the upload association when a turn is
         re-registered after an edit-truncation (the original turn carried an
         upload), and let a restored session re-send the exact file reference
-        on a later edit.
+        on a later edit.  ``model_id``/``model_name`` record the model pool
+        selection for THIS run (per-turn model provenance).
         """
         import time as _time
 
@@ -359,10 +366,13 @@ class SessionStore:
                         "timestamp": _time.time(),
                         "fileName": file_name,
                         "fileId": file_id,
+                        "modelId": model_id or None,
+                        "modelName": model_name or None,
                     }
                 ],
                 turn_step_starts=session.turn_step_starts + [len(session.steps)],
                 turn_artifact_snapshots=snapshots,
+                last_model_id=model_id or session.last_model_id,
             )
             session = _advance_watermark(session, event_seq)
             self._sessions[session_id] = session
@@ -520,6 +530,7 @@ class SessionStore:
         data["turn_artifact_snapshots"] = list(session.turn_artifact_snapshots)
         data["pinned"] = session.pinned
         data["active_domains"] = list(session.active_domains)
+        data["last_model_id"] = session.last_model_id
         data["event_seq"] = session.event_seq
         try:
             text = json.dumps(data, ensure_ascii=False, indent=2)
@@ -556,6 +567,7 @@ class SessionStore:
             file_id=raw.get("file_id", raw.get("file_path", "")),
             file_name=raw.get("file_name", ""),
             model_name=raw.get("modelName", ""),
+            last_model_id=raw.get("last_model_id", ""),
             status=raw.get("status", "completed"),
             tokens_in=raw.get("stats", {}).get("tokensIn", 0),
             tokens_out=raw.get("stats", {}).get("tokensOut", 0),

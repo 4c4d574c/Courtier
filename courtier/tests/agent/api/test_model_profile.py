@@ -89,6 +89,10 @@ class TestResolveModelProfile:
     def test_empty_pool_returns_none(self):
         assert resolve_model_profile(Settings(_env_file=None)) is None
 
+    def test_explicit_id_on_empty_pool_raises(self):
+        with pytest.raises(UnknownModelError):
+            resolve_model_profile(Settings(_env_file=None), model_id="mdl_any")
+
     def test_explicit_id_wins(self):
         profile = resolve_model_profile(_settings(), model_id="mdl_a2")
         assert profile.model_id == "mdl_a2"

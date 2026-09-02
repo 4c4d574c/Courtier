@@ -287,6 +287,9 @@ class SessionRecord:
     file_id: str
     file_name: str = ""
     model_name: str = ""
+    # 最近一次运行所选的模型池条目 id（每次运行可换；空 = 标量模型）。
+    # 前端据此预选模型选择器；逐轮模型记录在 turn_messages 条目里。
+    last_model_id: str = ""
     status: SessionStatus = "running"
     steps: list[StepRecord] = field(default_factory=list)
     thoughts: list[ThoughtRecord] = field(default_factory=list)
@@ -335,6 +338,7 @@ class SessionRecord:
             "task": self.task,
             "status": self.status,
             "modelName": self.model_name,
+            "lastModelId": self.last_model_id,
             "createdAt": self.created_at,
             "stepCount": len(self.steps),
             "toolCount": tool_count,
@@ -401,6 +405,8 @@ class SessionRecord:
                         "timestamp": msg.get("timestamp", self.created_at),
                         "fileName": msg.get("fileName"),
                         "fileId": msg.get("fileId"),
+                        "modelId": msg.get("modelId"),
+                        "modelName": msg.get("modelName"),
                     },
                     "steps": [self._step_dict(s) for s in self.steps[start_idx:end_idx]],
                     "conclusion": turn_conclusion,
@@ -419,6 +425,7 @@ class SessionRecord:
             "id": self.id,
             "task": self.task,
             "modelName": self.model_name,
+            "lastModelId": self.last_model_id,
             "status": self.status,
             "turns": self._build_turns(),
             "steps": [self._step_dict(s) for s in self.steps],

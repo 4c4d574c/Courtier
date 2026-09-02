@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
-from ..services.agent_service import build_agent
+from ..services.agent_service import UnknownModelError, build_agent, resolve_model_profile
 from ..services.run_manager import RunManager, generate_sse_stream, stream_run
 from ..services.session_service import (
     delete_session,
@@ -149,6 +149,7 @@ async def handle_session_stream(
     fileId: Optional[str] = Query(default=None),
     sessionId: Optional[str] = Query(default=None),
     editTurn: Optional[int] = Query(default=None),
+    modelId: Optional[str] = Query(default=None),
     current_user_payload: dict = Depends(get_current_user),
 ):
     """Start a run and stream its events (SSE); its own per-user budget.
@@ -157,6 +158,8 @@ async def handle_session_stream(
     - task + sessionId: continue existing multi-turn session.
     - task + sessionId + editTurn: edit-resend — revoke turn `editTurn` and
       everything after it, then re-run the turn with the edited `task`.
+    - modelId: model-pool entry for THIS run (each run may pick a different
+      model); unresolvable ids are rejected before the run starts.
     """
     settings = request.app.state.settings
     session_store = request.app.state.session_store
@@ -242,12 +245,6 @@ async def handle_session_stream(
             if turn_file_name is None:
                 turn_file_name = file_info.original_name if file_info else None
 
-        # Record the new turn boundary so historical sessions render
-        # each turn with the correct user message and step grouping.  The
-        # turn entry carries the upload reference so restored sessions keep
-        # the file chip (and can re-send it on a later edit).
-        await session_store.add_turn(sessionId, task, file_name=turn_file_name, file_id=fileId)
-
         is_new = False
     else:
         # New session
@@ -259,6 +256,34 @@ async def handle_session_stream(
         effective_file_id = fileId
         active_domains = ()
         is_new = True
+
+    # Model pool selection for THIS run: explicit modelId (validated, else
+    # 400) → the session's last used model → pool default → scalar llm_*.
+    try:
+        model_profile = resolve_model_profile(
+            settings,
+            model_id=modelId or "",
+            session_last_model_id="" if is_new else (existing.last_model_id or ""),
+        )
+    except UnknownModelError:
+        raise HTTPException(400, f"模型不存在或已停用: {modelId}")
+    run_model_id = model_profile.model_id if model_profile else ""
+    run_model_name = model_profile.name if model_profile else settings.llm_model
+
+    if not is_new:
+        # Record the new turn boundary so historical sessions render
+        # each turn with the correct user message and step grouping.  The
+        # turn entry carries the upload reference so restored sessions keep
+        # the file chip (and can re-send it on a later edit), plus the
+        # model this run was launched with (per-turn model provenance).
+        await session_store.add_turn(
+            sessionId,
+            task,
+            file_name=turn_file_name,
+            file_id=fileId,
+            model_id=run_model_id,
+            model_name=run_model_name,
+        )
 
     # One unified builder for every session shape: chat-only, uploaded
     # document, and multi-turn continuation.
@@ -288,6 +313,7 @@ async def handle_session_stream(
             session_id=session_id,
             shared_plugin_names=request.app.state.shared_plugin_names,
             active_domains=active_domains,
+            model_profile=model_profile,
         ),
         session_id,
         "orchestrator",
@@ -306,9 +332,15 @@ async def handle_session_stream(
             model_name=model_name,
             owner=current_user,
             status="initial",
+            model_id=run_model_id,
         )
     else:
-        await session_store.update(session_id, status="running", error_detail=None)
+        await session_store.update(
+            session_id,
+            status="running",
+            error_detail=None,
+            last_model_id=run_model_id,
+        )
 
     # Oversized user pastes go to disk (Layer-1 mechanism) — the model sees a
     # preview + $ref instead of the full text.  Done after the session/turn
@@ -336,6 +368,7 @@ async def handle_session_stream(
             start_step=start_step,
             context_manager=context_manager,
             model_name=model_name,
+            model_id=run_model_id,
             initial_seq=initial_seq,
         ),
         media_type="text/event-stream",
@@ -584,3 +617,35 @@ async def compact_session(
         "afterMessages": len(compacted),
         "compactCount": cm.state.compact_count,
     }
+
+
+@router.get("/models")
+@limiter.limit("60/minute")
+async def list_available_models(
+    request: Request,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Model pool view for the frontend selector (any logged-in user).
+
+    Endpoints are reduced to display names and their enabled models —
+    base_url / api_key never leave the admin settings surface.  When the
+    pool default does not resolve to an enabled model (should not happen
+    through validated settings, but the DB is editable by hand), the first
+    enabled model is reported as the default instead."""
+    settings = request.app.state.settings
+    pool = getattr(settings, "llm_model_pool", None)
+    endpoints = getattr(pool, "endpoints", None) or []
+    groups = [
+        {
+            "endpointId": ep.id,
+            "endpointName": ep.name,
+            "models": [{"id": m.id, "name": m.name} for m in ep.models],
+        }
+        for ep in endpoints
+        if ep.enabled and ep.models
+    ]
+    default_id = getattr(pool, "default_model_id", "") if pool else ""
+    all_model_ids = [m["id"] for g in groups for m in g["models"]]
+    if default_id not in all_model_ids:
+        default_id = all_model_ids[0] if all_model_ids else ""
+    return {"endpoints": groups, "defaultModelId": default_id}

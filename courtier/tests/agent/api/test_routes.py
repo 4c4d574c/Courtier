@@ -20,6 +20,7 @@ def _first_data_line(buffer: str) -> str:
             return line
     raise AssertionError(f"no data line in {buffer!r}")
 
+
 # Test credentials — must match values set in tests/conftest.py
 _TEST_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "test-admin-password-for-pytest")
 
@@ -646,3 +647,129 @@ class TestPluginLogs:
         monkeypatch.setattr(ps, "get_scan_results", lambda: {})
         resp = client.get("/api/admin/extensions/plugins/ghost/logs")
         assert resp.status_code == 404
+
+
+@pytest.fixture
+def model_pool_snapshot():
+    """Swap the global ConfigService snapshot to one carrying a small model
+    pool; restore the previous snapshot afterwards.  app.state.settings
+    follows the service (dynamic binding), so routes see the pool."""
+    from courtier.config import ModelPoolConfig, get_config_service
+
+    service = get_config_service()
+    original = service.get()
+    pool = ModelPoolConfig.model_validate(
+        {
+            "endpoints": [
+                {
+                    "id": "ep_a",
+                    "name": "接入点A",
+                    "base_url": "https://a.example.com/v1",
+                    "enabled": True,
+                    "models": [
+                        {"id": "mdl_a1", "name": "模型A1", "model": "model-a1"},
+                        {"id": "mdl_a2", "name": "模型A2", "model": "model-a2"},
+                    ],
+                },
+                {
+                    "id": "ep_b",
+                    "name": "接入点B",
+                    "base_url": "https://b.example.com/v1",
+                    "enabled": False,
+                    "models": [{"id": "mdl_b1", "name": "模型B1", "model": "model-b1"}],
+                },
+            ],
+            "default_model_id": "mdl_a1",
+        }
+    )
+    service.replace(
+        original.model_copy(update={"llm_model_pool": pool, "llm_endpoint_keys": {"ep_a": "sk-a"}})
+    )
+    yield service
+    service.replace(original)
+
+
+class TestModelSelection:
+    """Per-run model selection on /sessions/run and the /models pool view."""
+
+    def _events(self, buffer: str) -> list[dict]:
+        events = []
+        for line in buffer.split("\n"):
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: ") :]))
+        return events
+
+    def _run_collecting_model_selected(
+        self, client, agent, query: str, model_name: str = "test-model"
+    ) -> list[dict]:
+        """Start a run, buffer until the model_selected frame, return events."""
+        with patch(
+            "courtier.agent.api.routes.sessions.build_agent",
+            new=AsyncMock(return_value=(agent, None, model_name)),
+        ):
+            with client.stream("GET", f"/api/sessions/run?{query}") as resp:
+                assert resp.status_code == 200
+                buffer = ""
+                for chunk in resp.iter_bytes():
+                    buffer += chunk.decode("utf-8")
+                    if '"model_selected"' in buffer:
+                        after = buffer.split('"model_selected"', 1)[1]
+                        if "\n\n" in after:
+                            break
+                return self._events(buffer)
+
+    def test_run_emits_model_selected_and_persists(
+        self, client, mock_chat_agent, model_pool_snapshot
+    ):
+        agent, _model = mock_chat_agent
+        events = self._run_collecting_model_selected(
+            client, agent, "task=hello&modelId=mdl_a2", model_name="模型A2"
+        )
+
+        session = next(e for e in events if e["type"] == "session")
+        assert session["modelId"] == "mdl_a2"
+        selected = [e for e in events if e["type"] == "model_selected"]
+        assert selected, "run must announce its model"
+        assert selected[0]["model"] == "模型A2"
+        assert selected[0]["modelId"] == "mdl_a2"
+        assert selected[0]["backend"] == "pool"
+
+        sid = session["sessionId"]
+        detail = client.get(f"/api/sessions/{sid}").json()
+        assert detail["lastModelId"] == "mdl_a2"
+        assert detail["modelName"] == "模型A2"
+        assert detail["turns"][0]["message"]["modelId"] == "mdl_a2"
+        assert detail["turns"][0]["message"]["modelName"] == "模型A2"
+
+    def test_unknown_model_id_rejected_before_run(
+        self, client, mock_chat_agent, model_pool_snapshot
+    ):
+        resp = client.get("/api/sessions/run?task=hello&modelId=mdl_ghost")
+        assert resp.status_code == 400
+        assert "模型不存在或已停用" in resp.json()["detail"]
+
+    def test_disabled_endpoint_model_rejected(self, client, mock_chat_agent, model_pool_snapshot):
+        resp = client.get("/api/sessions/run?task=hello&modelId=mdl_b1")
+        assert resp.status_code == 400
+
+    def test_explicit_model_with_empty_pool_rejected(self, client, mock_chat_agent):
+        resp = client.get("/api/sessions/run?task=hello&modelId=mdl_any")
+        assert resp.status_code == 400
+
+    def test_models_endpoint_public_view(self, client, model_pool_snapshot):
+        resp = client.get("/api/models")
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["defaultModelId"] == "mdl_a1"
+        # disabled endpoints are hidden; no endpoint internals leak
+        assert [g["endpointId"] for g in body["endpoints"]] == ["ep_a"]
+        assert body["endpoints"][0]["endpointName"] == "接入点A"
+        assert body["endpoints"][0]["models"][1] == {"id": "mdl_a2", "name": "模型A2"}
+        payload = json.dumps(body)
+        assert "base_url" not in payload and "sk-a" not in payload
+
+    def test_models_endpoint_empty_pool(self, client):
+        resp = client.get("/api/models")
+        assert resp.status_code == 200
+        assert resp.json() == {"endpoints": [], "defaultModelId": ""}

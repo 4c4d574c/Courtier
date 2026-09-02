@@ -57,6 +57,10 @@ def resolve_model_profile(
     """
     pool = getattr(settings, "llm_model_pool", None)
     endpoints = getattr(pool, "endpoints", None) or []
+    if model_id and not endpoints:
+        # An explicit pick must be validated even when the pool is empty —
+        # silently ignoring it would run with a different model than asked.
+        raise UnknownModelError(model_id)
     if not endpoints:
         return None
 
