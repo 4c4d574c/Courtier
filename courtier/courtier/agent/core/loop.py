@@ -46,7 +46,6 @@ from .tool_call import ToolCall
 
 if TYPE_CHECKING:
     from ..hooks.chain import HookChain
-    from ..permissions.gate import PermissionGate
     from ..tools.registry import ToolRegistry
     from .context_manager import ContextManager
     from .model import ModelClient
@@ -643,7 +642,6 @@ async def _run_tool_phase(
     current_state: AgentState,
     think: Any,
     guardrail_system: Any | None,
-    permissions: Any | None,
     state_machine: AgentStateMachine,
     tool_registry: Any | None,
     context_manager: Any | None,
@@ -665,7 +663,7 @@ async def _run_tool_phase(
     periodic_reminder: str = "",
     citation_offset: list[int] | None = None,
 ) -> _ToolPhaseOutcome:
-    """Run a single tool phase: guards, permission gate, execute, observe, hooks.
+    """Run a single tool phase: guards, per-call permission guards, execute, observe, hooks.
 
     Returns the updated state and the latest consecutive exploratory count.
     ``citation_offset`` carries the cross-phase citation numbering across
@@ -944,7 +942,6 @@ async def agent_loop(
     model: ModelClient,
     tool_registry: ToolRegistry | None = None,
     hooks: HookChain | None = None,
-    permissions: PermissionGate | None = None,
     on_step: Callable[[str, str], Awaitable[None]] | None = None,
     on_token: Callable[[str], Awaitable[None]] | None = None,
     on_content_token: Callable[[str], Awaitable[None]] | None = None,
@@ -1239,7 +1236,6 @@ async def agent_loop(
                         current_state=current_state,
                         think=think_outcome.think,
                         guardrail_system=guardrail_system,
-                        permissions=permissions,
                         state_machine=state_machine,
                         tool_registry=tool_registry,
                         context_manager=context_manager,

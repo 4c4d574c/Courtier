@@ -2,7 +2,7 @@
 
 Deliberately policy-free primitives (docs/architecture/memory-file-tools-plan.md):
 any path is operable; the boundary lives in the permission gate's path
-policy (permissions/gate.py), consulted by the loop before dispatch.
+policy (guardrails permission guards), consulted per call before dispatch.
 File-based memory is a convention over these tools: files under the
 memory workspace root plus MEMORY.md indexes.
 

@@ -312,7 +312,6 @@ async def build_agent(
     from ...agents.orch import OrchestratorAgent
     from ...core.guardrails import GuardrailSystem, PathPolicyGuard, ToolDisabledGuard
     from ...core.memory_manager import MemoryManager
-    from ...permissions.gate import PermissionGate
     from ...runtime import AgentRuntime
     from ...runtime.activation import DomainActivator, build_domain_catalog
     from ...runtime.budget import AgentRuntimeBudget
@@ -353,13 +352,9 @@ async def build_agent(
     session_workspace = (
         Path(settings.cache_dir).parent / ".agent_sessions" / (session_id or "default")
     )
-    gate = PermissionGate(allowed_roots=[memory_home, session_workspace])
-
     # Session guardrail system: stateless permission guards shared by the
     # orchestrator and every spawned sub-agent (loop guards stay per-run —
-    # agent_loop registers its own fresh instances). The PermissionGate
-    # below is dead weight until its removal lands; loop_phases no longer
-    # consumes it.
+    # agent_loop registers its own fresh instances).
     session_guardrails = GuardrailSystem(tool_mode="block", tool_call_mode="block")
     session_guardrails.register(ToolDisabledGuard())
     session_guardrails.register(
@@ -374,7 +369,6 @@ async def build_agent(
         default_budget=budget,
         cache_dir=settings.cache_dir,
         prompt_engine=prompt_engine,
-        permissions=gate,
         guardrail_system=session_guardrails,
     )
 
@@ -396,7 +390,6 @@ async def build_agent(
         model=model,
         plugin_system=plugin_system,
         tool_registry=session_registry,
-        permissions=gate,
         guardrail_system=session_guardrails,
         skill_registry=None,
         agent_runtime=agent_runtime,

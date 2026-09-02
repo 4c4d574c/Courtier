@@ -23,7 +23,6 @@ from ..core.model import BackendModelClient, ModelClient
 from ..core.state import AgentState, AgentStatus, Message
 from ..core.tool_call import ToolCall
 from ..hooks.chain import HookChain
-from ..permissions.gate import PermissionGate
 from ..prompts.pipeline import PromptPipeline
 from ..tools.protocol import ToolProgress, ToolProtocol
 
@@ -193,7 +192,6 @@ class Agent:
         model: ModelClient | None = None,
         backend: Any | None = None,
         hooks: HookChain | None = None,
-        permissions: PermissionGate | None = None,
         guardrail_system: Any | None = None,
         tool_registry: ToolRegistry | None = None,
         courtier_md_content: str | None = None,
@@ -231,7 +229,6 @@ class Agent:
             # The guard above guarantees model is set when backend is None.
             self.model = model
         self.hooks = hooks or HookChain()
-        self.permissions = permissions or PermissionGate()
         # Session guardrail system (permission guards); None lets agent_loop
         # default-construct one (loop guards only, allow-all permissions).
         self.guardrail_system = guardrail_system
@@ -564,7 +561,6 @@ class Agent:
                 model=self.model,
                 tool_registry=self.tool_registry,
                 hooks=self.hooks,
-                permissions=self.permissions,
                 guardrail_system=self.guardrail_system,
                 on_step=on_step,
                 on_token=on_token,

@@ -14,7 +14,6 @@ from courtier.prompts.engine import PromptEngine
 from ..core.model import ModelClient
 from ..core.state import AgentState
 from ..hooks.chain import HookChain
-from ..permissions.gate import PermissionGate
 from ..skills import SkillRegistry
 from ..tools.builtin.get_artifact import GetArtifactTool
 from ..tools.builtin.list_artifacts import ListArtifactsTool
@@ -41,7 +40,6 @@ class OrchestratorAgent(Agent):
         self,
         model: ModelClient | None = None,
         hooks: HookChain | None = None,
-        permissions: PermissionGate | None = None,
         guardrail_system: Any | None = None,
         selected_auditors: list[str] | None = None,
         plugin_system: Any = None,
@@ -125,7 +123,6 @@ class OrchestratorAgent(Agent):
             tools=tools,
             model=_model,
             hooks=hooks,
-            permissions=permissions,
             guardrail_system=guardrail_system,
             tool_registry=tool_registry,
             courtier_md_content=courtier_md_content,

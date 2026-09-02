@@ -77,12 +77,9 @@ class AgentRuntime:
     capability_registry: CapabilityRegistry | None = None
     event_bus: EventBus | None = None
     cache_dir: str = ".agent_cache"  # used when a fallback MemoryManager is needed
-    #: Session-scoped permission gate (path policy) inherited by spawned
-    #: sub-agents — without it they would default to an allow-all gate and
-    #: bypass the parent's file-path boundaries.
-    permissions: Any | None = None
     #: Session guardrail system (permission guards) inherited by spawned
-    #: sub-agents so the parent's file-path boundaries hold for them too.
+    #: sub-agents so the parent's file-path boundaries hold for them too —
+    #: without it they would default to allow-all and bypass them.
     guardrail_system: Any | None = None
     #: Prompt engine shared with spawned sub-agents so they render the same
     #: behavioral rules / reminders from the YAML bundles as the orchestrator
@@ -523,7 +520,6 @@ class AgentRuntime:
             tools=tools,
             agent_name=self._skill_display_name(config.name) or "",
             prompt_engine=self.prompt_engine,
-            permissions=self.permissions,
             guardrail_system=self.guardrail_system,
         )
         # Sync summarizer / result_store from the runtime's shared registry
