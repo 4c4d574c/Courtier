@@ -13,7 +13,6 @@ from courtier.prompts.engine import PromptEngine
 
 from ..core.model import ModelClient
 from ..core.state import AgentState
-from ..hooks.chain import HookChain
 from ..skills import SkillRegistry
 from ..tools.builtin.get_artifact import GetArtifactTool
 from ..tools.builtin.list_artifacts import ListArtifactsTool
@@ -39,7 +38,6 @@ class OrchestratorAgent(Agent):
     def __init__(
         self,
         model: ModelClient | None = None,
-        hooks: HookChain | None = None,
         guardrail_system: Any | None = None,
         selected_auditors: list[str] | None = None,
         plugin_system: Any = None,
@@ -122,7 +120,6 @@ class OrchestratorAgent(Agent):
             role=role,
             tools=tools,
             model=_model,
-            hooks=hooks,
             guardrail_system=guardrail_system,
             tool_registry=tool_registry,
             courtier_md_content=courtier_md_content,
@@ -169,6 +166,7 @@ class OrchestratorAgent(Agent):
         session_id: str = "",
         event_bus: Any | None = None,
         use_tree: bool = False,
+        confirmation_handler: Any | None = None,
     ) -> AgentResult:
         """Run the full audit pipeline."""
         if input is not None:
@@ -248,6 +246,7 @@ class OrchestratorAgent(Agent):
             session_id=session_id,
             event_bus=event_bus,
             use_tree=use_tree,
+            confirmation_handler=confirmation_handler,
         )
 
         # Collect audit results from direct skill tool calls.
