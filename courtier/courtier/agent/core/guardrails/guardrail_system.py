@@ -1,10 +1,27 @@
-"""GuardrailSystem — orchestrate layered guardrail checks."""
+"""GuardrailSystem — unified run pipeline: guards, interceptors, observers.
+
+One dispatch object per scope (see ``SCOPES``), three handler vocabularies
+with fixed per-scope order **adapt → enforce → record**:
+
+- guards (enforcement): ``check`` per layer / ``check_call`` per call,
+  with per-layer modes and the dual failure contract documented in base.
+- interceptors (adaptation): receive the scope's ``GuardContext`` and may
+  return a new ``AgentState`` — always fail-open (a crashing interceptor
+  is skipped and the run continues).
+- observers (recording): fire-and-forget, exceptions always swallowed.
+
+Merged from the former HookChain (pre_think / post_observe events): its
+interceptors and observers are the same vocabulary here, dispatched at the
+same lifecycle points with a defined order relative to guards.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from courtier.prompts.errors import render_error
 
@@ -14,6 +31,33 @@ from .base import CallGuardResult, GuardContext, GuardLayer, Guardrail, GuardRes
 logger = logging.getLogger(__name__)
 
 GuardMode = Literal["allow", "log", "block", "off"]
+
+#: Pipeline scopes and the guard layer enforced at each one.
+SCOPES: dict[str, GuardLayer] = {
+    "pre_think": "input",
+    "output": "output",
+    "tool": "tool",
+    "tool_call": "tool_call",
+    "post_tool": "post_tool",
+}
+
+#: Interceptor: receives the scope context, returns a new AgentState or None.
+InterceptorHandler = Callable[[GuardContext], Awaitable[Any]]
+#: Observer: receives the scope context, returns nothing.
+ObserverHandler = Callable[[GuardContext], Awaitable[None]]
+
+
+@dataclass
+class ScopeOutcome:
+    """Result of one ``run_scope`` dispatch."""
+
+    #: (Possibly interceptor-updated) state.
+    state: Any
+    #: Set when the scope's guard layer blocked (block mode only).
+    blocked: GuardResult | None = None
+    #: Aggregate guard result of the scope's layer (allow when none ran);
+    #: carries guard metadata such as ExploreLoopGuard's counters.
+    guard_result: GuardResult = field(default_factory=lambda: GuardResult.allow("guardrail_system"))
 
 
 @dataclass
@@ -34,13 +78,34 @@ class GuardrailSystem:
     tool_call_mode: GuardMode = "block"
     post_tool_mode: GuardMode = "block"
     on_event: Callable[[GuardResult], Awaitable[None]] | None = None
+    #: Default interceptor timeout in seconds (None = no timeout).
+    interceptor_timeout: float | None = None
+    _interceptors: dict[str, list[tuple[int, int, InterceptorHandler, float | None]]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    _observers: dict[str, list[ObserverHandler]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    _registration_counter: int = 0
+    _agent_name: str = ""
+    _session_id: str = ""
+    _context_metadata: dict[str, Any] = field(default_factory=dict)
+    #: id(guard) -> owner tag (domain:<name> for domain-contributed guards).
+    _owners: dict[int, str] = field(default_factory=dict)
 
-    def register(self, guardrail: Guardrail, *, replace: bool = False) -> None:
+    def register(
+        self,
+        guardrail: Guardrail,
+        *,
+        replace: bool = False,
+        owner: str | None = None,
+    ) -> None:
         """Add a guardrail to the system.
 
         With ``replace=True`` an existing guard with the same ``(name,
         layer)`` is swapped for the new instance — used when re-registering
-        stateful guards for a new run.
+        stateful guards for a new run. ``owner`` tags the registration for
+        symmetric removal via :meth:`unregister_owner` (domain guards).
         """
         if replace:
             self.guardrails = [
@@ -49,10 +114,123 @@ class GuardrailSystem:
                 if not (g.name == guardrail.name and g.layer == guardrail.layer)
             ]
         self.guardrails.append(guardrail)
+        if owner is not None:
+            self._owners[id(guardrail)] = owner
 
     def unregister(self, guardrail: Guardrail) -> None:
         """Remove a previously registered guardrail (idempotent)."""
         self.guardrails = [g for g in self.guardrails if g is not guardrail]
+        self._owners.pop(id(guardrail), None)
+
+    def unregister_owner(self, owner: str) -> list[str]:
+        """Remove every guard registered under *owner*; returns removed names."""
+        removed: list[str] = []
+        kept: list[Guardrail] = []
+        for guard in self.guardrails:
+            if self._owners.get(id(guard)) == owner:
+                removed.append(getattr(guard, "name", "?"))
+                self._owners.pop(id(guard), None)
+            else:
+                kept.append(guard)
+        self.guardrails = kept
+        return removed
+
+    # ------------------------------------------------------------------
+    # Pipeline: interceptors / observers / session context
+    # ------------------------------------------------------------------
+
+    def register_interceptor(
+        self,
+        scope: str,
+        handler: InterceptorHandler,
+        *,
+        priority: int = 0,
+        timeout: float | None = None,
+    ) -> None:
+        """Register a state-adapting interceptor at a pipeline scope.
+
+        Interceptors run before the scope's guards (higher priority first,
+        stable by registration order), always fail-open, and may return a
+        new AgentState (or None to leave it unchanged). The ``tool_call``
+        scope is decision-only — adaptation there would let an extension
+        rewrite or inject calls, so registering raises.
+        """
+        if scope == "tool_call":
+            raise ValueError(
+                "tool_call scope is decision-only: interceptors are not allowed"
+            )
+        if scope not in SCOPES:
+            raise ValueError(f"unknown pipeline scope: {scope!r}")
+        self._interceptors[scope].append(
+            (priority, self._registration_counter, handler, timeout)
+        )
+        self._registration_counter += 1
+
+    def register_observer(self, scope: str, handler: ObserverHandler) -> None:
+        """Register a fire-and-forget observer at a pipeline scope."""
+        if scope not in SCOPES:
+            raise ValueError(f"unknown pipeline scope: {scope!r}")
+        self._observers[scope].append(handler)
+
+    def set_context(
+        self, *, agent_name: str = "", session_id: str = "", **metadata: Any
+    ) -> None:
+        """Set session-level context injected into every scope dispatch."""
+        self._agent_name = agent_name
+        self._session_id = session_id
+        self._context_metadata = dict(metadata)
+
+    async def run_scope(self, scope: str, context: GuardContext) -> ScopeOutcome:
+        """Dispatch one pipeline scope: adapt → enforce → record.
+
+        - interceptors (adapt, fail-open): may return a new AgentState;
+          the context's state is kept in sync for downstream handlers.
+        - guards (enforce): the scope's guard layer via ``check`` with its
+          per-layer mode. ``tool_call`` is dispatched per call by the loop
+          (``check_call``) and never here.
+        - observers (record): exceptions always swallowed.
+        """
+        state = context.state
+        context.agent_name = self._agent_name or context.agent_name
+        context.session_id = self._session_id or context.session_id
+        if self._context_metadata:
+            context.metadata = {**self._context_metadata, **context.metadata}
+
+        entries = sorted(
+            self._interceptors.get(scope, []), key=lambda e: (-e[0], e[1])
+        )
+        for _priority, _order, handler, per_timeout in entries:
+            timeout = per_timeout if per_timeout is not None else self.interceptor_timeout
+            try:
+                if timeout is not None:
+                    result = await asyncio.wait_for(handler(context), timeout=timeout)
+                else:
+                    result = await handler(context)
+            except Exception:
+                logger.exception(
+                    "Interceptor failed (fail-open): scope=%s", scope
+                )
+                continue
+            if result is not None:
+                state = result
+                context.state = state
+
+        blocked: GuardResult | None = None
+        aggregate = GuardResult.allow("guardrail_system")
+        if scope != "tool_call":
+            mode = self._mode_for_layer(SCOPES[scope])
+            if mode not in ("off", "allow"):
+                aggregate = await self.check(SCOPES[scope], context)
+                if aggregate.action == "block" and mode == "block":
+                    blocked = aggregate
+
+        for observer in self._observers.get(scope, []):
+            try:
+                await observer(context)
+            except Exception:
+                logger.exception("Observer failed: scope=%s", scope)
+
+        return ScopeOutcome(state=state, blocked=blocked, guard_result=aggregate)
 
     async def check(
         self,

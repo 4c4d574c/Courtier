@@ -19,6 +19,10 @@ class DomainConfig(BaseModel):
     locales: list[str] = Field(default_factory=lambda: ["en-US"])
     requires_plugins: list[str] = Field(default_factory=list)
     requires_services: list[str] = Field(default_factory=list)
+    #: Dotted class paths of in-process guardrails contributed by this
+    #: domain (e.g. "docaudit.guards.FormatGuard"), registered into the
+    #: session GuardrailSystem on activation.
+    guards: list[str] = Field(default_factory=list)
 
 
 class DomainLoader:
@@ -105,5 +109,16 @@ class DomainLoader:
             issues.append("Missing skills/ directory")
         elif not list(skills_dir.glob("*.md")):
             issues.append("No skill .md files found in skills/")
+
+        # 5. Guard declarations: importable, guard-shaped, legal layer
+        for guard_path in config.guards:
+            try:
+                from courtier.agent.core.guardrails.domain_guards import (
+                    load_domain_guard,
+                )
+
+                load_domain_guard(guard_path)
+            except Exception as exc:
+                issues.append(f"Guard declaration '{guard_path}' invalid: {exc}")
 
         return issues

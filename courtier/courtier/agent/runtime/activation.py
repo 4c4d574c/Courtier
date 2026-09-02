@@ -274,11 +274,16 @@ class DomainActivator:
         # their tool names like "parse_layout" — the model calls the
         # latter).
         new_tools = self._domain_plugin_tool_names(domain)
+        # Domain-contributed guardrails: registered into the session system
+        # under owner "domain:<name>"; per-request rebuilds replay through
+        # activate(), so re-registration is automatic.
+        new_guards = self._register_domain_guards(domain, pkg)
         logger.info(
-            "Domain '%s' activated: tools=%s skills=%s",
+            "Domain '%s' activated: tools=%s skills=%s guards=%s",
             domain,
             new_tools,
             new_skills,
+            new_guards,
         )
         return ActivationResult(
             domain=domain,
@@ -300,6 +305,25 @@ class DomainActivator:
         )
 
     # -- helpers -------------------------------------------------------------
+
+    def _register_domain_guards(self, domain: str, pkg: "DomainPackage") -> list[str]:
+        """Register the domain's declared guardrails into the agent's system.
+
+        A failure to load a guard is logged and skipped inside
+        ``register_domain_guards`` — activation never fails on guards.
+        """
+        guard_paths = list(getattr(pkg.config, "guards", None) or [])
+        if not guard_paths:
+            return []
+        system = getattr(self._agent, "guardrail_system", None)
+        if system is None:
+            from courtier.agent.core.guardrails import GuardrailSystem
+
+            system = GuardrailSystem(tool_mode="block", tool_call_mode="block")
+            self._agent.guardrail_system = system
+        from courtier.agent.core.guardrails.domain_guards import register_domain_guards
+
+        return register_domain_guards(system, guard_paths, owner=f"domain:{domain}")
 
     def _domain_package(self, domain: str) -> "DomainPackage | None":
         for pkg in self._courtier_config.domains:
