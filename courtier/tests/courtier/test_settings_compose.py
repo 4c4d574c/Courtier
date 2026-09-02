@@ -287,3 +287,57 @@ class TestRefreshSnapshot:
         second = await refresh_settings_snapshot(service, store, base=Settings())
         assert second["seeded"] == []
         assert service.get().llm_model == "seed-once-model"  # DB wins over new env
+
+
+class TestAdvancedDefaultsMaterialization:
+    """存量池的一次性物化：None 高级字段写入标量默认值，标记防重跑。"""
+
+    async def _unmaterialized_pool(self):
+        return {
+            "endpoints": [
+                {
+                    "id": "ep_legacy",
+                    "name": "旧接入点",
+                    "base_url": "https://legacy/v1",
+                    "models": [
+                        {
+                            "id": "mdl_legacy",
+                            "name": "旧模型",
+                            "model": "legacy-model",
+                            "temperature": 0.4,  # 已有值 → 不覆盖
+                            # 其余高级字段 None → 物化
+                        }
+                    ],
+                }
+            ],
+            "default_model_id": "mdl_legacy",
+        }
+
+    async def test_startup_materializes_once(self, db, monkeypatch):
+        monkeypatch.setenv("LLM_NAME", "legacy-model")
+        monkeypatch.setenv("LLM_API_KEY", "sk-legacy")
+        monkeypatch.delenv("LLM_MODEL_POOL", raising=False)
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        await store.save({"llm_model_pool": await self._unmaterialized_pool()}, actor="admin")
+        service = ConfigService()
+
+        info = await refresh_settings_snapshot(
+            service, store, base=Settings(_env_file=None)
+        )
+
+        assert info["pool_advanced_baked"] is True
+        pool = service.get().llm_model_pool
+        assert pool.advanced_defaults_materialized is True
+        entry = pool.endpoints[0].models[0]
+        assert entry.temperature == 0.4  # 已有值不被覆盖
+        assert entry.timeout_seconds == Settings(_env_file=None).llm_timeout
+        assert entry.max_tokens == Settings(_env_file=None).llm_max_tokens
+
+        # 幂等：第二次 refresh 不再改写（标记已置位）
+        entry_before = service.get().llm_model_pool.endpoints[0].models[0]
+        info2 = await refresh_settings_snapshot(
+            service, store, base=Settings(_env_file=None)
+        )
+        assert info2["pool_advanced_baked"] is False
+        assert service.get().llm_model_pool.endpoints[0].models[0] == entry_before

@@ -148,6 +148,16 @@ export const HIDDEN_SETTING_FIELDS: ReadonlySet<string> = new Set([
   "llm_base_url",
   "llm_api_key",
   "llm_model",
+  // 采样/超时/惩罚/extra_body/窗口：作为每模型高级参数的全局默认值，保存
+  // 模型池时由服务端物化进各条目（清空字段 = 重置为当前全局默认），UI 上
+  // 只在模型池高级面板编辑。
+  "llm_temperature",
+  "llm_max_tokens",
+  "llm_timeout",
+  "llm_frequency_penalty",
+  "llm_presence_penalty",
+  "llm_extra_body",
+  "llm_context_window_tokens",
 ]);
 
 /**

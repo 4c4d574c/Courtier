@@ -339,7 +339,7 @@
                               @input="writePool"
                             />
                           </label>
-                          <p class="pool-adv-note">留空的项采用「全局默认参数」组中的默认值。</p>
+                          <p class="pool-adv-note">留空的项在保存时写入当前全局默认值，此后按模型独立生效。</p>
                         </div>
                       </div>
                       <button

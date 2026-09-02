@@ -180,6 +180,12 @@ Settings 新字段（`llm_` 前缀自动归 `model` 类、hot、进入 admin 面
 - 2026-09-02（追加 2）：「LLM 接入」组端点三件套（llm_base_url/api_key/model）从设置 UI 隐藏
   （HIDDEN_SETTING_FIELDS 过滤，DB/env 值保留仍生效：池清空兜底、播种源、embedding 回退）；
   该组更名「全局默认参数」——采样/超时/惩罚/extra_body 的全局默认值来源，即每模型高级参数的回退。
+- 2026-09-02（追加 3）：全局默认参数**物化进每个池条目**——admin 保存池时服务端把留空的高级
+  字段写入当前标量默认值（advanced_defaults_materialized 标记随池存储），启动时对存量池做一次性
+  同样物化；「全局默认参数」组随之从 UI 隐藏（HIDDEN_SETTING_FIELDS 扩至全部 7 个标量默认）。
+  语义变化：清空高级字段保存 = 重置为当前全局默认（此后按模型独立）。标量 llm_* 仅剩兜底/
+  播种/embedding 回退三个后台角色。**embedding 不随前端切换模型**是设计决定（查询向量必须与
+  入库向量同模型/同向量空间），换 embedding 端点用 Embedding 专用字段。
 - 实施偏差（均已在对应提交中实现并测试）：
   1. 播种门控比计划更严：需 `store.codec` 可用（无加密密钥时跳过播种保持标量行为），
      并以 `key_has_history`（审计表存在性）保证严格一次性——admin 清空池后重启不会重新播种。

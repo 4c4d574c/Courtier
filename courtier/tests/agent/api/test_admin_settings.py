@@ -358,3 +358,42 @@ class TestDynamicSettingsBinding:
         newer = new_snapshot.model_copy(update={"jwt_secret": "rotated"})
         service.replace(newer)
         assert app.state.settings is new_snapshot  # detached after unsubscribe
+
+
+class TestPoolBakeOnSave:
+    """保存模型池时，服务端把留空的高级字段物化为当前全局默认值。"""
+
+    def test_put_bakes_unset_advanced_fields(self, client, monkeypatch):
+        monkeypatch.setenv("LLM_NAME", "bake-model")
+        pool = {
+            "endpoints": [
+                {
+                    "id": "ep_bake",
+                    "name": "bake",
+                    "base_url": "https://bake/v1",
+                    "enabled": True,
+                    "models": [
+                        {
+                            "id": "mdl_bake",
+                            "name": "B",
+                            "model": "bake-model",
+                            "temperature": 0.9,  # 显式值保留
+                            # 其余缺省 → 物化
+                        }
+                    ],
+                }
+            ],
+            "default_model_id": "mdl_bake",
+        }
+        resp = client.put("/api/admin/settings/model", json={"llm_model_pool": pool})
+        assert resp.status_code == 200
+
+        body = client.get("/api/admin/settings").json()
+        fields = {f["name"]: f for c in body["categories"] for f in c["fields"]}
+        saved = fields["llm_model_pool"]["value"]
+        assert saved["advanced_defaults_materialized"] is True
+        model = saved["endpoints"][0]["models"][0]
+        assert model["temperature"] == 0.9
+        assert model["timeout_seconds"] == 180.0  # 标量全局默认
+        assert model["max_tokens"] == 4096
+        assert model["frequency_penalty"] == 0.0

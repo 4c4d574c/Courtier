@@ -219,6 +219,35 @@ async def update_category(
     sets = {k: v for k, v in body.items() if v is not None}
     clears = sorted(k for k, v in body.items() if v is None)
 
+    # llm_model_pool bake: the scalar llm_* settings are the DEFAULT source
+    # for the per-model advanced params — materialize every unset field into
+    # the submitted pool so entries are self-contained (the group is hidden
+    # from the UI; clearing a field resets it to the current global value).
+    if "llm_model_pool" in sets and isinstance(sets["llm_model_pool"], dict):
+        submitted_pool = sets["llm_model_pool"]
+        current = get_settings()
+        global_defaults: dict[str, Any] = {
+            "context_window_tokens": current.llm_context_window_tokens,
+            "max_tokens": current.llm_max_tokens,
+            "temperature": current.llm_temperature,
+            "timeout_seconds": current.llm_timeout,
+            "frequency_penalty": current.llm_frequency_penalty,
+            "presence_penalty": current.llm_presence_penalty,
+        }
+        if current.llm_extra_body is not None:
+            global_defaults["extra_body"] = current.llm_extra_body
+        for endpoint in submitted_pool.get("endpoints", []):
+            if not isinstance(endpoint, dict):
+                continue
+            for model in endpoint.get("models", []):
+                if not isinstance(model, dict):
+                    continue
+                for key, value in global_defaults.items():
+                    if model.get(key) is None:
+                        model[key] = value
+        submitted_pool["advanced_defaults_materialized"] = True
+        sets["llm_model_pool"] = submitted_pool
+
     # llm_endpoint_keys merge: secrets are masked on read, so the frontend
     # cannot re-send the whole map — entries are entry-level ops against
     # the current value (key = overwrite, absent = keep, null/"" = delete).

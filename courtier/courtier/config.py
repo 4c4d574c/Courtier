@@ -138,6 +138,9 @@ class ModelPoolConfig(BaseModel):
 
     endpoints: list[PoolEndpointConfig] = Field(default_factory=list)
     default_model_id: str = ""
+    # 高级参数物化标记：True 表示所有条目的可空参数已写入全局默认值
+    # （admin 保存时物化；本标记防止启动迁移重复执行覆盖后续的手工值）。
+    advanced_defaults_materialized: bool = False
 
     @model_validator(mode="after")
     def _validate_references(self) -> "ModelPoolConfig":

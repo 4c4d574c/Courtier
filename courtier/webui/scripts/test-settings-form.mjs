@@ -211,28 +211,27 @@ try {
     value: null, type: "string", env_name: name.toUpperCase(), description: "",
   });
   {
-    // 端点三件套（llm_base_url/llm_api_key/llm_model）在 HIDDEN_SETTING_FIELDS
-    // 中被显式排除：模型池启用后它们对聊天链不再生效，仅作兜底。
+    // 隐藏契约：端点三件套 + 全局采样默认值都在 HIDDEN_SETTING_FIELDS 中
+    // （端点三件套对聊天链 dormant；采样默认值由服务端物化进每个池条目），
+    // 设置页只剩 模型池 / Embedding / 上下文管理 三个可见组。
     const modelFields = [
-      "llm_model", "llm_api_key", "llm_temperature", "llm_embedding_model",
+      "llm_model_pool", "llm_endpoint_keys", "llm_model", "llm_api_key",
+      "llm_temperature", "llm_timeout", "llm_embedding_model",
       "llm_embedding_dim", "context_budget_ratio", "context_preview_max_chars",
     ].map((name) => mkField(name, "model"));
     const groups = groupCategoryFields("model", modelFields);
     assert.deepEqual(
       groups.map((g) => g.key),
-      ["pool", "embedding", "llm", "context"].filter((k) => k !== "pool"),
+      ["pool", "embedding", "context"],
       "llm_embedding_ must win over the shorter llm_ prefix (first match)",
     );
     const total = groups.reduce((n, g) => n + g.fields.length, 0);
     assert.equal(
       total,
-      modelFields.length - 2,
-      "hidden endpoint fields are excluded; every other field lands in exactly one group",
+      6,
+      "pool(2) + embedding(2) + context(2) visible; endpoint trio and scalar defaults hidden",
     );
-    const llmGroup = groups.find((g) => g.key === "llm");
-    assert.equal(llmGroup.fields.some((f) => f.name === "llm_temperature"), true);
-    assert.equal(llmGroup.fields.some((f) => f.name === "llm_model"), false);
-    assert.equal(llmGroup.label, "全局默认参数");
+    assert.equal(groups.find((g) => g.key === "pool").fields.length, 2);
   }
   {
     // Unknown category and unknown names both land in a trailing 其他 group.

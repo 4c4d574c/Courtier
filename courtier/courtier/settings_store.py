@@ -448,6 +448,24 @@ async def refresh_settings_snapshot(
                 exc_info=True,
             )
 
+    pool_advanced_baked = False
+    existing_pool = overrides.get("llm_model_pool")
+    if isinstance(existing_pool, dict) and not existing_pool.get(
+        "advanced_defaults_materialized"
+    ):
+        # One-shot legacy migration: pools saved before the per-model
+        # advanced params existed carry None fields (inherit-invisible-
+        # scalars semantics). Materialize the current scalar defaults into
+        # them once; admin saves keep entries filled from here on.
+        try:
+            _bake_advanced_defaults(existing_pool, base)
+            await store.save({"llm_model_pool": existing_pool}, actor="system-adv-defaults")
+            overrides, unreadable = await store.load_overrides()
+            pool_advanced_baked = True
+            logger.info("materialized scalar defaults into existing model pool entries")
+        except Exception:
+            logger.warning("model pool defaults materialization failed", exc_info=True)
+
     pool_seeded = False
     if (
         "llm_model_pool" not in overrides
@@ -489,9 +507,36 @@ async def refresh_settings_snapshot(
         unreadable=unreadable,
         seeded=seeded,
         pool_seeded=pool_seeded,
+        pool_advanced_baked=pool_advanced_baked,
         jwt_generated=jwt_generated,
     )
     return info
+
+
+def _bake_advanced_defaults(pool_doc: dict, base: Any) -> None:
+    """Fill every None advanced field of every pool model entry from the
+    scalar llm_* defaults (shared by the startup one-shot and the admin
+    save path's equivalent)."""
+    defaults: dict = {
+        "context_window_tokens": base.llm_context_window_tokens,
+        "max_tokens": base.llm_max_tokens,
+        "temperature": base.llm_temperature,
+        "timeout_seconds": base.llm_timeout,
+        "frequency_penalty": base.llm_frequency_penalty,
+        "presence_penalty": base.llm_presence_penalty,
+    }
+    if base.llm_extra_body is not None:
+        defaults["extra_body"] = base.llm_extra_body
+    for endpoint in pool_doc.get("endpoints", []):
+        if not isinstance(endpoint, dict):
+            continue
+        for model in endpoint.get("models", []):
+            if not isinstance(model, dict):
+                continue
+            for key, value in defaults.items():
+                if model.get(key) is None:
+                    model[key] = value
+    pool_doc["advanced_defaults_materialized"] = True
 
 
 async def _seed_model_pool(store: "SettingsStore", base: Any) -> None:
