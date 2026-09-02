@@ -120,96 +120,105 @@
                     class="pool-endpoint-card"
                     :class="{ off: !row.enabled }"
                   >
-                    <div class="pool-ep-head">
-                      <input
-                        v-model="row.name"
-                        class="pool-input pool-ep-name"
-                        :disabled="!editable"
-                        placeholder="接入点名称"
-                        spellcheck="false"
-                        @input="writePool"
-                      />
+                    <div class="pool-frow">
+                      <span class="pool-flabel">名称</span>
+                      <div class="pool-fctrl pool-fctrl--name">
+                        <input
+                          v-model="row.name"
+                          class="pool-box pool-box--name"
+                          :disabled="!editable"
+                          placeholder="如：deepseek"
+                          spellcheck="false"
+                          @input="writePool"
+                        />
+                        <label class="switch-label pool-enable">
+                          <span class="switch">
+                            <input
+                              type="checkbox"
+                              :checked="row.enabled"
+                              :disabled="!editable"
+                              @change="row.enabled = ($event.target as HTMLInputElement).checked; writePool()"
+                            />
+                            <span class="track" />
+                          </span>
+                          <span class="switch-state">{{ row.enabled ? "启用" : "停用" }}</span>
+                        </label>
+                        <button
+                          class="pool-test"
+                          type="button"
+                          :disabled="!editable || !canTestEndpoint(row) || testingPool !== ''"
+                          :title="canTestEndpoint(row) ? '' : '保存后可测试'"
+                          @click="testEndpoint(row)"
+                        >
+                          {{ testingPool === row.id ? "测试中…" : "测试" }}
+                        </button>
+                        <span
+                          v-if="poolTest[row.id]"
+                          class="pool-test-result"
+                          :class="poolTest[row.id].ok ? 'ok' : 'fail'"
+                        >
+                          {{ poolTest[row.id].ok ? "连通" : `失败：${poolTest[row.id].error}` }}
+                        </span>
+                        <button
+                          class="endpoint-remove pool-ep-remove"
+                          type="button"
+                          :aria-label="`删除接入点 ${row.name || row.id}`"
+                          :disabled="!editable"
+                          @click="removePoolEndpoint(i)"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                    <div class="pool-frow">
+                      <span class="pool-flabel">接口地址</span>
                       <input
                         v-model="row.base_url"
-                        class="pool-input pool-input--mono pool-ep-url"
+                        class="pool-box pool-box--mono"
                         :disabled="!editable"
                         placeholder="https://…/compatible-mode/v1"
                         spellcheck="false"
                         @input="writePool"
                       />
-                      <label class="switch-label pool-enable">
-                        <span class="switch">
-                          <input
-                            type="checkbox"
-                            :checked="row.enabled"
-                            :disabled="!editable"
-                            @change="row.enabled = ($event.target as HTMLInputElement).checked; writePool()"
-                          />
-                          <span class="track" />
-                        </span>
-                        <span class="switch-state">{{ row.enabled ? "启用" : "停用" }}</span>
-                      </label>
-                      <button
-                        class="pool-test"
-                        type="button"
-                        :disabled="!editable || !canTestEndpoint(row) || testingPool !== ''"
-                        :title="canTestEndpoint(row) ? '' : '保存后可测试'"
-                        @click="testEndpoint(row)"
-                      >
-                        {{ testingPool === row.id ? "测试中…" : "测试" }}
-                      </button>
-                      <span
-                        v-if="poolTest[row.id]"
-                        class="pool-test-result"
-                        :class="poolTest[row.id].ok ? 'ok' : 'fail'"
-                      >
-                        {{ poolTest[row.id].ok ? "连通" : `失败：${poolTest[row.id].error}` }}
-                      </span>
-                      <button
-                        class="endpoint-remove"
-                        type="button"
-                        :aria-label="`删除接入点 ${row.name || row.id}`"
-                        :disabled="!editable"
-                        @click="removePoolEndpoint(i)"
-                      >
-                        ×
-                      </button>
                     </div>
-                    <div class="pool-ep-key">
-                      <span class="pool-key-label">API 密钥</span>
-                      <input
-                        v-model="row.keyDraft"
-                        class="pool-input pool-input--mono"
-                        type="password"
-                        autocomplete="new-password"
-                        :disabled="!editable"
-                        title="此接入点调用模型 API 用的密钥：加密存储，保存后不可回读（只显示是否已设置与尾号）；不需要鉴权的内网端点可留空"
-                        :placeholder="keyPlaceholder(row)"
-                        @input="row.keyRemove = false; writePoolKeys()"
-                      />
-                      <button
-                        v-if="row.keySet && !row.keyRemove && !row.keyDraft"
-                        class="clear-link"
-                        type="button"
-                        :disabled="!editable"
-                        @click="row.keyRemove = true; writePoolKeys()"
-                      >
-                        删除已存密钥
-                      </button>
-                      <span v-if="row.keyRemove" class="cleared-chip">
-                        保存后删除已存密钥
+                    <div class="pool-frow">
+                      <span class="pool-flabel">API 密钥</span>
+                      <div class="pool-fctrl">
+                        <input
+                          v-model="row.keyDraft"
+                          class="pool-box pool-box--mono pool-key-input"
+                          type="password"
+                          autocomplete="new-password"
+                          :disabled="!editable"
+                          title="此接入点调用模型 API 用的密钥：加密存储，保存后不可回读（只显示是否已设置与尾号）；不需要鉴权的内网端点可留空"
+                          :placeholder="keyPlaceholder(row)"
+                          @input="row.keyRemove = false; writePoolKeys()"
+                        />
                         <button
+                          v-if="row.keySet && !row.keyRemove && !row.keyDraft"
                           class="clear-link"
                           type="button"
                           :disabled="!editable"
-                          @click="row.keyRemove = false; writePoolKeys()"
+                          @click="row.keyRemove = true; writePoolKeys()"
                         >
-                          撤销
+                          删除已存密钥
                         </button>
-                      </span>
-                      <span class="pool-key-note">加密存储 · 不可回读</span>
+                        <span v-if="row.keyRemove" class="cleared-chip">
+                          保存后删除已存密钥
+                          <button
+                            class="clear-link"
+                            type="button"
+                            :disabled="!editable"
+                            @click="row.keyRemove = false; writePoolKeys()"
+                          >
+                            撤销
+                          </button>
+                        </span>
+                      </div>
                     </div>
-                    <div class="pool-models">
+                    <div class="pool-frow pool-frow--models">
+                      <span class="pool-flabel">模型</span>
+                      <div class="pool-models">
                       <div class="pool-model-head" aria-hidden="true">
                         <span>显示名</span>
                         <span>模型 ID</span>
@@ -225,7 +234,7 @@
                       >
                         <input
                           v-model="m.name"
-                          class="pool-input"
+                          class="pool-box"
                           :disabled="!editable"
                           placeholder="显示名"
                           spellcheck="false"
@@ -233,7 +242,7 @@
                         />
                         <input
                           v-model="m.model"
-                          class="pool-input pool-input--mono"
+                          class="pool-box pool-box--mono"
                           :disabled="!editable"
                           placeholder="model-id"
                           spellcheck="false"
@@ -241,7 +250,7 @@
                         />
                         <input
                           v-model="m.context_window_tokens"
-                          class="pool-input"
+                          class="pool-box"
                           :disabled="!editable"
                           placeholder="如 131072"
                           spellcheck="false"
@@ -249,7 +258,7 @@
                         />
                         <input
                           v-model="m.max_tokens"
-                          class="pool-input"
+                          class="pool-box"
                           :disabled="!editable"
                           placeholder="如 8192"
                           spellcheck="false"
@@ -257,7 +266,7 @@
                         />
                         <input
                           v-model="m.temperature"
-                          class="pool-input"
+                          class="pool-box"
                           :disabled="!editable"
                           placeholder="如 0.7"
                           spellcheck="false"
@@ -281,6 +290,7 @@
                       >
                         ＋ 添加模型
                       </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1821,8 +1831,9 @@ onMounted(load);
 /* ---- Model pool editor ----
    One dedicated surface replacing two raw settings rows: a status topbar
    (badges + one-line description left, default model right), bordered
-   endpoint sub-cards (header row / key row / model table), and a quiet
-   footer for validation + the clear action. */
+   endpoint sub-cards whose interior is a uniform label-column form (every
+   row: 64px label + bordered control), and a quiet footer for validation
+   + the clear action. */
 .pool-row {
   padding: 16px 0;
   display: flex;
@@ -1890,40 +1901,89 @@ onMounted(load);
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
   background: var(--chat-bg-card);
-  padding: 12px 14px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   box-shadow: var(--chat-shadow);
 }
-.pool-endpoint-card.off .pool-ep-name,
-.pool-endpoint-card.off .pool-ep-url,
-.pool-endpoint-card.off .pool-model-row .pool-input {
+.pool-endpoint-card.off .pool-box {
   opacity: 0.5;
 }
-.pool-ep-head {
+
+/* Uniform label-column rows inside an endpoint card. */
+.pool-frow {
   display: grid;
-  grid-template-columns: minmax(110px, 180px) 1fr auto auto auto 28px;
-  gap: 8px;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed var(--chat-border);
 }
-.pool-ep-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--chat-text-primary);
+.pool-frow--models {
+  align-items: start;
 }
-.pool-ep-url {
-  font-size: 12.5px;
+.pool-frow--models .pool-flabel {
+  padding-top: 8px;
+}
+.pool-flabel {
+  font-size: 12px;
   color: var(--chat-text-secondary);
+  white-space: nowrap;
+}
+.pool-fctrl {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+.pool-fctrl--name .pool-enable {
+  margin-left: auto;
+}
+.pool-fctrl .clear-link {
+  white-space: nowrap;
+}
+
+/* Bordered box inputs — same idiom as .field-input elsewhere on the page. */
+.pool-box {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.pool-box:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+.pool-box:disabled {
+  opacity: 0.55;
+}
+.pool-box::placeholder {
+  color: var(--chat-text-tertiary);
+}
+.pool-box--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.pool-box--name {
+  max-width: 260px;
+  font-weight: 600;
+}
+.pool-key-input {
+  max-width: 340px;
 }
 .pool-enable {
   flex-shrink: 0;
 }
 .pool-test {
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-card);
@@ -1931,6 +1991,7 @@ onMounted(load);
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .pool-test:hover:not(:disabled) {
   color: var(--chat-accent);
@@ -1950,35 +2011,24 @@ onMounted(load);
 .pool-test-result.fail {
   color: var(--err);
 }
-.pool-ep-key {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.pool-key-label {
-  width: 60px;
+.pool-ep-remove {
   flex-shrink: 0;
-  font-size: 12px;
-  color: var(--chat-text-secondary);
 }
-.pool-ep-key .pool-input {
-  max-width: 300px;
-  padding: 5px 0;
+/* Reveal-on-hover for the pool's delete buttons (the generic rule targets
+   .endpoint-row, which the pool cards don't use). */
+.pool-endpoint-card:hover .pool-ep-remove,
+.pool-model-row:hover .endpoint-remove,
+.pool-ep-remove:focus-visible,
+.endpoint-remove:focus-visible {
+  opacity: 1;
 }
-.pool-key-note {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--chat-text-tertiary);
-  white-space: nowrap;
-}
-.pool-ep-key .clear-link {
-  white-space: nowrap;
-}
+
+/* Model table: light section, bordered compact inputs. */
 .pool-models {
-  border: 1px dashed var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  padding: 4px 10px 6px;
-  background: var(--chat-bg-body);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 .pool-model-head,
 .pool-model-row {
@@ -1988,35 +2038,12 @@ onMounted(load);
   align-items: center;
 }
 .pool-model-head {
-  padding: 5px 0 3px;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--chat-text-tertiary);
 }
-.pool-input {
-  width: 100%;
-  padding: 6px 0;
-  border: none;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  outline: none;
-  transition: border-color 150ms;
-}
-.pool-input:focus {
-  border-bottom-color: var(--chat-accent);
-}
-.pool-input:disabled {
-  opacity: 0.55;
-}
-.pool-input::placeholder {
-  color: var(--chat-text-tertiary);
-}
-.pool-input--mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
+.pool-model-row .pool-box {
+  padding: 5px 8px;
 }
 .pool-ep-add {
   border-top: 1px dashed var(--chat-border);
@@ -2034,11 +2061,11 @@ onMounted(load);
   .pool-model-row {
     grid-template-columns: 1fr 1fr 28px;
   }
-  .pool-ep-head {
-    grid-template-columns: 1fr 1fr 28px;
+  .pool-frow {
+    grid-template-columns: 1fr;
   }
-  .pool-key-note {
-    display: none;
+  .pool-fctrl--name .pool-enable {
+    margin-left: 0;
   }
 }
 
