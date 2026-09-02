@@ -17,6 +17,8 @@ export interface RunStatusEntry {
   conclusion?: string;
   tokensIn?: number;
   tokensOut?: number;
+  /** 确认链路：挂起中的工具确认数（undefined = 未变） */
+  pendingConfirmations?: number;
   /** monotonically increasing — lets watchers notice repeated transitions */
   seq: number;
 }
@@ -55,6 +57,7 @@ function open() {
         conclusion: payload.conclusion,
         tokensIn: payload.tokensIn,
         tokensOut: payload.tokensOut,
+        pendingConfirmations: payload.pendingConfirmations,
         seq: ++seqCounter,
       });
     } catch (err) {

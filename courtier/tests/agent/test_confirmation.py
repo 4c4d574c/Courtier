@@ -165,9 +165,11 @@ class TestRunManagerBridge:
         pending = manager.list_pending_confirmations("sess1")
         assert len(pending) == 1 and pending[0]["toolName"] == "deploy"
         cid = pending[0]["confirmationId"]
+        assert manager.pending_confirmation_count("sess1") == 1
         outcome = manager.resolve_confirmation("sess1", cid, "approve")
         assert outcome["decision"] == "approve" and outcome["toolName"] == "deploy"
         assert await task is True
+        assert manager.pending_confirmation_count("sess1") == 0
         types = [e.payload["type"] for e in run.log._entries]
         assert "confirmation_requested" in types and "confirmation_resolved" in types
 

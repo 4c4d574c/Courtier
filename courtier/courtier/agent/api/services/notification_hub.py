@@ -50,6 +50,7 @@ class NotificationHub:
         conclusion: str = "",
         tokens_in: int | None = None,
         tokens_out: int | None = None,
+        pending_confirmations: int | None = None,
     ) -> None:
         """Fan a run-status transition out to the owner's connections.
 
@@ -69,6 +70,8 @@ class NotificationHub:
             payload["tokensIn"] = tokens_in
         if tokens_out is not None:
             payload["tokensOut"] = tokens_out
+        if pending_confirmations is not None:
+            payload["pendingConfirmations"] = pending_confirmations
         line = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         for conn in list(self._connections):
             if conn.user != user:

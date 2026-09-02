@@ -118,6 +118,11 @@
                   class="chat-sidebar-item-queue"
                   >+{{ session.queuePosition ?? 0 }}</span
                 >
+                <span
+                  v-if="(session.pendingConfirmations ?? 0) > 0"
+                  class="chat-sidebar-item-pending-confirm"
+                  >待确认</span
+                >
                 <button
                   class="chat-sidebar-item-menu-btn"
                   :class="{
@@ -734,6 +739,16 @@ function onMenuDelete(id: string) {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.chat-sidebar-item-pending-confirm {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: #f59e0b;
+  border: 1px solid #f59e0b;
 }
 
 .chat-sidebar-item-queue {

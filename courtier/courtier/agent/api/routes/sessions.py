@@ -132,6 +132,9 @@ async def handle_sessions(
             live = run_manager.active_status(item["id"])
             if live is not None:
                 item["status"] = live
+            pending = run_manager.pending_confirmation_count(item["id"])
+            if pending:
+                item["pendingConfirmations"] = pending
     return items
 
 

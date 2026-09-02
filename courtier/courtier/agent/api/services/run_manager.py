@@ -206,6 +206,7 @@ class RunManager:
         conclusion: str = "",
         tokens: dict[str, int] | None = None,
         queue_position: int | None = None,
+        pending_confirmations: int | None = None,
     ) -> None:
         hub = self._notification_hub
         if hub is None:
@@ -219,6 +220,7 @@ class RunManager:
                 queue_position=queue_position,
                 tokens_in=(tokens or {}).get("tokensIn"),
                 tokens_out=(tokens or {}).get("tokensOut"),
+                pending_confirmations=pending_confirmations,
             )
         except Exception:
             logger.warning("Notification publish failed for %s", run.session_id, exc_info=True)
@@ -251,6 +253,15 @@ class RunManager:
                 "decision": None,
             }
             run.confirmations[cid] = entry
+            # Sidebar "待确认" badge on other tabs: push the pending count
+            # over the user-level events channel (fire-and-forget).
+            self._notify(
+                run,
+                "running",
+                pending_confirmations=sum(
+                    1 for e in run.confirmations.values() if e["decision"] is None
+                ),
+            )
             run.log.append(
                 {
                     "type": "confirmation_requested",
@@ -263,6 +274,15 @@ class RunManager:
             try:
                 return await future
             finally:
+                self._notify(
+                    run,
+                    "running",
+                    pending_confirmations=sum(
+                        1
+                        for e in run.confirmations.values()
+                        if e["decision"] is None and e is not entry
+                    ),
+                )
                 run.log.append(
                     {
                         "type": "confirmation_resolved",
@@ -274,6 +294,13 @@ class RunManager:
                 run.confirmations.pop(cid, None)
 
         return handle
+
+    def pending_confirmation_count(self, session_id: str) -> int:
+        """Unresolved confirmations for the session's active run (0 when none)."""
+        run = self._active_run(session_id)
+        if run is None:
+            return 0
+        return sum(1 for entry in run.confirmations.values() if entry["decision"] is None)
 
     def list_pending_confirmations(self, session_id: str) -> list[dict[str, Any]]:
         """Unresolved confirmations for the session's active run (may be empty)."""

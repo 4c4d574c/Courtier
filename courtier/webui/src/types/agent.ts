@@ -250,6 +250,8 @@ export interface SessionSummary {
   pinned?: boolean
   /** 服务端排队位置（前面还有 N 个任务）；仅 status === 'queued' 时存在 */
   queuePosition?: number
+  /** 确认链路：该会话挂起中的工具确认数（>0 时侧栏行显示"待确认"） */
+  pendingConfirmations?: number
 }
 
 /** 一次挂起中的工具确认（工具名级三选：仅本次 / 本会话放行 / 拒绝） */

@@ -129,3 +129,20 @@ class TestGlobalEventsChannel:
                 assert payload["type"] == "run_status"
                 assert payload["status"] == "completed"
                 assert "tokensIn" in payload and "tokensOut" in payload
+
+
+def test_pending_confirmations_field():
+    import json
+
+    hub = NotificationHub()
+    conn = hub.subscribe("alice")
+    hub.publish(
+        "alice",
+        session_id="s1",
+        status="running",
+        pending_confirmations=2,
+    )
+    line = conn.queue.get_nowait()
+    payload = json.loads(line[len("data: "):].strip())
+    assert payload["pendingConfirmations"] == 2
+    assert payload["type"] == "run_status"

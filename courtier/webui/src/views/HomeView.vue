@@ -110,6 +110,9 @@ watch(
       if (entry) {
         s.status = entry.status as typeof s.status;
         s.queuePosition = entry.queuePosition;
+        if (entry.pendingConfirmations !== undefined) {
+          s.pendingConfirmations = entry.pendingConfirmations;
+        }
       }
     }
   },
