@@ -626,6 +626,32 @@ class Settings(BaseSettings):
         description="单次工具执行超时（秒），0=不限制；工具可用 execution_timeout 类属性覆盖",
     )
 
+    # Refusal detection & same-model retry (model-behavior recovery policy).
+    refusal_detection_enabled: bool = Field(
+        default=True,
+        description="是否对纯文本响应做拒绝（refusal）检测",
+    )
+    refusal_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "我无法",
+            "我不能",
+            "无法协助",
+            "无法帮助",
+            "无法满足",
+            "对不起，我不能",
+            "i'm sorry, but",
+            "i cannot",
+            "i can't",
+            "i'm not able",
+        ],
+        description="拒绝检测模式清单（不区分大小写的子串匹配），可按需增删",
+    )
+    refusal_retry_max: int = Field(
+        default=1,
+        ge=0,
+        description="检测到拒绝后同模型重试次数上限（0=只检测不重试）",
+    )
+
     # Sub-agent runtime budget — tunable via environment variables
     subagent_max_runtime_seconds: float = Field(
         default=300.0,
@@ -1024,7 +1050,7 @@ def _setting_category(field: str) -> str:
         return "retrieval"
     if field.startswith("courtier_plugin_"):
         return "plugins"
-    if field.startswith(("loop_", "subagent_", "run_")) or field in (
+    if field.startswith(("loop_", "subagent_", "run_", "refusal_")) or field in (
         "max_runs_per_user",
         "max_total_runs",
         "tool_confirmation",

@@ -72,6 +72,12 @@ GUARDRAIL_BLOCKED_TOTAL = Counter(
     ["layer", "guard_name"],
 )
 
+REFUSAL_TOTAL = Counter(
+    "refusal_total",
+    "Refusal detector outcomes",
+    ["outcome"],
+)
+
 MODEL_TOOL_ARG_REPAIR_TOTAL = Counter(
     "model_tool_arg_repair_total",
     "Tool call argument repairs applied while parsing model output",
@@ -202,6 +208,11 @@ def record_plugin_lifecycle_restart(provider: str, outcome: str) -> None:
 
 def record_guardrail_blocked(layer: str, guard_name: str) -> None:
     GUARDRAIL_BLOCKED_TOTAL.labels(layer=layer, guard_name=guard_name).inc()
+
+
+def record_refusal(outcome: str) -> None:
+    """Record a refusal-detector outcome: 'detected' or 'exhausted'."""
+    REFUSAL_TOTAL.labels(outcome=outcome).inc()
 
 
 def record_tool_arg_repair(tier: str) -> None:
