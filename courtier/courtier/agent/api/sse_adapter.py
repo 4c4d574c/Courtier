@@ -286,6 +286,20 @@ class RunRecorder:
             await self._handle_think_tool_calls([str(n) for n in names], ids)
         elif event_type == "think.text_response":
             await self.on_step("think", "text_response")
+        elif event_type == "think.retry":
+            # Refusal retry: the frontend resets the current step's streamed
+            # buffers; the retry re-streams into the same step.
+            await self._emit_sse(
+                {"type": "think_retry", "attempt": payload.get("attempt", 0)}
+            )
+        elif event_type == "refusal.detected":
+            await self._emit_sse(
+                {
+                    "type": "refusal_detected",
+                    "matched": payload.get("matched", ""),
+                    "attempt": payload.get("attempt", 0),
+                }
+            )
         elif event_type == "context.compacted":
             # Mirror of the legacy on_step("compact", ...) callback — route
             # through on_step so the SSE shape stays defined in one place.

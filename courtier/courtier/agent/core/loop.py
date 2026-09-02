@@ -447,6 +447,7 @@ async def _run_think_phase(
             on_step=on_step,
             on_token=on_token,
             on_content_token=on_content_token,
+            publish=_publish,
         )
         # Record prompt/completion as span events
         llm_request_msgs = think.llm_request.messages

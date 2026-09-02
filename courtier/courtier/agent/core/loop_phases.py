@@ -40,6 +40,12 @@ class ThinkResult:
     tokens_streamed: bool
     failed: bool = False
     reasoning_loop: bool = False
+    #: Same-model retries performed after refusal detection (final response
+    #: is what lands in state; refused attempts are discarded).
+    refusal_attempts: int = 0
+    #: Set when the final attempt still matched a refusal pattern after the
+    #: retry budget was spent (retry_max > 0) — the caller surfaces a notice.
+    refusal_exhausted: str | None = None
 
 
 async def think_phase(
@@ -52,6 +58,7 @@ async def think_phase(
     on_step: Any,
     on_token: Any,
     on_content_token: Any,
+    publish: Any | None = None,
 ) -> ThinkResult:
     """Think phase: compact context, call model, detect reasoning loops.
 
@@ -127,44 +134,112 @@ async def think_phase(
     llm_start = time.perf_counter()
     tokens_streamed = False
 
-    try:
-        if on_token is not None:
-            # Notify frontend before streaming starts so it can create a
-            # placeholder step for real-time thought rendering.
-            if on_step:
-                await on_step("think", "text_response")
-            response, tokens_streamed = await generate_with_streaming_fallback(
-                model=model,
-                messages=messages,
-                tools=tools_schemas,
-                on_token=on_token,
-                on_content_token=on_content_token,
+    # Refusal retry policy (model-behavior recovery, outside guardrails):
+    # a pure-text response matching a refusal pattern is discarded and the
+    # same model re-asked unchanged, up to ``refusal_retry_max`` times.
+    from courtier.config import get_settings
+
+    from .refusal import RefusalDetector
+    from ..telemetry.metrics import record_refusal
+
+    _settings = get_settings()
+    detector = (
+        RefusalDetector(_settings.refusal_patterns)
+        if _settings.refusal_detection_enabled
+        else None
+    )
+    max_refusal_retries = (
+        max(0, int(_settings.refusal_retry_max)) if detector is not None else 0
+    )
+    refusal_attempt = 0
+    refusal_exhausted: str | None = None
+    usage_totals: dict[str, int] = {}
+
+    while True:
+        try:
+            if on_token is not None:
+                # Notify frontend before streaming starts so it can create a
+                # placeholder step for real-time thought rendering (first
+                # attempt only — retries reset the buffers via think.retry).
+                if on_step and refusal_attempt == 0:
+                    await on_step("think", "text_response")
+                response, tokens_streamed = await generate_with_streaming_fallback(
+                    model=model,
+                    messages=messages,
+                    tools=tools_schemas,
+                    on_token=on_token,
+                    on_content_token=on_content_token,
+                )
+                if tokens_streamed and on_step and refusal_attempt == 0:
+                    await on_step("stream", "streaming_response")
+            else:
+                response = await model.generate(messages, tools=tools_schemas)
+        except Exception as exc:
+            logger.exception("Model generation failed")
+            llm_duration_ms = int((time.perf_counter() - llm_start) * 1000)
+            error_response = LLMResponseRecord(
+                content=None,
+                reasoning=None,
+                tool_calls=[],
+                usage=None,
+                finish_reason="error",
+                duration_ms=llm_duration_ms,
             )
-            if tokens_streamed and on_step:
-                await on_step("stream", "streaming_response")
-        else:
-            response = await model.generate(messages, tools=tools_schemas)
-    except Exception as exc:
-        logger.exception("Model generation failed")
-        llm_duration_ms = int((time.perf_counter() - llm_start) * 1000)
-        error_response = LLMResponseRecord(
-            content=None,
-            reasoning=None,
-            tool_calls=[],
-            usage=None,
-            finish_reason="error",
-            duration_ms=llm_duration_ms,
-        )
-        state = state.errored(render_error("errors.model_error", error=str(exc)), set_status=False)
-        return ThinkResult(
-            state=state,
-            llm_request=llm_request,
-            llm_response=error_response,
-            llm_duration_ms=llm_duration_ms,
-            recent_reasoning=recent_reasoning,
-            tokens_streamed=False,
-            failed=True,
-        )
+            state = state.errored(render_error("errors.model_error", error=str(exc)), set_status=False)
+            return ThinkResult(
+                state=state,
+                llm_request=llm_request,
+                llm_response=error_response,
+                llm_duration_ms=llm_duration_ms,
+                recent_reasoning=recent_reasoning,
+                tokens_streamed=False,
+                failed=True,
+                refusal_attempts=refusal_attempt,
+            )
+
+        # Usage accumulates across refused attempts — the tokens were spent.
+        if response.usage:
+            for key in ("prompt_tokens", "completion_tokens"):
+                usage_totals[key] = usage_totals.get(key, 0) + int(
+                    response.usage.get(key, 0) or 0
+                )
+
+        refusal_matched = None
+        if detector is not None and not response.tool_calls:
+            refusal_matched = detector.match(response.content)
+        if refusal_matched is not None:
+            record_refusal("detected")
+            if publish is not None:
+                await publish(
+                    "refusal.detected",
+                    {
+                        "matched": refusal_matched[:40],
+                        "attempt": refusal_attempt,
+                    },
+                )
+            if refusal_attempt < max_refusal_retries:
+                refusal_attempt += 1
+                logger.warning(
+                    "Refusal detected (attempt %d matched %r) — retrying the "
+                    "same model unchanged (%d/%d)",
+                    refusal_attempt,
+                    refusal_matched[:40],
+                    refusal_attempt,
+                    max_refusal_retries,
+                )
+                if publish is not None:
+                    await publish("think.retry", {"attempt": refusal_attempt})
+                if on_step:
+                    await on_step("think_retry", str(refusal_attempt))
+                llm_start = time.perf_counter()
+                tokens_streamed = False
+                continue
+            if max_refusal_retries > 0:
+                # Retry budget spent and the final answer still refuses —
+                # surface it; the response itself still lands in the flow.
+                refusal_exhausted = refusal_matched
+
+        break
 
     llm_duration_ms = int((time.perf_counter() - llm_start) * 1000)
 
@@ -181,7 +256,8 @@ async def think_phase(
         tool_calls=[
             {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in response.tool_calls
         ],
-        usage=response.usage,
+        # Refused attempts' tokens were spent too — surface the sum.
+        usage=usage_totals or response.usage,
         finish_reason=response.finish_reason,
         duration_ms=llm_duration_ms,
     )
@@ -231,6 +307,8 @@ async def think_phase(
         recent_reasoning=recent_reasoning,
         tokens_streamed=tokens_streamed,
         reasoning_loop=reasoning_loop,
+        refusal_attempts=refusal_attempt,
+        refusal_exhausted=refusal_exhausted,
     )
 
 
