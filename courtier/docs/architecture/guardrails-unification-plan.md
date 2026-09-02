@@ -46,7 +46,7 @@ output（轮）→ tool（轮）→ 逐调用：参数解析 → tool_call 层 �
 
 ### 2. 决策词汇表
 
-- `Guardrail` 协议新增**可选方法** `check_call(call, context) -> CallGuardResult`（deny/allow + reason + metadata 含 `error_code`）；未实现该方法的 guard 不参与 `tool_call` 层——两种否决粒度的词汇不互相污染。
+- `Guardrail` 协议新增**可选方法** `check_call(call, context) -> CallGuardResult`（action 三值 `allow / deny / confirm` + reason + metadata 含 `error_code`；`confirm` 本期仅词汇预留，挂起交互链路见 `confirmation-interaction-plan.md`）；未实现该方法的 guard 不参与 `tool_call` 层——两种否决粒度的词汇不互相污染。
 - `GuardrailSystem.check_call(layer, call, context)`：收集该层全部 guard 决策，任一 deny 即 deny，结果携带 `guard_name`。
 - **循环独占拒绝合成权**：`loop_phases.py` 现有拒绝分支原样保留（文案、`error_code: permission_denied`、records、SSE 回调），仅决策来源从 `permissions.check(tool_call)` 换成 `guardrail_system.check_call(...)`。
 
@@ -131,10 +131,10 @@ output（轮）→ tool（轮）→ 逐调用：参数解析 → tool_call 层 �
 
 - EventBus 并入统一管线（异步扇出与裁决/适配词汇分离是机制边界，不是待办；见 §9 末条）。
 - 输入侧敏感信息检测的真实重实现（中文 PII 模式等）——待真实需求按域 guard 机制立项（T8 的机制即其落点）。
-- `require_confirmation` 的用户交互链路设计。
+- `require_confirmation` 的交互链路**实现**——方案独立成篇（`confirmation-interaction-plan.md`，依赖本计划 T1-T3 先行）；本期 T1 仅预留 `confirm` 词汇，不实现挂起。
 - 轮级行为层 fail-open 语义的任何变更。
 - 插件侧声明的权限规则（插件在进程外，违背 tool_call 层纯内存约束；如需经 host 侧适配另议）。
-- 模型输出拒绝（refusal）的重试/换模型策略。
+- 模型输出拒绝（refusal）的重试策略——独立成篇（`refusal-retry-plan.md`，无跨计划依赖）；T0 删除的 `RefusalOutputGuard` 由其检测器替代，无代码继承。
 
 ## 回归红线
 
