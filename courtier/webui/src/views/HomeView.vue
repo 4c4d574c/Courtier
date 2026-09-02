@@ -46,6 +46,7 @@ import { useTheme } from "../composables/useTheme";
 import { useRunEvents } from "../composables/useRunEvents";
 import { api } from "../api/client";
 import { MESSAGES } from "../constants/messages";
+import { fileRecordsFromTurns } from "../utils/chatMessages";
 import type { ChatFileRecord } from "../types/chat";
 import ChatLayout from "../components/chat/ChatLayout.vue";
 import RunToasts from "../components/chat/RunToasts.vue";
@@ -171,36 +172,30 @@ function handleEditSubmit({ turnIndex, text }: { turnIndex: number; text: string
   editAndResend(turnIndex, text);
 }
 
-function revokeUploadedFiles() {
-  for (const f of uploadedFiles.value) {
-    URL.revokeObjectURL(f.url);
-  }
+function clearUploadedFiles() {
   uploadedFiles.value = [];
 }
 
 function newSessionWithCleanup() {
-  revokeUploadedFiles();
+  clearUploadedFiles();
   newSession();
 }
 
 async function handleSubmit(task: string, file?: File) {
   let fileId: string | undefined;
-  let fileUrl: string | undefined;
 
   if (file) {
     uploading.value = true;
     uploadError.value = "";
-    fileUrl = URL.createObjectURL(file);
     try {
       const result = await api.uploadFile(file);
       fileId = result.fileId;
       uploadedFiles.value = [
         ...uploadedFiles.value,
-        { fileId, name: file.name, url: fileUrl },
+        { fileId, name: file.name, url: `/api/files/${encodeURIComponent(fileId)}` },
       ];
     } catch (e: unknown) {
       uploadError.value = e instanceof Error ? e.message : "上传失败";
-      if (fileUrl) URL.revokeObjectURL(fileUrl);
       return;
     } finally {
       uploading.value = false;
@@ -266,7 +261,7 @@ async function handleHistorySelect(id: string) {
   try {
     const loaded = await loadSession(id);
     if (loaded) {
-      revokeUploadedFiles();
+      uploadedFiles.value = fileRecordsFromTurns(loaded.turns);
       restoreSession(loaded);
       // Auto-close only on mobile, where the sidebar is an overlay.
       if (!window.matchMedia("(min-width: 769px)").matches) {
@@ -292,6 +287,6 @@ onUnmounted(() => {
   // Close the SSE stream — otherwise it keeps writing into this (now
   // orphaned) session state until the backend finishes.
   disconnect();
-  revokeUploadedFiles();
+  clearUploadedFiles();
 });
 </script>

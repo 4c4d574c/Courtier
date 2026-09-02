@@ -66,6 +66,29 @@ export function fileMimeType(name: string): string {
   return MIME_TYPE_MAP[ext] || "application/octet-stream";
 }
 
+function fileUrl(fileId: string): string {
+  return `/api/files/${encodeURIComponent(fileId)}`;
+}
+
+/**
+ * Rebuild previewable file records from a restored session's turns.
+ *
+ * Turn messages persist `fileId`/`fileName`; each record points at the
+ * download endpoint so previews survive page reloads (unlike the old
+ * blob-URL records, which died with the page). Deduped by fileId —
+ * edit-resend reuses the same fileId across turns.
+ */
+export function fileRecordsFromTurns(turns: Turn[]): ChatFileRecord[] {
+  const records = new Map<string, ChatFileRecord>();
+  for (const turn of turns) {
+    const fileId = turn.message.fileId;
+    const fileName = turn.message.fileName;
+    if (!fileId || !fileName || records.has(fileId)) continue;
+    records.set(fileId, { fileId, name: fileName, url: fileUrl(fileId) });
+  }
+  return [...records.values()];
+}
+
 function buildUserItem(
   turn: Turn,
   baseId: string,

@@ -694,6 +694,54 @@ try {
   assert.equal(assistantMsg.citations.list[2].title, "文档C");
   assert.equal(assistantMsg.citations.byNumber.get(3).title, "文档C");
 
+  // fileRecordsFromTurns: rebuild server-URL records from restored turns.
+  const { fileRecordsFromTurns } = chatMessages;
+  const restored = fileRecordsFromTurns([
+    {
+      message: { role: "user", text: "a", fileId: "f1", fileName: "通知.pdf", timestamp: 1 },
+      steps: [],
+    },
+    {
+      // Same fileId via edit-resend → deduped.
+      message: { role: "user", text: "a-edit", fileId: "f1", fileName: "通知.pdf", timestamp: 2 },
+      steps: [],
+    },
+    { message: { role: "user", text: "b", timestamp: 3 }, steps: [] },
+    {
+      message: { role: "user", text: "c", fileId: "f2", fileName: "报告.docx", timestamp: 4 },
+      steps: [],
+    },
+    // Legacy turn: fileName without fileId → skipped (no preview possible).
+    {
+      message: { role: "user", text: "d", fileName: "旧文件.pdf", timestamp: 5 },
+      steps: [],
+    },
+  ]);
+  assert.deepEqual(
+    restored,
+    [
+      { fileId: "f1", name: "通知.pdf", url: "/api/files/f1" },
+      { fileId: "f2", name: "报告.docx", url: "/api/files/f2" },
+    ],
+  );
+
+  // Restored records feed back into previewable file items (url non-empty).
+  const restoredMsgs = buildChatMessages(
+    {
+      ...baseSession,
+      turns: [
+        {
+          message: { role: "user", text: "a", fileId: "f1", fileName: "通知.pdf", timestamp: 1 },
+          steps: [],
+          conclusion: "ok",
+        },
+      ],
+    },
+    restored,
+  );
+  assert.equal(restoredMsgs[0].type, "file");
+  assert.equal(restoredMsgs[0].url, "/api/files/f1");
+
   console.log("chatMessages verification passed");
 } finally {
   rmSync(outDir, { recursive: true, force: true });
