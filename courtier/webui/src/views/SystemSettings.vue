@@ -79,7 +79,7 @@
               :key="field.name"
               class="field-row"
               :class="{
-                stacked: field.name === ENDPOINTS_FIELD,
+                stacked: field.name === ENDPOINTS_FIELD || field.name === POOL_FIELD,
                 dirty: isFieldDirty(field.name),
                 error: formErrors[field.name],
               }"
@@ -98,7 +98,206 @@
                 <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
               </div>
               <div class="field-control">
-                <div v-if="field.name === ENDPOINTS_FIELD" class="endpoint-editor">
+                <div v-if="field.name === POOL_FIELD" class="pool-editor">
+                  <div class="pool-default-row">
+                    <span class="pool-default-label">默认模型</span>
+                    <select
+                      class="pool-default-select"
+                      :value="poolDefault"
+                      :disabled="!editable"
+                      @change="onPoolDefaultChange($event)"
+                    >
+                      <option v-if="!poolRows.some((r) => r.models.length)" value="">
+                        （空池 · 回退下方标量配置）
+                      </option>
+                      <optgroup
+                        v-for="row in poolRows"
+                        :key="row.id"
+                        :label="row.name || row.id"
+                      >
+                        <option v-for="m in row.models" :key="m.id" :value="m.id">
+                          {{ m.name || m.id }}（{{ m.model }}）
+                        </option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div
+                    v-for="(row, i) in poolRows"
+                    :key="row.id"
+                    class="pool-endpoint"
+                    :class="{ off: !row.enabled }"
+                  >
+                    <div class="pool-ep-row">
+                      <input
+                        v-model="row.name"
+                        class="pool-input"
+                        :disabled="!editable"
+                        placeholder="接入点名称"
+                        spellcheck="false"
+                        @input="writePool"
+                      />
+                      <input
+                        v-model="row.base_url"
+                        class="pool-input pool-input--mono"
+                        :disabled="!editable"
+                        placeholder="https://…/compatible-mode/v1"
+                        spellcheck="false"
+                        @input="writePool"
+                      />
+                      <label class="pool-enable">
+                        <input
+                          type="checkbox"
+                          :checked="row.enabled"
+                          :disabled="!editable"
+                          @change="row.enabled = ($event.target as HTMLInputElement).checked; writePool()"
+                        />
+                        启用
+                      </label>
+                      <button
+                        class="pool-test"
+                        type="button"
+                        :disabled="!editable || !canTestEndpoint(row) || testingPool !== ''"
+                        :title="canTestEndpoint(row) ? '' : '保存后可测试'"
+                        @click="testEndpoint(row)"
+                      >
+                        {{ testingPool === row.id ? "测试中…" : "测试" }}
+                      </button>
+                      <span
+                        v-if="poolTest[row.id]"
+                        class="pool-test-result"
+                        :class="poolTest[row.id].ok ? 'ok' : 'fail'"
+                      >
+                        {{ poolTest[row.id].ok ? "连通" : `失败：${poolTest[row.id].error}` }}
+                      </span>
+                      <button
+                        class="endpoint-remove"
+                        type="button"
+                        :aria-label="`删除接入点 ${row.name || row.id}`"
+                        :disabled="!editable"
+                        @click="removePoolEndpoint(i)"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div class="pool-key-row">
+                      <input
+                        v-model="row.keyDraft"
+                        class="pool-input pool-input--mono"
+                        type="password"
+                        autocomplete="new-password"
+                        :disabled="!editable"
+                        :placeholder="keyPlaceholder(row)"
+                        @input="row.keyRemove = false; writePoolKeys()"
+                      />
+                      <button
+                        v-if="row.keySet && !row.keyRemove && !row.keyDraft"
+                        class="clear-link"
+                        type="button"
+                        :disabled="!editable"
+                        @click="row.keyRemove = true; writePoolKeys()"
+                      >
+                        删除已存密钥
+                      </button>
+                      <span v-if="row.keyRemove" class="cleared-chip">
+                        保存后删除已存密钥
+                        <button
+                          class="clear-link"
+                          type="button"
+                          :disabled="!editable"
+                          @click="row.keyRemove = false; writePoolKeys()"
+                        >
+                          撤销
+                        </button>
+                      </span>
+                    </div>
+                    <div class="pool-models">
+                      <div class="pool-model-head" aria-hidden="true">
+                        <span>显示名</span>
+                        <span>模型 ID</span>
+                        <span>窗口</span>
+                        <span>max_tokens</span>
+                        <span>温度</span>
+                        <span />
+                      </div>
+                      <div
+                        v-for="(m, j) in row.models"
+                        :key="m.id"
+                        class="pool-model-row"
+                      >
+                        <input
+                          v-model="m.name"
+                          class="pool-input"
+                          :disabled="!editable"
+                          placeholder="显示名"
+                          spellcheck="false"
+                          @input="writePool"
+                        />
+                        <input
+                          v-model="m.model"
+                          class="pool-input pool-input--mono"
+                          :disabled="!editable"
+                          placeholder="model-id"
+                          spellcheck="false"
+                          @input="writePool"
+                        />
+                        <input
+                          v-model="m.context_window_tokens"
+                          class="pool-input"
+                          :disabled="!editable"
+                          placeholder="如 131072"
+                          spellcheck="false"
+                          @input="writePool"
+                        />
+                        <input
+                          v-model="m.max_tokens"
+                          class="pool-input"
+                          :disabled="!editable"
+                          placeholder="如 8192"
+                          spellcheck="false"
+                          @input="writePool"
+                        />
+                        <input
+                          v-model="m.temperature"
+                          class="pool-input"
+                          :disabled="!editable"
+                          placeholder="如 0.7"
+                          spellcheck="false"
+                          @input="writePool"
+                        />
+                        <button
+                          class="endpoint-remove"
+                          type="button"
+                          :aria-label="`删除模型 ${m.name || m.id}`"
+                          :disabled="!editable"
+                          @click="removePoolModel(row, j)"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <button
+                        class="endpoint-add"
+                        type="button"
+                        :disabled="!editable"
+                        @click="addPoolModel(row)"
+                      >
+                        ＋ 添加模型
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="endpoint-add pool-ep-add"
+                    type="button"
+                    :disabled="!editable"
+                    @click="addPoolEndpoint"
+                  >
+                    ＋ 添加接入点
+                  </button>
+                  <p v-if="formErrors[POOL_FIELD]" class="field-error">{{ formErrors[POOL_FIELD] }}</p>
+                </div>
+                <div v-else-if="field.name === KEYS_FIELD" class="pool-keys-hint">
+                  密钥在上方各接入点行内编辑；此处展示总改动状态。密钥加密存储，保存后不可回读。
+                </div>
+                <div v-else-if="field.name === ENDPOINTS_FIELD" class="endpoint-editor">
                   <div class="endpoint-head" aria-hidden="true">
                     <span>插件名称</span>
                     <span>端点地址</span>
@@ -321,6 +520,19 @@ import {
   type SettingsField,
 } from "../utils/settingsForm";
 import {
+  buildKeyOps,
+  emptyEndpointRow,
+  emptyModelRow,
+  endpointChanged,
+  keyOpsDirty,
+  parsePool,
+  poolErrors as validatePool,
+  serializePool,
+  type KeyView,
+  type PoolDoc,
+  type PoolEndpointRow,
+} from "../utils/modelPool";
+import {
   CATEGORY_DESCRIPTIONS,
   cleanDescription,
   fieldDisplayName,
@@ -454,6 +666,114 @@ function endpointRowErrors(): string {
 }
 
 /**
+ * Model pool editor: the stored value is the `llm_model_pool` JSON — the
+ * UI edits structured endpoint/model rows and writes the serialized form
+ * back into formState, so dirty detection and save keep using the JSON
+ * pipeline.  Keys are separate: the server masks them per entry, so the
+ * UI tracks drafts/removals and submits entry-level ops that the server
+ * merges into the stored map.
+ */
+const POOL_FIELD = "llm_model_pool";
+const KEYS_FIELD = "llm_endpoint_keys";
+const poolRows = ref<Array<PoolEndpointRow>>([]);
+const poolDefault = ref("");
+const testingPool = ref("");
+const poolTest = reactive<Record<string, { ok: boolean; error?: string }>>({});
+
+function syncPoolRows() {
+  const state = formState["model"];
+  let doc: PoolDoc | null = null;
+  try {
+    if (state?.[POOL_FIELD]) doc = JSON.parse(String(state[POOL_FIELD])) as PoolDoc;
+  } catch {
+    doc = null;
+  }
+  const keysField = view.value.categories
+    .find((c) => c.key === "model")
+    ?.fields.find((f) => f.name === KEYS_FIELD);
+  const parsed = parsePool(doc, (keysField?.value ?? null) as Record<string, KeyView> | null);
+  poolRows.value = parsed.rows;
+  poolDefault.value = parsed.defaultModelId;
+  for (const key of Object.keys(poolTest)) delete poolTest[key];
+}
+
+function writePool() {
+  const state = formState["model"];
+  if (state) state[POOL_FIELD] = serializePool(poolRows.value, poolDefault.value);
+}
+
+/** Key edits don't touch the pool JSON — mirror them into formState so
+ * the action bar's dirty count sees them (value shape is irrelevant; only
+ * presence drives dirty detection, and save() replaces it with real ops). */
+function writePoolKeys() {
+  const state = formState["model"];
+  if (!state) return;
+  if (keyOpsDirty(poolRows.value)) {
+    state[KEYS_FIELD] = `__pending__${Date.now()}`;
+  } else if (typeof state[KEYS_FIELD] === "string" && String(state[KEYS_FIELD]).startsWith("__pending__")) {
+    state[KEYS_FIELD] = "";
+  }
+}
+
+const keysDirty = computed(() => keyOpsDirty(poolRows.value));
+
+function addPoolEndpoint() {
+  poolRows.value.push(emptyEndpointRow());
+  writePool();
+}
+
+function removePoolEndpoint(index: number) {
+  poolRows.value.splice(index, 1);
+  writePool();
+  writePoolKeys();
+}
+
+function addPoolModel(row: PoolEndpointRow) {
+  row.models.push(emptyModelRow());
+  writePool();
+}
+
+function removePoolModel(row: PoolEndpointRow, index: number) {
+  row.models.splice(index, 1);
+  writePool();
+}
+
+function onPoolDefaultChange(event: Event) {
+  poolDefault.value = (event.target as HTMLSelectElement).value;
+  writePool();
+}
+
+function keyPlaceholder(row: PoolEndpointRow): string {
+  if (row.keyRemove) return "将删除已存密钥";
+  if (row.keySet) return `已配置（••••${row.keyTail}）— 留空保持不变`;
+  return "未设置";
+}
+
+function canTestEndpoint(row: PoolEndpointRow): boolean {
+  // The stored key never reaches the client — only saved, unchanged
+  // endpoints can be tested via their id (the server reads the key).
+  return !endpointChanged(row);
+}
+
+async function testEndpoint(row: PoolEndpointRow) {
+  testingPool.value = row.id;
+  try {
+    poolTest[row.id] = await api.testConnection("llm", {
+      endpointId: row.id,
+      modelId: row.models[0]?.id ?? "",
+    });
+  } catch (exc) {
+    poolTest[row.id] = { ok: false, error: String(exc) };
+  } finally {
+    testingPool.value = "";
+  }
+}
+
+function poolEditorErrors(): string {
+  return validatePool(poolRows.value, poolDefault.value);
+}
+
+/**
  * Destructive-adjacent saves ask for confirmation: index/vector-dim changes
  * need a reindex, the plugin token is shared with plugin-side env, CORS
  * misconfiguration can lock the frontend out.
@@ -548,6 +868,9 @@ const dirtyInfo = computed(() => {
     if (value === null) clearedNames.add(name);
     else changed.add(name);
   }
+  // Key drafts/removals never flow through the generic secret pipeline —
+  // the sentinel marks the row dirty; save() swaps in the real ops.
+  if (cat === "model" && keysDirty.value) changed.add(KEYS_FIELD);
   return { changed, clearedNames };
 });
 const changedCount = computed(() => dirtyInfo.value.changed.size);
@@ -565,6 +888,7 @@ function resetForms(data: SettingsView) {
   }
   for (const key of Object.keys(revealed)) delete revealed[key];
   syncEndpointRows();
+  syncPoolRows();
 }
 
 function stringValue(name: string): string {
@@ -612,7 +936,14 @@ async function save() {
   Object.assign(formErrors, errors);
   const endpointError = cat === "plugins" ? endpointRowErrors() : "";
   if (endpointError) formErrors[ENDPOINTS_FIELD] = endpointError;
-  if (Object.keys(errors).length || endpointError) return;
+  const poolError = cat === "model" ? poolEditorErrors() : "";
+  if (poolError) formErrors[POOL_FIELD] = poolError;
+  if (Object.keys(errors).length || endpointError || poolError) return;
+  if (cat === "model" && keysDirty.value) {
+    // Swap the dirty sentinel for real entry-level ops (draft → overwrite,
+    // removal → null; everything absent is kept server-side).
+    body[KEYS_FIELD] = buildKeyOps(poolRows.value);
+  }
   const changed = Object.keys(body);
   if (!changed.length) {
     saveBanner.value = { applied: [], cleared: [], restart: [] };
@@ -644,6 +975,10 @@ async function testConnection(target: "llm" | "es" | "minio" | "plugins") {
       formState[activeCategory.value],
       cleared[activeCategory.value],
     );
+    // Key ops are entry-level mutations, not a full value — the server
+    // cannot merge them into a prospective snapshot; per-endpoint tests
+    // use the saved entries instead.
+    delete body[KEYS_FIELD];
     testResult.value = await api.testConnection(target, body);
   } catch (exc) {
     testResult.value = { ok: false, error: String(exc) };
@@ -1432,6 +1767,175 @@ onMounted(load);
     display: none;
   }
   .endpoint-row {
+    grid-template-columns: 1fr 1fr 28px;
+  }
+}
+
+/* ---- Model pool editor ----
+   Same table-like idiom as the plugin endpoint editor: bordered container,
+   borderless inputs, dashed add footers — plus one nested model block per
+   endpoint and a default-model select on top. */
+.pool-editor {
+  max-width: 720px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  overflow: hidden;
+}
+.pool-default-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--chat-border);
+  background: var(--chat-bg-hover);
+}
+.pool-default-label {
+  font-size: 12px;
+  color: var(--chat-text-secondary);
+}
+.pool-default-select {
+  flex: 1;
+  max-width: 320px;
+  padding: 5px 8px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  outline: none;
+}
+.pool-default-select:focus {
+  border-color: var(--chat-accent);
+}
+.pool-default-select:disabled {
+  opacity: 0.55;
+}
+.pool-endpoint {
+  padding: 0 12px;
+}
+.pool-endpoint + .pool-endpoint {
+  border-top: 1px solid var(--chat-border);
+}
+.pool-endpoint:hover {
+  background: var(--chat-bg-hover);
+}
+.pool-endpoint.off .pool-input {
+  opacity: 0.5;
+}
+.pool-ep-row {
+  display: grid;
+  grid-template-columns: 150px 1fr auto auto auto 28px;
+  gap: 8px;
+  align-items: center;
+  padding-top: 4px;
+}
+.pool-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--chat-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pool-test {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pool-test:hover:not(:disabled) {
+  color: var(--chat-accent);
+  border-color: var(--chat-accent);
+}
+.pool-test:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pool-test-result {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pool-test-result.ok {
+  color: var(--ok);
+}
+.pool-test-result.fail {
+  color: var(--err);
+}
+.pool-key-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 4px;
+}
+.pool-key-row .pool-input {
+  max-width: 300px;
+  padding: 5px 0;
+}
+.pool-models {
+  border-top: 1px dashed var(--chat-border);
+  padding-bottom: 4px;
+}
+.pool-model-head,
+.pool-model-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1.4fr 0.8fr 0.8fr 0.6fr 28px;
+  gap: 8px;
+  align-items: center;
+}
+.pool-model-head {
+  padding: 5px 0 3px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--chat-text-tertiary);
+}
+.pool-input {
+  width: 100%;
+  padding: 6px 0;
+  border: none;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 150ms;
+}
+.pool-input:focus {
+  border-bottom-color: var(--chat-accent);
+}
+.pool-input:disabled {
+  opacity: 0.55;
+}
+.pool-input::placeholder {
+  color: var(--chat-text-tertiary);
+}
+.pool-input--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.pool-keys-hint {
+  font-size: 12px;
+  color: var(--chat-text-tertiary);
+  line-height: 1.6;
+}
+.pool-ep-add {
+  border-top: 1px dashed var(--chat-border);
+}
+@media (max-width: 768px) {
+  .pool-model-head {
+    display: none;
+  }
+  .pool-model-row {
+    grid-template-columns: 1fr 1fr 28px;
+  }
+  .pool-ep-row {
     grid-template-columns: 1fr 1fr 28px;
   }
 }

@@ -18,6 +18,9 @@ export interface LabeledField {
 
 /** field name → Chinese display name. */
 export const FIELD_DISPLAY_NAMES: Record<string, string> = {
+  // model — 模型池
+  llm_model_pool: "模型池",
+  llm_endpoint_keys: "接入点密钥",
   // model — LLM 接入
   llm_base_url: "API 端点 URL",
   llm_api_key: "API 密钥",
@@ -31,6 +34,8 @@ export const FIELD_DISPLAY_NAMES: Record<string, string> = {
   llm_extra_body: "额外请求体参数（JSON）",
   // model — Embedding
   llm_embedding_model: "Embedding 模型",
+  llm_embedding_base_url: "Embedding 端点 URL",
+  llm_embedding_api_key: "Embedding 密钥",
   llm_embedding_dim: "Embedding 向量维度",
   llm_embedding_batch_size: "Embedding 批量大小",
   // model — 上下文管理
@@ -137,6 +142,8 @@ interface GroupSpec {
  */
 const CATEGORY_GROUPS: Record<string, GroupSpec[]> = {
   model: [
+    // Pool first: exact names must win over the broad "llm_" prefix below.
+    { key: "pool", label: "模型池", names: ["llm_model_pool", "llm_endpoint_keys"] },
     { key: "embedding", label: "Embedding 向量", prefixes: ["llm_embedding_"] },
     { key: "llm", label: "LLM 接入", prefixes: ["llm_"] },
     { key: "context", label: "上下文管理", prefixes: ["context_"] },
