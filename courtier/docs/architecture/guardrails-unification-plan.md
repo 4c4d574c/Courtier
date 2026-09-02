@@ -172,4 +172,4 @@ output（轮）→ tool（轮）→ 逐调用：参数解析 → tool_call 层 �
   - T7：PathPolicyGuard 读 `Capability.meta["permission"]["path_policy"]`（显式 opt-in/opt-out），未声明回退默认名单；build_agent 与 runtime 共享一个 CapabilityRegistry。
   - T8：domain.yaml `guards:` 声明 + `validate_domain` 校验（可导入/合法 layer）+ activator `_register_domain_guards` seam（owner=domain:<name>，replay 经 activate() 自动重注册）+ `unregister_owner` 对称注销；docaudit 未加真实 guard（按计划）。
   - 验收：tests/agent 全绿（1480）；全量 pytest 仅存与改动无关的 6 个实机环境失败（ES/OCR/MinIO，改动前基线相同）；webui `npm test` + `npm run build` 通过。
-  - **未执行项**：T9 真机冒烟（越界路径拒绝文案真机比对）待用户在真实会话验证——实施会话内不便重启共享 API 服务。
+  - **T9 真机冒烟（2026-09-02 当日补做，通过）**：真实 LLM 会话验证——① 越界 read 被拒，拒绝文案与旧门控逐字一致（含真实会话根清单：memory_home + session workspace）；② `tool_confirmation=[{tool:"write"}]` 热生效 → 写文件调用挂起并发出 `confirmation_requested` → API `approve_session` 裁决 → run 恢复完成、文件落盘、`approvedTools=["write"]` 持久化、`confirmation_resolved` 事件可见；③ 同会话续轮再写文件 **0 次确认**（approved 集合跨 agent 重建短路生效）；④ 冒烟发现并修复 `OrchestratorAgent.run` 未透传 `confirmation_handler` 的 kwarg 崩溃（runner 无条件传参、单测未覆盖 runner 路径——真机冒烟的价值所在）。
