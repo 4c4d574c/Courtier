@@ -39,6 +39,7 @@ errors:
   guard_call_failed: "Call guard {{ guard_name }} failed — the call was denied as a precaution"
   confirmation_denied: "The user rejected the confirmation for tool {{ tool_name }}; the call was not executed. Adjust your approach or answer directly. (Note: {{ message }})"
   confirmation_unavailable: "Tool {{ tool_name }} requires user confirmation, but no confirmation channel is available here — the call was not executed."
+  refusal_exhausted: "The model repeatedly refused this task and may be unavailable — try again later or ask an administrator to switch models."
   subagent_failed: "Sub-agent execution failed: {{ error }}"
   # —— Plugin channel ——
   plugin_arg_path_escape: "Argument {{ param_name }} escapes the upload directory and was rejected: {{ value }}"

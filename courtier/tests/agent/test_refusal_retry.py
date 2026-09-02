@@ -204,4 +204,39 @@ async def test_publish_events_order(refusal_settings):
         publish=publish,
     )
     types = [t for t, _ in events]
-    assert types == ["refusal.detected", "think.retry", "refusal.detected"]
+    assert types == [
+        "refusal.detected",
+        "think.retry",
+        "refusal.detected",
+        "refusal.exhausted",
+    ]
+    exhausted = dict(events[-1][1])
+    assert "多次拒绝" in exhausted["text"] or "unavailable" in exhausted["text"]
+    assert exhausted["matched"] == "我无法"
+
+
+@pytest.mark.asyncio
+async def test_zero_retries_never_publishes_exhausted(refusal_settings):
+    refusal_settings.refusal_retry_max = 0
+    events = []
+
+    async def publish(event_type, payload):
+        events.append(event_type)
+
+    model = _SequentialModel([_refusal()])
+
+    async def on_step(event, detail):
+        pass
+
+    await think_phase(
+        state=AgentState.initial("task"),
+        model=model,
+        tool_registry=None,
+        context_manager=None,
+        recent_reasoning=[],
+        on_step=on_step,
+        on_token=None,
+        on_content_token=None,
+        publish=publish,
+    )
+    assert events == ["refusal.detected"]

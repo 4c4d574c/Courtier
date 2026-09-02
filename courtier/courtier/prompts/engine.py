@@ -84,6 +84,7 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.guard_call_failed",
         "errors.confirmation_denied",
         "errors.confirmation_unavailable",
+        "errors.refusal_exhausted",
         "errors.plugin_arg_path_escape",
         "errors.plugin_arg_file_missing",
         "errors.plugin_file_transfer_failed",
@@ -278,6 +279,10 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     "errors.confirmation_unavailable": (
         "Tool {{ tool_name }} requires user confirmation, but no confirmation channel is "
         "available here — the call was not executed."
+    ),
+    "errors.refusal_exhausted": (
+        "The model repeatedly refused this task and may be unavailable — try again later "
+        "or ask an administrator to switch models."
     ),
     "errors.subagent_failed": ("Sub-agent execution failed: {{ error }}\n"),
     "errors.plugin_arg_path_escape": (

@@ -292,6 +292,16 @@ class RunRecorder:
             await self._emit_sse(
                 {"type": "think_retry", "attempt": payload.get("attempt", 0)}
             )
+        elif event_type == "refusal.exhausted":
+            # Retry budget spent and the final answer still refused — the
+            # frontend shows a persistent notice banner (locale-rendered).
+            await self._emit_sse(
+                {
+                    "type": "refusal_exhausted",
+                    "text": payload.get("text", ""),
+                    "matched": payload.get("matched", ""),
+                }
+            )
         elif event_type == "refusal.detected":
             await self._emit_sse(
                 {

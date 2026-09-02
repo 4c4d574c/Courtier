@@ -238,6 +238,15 @@ async def think_phase(
                 # Retry budget spent and the final answer still refuses —
                 # surface it; the response itself still lands in the flow.
                 refusal_exhausted = refusal_matched
+                record_refusal("exhausted")
+                if publish is not None:
+                    await publish(
+                        "refusal.exhausted",
+                        {
+                            "matched": refusal_matched[:40],
+                            "text": render_error("errors.refusal_exhausted"),
+                        },
+                    )
 
         break
 
