@@ -262,16 +262,18 @@ async def execute_tools_phase(
     on_tool_start: Callable[..., Awaitable[None]] | None = None,
     on_tool_progress: Callable[[str, Any], Awaitable[None]] | None = None,
     audit_logger: Any | None = None,
-    permissions: Any | None = None,
+    guardrail_system: Any | None = None,
 ) -> tuple[list[ExecutionResult], list[Any]]:
     """Execute all tool calls in the current state.
 
-    Permission gate: a denied call becomes that call's error result
-    (single-call rejection — the run continues) and never dispatches.
+    Permission guards (tool_call layer): a denied call becomes that call's
+    error result (single-call rejection — the run continues) and never
+    dispatches.
 
     Returns: (results: list[ExecutionResult], records: list[ToolExecutionRecord])
     """
     from .audit_logger import ToolExecutionRecord
+    from .guardrails.base import GuardContext
     from .loop_utils import tool_result_summary
 
     results: list[ExecutionResult] = []
@@ -313,17 +315,21 @@ async def execute_tools_phase(
             results.append(result)
             continue
 
-        # Permission gate — single-call rejection: a denied call becomes its
+        # Permission guards — single-call rejection: a denied call becomes its
         # own error result (reason + guidance for the model) and is never
         # dispatched; the run continues with the remaining calls.
-        if permissions is not None:
-            denial = permissions.check(tool_call)
-            if denial is not None:
+        if guardrail_system is not None:
+            decision = await guardrail_system.check_call(
+                "tool_call",
+                tool_call,
+                GuardContext(state=state),
+            )
+            if decision.action == "deny":
                 result = ExecutionResult.from_error(
                     actor_type="tool",
                     actor_name=tool_call.name,
-                    error=denial,
-                    metadata={"error_code": "permission_denied"},
+                    error=decision.reason,
+                    metadata={"error_code": decision.error_code or "permission_denied"},
                 )
                 tool_duration_ms = int((time.perf_counter() - tool_start) * 1000)
                 if on_tool_result:

@@ -12,6 +12,7 @@ from .base import (
 )
 from .guardrail_system import GuardMode, GuardrailSystem
 from .loop_guardrails import BusinessArtifactProgressGuard, ExploreLoopGuard
+from .permission_guards import PathPolicyGuard, ToolDisabledGuard
 
 __all__ = [
     "CallGuardAction",
@@ -26,4 +27,6 @@ __all__ = [
     "GuardrailSystem",
     "ExploreLoopGuard",
     "BusinessArtifactProgressGuard",
+    "PathPolicyGuard",
+    "ToolDisabledGuard",
 ]

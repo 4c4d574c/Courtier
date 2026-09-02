@@ -355,21 +355,21 @@ class TestAuditLoggerIntegration:
     @pytest.mark.asyncio
     async def test_permission_denied_call_is_recorded(self, tmp_path, registry_with_echo):
         """Single-call rejection: the denied call is audited, the run completes."""
-        from courtier.agent.permissions.gate import PermissionGate
+        from courtier.agent.core.guardrails import GuardrailSystem, ToolDisabledGuard
 
         logger = AuditLogger.for_run(agent_name="TestAgent", base_dir=str(tmp_path / "logs"))
         tc = ToolCall(id="call_1", name="echo", arguments={"text": "secret"})
         model = MockModelClient(tool_calls=[tc])
 
-        gate = PermissionGate()
-        gate.block("echo")
+        system = GuardrailSystem()
+        system.register(ToolDisabledGuard(blocked=("echo",)))
 
         state = AgentState.initial(task="echo secret")
         final = await agent_loop(
             state=state,
             model=model,
             tool_registry=registry_with_echo,
-            permissions=gate,
+            guardrail_system=system,
             audit_logger=logger,
         )
 

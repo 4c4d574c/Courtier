@@ -691,7 +691,7 @@ async def _run_tool_phase(
                 consecutive_exploratory=consecutive_exploratory,
             )
 
-    # Permission gate: enforced per call inside execute_tools_phase —
+    # Permission guards: enforced per call inside execute_tools_phase —
     # single-call rejection (denied call → error result, run continues).
     if current_state.is_terminal():
         _maybe_write_audit_turn(audit_logger, turn_index, timestamp, think)
@@ -762,7 +762,7 @@ async def _run_tool_phase(
         on_tool_start=on_tool_start,
         on_tool_progress=on_tool_progress,
         audit_logger=audit_logger,
-        permissions=permissions,
+        guardrail_system=guardrail_system,
     )
 
     # Give search hits explicit, cross-call citation indices so [[n]]

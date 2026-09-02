@@ -241,17 +241,20 @@ class TestAgentLoop:
     @pytest.mark.asyncio
     async def test_loop_permissions_denial_is_single_call(self, registry_with_echo):
         """名级拒绝 = 单调用拒绝：被拒调用得到错误结果，run 继续完成。"""
-        from courtier.agent.permissions.gate import PermissionGate
+        from courtier.agent.core.guardrails import GuardrailSystem, ToolDisabledGuard
 
         tc = ToolCall(id="call_1", name="echo", arguments={"text": "secret"})
         model = MockModelClient(tool_calls=[tc])
 
-        gate = PermissionGate()
-        gate.block("echo")
+        system = GuardrailSystem()
+        system.register(ToolDisabledGuard(blocked=("echo",)))
 
         state = AgentState.initial(task="echo secret")
         final = await agent_loop(
-            state=state, model=model, tool_registry=registry_with_echo, permissions=gate
+            state=state,
+            model=model,
+            tool_registry=registry_with_echo,
+            guardrail_system=system,
         )
 
         assert final.status == "completed"  # not blocked — the run continues
@@ -261,7 +264,7 @@ class TestAgentLoop:
 
     async def test_loop_path_policy_denial_is_single_call(self, tmp_path):
         """参数级拒绝：read 越界路径 → 该调用被拒，run 继续完成。"""
-        from courtier.agent.permissions.gate import PermissionGate
+        from courtier.agent.core.guardrails import GuardrailSystem, PathPolicyGuard
         from courtier.agent.tools.builtin.file_tools import ReadTool
 
         registry = ToolRegistry()
@@ -271,11 +274,15 @@ class TestAgentLoop:
         tc = ToolCall(id="call_1", name="read", arguments={"path": str(outside)})
         model = MockModelClient(tool_calls=[tc])
 
-        gate = PermissionGate(allowed_roots=[tmp_path / "memory"])
+        system = GuardrailSystem()
+        system.register(PathPolicyGuard(allowed_roots=[tmp_path / "memory"]))
 
         state = AgentState.initial(task="read the file")
         final = await agent_loop(
-            state=state, model=model, tool_registry=registry, permissions=gate
+            state=state,
+            model=model,
+            tool_registry=registry,
+            guardrail_system=system,
         )
 
         assert final.status == "completed"
