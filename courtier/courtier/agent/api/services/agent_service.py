@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -15,6 +16,78 @@ logger = logging.getLogger(__name__)
 
 # Tools that read the resource library and must be scope-filtered per caller.
 _SCOPE_SENSITIVE_TOOLS = ("search_documents", "read_chunks")
+
+
+class UnknownModelError(LookupError):
+    """A run requested a model id that the pool cannot resolve (unknown id
+    or its endpoint is disabled) — the run route turns this into a 400."""
+
+
+@dataclass(frozen=True)
+class ModelProfile:
+    """A resolved model-pool selection for one run.
+
+    Carries everything needed to build a model client plus the context
+    window override; ``api_key`` lives in memory only (never persisted or
+    logged).  ``None`` profiles (empty pool) mean the scalar ``llm_*``
+    settings drive the client."""
+
+    model_id: str
+    name: str
+    base_url: str
+    api_key: str
+    model: str
+    context_window_tokens: int | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+
+
+def resolve_model_profile(
+    settings: Any,
+    *,
+    model_id: str = "",
+    session_last_model_id: str = "",
+) -> ModelProfile | None:
+    """Resolve the model pool pick for a run; ``None`` = scalar fallback.
+
+    Precedence: explicit *model_id* (must resolve, else
+    :class:`UnknownModelError`) → *session_last_model_id* (falls through to
+    the pool default when the entry is gone/disabled) → pool default →
+    ``None`` when the pool is empty or unresolvable (scalar ``llm_*``).
+    """
+    pool = getattr(settings, "llm_model_pool", None)
+    endpoints = getattr(pool, "endpoints", None) or []
+    if not endpoints:
+        return None
+
+    lookup = {m.id: (ep, m) for ep in endpoints if ep.enabled for m in ep.models}
+    picked: tuple[Any, Any] | None = None
+    if model_id:
+        picked = lookup.get(model_id)
+        if picked is None:
+            raise UnknownModelError(model_id)
+    if picked is None and session_last_model_id:
+        picked = lookup.get(session_last_model_id)
+    if picked is None:
+        picked = lookup.get(pool.default_model_id)
+    if picked is None:
+        logger.warning(
+            "model pool configured but no enabled/default model resolves; "
+            "falling back to scalar llm_* settings"
+        )
+        return None
+
+    endpoint, entry = picked
+    return ModelProfile(
+        model_id=entry.id,
+        name=entry.name,
+        base_url=endpoint.base_url,
+        api_key=getattr(settings, "llm_endpoint_keys", {}).get(endpoint.id, ""),
+        model=entry.model,
+        context_window_tokens=entry.context_window_tokens,
+        max_tokens=entry.max_tokens,
+        temperature=entry.temperature,
+    )
 
 
 def apply_owner_scope(agent: Any, owner_id: int | None) -> None:
@@ -69,41 +142,78 @@ def _load_courtier_md() -> str | None:
     return None
 
 
-def build_model_client(settings: Any) -> Any:
+def build_model_client(settings: Any, profile: ModelProfile | None = None) -> Any:
     """Create the production model client from Settings.
 
-    Builds an ``OpenAIModelBackend`` and exposes it through the ``ModelClient``
-    interface via ``BackendModelClient``.  When ``settings.agent_runtime.model``
-    configures fallback backends, the backends are wrapped in a ``ModelRouter``
-    with the configured routing strategy.
+    Without *profile*: builds the scalar ``llm_*`` client, wrapped in a
+    ``ModelRouter`` when ``settings.agent_runtime.model`` configures
+    fallback backends (same-endpoint clones).  With *profile* (a resolved
+    pool entry): targets that endpoint/model — per-entry
+    temperature/max_tokens override the globals, timeout/penalties/
+    extra_body stay global, and fallback routing is not applied (pool
+    selection and fallback chains are separate mechanisms for now).
     """
     from courtier.agent.core.backends.openai_backend import OpenAIModelBackend
     from courtier.agent.core.model import BackendModelClient
 
-    def _openai_backend(model: str) -> OpenAIModelBackend:
+    def _backend(
+        base_url: str, api_key: str, model: str, temperature: float, max_tokens: int
+    ) -> OpenAIModelBackend:
         return OpenAIModelBackend(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
+            base_url=base_url,
+            api_key=api_key,
             model=model,
-            temperature=settings.llm_temperature,
+            temperature=temperature,
             timeout=settings.llm_timeout,
-            max_tokens=settings.llm_max_tokens if settings.llm_max_tokens > 0 else None,
+            max_tokens=max_tokens if max_tokens > 0 else None,
             extra_body=settings.llm_extra_body,
             frequency_penalty=settings.llm_frequency_penalty,
             presence_penalty=settings.llm_presence_penalty,
         )
 
-    backend: Any = _openai_backend(settings.llm_model)
+    if profile is not None:
+        temperature = (
+            settings.llm_temperature if profile.temperature is None else profile.temperature
+        )
+        max_tokens = settings.llm_max_tokens if profile.max_tokens is None else profile.max_tokens
+        return BackendModelClient(
+            backend=_backend(
+                profile.base_url,
+                profile.api_key,
+                profile.model,
+                temperature,
+                max_tokens,
+            ),
+            model=profile.model,
+            temperature=temperature,
+        )
+
+    backend: Any = _backend(
+        settings.llm_base_url,
+        settings.llm_api_key,
+        settings.llm_model,
+        settings.llm_temperature,
+        settings.llm_max_tokens,
+    )
 
     routing = getattr(getattr(settings, "agent_runtime", None), "model", None)
     fallback_names = list(getattr(routing, "fallback_backends", None) or [])
     if routing is not None and fallback_names:
         from courtier.agent.core.backends.router import ModelRouter, RoutingStrategy
 
-        # Fallback entries share the primary OpenAI-compatible endpoint; each
-        # name selects the fallback model.  Per-backend endpoint settings do
-        # not exist yet — add them to Settings when that need arises.
-        backends = [backend] + [_openai_backend(name) for name in fallback_names]
+        # Fallback entries share the scalar OpenAI-compatible endpoint; each
+        # name selects the fallback model.  Pool profiles bypass routing
+        # entirely — per-profile fallback chains are future work.
+        backends = [backend] + [
+            _backend(
+                settings.llm_base_url,
+                settings.llm_api_key,
+                name,
+                settings.llm_temperature,
+                settings.llm_max_tokens,
+            )
+            for name in fallback_names
+        ]
         backend = ModelRouter(
             backends,
             RoutingStrategy(
@@ -130,6 +240,7 @@ async def build_agent(
     session_id: str = "",
     shared_plugin_names: set[str] | None = None,
     active_domains: tuple[str, ...] = (),
+    model_profile: ModelProfile | None = None,
 ) -> tuple[Any, Any, str]:
     """Create the unified domain-gated orchestrator agent + MemoryManager.
 
@@ -140,6 +251,11 @@ async def build_agent(
     ``active_domains`` set is silently replayed on per-request rebuilds —
     activation state must not be derived from history (compaction can drop
     the evidence).
+
+    ``model_profile`` pins this run to a model-pool selection: the same
+    client instance is shared by the orchestrator, subagents, and memory
+    manager (the "chat chain follows the pick" invariant), and the
+    profile's context window overrides the global one.
 
     Returns (agent, context_manager, model_name).
     """
@@ -153,7 +269,7 @@ async def build_agent(
     from ...runtime.budget import AgentRuntimeBudget
     from ...tools.builtin.activate_domain import ActivateDomainTool
 
-    model = build_model_client(settings)
+    model = build_model_client(settings, model_profile)
 
     courtier_md_content = _load_courtier_md()
 
@@ -245,14 +361,10 @@ async def build_agent(
         cache_dir=settings.cache_dir,
         session_id=session_id or "default",
         artifact_store=store,
-        **_context_budget_kwargs(settings),
+        **_context_budget_kwargs(settings, model_profile),
         **_compact_prompt_kwargs(prompt_engine),
-        memory_auto_inject_enabled=bool(
-            getattr(settings, "memory_auto_inject_enabled", True)
-        ),
-        memory_auto_inject_max_chars=int(
-            getattr(settings, "memory_auto_inject_max_chars", 400)
-        ),
+        memory_auto_inject_enabled=bool(getattr(settings, "memory_auto_inject_enabled", True)),
+        memory_auto_inject_max_chars=int(getattr(settings, "memory_auto_inject_max_chars", 400)),
         memory_auto_inject_total_chars=int(
             getattr(settings, "memory_auto_inject_total_chars", 1500)
         ),
@@ -268,7 +380,10 @@ async def build_agent(
         # system_prompt) into the system prompt via the lazy provider.
         agent.set_plugin_prompts_provider(plugin_system.get_system_prompts)
     apply_owner_scope(agent, owner_id)
-    return agent, context_manager, model.model_name
+    # The run's display name: the pool entry's human name when a profile
+    # was selected, the scalar model name otherwise.
+    model_name = model_profile.name if model_profile is not None else model.model_name
+    return agent, context_manager, model_name
 
 
 class _ContextBudgetKwargs(TypedDict):
@@ -292,14 +407,19 @@ class _CompactPromptKwargs(TypedDict, total=False):
     compact_merge_prompt_template: str | None
 
 
-def _context_budget_kwargs(settings: Any) -> _ContextBudgetKwargs:
+def _context_budget_kwargs(
+    settings: Any, profile: ModelProfile | None = None
+) -> _ContextBudgetKwargs:
     """Derive ContextManager token budgets from settings.
 
-    Budgets are ratios of the deployed model's context window:
-    full compaction triggers at ``budget_ratio``, micro-compaction gates at
+    Budgets are ratios of the deployed model's context window: full
+    compaction triggers at ``budget_ratio``, micro-compaction gates at
     ``micro_compact_ratio``, and compaction aims for ``target_ratio``.
-    """
+    A pool *profile*'s ``context_window_tokens`` overrides the global
+    window — models in the pool can differ by orders of magnitude."""
     window = int(getattr(settings, "llm_context_window_tokens", 32768))
+    if profile is not None and profile.context_window_tokens:
+        window = int(profile.context_window_tokens)
     return {
         "max_context_tokens": int(window * getattr(settings, "context_budget_ratio", 0.75)),
         "micro_compact_tokens": int(
