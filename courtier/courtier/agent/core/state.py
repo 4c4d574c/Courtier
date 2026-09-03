@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 from .execution_result import ExecutionResult
+from .content_parts import MessageContent, ensure_parts_allowed
 from .model import ModelResponse, ToolCall
 
 if TYPE_CHECKING:
@@ -32,14 +33,22 @@ def _json_default(obj: object) -> str:
 
 @dataclass(frozen=True)
 class Message:
-    """A single conversation message."""
+    """A single conversation message.
+
+    ``content`` is a plain string except for user messages carrying media
+    attachments, which hold a ``TextPart``/``MediaPart`` list (see
+    ``content_parts``).
+    """
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | None = None
+    content: MessageContent = None
     tool_calls: tuple[ToolCall, ...] | None = None
     tool_call_id: str | None = None
     name: str | None = None
     source: Literal["reminder", "inline", "hint", None] = None
+
+    def __post_init__(self) -> None:
+        ensure_parts_allowed(self.role, self.content)
 
     def to_openai_dict(self) -> dict[str, object]:
         """Convert to OpenAI-compatible dict.

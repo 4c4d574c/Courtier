@@ -11,6 +11,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .content_parts import (
+    MessageContent,
+    ensure_parts_allowed,
+    parse_content,
+    parts_to_internal,
+)
 from .tool_call import ToolCall
 
 
@@ -25,16 +31,25 @@ class TokenUsage:
 
 @dataclass(frozen=True)
 class ChatMessage:
-    """A single message in a normalized chat conversation."""
+    """A single message in a normalized chat conversation.
+
+    ``content`` is a plain string for system/assistant/tool messages; user
+    messages may carry a ``TextPart``/``MediaPart`` list (internal logical
+    form — media parts reference uploaded files, materialized to provider
+    content parts at the backend boundary). See ``content_parts``.
+    """
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: str | None = None
+    content: MessageContent = None
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     name: str | None = None
     # Model-internal chain-of-thought (Qwen reasoning_content / DeepSeek reasoning).
     # Never sent back to the provider; populated on assistant responses only.
     reasoning_content: str | None = None
+
+    def __post_init__(self) -> None:
+        ensure_parts_allowed(self.role, self.content)
 
 
 def to_openai_dict(message: ChatMessage) -> dict[str, Any]:
@@ -46,10 +61,15 @@ def to_openai_dict(message: ChatMessage) -> dict[str, Any]:
     ``tool_calls`` arguments (held as dicts internally) are serialized to
     JSON strings with ``ensure_ascii=False`` so non-ASCII content stays
     readable. Internal-only fields (``reasoning_content``) are never emitted.
+
+    Part-list content serializes to the internal logical form
+    (``{"type": "text"}`` / ``{"type": "media"}`` dicts) — media
+    materialization to provider content parts happens in the backend, not
+    here.
     """
     d: dict[str, Any] = {"role": message.role}
     if message.content is not None:
-        d["content"] = message.content
+        d["content"] = parts_to_internal(message.content)
     if message.tool_calls:
         d["tool_calls"] = [
             {
@@ -97,7 +117,7 @@ def from_openai_dict(d: dict[str, Any]) -> ChatMessage:
         ]
     return ChatMessage(
         role=d["role"],
-        content=d.get("content"),
+        content=parse_content(d.get("content")),
         tool_calls=tool_calls,
         tool_call_id=d.get("tool_call_id"),
         name=d.get("name"),
