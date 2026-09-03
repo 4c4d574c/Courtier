@@ -21,6 +21,10 @@ from typing import Any, Literal
 MediaKind = Literal["image", "audio", "video"]
 MEDIA_KINDS: tuple[str, ...] = ("image", "audio", "video")
 
+# 附件 kind → 模型能力声明名（PoolModelConfig.modalities）的对应：
+# 图片附件要求模型声明 vision 能力。
+KIND_TO_MODALITY: dict[str, str] = {"image": "vision", "audio": "audio", "video": "video"}
+
 # 结构性标记沿用 core 既有惯例（「# 输入数据」同款），供模型阅读的占位说明。
 _KIND_LABELS: dict[str, str] = {"image": "图片", "audio": "音频", "video": "视频"}
 
@@ -68,6 +72,19 @@ def iter_media_parts(content: MessageContent) -> list[MediaPart]:
     if not isinstance(content, list):
         return []
     return [part for part in content if isinstance(part, MediaPart)]
+
+
+def media_manifest(media_parts: list[MediaPart]) -> str:
+    """Render the attachment manifest lines appended to the task text.
+
+    Provider content parts carry no filenames, so the model learns which
+    attachments exist (and their names) from these markers.
+    """
+    lines = []
+    for part in media_parts:
+        label = _KIND_LABELS.get(part.kind, part.kind)
+        lines.append(f"[附件: {part.name or part.file_id}（{label}）]")
+    return "\n".join(lines)
 
 
 def parse_content(raw: Any) -> MessageContent:

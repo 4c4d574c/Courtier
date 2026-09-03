@@ -94,12 +94,27 @@ class AgentState(BaseModel, frozen=True):
         *,
         use_tree: bool = False,
         agent_name: str = "",
+        media_parts: tuple = (),
     ) -> "AgentState":
-        """Create the initial state with system and user messages."""
+        """Create the initial state with system and user messages.
+
+        ``media_parts`` extends the user message to a part list (task text
+        + media attachments) for multimodal first turns.
+        """
+        if media_parts:
+            from .content_parts import TextPart, media_manifest
+
+            manifest = media_manifest(list(media_parts))
+            user_content: MessageContent = [
+                TextPart(text=f"{task}\n\n{manifest}" if manifest else task),
+                *media_parts,
+            ]
+        else:
+            user_content = task
         messages: list[Message] = []
         if system_prompt:
             messages.append(Message(role="system", content=system_prompt))
-        messages.append(Message(role="user", content=task))
+        messages.append(Message(role="user", content=user_content))
         state = cls(
             status="idle",
             messages=tuple(messages),

@@ -144,6 +144,7 @@ async def handle_session_stream(
     request: Request,
     task: Optional[str] = Query(default=None),
     fileId: Optional[str] = Query(default=None),
+    fileIds: Optional[str] = Query(default=None),
     sessionId: Optional[str] = Query(default=None),
     editTurn: Optional[int] = Query(default=None),
     modelId: Optional[str] = Query(default=None),
@@ -155,6 +156,10 @@ async def handle_session_stream(
     - task + sessionId: continue existing multi-turn session.
     - task + sessionId + editTurn: edit-resend — revoke turn `editTurn` and
       everything after it, then re-run the turn with the edited `task`.
+    - fileIds: comma-separated MEDIA attachment ids (image/audio/video) for
+      this turn's user message; gated on count/size/duration and the
+      selected model's declared modalities before the run starts. Legacy
+      single-document uploads keep using fileId.
     - modelId: model-pool entry for THIS run (each run may pick a different
       model); unresolvable ids are rejected before the run starts.
     """
@@ -269,6 +274,39 @@ async def handle_session_stream(
     run_model_id = model_profile.model_id if model_profile else ""
     run_model_name = model_profile.name if model_profile else settings.llm_model
 
+    # Media attachments for THIS turn's user message: resolve, check
+    # ownership and per-kind caps, then gate against the model's declared
+    # modalities — all before the run starts, fail-loud (400), no silent
+    # degradation or model switching.
+    media_parts: tuple = ()
+    if fileIds:
+        from ...core.content_parts import MediaPart
+        from ..services.agent_service import MediaUnsupportedError
+        from ..services.file_service import gate_media_attachments, infer_kind
+
+        file_store_media = request.app.state.file_store
+        resolved_infos = []
+        for fid in [x.strip() for x in fileIds.split(",") if x.strip()]:
+            info = await file_store_media.resolve(fid)
+            if info is None:
+                raise HTTPException(404, f"文件不存在: {fid}")
+            if not is_admin and info.owner and info.owner != current_user:
+                raise HTTPException(403, "无权访问该文件")
+            if (info.kind or infer_kind(info.original_name)) == "document":
+                raise HTTPException(400, "fileIds 仅用于媒体附件；文档请使用 fileId 参数")
+            resolved_infos.append(info)
+
+        gate_media_attachments(resolved_infos, settings)
+        kinds = sorted({(i.kind or infer_kind(i.original_name)) for i in resolved_infos})
+        try:
+            ensure_model_supports_media(model_profile, kinds)
+        except MediaUnsupportedError as exc:
+            raise HTTPException(400, f"当前模型不支持所选媒体类型: {exc}")
+        media_parts = tuple(
+            MediaPart(kind=i.kind or infer_kind(i.original_name), file_id=i.file_id, name=i.original_name)
+            for i in resolved_infos
+        )
+
     if not is_new:
         # Record the new turn boundary so historical sessions render
         # each turn with the correct user message and step grouping.  The
@@ -314,6 +352,7 @@ async def handle_session_stream(
             active_domains=active_domains,
             approved_tools=approved_tools,
             model_profile=model_profile,
+            file_store=request.app.state.file_store,
         ),
         session_id,
         "orchestrator",
@@ -371,6 +410,7 @@ async def handle_session_stream(
             model_id=run_model_id,
             model_profile=model_profile,
             initial_seq=initial_seq,
+            media_parts=media_parts,
         ),
         media_type="text/event-stream",
         headers=_sse_headers(),

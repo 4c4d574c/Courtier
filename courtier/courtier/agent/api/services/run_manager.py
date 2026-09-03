@@ -129,6 +129,8 @@ class RunSpec:
     is_new: bool = True
     start_step: int = 0
     initial_seq: int = 0
+    # 本次运行用户消息携带的媒体附件（core.content_parts.MediaPart）。
+    media_parts: tuple = ()
 
 
 class AgentRun:
@@ -647,6 +649,7 @@ class RunManager:
                 artifact_store=artifact_store,
                 use_tree=_conversation_tree_enabled_from_settings(self._settings),
                 confirmation_handler=confirmation_handler,
+                media_parts=spec.media_parts,
             )
             # Let the bus listener finish dispatching events published just
             # before completion (e.g. final usage) so they land in the log.
@@ -845,6 +848,7 @@ async def generate_sse_stream(
     model_id: str = "",
     model_profile: Any = None,
     initial_seq: int = 0,
+    media_parts: tuple = (),
 ) -> AsyncGenerator[str, None]:
     """Start a run via *run_manager* and stream it (live-only).
 
@@ -866,6 +870,7 @@ async def generate_sse_stream(
         is_new=is_new,
         start_step=start_step,
         initial_seq=initial_seq,
+        media_parts=media_parts,
     )
     run = await run_manager.start(spec)
     async for line in stream_run(run):

@@ -13,6 +13,7 @@ from courtier.agent.api.file_store import FileStore
 from courtier.agent.api.services import file_service
 from courtier.agent.api.services.file_service import (
     _content_matches_extension,
+    gate_media_attachments,
     infer_kind,
     kind_size_limit,
     upload_file,
@@ -231,3 +232,66 @@ class TestMediaUpload:
                 )
             )
         assert not any(uploads.rglob("*.wav"))
+
+
+class TestGateMediaAttachments:
+    """运行前附件门控：数量/大小/时长（T4）。"""
+
+    @staticmethod
+    def _info(kind: str, size: int = 100, duration: float | None = None):
+        from types import SimpleNamespace as NS
+
+        return NS(kind=kind, size_bytes=size, duration_seconds=duration,
+                  original_name=f"x.{kind}")
+
+    @staticmethod
+    def _settings(**kw):
+        from types import SimpleNamespace as NS
+
+        base = {"media_max_images_per_message": 4,
+                "media_max_audio_seconds": 1800.0,
+                "media_max_video_seconds": 300.0}
+        base.update(kw)
+        return NS(**base)
+
+    def test_passes_within_limits(self):
+        gate_media_attachments(
+            [self._info("image"), self._info("image"), self._info("audio", duration=60.0)],
+            self._settings(),
+        )
+
+    def test_image_count_cap(self):
+        infos = [self._info("image") for _ in range(5)]
+        with pytest.raises(HTTPException) as exc:
+            gate_media_attachments(infos, self._settings())
+        assert exc.value.status_code == 400
+        assert "最多 4 个" in exc.value.detail
+
+    def test_single_audio_video(self):
+        with pytest.raises(HTTPException):
+            gate_media_attachments(
+                [self._info("video"), self._info("video")], self._settings()
+            )
+        with pytest.raises(HTTPException):
+            gate_media_attachments(
+                [self._info("audio"), self._info("audio")], self._settings()
+            )
+
+    def test_size_cap(self):
+        with pytest.raises(HTTPException) as exc:
+            gate_media_attachments(
+                [self._info("image", size=99_000_000)], self._settings()
+            )
+        assert exc.value.status_code == 413
+
+    def test_duration_cap(self):
+        with pytest.raises(HTTPException) as exc:
+            gate_media_attachments(
+                [self._info("video", duration=400.0)],
+                self._settings(media_max_video_seconds=300.0),
+            )
+        assert exc.value.status_code == 400
+        assert "时长超限" in exc.value.detail
+
+    def test_duration_without_probe_metadata_skipped(self):
+        gate_media_attachments([self._info("video", duration=None)], self._settings())

@@ -256,6 +256,42 @@ class Settings(BaseSettings):
     )
     llm_temperature: float = Field(default=0.0, alias="llm_temperature")
     llm_max_tokens: int = Field(default=4096, alias="llm_max_tokens")
+
+    # —— 多模态附件（media_* 自动归 model 类设置）——
+    media_max_images_per_message: int = Field(
+        default=4, ge=0, description="每条消息允许的图片附件数量上限"
+    )
+    media_max_image_bytes: int = Field(
+        default=20971520, ge=1, description="单个图片附件大小上限（字节，归一化前）"
+    )
+    media_max_audio_bytes: int = Field(
+        default=26214400, ge=1, description="单个音频附件大小上限（字节）"
+    )
+    media_max_audio_seconds: float = Field(
+        default=1800, gt=0, description="单个音频附件时长上限（秒）"
+    )
+    media_max_video_bytes: int = Field(
+        default=52428800, ge=1, description="单个视频附件大小上限（字节）"
+    )
+    media_max_video_seconds: float = Field(
+        default=300, gt=0, description="单个视频附件时长上限（秒）"
+    )
+    media_image_max_edge: int = Field(
+        default=2048, ge=1, description="图片内联前归一化的长边上限（像素）"
+    )
+    media_image_jpeg_quality: int = Field(
+        default=85, ge=1, le=100, description="图片归一化 JPEG 重编码质量"
+    )
+    media_image_token_estimate: int = Field(
+        default=1024, ge=0, description="上下文记账中每张图片的 token 估算值"
+    )
+    media_audio_tokens_per_second: float = Field(
+        default=40, ge=0, description="上下文记账中音频每秒 token 估算值"
+    )
+    media_video_tokens_per_second: float = Field(
+        default=200, ge=0, description="上下文记账中视频每秒 token 估算值"
+    )
+
     llm_timeout: float = Field(
         default=180.0,
         alias="llm_timeout",
@@ -1049,7 +1085,7 @@ _REBUILD_SETTING_FIELDS: frozenset[str] = frozenset(
 
 
 def _setting_category(field: str) -> str:
-    if field.startswith(("llm_", "context_")):
+    if field.startswith(("llm_", "context_", "media_")):
         return "model"
     if field.startswith(("es_", "minio_", "search_rerank_")):
         return "retrieval"

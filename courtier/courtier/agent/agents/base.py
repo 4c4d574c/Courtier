@@ -413,6 +413,7 @@ class Agent:
         event_bus: EventBus | None = None,
         use_tree: bool = False,
         confirmation_handler: Any | None = None,
+        media_parts: tuple = (),
     ) -> AgentResult:
         """Entry point: receive task, run agent loop, return result.
 
@@ -517,9 +518,21 @@ class Agent:
             # Sub-agent runs arrive with AgentState.initial(task=...) whose
             # last message already is the task — appending it again would
             # duplicate the task in the sub-agent's context.  Multi-turn
-            # continuation (history state + new task) always appends.
+            # continuation (history state + new task) always appends; a
+            # part-list content is a fresh multimodal turn and never
+            # matches the plain-text dedupe.
+            if media_parts:
+                from ..core.content_parts import TextPart, media_manifest
+
+                manifest = media_manifest(list(media_parts))
+                user_content: Any = [
+                    TextPart(text=f"{task}\n\n{manifest}" if manifest else task),
+                    *media_parts,
+                ]
+            else:
+                user_content = task
             if not (messages and messages[-1].role == "user" and messages[-1].content == task):
-                messages.append(Message(role="user", content=task))
+                messages.append(Message(role="user", content=user_content))
             current_state = state.model_copy(
                 update={
                     "status": "idle",
@@ -536,6 +549,7 @@ class Agent:
                 task=task,
                 system_prompt=system_prompt,
                 use_tree=use_tree,
+                media_parts=media_parts,
             )
 
         from courtier.agent.telemetry.metrics import (

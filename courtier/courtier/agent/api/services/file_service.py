@@ -108,6 +108,49 @@ def kind_size_limit(kind: str) -> int:
     return KIND_LIMITS.get(kind, MAX_FILE_SIZE)
 
 
+# 每条消息各媒体 kind 的数量上限（图片可多张，音视频各一份）。
+def _kind_counts(settings: Any) -> dict[str, int]:
+    return {
+        "image": int(getattr(settings, "media_max_images_per_message", 4)),
+        "audio": 1,
+        "video": 1,
+    }
+
+
+def gate_media_attachments(infos: list[Any], settings: Any) -> None:
+    """Validate a run's media attachments against per-kind count/size/duration caps.
+
+    Raises ``HTTPException(400/413)`` — no silent trimming; the caller has
+    already checked existence and ownership.
+    """
+    from fastapi import HTTPException
+
+    counts: dict[str, int] = {}
+    limits = _kind_counts(settings)
+    for info in infos:
+        kind = info.kind or infer_kind(info.original_name)
+        counts[kind] = counts.get(kind, 0) + 1
+        limit = limits.get(kind)
+        if limit is not None and counts[kind] > limit:
+            raise HTTPException(400, f"附件数量超限：{kind} 每条消息最多 {limit} 个")
+        cap = kind_size_limit(kind)
+        if info.size_bytes > cap:
+            raise HTTPException(413, f"文件过大（{kind} 类型上限 {cap // (1024 * 1024)} MB）")
+
+    seconds_cap = {
+        "audio": getattr(settings, "media_max_audio_seconds", None),
+        "video": getattr(settings, "media_max_video_seconds", None),
+    }
+    for item in infos:
+        kind = item.kind or infer_kind(item.original_name)
+        cap = seconds_cap.get(kind)
+        item_duration = getattr(item, "duration_seconds", None)
+        if cap is not None and item_duration is not None and item_duration > cap:
+            raise HTTPException(
+                400, f"媒体时长超限：{kind} 上限 {int(cap)} 秒，实际 {int(item_duration)} 秒"
+            )
+
+
 # Magic-byte signatures used when the browser sends application/octet-stream.
 # Each entry is a list of (offset, prefix) pairs for the extension.
 _MAGIC_BYTES: dict[str, list[tuple[int, bytes]]] = {

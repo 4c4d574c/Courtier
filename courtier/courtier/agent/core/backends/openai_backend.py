@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from openai import AsyncOpenAI
 
+from ..content_parts import KIND_TO_MODALITY
 from ..model import _normalize_response, _parse_tool_arguments
 from ..protocol import (
     ChatMessage,
@@ -22,6 +25,23 @@ from ..protocol import (
 from ..streaming import buffer_tool_call_delta, extract_reasoning, extract_stream_delta
 
 logger = logging.getLogger(__name__)
+
+# vLLM/SGLang 的 input_audio format token → 按 MIME 子类型映射。
+_AUDIO_FORMAT_BY_MIME: dict[str, str] = {
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/vnd.wave": "wav",
+    "audio/wave": "wav",
+    "audio/mpeg": "mp3",
+    "audio/flac": "flac",
+    "audio/x-flac": "flac",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+}
+
+# MediaResolver(file_id, kind) -> (bytes, mime)；由 build_model_client 注入
+# （FileStore 读取），核心层不直接触达上传目录。
+MediaResolver = Callable[[str, str], Awaitable[tuple[bytes, str]]]
 
 
 class OpenAIModelBackend:
@@ -43,6 +63,10 @@ class OpenAIModelBackend:
         extra_body: dict[str, Any] | None = None,
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
+        media_resolver: MediaResolver | None = None,
+        declared_modalities: tuple[str, ...] = (),
+        image_max_edge: int | None = None,
+        image_jpeg_quality: int = 85,
     ) -> None:
         self._client = AsyncOpenAI(
             base_url=base_url,
@@ -55,16 +79,102 @@ class OpenAIModelBackend:
         self._extra_body = extra_body
         self._frequency_penalty = frequency_penalty
         self._presence_penalty = presence_penalty
+        self._media_resolver = media_resolver
+        self._declared_modalities = frozenset(declared_modalities)
+        self._image_max_edge = image_max_edge
+        self._image_jpeg_quality = image_jpeg_quality
 
     async def close(self) -> None:
         await self._client.close()
 
-    def _build_params(self, request: ChatRequest) -> dict[str, Any]:
+    async def _materialize_messages(self, messages: tuple[ChatMessage, ...]) -> list[dict[str, Any]]:
+        """Convert messages to wire dicts, materializing media parts.
+
+        Media parts become provider content parts (base64 data URIs /
+        input_audio) at this boundary only. A part whose modality the model
+        does not declare — or whose bytes cannot be resolved — degrades to a
+        readable text placeholder (historical-media rule; new attachments
+        are gated before the run starts).
+        """
+        wire: list[dict[str, Any]] = []
+        for message in messages:
+            d = to_openai_dict(message)
+            content = d.get("content")
+            if not isinstance(content, list):
+                wire.append(d)
+                continue
+            parts: list[dict[str, Any]] = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "media":
+                    parts.append(await self._materialize_media(item))
+                else:
+                    parts.append(item)
+            d["content"] = parts
+            wire.append(d)
+        return wire
+
+    async def _materialize_media(self, item: dict[str, Any]) -> dict[str, Any]:
+        kind = item.get("kind", "")
+        name = item.get("name") or item.get("file_id", "")
+        label = {"image": "图片", "audio": "音频", "video": "视频"}.get(kind, kind)
+        placeholder = {"type": "text", "text": f"[附件: {name}（{label}）已省略]"}
+
+        if KIND_TO_MODALITY.get(kind, kind) not in self._declared_modalities:
+            logger.info(
+                "media part %s (%s) dropped: model %s lacks %s",
+                item.get("file_id"),
+                kind,
+                self._model,
+                KIND_TO_MODALITY.get(kind, kind),
+            )
+            return placeholder
+        if self._media_resolver is None:
+            return placeholder
+        try:
+            data, mime = await self._media_resolver(item["file_id"], kind)
+        except Exception:
+            logger.warning(
+                "media part %s could not be resolved; degrading to placeholder",
+                item.get("file_id"),
+                exc_info=True,
+            )
+            return placeholder
+
+        b64 = base64.b64encode(data).decode()
+        if kind == "image":
+            data, mime = _normalize_image_bytes(
+                data, mime, self._image_max_edge, self._image_jpeg_quality
+            )
+            b64 = base64.b64encode(data).decode()
+            return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
+        if kind == "audio":
+            fmt = _AUDIO_FORMAT_BY_MIME.get(mime, "wav")
+            return {"type": "input_audio", "input_audio": {"data": b64, "format": fmt}}
+        if kind == "video":
+            return {"type": "video_url", "video_url": {"url": f"data:{mime};base64,{b64}"}}
+        return placeholder
+
+    def _build_params(
+        self,
+        request: ChatRequest,
+        messages: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Build request params; *messages* overrides the wire message list.
+
+        Callers that may carry media parts must first materialize via
+        :meth:`_materialize_messages` and pass the result here — base64
+        bytes cannot be produced synchronously.
+        """
         params: dict[str, Any] = {
             "model": request.model or self._model,
-            "messages": [_message_to_openai(m) for m in request.messages],
+            "messages": (
+                messages if messages is not None else [_message_to_openai(m) for m in request.messages]
+            ),
             "temperature": request.temperature,
         }
+        return self._finish_params(request, params)
+
+    def _finish_params(self, request: ChatRequest, params: dict[str, Any]) -> dict[str, Any]:
         # max_tokens precedence: per-request field → metadata hint → instance default.
         max_tokens = request.max_tokens
         if max_tokens is None and request.metadata:
@@ -89,7 +199,8 @@ class OpenAIModelBackend:
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         start = time.perf_counter()
-        params = self._build_params(request)
+        messages = await self._materialize_messages(request.messages)
+        params = self._build_params(request, messages)
         response = await self._client.chat.completions.create(**params)
         latency_ms = (time.perf_counter() - start) * 1000
 
@@ -141,7 +252,8 @@ class OpenAIModelBackend:
         self, request: ChatRequest
     ) -> AsyncIterator[TokenChunk | ChatResponse]:
         start = time.perf_counter()
-        params = self._build_params(request)
+        messages = await self._materialize_messages(request.messages)
+        params = self._build_params(request, messages)
         params["stream"] = True
         params["stream_options"] = {"include_usage": True}
 
@@ -215,6 +327,55 @@ class OpenAIModelBackend:
 def _message_to_openai(message: ChatMessage) -> dict[str, Any]:
     """Thin wrapper over ``protocol.to_openai_dict`` (single canonical conversion)."""
     return to_openai_dict(message)
+
+
+def _normalize_image_bytes(
+    data: bytes,
+    mime: str,
+    max_edge: int | None,
+    jpeg_quality: int,
+) -> tuple[bytes, str]:
+    """Normalize an image before inlining: cap the long edge, re-encode big frames.
+
+    Small PNGs (within the edge cap) stay byte-identical — transparency is
+    preserved and no generation loss is introduced. Oversized or non-PNG
+    raster frames are re-encoded as JPEG. Pillow is optional at runtime;
+    when it is missing the original bytes pass through unchanged.
+    """
+    if max_edge is None:
+        return data, mime
+    try:
+        from PIL import Image
+    except ImportError:
+        return data, mime
+
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            width, height = img.size
+            longest = max(width, height)
+            needs_resize = longest > max_edge
+            passthrough_mime = mime in ("image/png", "image/jpeg", "image/webp")
+            if passthrough_mime and not needs_resize:
+                return data, mime
+            if needs_resize:
+                scale = max_edge / float(longest)
+                img = img.resize(
+                    (max(1, round(width * scale)), max(1, round(height * scale))),
+                    Image.LANCZOS,
+                )
+            if (mime == "image/png" or mime == "image/gif") and (
+                img.mode in ("RGBA", "LA", "P")
+            ):
+                # transparency survives only in PNG — keep the container
+                buf = io.BytesIO()
+                img.save(buf, format="PNG", optimize=True)
+                return buf.getvalue(), "image/png"
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality)
+            return buf.getvalue(), "image/jpeg"
+    except Exception:
+        logger.warning("image normalization failed; inlining original bytes", exc_info=True)
+        return data, mime
 
 
 def _tool_schema_to_openai(schema: Any) -> dict[str, Any]:

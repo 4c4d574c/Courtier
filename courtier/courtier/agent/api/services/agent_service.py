@@ -29,8 +29,8 @@ class MediaUnsupportedError(LookupError):
     this into a 400. Scalar-fallback runs (no profile) never support media."""
 
 
-# 附件 kind → 模型能力声明名的对应（image 附件要求模型声明 vision）。
-KIND_TO_MODALITY = {"image": "vision", "audio": "audio", "video": "video"}
+# 附件 kind → 模型能力声明名的对应（契约本体在 core.content_parts）。
+from ...core.content_parts import KIND_TO_MODALITY  # noqa: E402
 
 
 def ensure_model_supports_media(profile: "ModelProfile | None", kinds: list[str]) -> None:
@@ -188,7 +188,11 @@ def _load_courtier_md() -> str | None:
     return None
 
 
-def build_model_client(settings: Any, profile: ModelProfile | None = None) -> Any:
+def build_model_client(
+    settings: Any,
+    profile: ModelProfile | None = None,
+    media_resolver: Any = None,
+) -> Any:
     """Create the production model client from Settings.
 
     Without *profile*: builds the scalar ``llm_*`` client, wrapped in a
@@ -199,6 +203,10 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
     by the entry's explicit value when set, the scalar default otherwise;
     fallback routing is not applied (pool selection and fallback chains
     are separate mechanisms for now).
+
+    *media_resolver* materializes media attachments at the wire boundary;
+    the declared ``modalities`` of the profile steer which parts are
+    inlined vs degraded to placeholders.
     """
     from courtier.agent.core.backends.openai_backend import OpenAIModelBackend
     from courtier.agent.core.model import BackendModelClient
@@ -224,6 +232,10 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
             extra_body=extra_body,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
+            media_resolver=media_resolver,
+            declared_modalities=profile.modalities if profile is not None else (),
+            image_max_edge=getattr(settings, "media_image_max_edge", None),
+            image_jpeg_quality=getattr(settings, "media_image_jpeg_quality", 85),
         )
 
     if profile is not None:
@@ -311,6 +323,32 @@ def build_model_client(settings: Any, profile: ModelProfile | None = None) -> An
     )
 
 
+def _make_media_resolver(file_store: Any, upload_dir: str) -> Any:
+    """Build the MediaResolver used by the model backend's wire boundary.
+
+    Reads media bytes for a fileId from the upload dir (no auth checks —
+    attachment ownership was already enforced on the route). Returns
+    ``(bytes, mime)``; raises ``FileNotFoundError`` for unresolvable ids so
+    the backend degrades that part to a placeholder.
+    """
+    import asyncio
+    import mimetypes
+
+    async def resolve(file_id: str, kind: str) -> tuple[bytes, str]:
+        del kind  # bytes are kind-agnostic; kind gates happen earlier
+        info = await file_store.resolve(file_id)
+        if info is None:
+            raise FileNotFoundError(file_id)
+        path = await file_store.resolve_path(file_id, upload_dir)
+        if path is None or not path.is_file():
+            raise FileNotFoundError(file_id)
+        data = await asyncio.to_thread(path.read_bytes)
+        mime = mimetypes.guess_type(info.original_name)[0] or "application/octet-stream"
+        return data, mime
+
+    return resolve
+
+
 async def build_agent(
     settings: Any,
     plugin_system: Any = None,
@@ -323,6 +361,7 @@ async def build_agent(
     active_domains: tuple[str, ...] = (),
     approved_tools: set[str] | None = None,
     model_profile: ModelProfile | None = None,
+    file_store: Any = None,
 ) -> tuple[Any, Any, str]:
     """Create the unified domain-gated orchestrator agent + MemoryManager.
 
@@ -357,7 +396,10 @@ async def build_agent(
     from ...runtime.budget import AgentRuntimeBudget
     from ...tools.builtin.activate_domain import ActivateDomainTool
 
-    model = build_model_client(settings, model_profile)
+    media_resolver = (
+        _make_media_resolver(file_store, settings.upload_dir) if file_store is not None else None
+    )
+    model = build_model_client(settings, model_profile, media_resolver=media_resolver)
 
     courtier_md_content = _load_courtier_md()
 
