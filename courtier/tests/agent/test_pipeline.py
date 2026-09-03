@@ -166,19 +166,22 @@ class TestRunScope:
         assert seen[0].metadata["extra"] == "e"
 
     @pytest.mark.asyncio
-    async def test_aggregate_is_worst_result_allows_pass_through(self):
-        """聚合语义与 check() 一致：全 allow 时返回初始 allow（worst 只在更严格时替换）。"""
+    async def test_aggregate_merges_allow_metadata(self):
+        """全 allow 时聚合携带各 guard 的 metadata（严格度只决定动作，不丢数据）。"""
         class _Meta:
             name = "meta_guard"
             layer = "post_tool"
 
             async def check(self, context: GuardContext) -> GuardResult:
-                return GuardResult.allow(self.name, metadata={"note": "kept"})
+                return GuardResult.allow(
+                    self.name, metadata={"consecutive_exploratory": 3}
+                )
 
         system = GuardrailSystem()
         system.register(_Meta())
         outcome = await system.run_scope("post_tool", _ctx())
         assert outcome.guard_result.action == "allow"
+        assert outcome.guard_result.metadata["consecutive_exploratory"] == 3
         assert outcome.blocked is None
 
     def test_scope_table_covers_all_layers(self):

@@ -243,6 +243,13 @@ class GuardrailSystem:
             return GuardResult.allow("guardrail_system")
 
         worst: GuardResult = GuardResult.allow("guardrail_system")
+        # Guard metadata is additive: every executed result's metadata is
+        # merged (execution order, later keys win) into the aggregate.
+        # Strictness only decides the aggregate action/reason/guard_name —
+        # an allow-with-metadata must not be swallowed by the initial blank
+        # allow, or guards' side-channel data (e.g. ExploreLoopGuard's
+        # consecutive_exploratory counter) silently disappears.
+        merged_metadata: dict[str, Any] = {}
         for guard in self.guardrails:
             if guard.layer != layer:
                 continue
@@ -259,6 +266,7 @@ class GuardrailSystem:
                 guard_name=guard.name,
                 metadata=result.metadata,
             )
+            merged_metadata.update(enriched.metadata)
 
             if self.on_event is not None:
                 try:
@@ -284,6 +292,14 @@ class GuardrailSystem:
                 if mode == "block":
                     break
 
+        if merged_metadata:
+            worst = GuardResult(
+                action=worst.action,
+                reason=worst.reason,
+                layer=worst.layer,
+                guard_name=worst.guard_name,
+                metadata=merged_metadata,
+            )
         return worst
 
     def _mode_for_layer(self, layer: GuardLayer) -> GuardMode:

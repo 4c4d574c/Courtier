@@ -275,3 +275,76 @@ def _null_result():
 def _ok_result():
     from courtier.agent.core.execution_result import ExecutionResult
     return ExecutionResult(success=True, actor_type="tool", actor_name="x", raw_data="ok")
+
+
+class TestMetadataAggregation:
+    """check() 聚合：metadata 合并自全部已执行结果，严格度只决定动作/署名。"""
+
+    @pytest.mark.asyncio
+    async def test_allow_metadata_surfaces(self):
+        class _Meta:
+            name = "meta"
+            layer = "post_tool"
+
+            async def check(self, context: GuardContext) -> GuardResult:
+                return GuardResult.allow(self.name, metadata={"counter": 7})
+
+        system = GuardrailSystem()
+        system.register(_Meta())
+        result = await system.check("post_tool", GuardContext())
+        assert result.action == "allow"
+        assert result.metadata == {"counter": 7}
+
+    @pytest.mark.asyncio
+    async def test_metadata_merges_across_guards_later_wins(self):
+        class _First:
+            name = "first"
+            layer = "post_tool"
+
+            async def check(self, context: GuardContext) -> GuardResult:
+                return GuardResult.allow(self.name, metadata={"a": 1, "shared": "first"})
+
+        class _Second:
+            name = "second"
+            layer = "post_tool"
+
+            async def check(self, context: GuardContext) -> GuardResult:
+                return GuardResult.allow(self.name, metadata={"b": 2, "shared": "second"})
+
+        system = GuardrailSystem()
+        system.register(_First())
+        system.register(_Second())
+        result = await system.check("post_tool", GuardContext())
+        assert result.metadata == {"a": 1, "b": 2, "shared": "second"}
+        # 全 allow 时动作/署名仍是系统占位（既有行为）——修复点只在 metadata。
+
+    @pytest.mark.asyncio
+    async def test_block_keeps_merged_metadata(self):
+        class _Allow:
+            name = "allower"
+            layer = "post_tool"
+
+            async def check(self, context: GuardContext) -> GuardResult:
+                return GuardResult.allow(self.name, metadata={"counter": 2})
+
+        class _Block:
+            name = "blocker"
+            layer = "post_tool"
+
+            async def check(self, context: GuardContext) -> GuardResult:
+                return GuardResult.block(self.name, "halt")
+
+        system = GuardrailSystem()
+        system.register(_Allow())
+        system.register(_Block())
+        result = await system.check("post_tool", GuardContext())
+        assert result.action == "block"
+        assert result.guard_name == "blocker"
+        assert result.metadata == {"counter": 2}
+
+    @pytest.mark.asyncio
+    async def test_no_metadata_unchanged(self):
+        system = GuardrailSystem()
+        result = await system.check("post_tool", GuardContext())
+        assert result.action == "allow"
+        assert result.metadata == {}
