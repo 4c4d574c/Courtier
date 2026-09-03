@@ -84,6 +84,6 @@
   - 运行时：ConfirmationGuard（tool_call 层）+ 循环 confirm 分支（批准放行/拒绝合成 `confirmation_denied`/无 handler fail-closed）+ RunManager pending Future 桥接 + `confirmation_requested`/`confirmation_resolved` run-log 事件（SSE 重放天然支持）。
   - 持久化偏差：`SessionRecord.approved_tools` 走 **JSON 文件存储，无需 Alembic 迁移**（方案按 DB 表假设，侦察结论修正——会话本就存 JSON 文件）。
   - API：`POST /api/sessions/{id}/confirmations/{cid}`（owner-only、幂等、approve_session 合并持久化）+ 会话详情 `pendingConfirmations`（重连恢复）。
-  - webui：ConfirmationCard 三按钮（仅本次/本会话放行/拒绝）挂 ChatArea 与输入区之间；乐观撤卡失败回滚；详情预填 + 事件重放双保险。
+  - webui（两轮迭代定稿）：确认区作为**输入卡顶部分区与输入框一体**（full-bleed 通栏 + 分隔线盖在 textarea 上方：待确认标签 + 等宽工具名 + 提示语居左，三级动作居右——品牌红实心主按钮/幽灵次按钮/文字级拒绝）；曾先挂消息流内、后按用户要求移入 composer 并删除独立卡片组件；乐观撤卡失败回滚；详情预填 + 事件重放双保险；`tool_confirmation` 守卫的 guard_triggered 事件不进时间线（handler 层过滤）。
   - 批量确认按计划逐个串行。
   - 2026-09-02 追加（用户定案）：**跨标签页提醒已实现**（e61c028）——挂起/恢复把挂起数经 NotificationHub 推送（`run_status` 载荷新增 `pendingConfirmations`），会话列表 overlay 同名字段（新开页/刷新亦可见），历史会话行显示琥珀色「待确认」徽标；裁决后归零自动熄灭。
