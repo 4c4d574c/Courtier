@@ -198,3 +198,8 @@ content: str | list[TextPart | MediaPart] | None
   2. **内部插件工具对会话隐藏**：`probe_media` 起初按普通插件工具注册，orchestrator 看到后试图用文件名调用它（沙箱拒绝）并被"如实汇报"规则带偏。SDK spec 新增 `internal` 字段，build_agent 克隆会话注册表后注销 internal 工具（base registry 保留供上传链路使用）。
   3. `shared/file-upload-limits.json` 的加载路径 bug（`parents[3]` 少算一级）为存量问题——旧回退默认值恰好与 JSON 内容一致未暴露，T3 修正为向上查找到仓库根并补齐 Dockerfile `COPY shared/`。
 - 已知边界：媒体内注入内容不做扫描；`full_government_audit` 编排技能（enabled=false）未含媒体字段；音频运行期直通待部署 audio 模型（`modalities` 声明 audio 即可启用，代码路径已就绪）。
+- 2026-09-03（下午，用户真机反馈驱动）：
+  - **ChatLayout 转发丢参修复**（2003430）：`@submit` 边界还用旧二元签名，InputArea 新增的 `mediaFiles` 在此被静默丢弃——用户报"视频没有发到后端"的根因。修复后真机验证：视频上传、物化、`turns.attachments` 落库全部正常。
+  - **模型池编辑器补齐 modalities 勾选 UI**（3e8d76e + 79a4860）：验收时只改了库没做管理台 UI，属遗漏；勾选组在模型行「高级」抽屉首行（视觉/音频/视频），排版经浏览器截图走查修正过一轮。
+  - **非 mp4 视频上传统一转码**（14b0720 + 05abe3a，用户拍板方案 1）：用户录屏（webm/VP8，fps 元数据损坏被读成 1000fps）令 vLLM Qwen3VLProcessor 400 崩溃，同内容重编码 mp4 后 200 且回答正确。实现：SDK spec 新增 `call_timeout_seconds`（代理透传给 JSON-RPC call），media 插件新增 `transcode_video` 工具（ffmpeg h264/aac、长边 1920、**恒定 2fps**、faststart，put_file 回传 minio://，host `get_object` 取回后覆盖存储文件并重探元数据）；上传对非 mp4 视频自动转码（~1-2s/15s 视频），fail-closed；下载 MIME 改按存储扩展名；前端上传超时 120s→600s。**帧率教训**：先做成 30fps，450 帧 prefill 直接把 provider 拖到 ReadTimeout——视频理解采样率必须压低（2fps 是 Qwen 推荐值），转码参数已固化为 `MEDIA_TRANSCODE_FPS` 可调。
+  - 端点变迁：`.22:8006`（Qwen3.8-27B）已不可访问，按用户指示池已切回 `.67:8001 / Qwen3.5-27B`（modalities 维持 vision+video，图片能力此前已验证）。**遗留**：切换完成时该端点引擎正处崩溃状态（500→连接拒绝），视频直通的最后一步（转码文件 → 模型回答）待引擎恢复后在真机补验；上传/转码/门控/持久化各环节均已独立验证。
