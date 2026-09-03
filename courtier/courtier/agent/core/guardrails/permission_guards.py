@@ -7,7 +7,7 @@ regression contract (see docs/architecture/guardrails-unification-plan.md).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +21,33 @@ if TYPE_CHECKING:
 #: the file tools themselves are policy-free primitives. (From T7 on, the
 #: list is overridden per tool by ``Capability.meta["permission"]``.)
 DEFAULT_PATH_POLICY_TOOLS = ("read", "edit", "write")
+
+
+def declare_path_policy_tools(registry: Any, tools: Iterable[Any]) -> list[str]:
+    """Register path-policy declarations for tools that self-declare.
+
+    A tool opts in with a truthy ``path_policy`` class attribute — the
+    declaration lands in the session ``CapabilityRegistry`` as data, so
+    adding a governed tool never means editing the wiring code. Explicit
+    declarations beat ``PathPolicyGuard``'s legacy fallback list. Returns
+    the declared tool names.
+    """
+    from courtier.agent.core.capability import Capability
+
+    declared: list[str] = []
+    for tool in tools:
+        name = getattr(tool, "name", None)
+        if not name or not getattr(tool, "path_policy", False):
+            continue
+        registry.register(
+            Capability(
+                type="tool",
+                name=name,
+                meta={"permission": {"path_policy": True}},
+            )
+        )
+        declared.append(name)
+    return declared
 
 
 class ToolDisabledGuard:

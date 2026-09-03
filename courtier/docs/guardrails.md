@@ -284,6 +284,19 @@ guards:
 里；名片只是往会话的 `CapabilityRegistry` 里放一条
 `(类型, 名字, meta 声明)`，让守卫来查的时候能查到。
 
+**声明的写法（去中心化）**：声明跟着**工具类**走——类上写一个真值属性即可，
+不需要在任何注册点手工调用：
+
+```python
+class ExportReportTool:
+    name = "export_report"
+    path_policy = True     # ← 声明受路径白名单管；和 name 放一起，忘不掉
+```
+
+`build_agent` 每次构建会话时扫描会话工具表（`declare_path_policy_tools`），
+凡自带该属性的工具自动注册名片。新增受管工具 = 写工具类时多一行属性，
+**任何接线代码（含 agent_service.py）都不用改**。
+
 **判定流程**（模型发起 `export_report(path=...)` 时，守卫依次问）：
 
 ```
@@ -321,22 +334,18 @@ registry.register(Capability(
 ))
 ```
 
-**放在哪里（注册时机）**：注册不会自己发生——要搭"工具进会话"的便车：
-
-- 平台自带工具：不用管——`build_agent` 已按 `DEFAULT_PATH_POLICY_TOOLS`
-  逐个播种声明；
-- 自己写的工具：在它注册进 `ToolRegistry` 的同一处（工具接线代码、域激活
-  代码、测试 setup）调用 `register`；
-- **必须用 `build_agent` 创建的那个实例**：它同时交给了 `PathPolicyGuard` 和
-  `AgentRuntime`，同一实例注册一次全会话可见（守卫 + 运行时都查得到）。
+**放在哪里（扫描时机）**：`build_agent` 每次构建会话时扫描会话工具表并
+播种声明——平台自带工具与你的自定义工具一视同仁，无需任何手工注册。
+扫描入口是 `permission_guards.declare_path_policy_tools(registry, tools)`，
+注册表实例同时交给 `PathPolicyGuard` 和 `AgentRuntime`（守卫 + 运行时都查得到）。
+需要特殊声明（如豁免，见上）时才手工调 `registry.register(...)` 覆盖。
 
 **注意什么**：
 
 - 声明只有"受不受管"一个开关；管的方式（哪些根）仍由会话决定，与声明无关；
-- `registry.get()` 对不在 `ToolRegistry` 里的名字返回 None → 回退老名单 →
-  自定义名字不匹配即放行——所以**名片的名字必须和工具登记名一字不差**；
-- 目前没有自动把所有工具注册进 CapabilityRegistry 的代码（消费端就绪、
-  注册端按需）——这是已知待完善点。
+- 名片的名字取自工具的 `name` 属性，与 `ToolRegistry` 登记名天然一致；
+- `DEFAULT_PATH_POLICY_TOOLS` 常量仍有两份职责：未声明的自定义工具的回退
+  判断，以及无注册表构造守卫（如单测）时的出厂默认策略。
 
 ### 4.6 在生命周期点改状态 / 做记录
 

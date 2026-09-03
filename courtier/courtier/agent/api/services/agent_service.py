@@ -385,14 +385,14 @@ async def build_agent(
     from courtier.config import CourtierConfig
 
     from ...agents.orch import OrchestratorAgent
-    from ...core.capability import Capability, CapabilityRegistry
+    from ...core.capability import CapabilityRegistry
     from ...core.guardrails import (
         ConfirmationGuard,
         GuardrailSystem,
         PathPolicyGuard,
         ToolDisabledGuard,
     )
-    from ...core.guardrails.permission_guards import DEFAULT_PATH_POLICY_TOOLS
+    from ...core.guardrails.permission_guards import declare_path_policy_tools
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
     from ...runtime.activation import DomainActivator, build_domain_catalog
@@ -447,15 +447,12 @@ async def build_agent(
     # is shared too, so a meta["permission"] declaration steers the path
     # policy the same way for every agent in the session.
     capability_registry = CapabilityRegistry(tool_registry=session_registry)
-    # 内置文件工具的路径管辖显式声明为数据（每会话播种；显式声明优先于
-    # 守卫内的老名单回退，未声明的自定义工具仍回退老名单）。
-    for _managed_tool in DEFAULT_PATH_POLICY_TOOLS:
-        capability_registry.register(
-            Capability(
-                type="tool",
-                name=_managed_tool,
-                meta={"permission": {"path_policy": True}},
-            )
+    # 路径管辖声明去中心化：扫描会话工具表，凡自带 path_policy 声明的
+    # 工具（含内置三件套与任意自定义工具）注册为 Capability 数据——
+    # 新增受管工具不需要改动本文件。
+    if session_registry is not None:
+        declare_path_policy_tools(
+            capability_registry, session_registry.list_tools()
         )
     session_guardrails = GuardrailSystem(tool_mode="block", tool_call_mode="block")
     session_guardrails.register(ToolDisabledGuard())

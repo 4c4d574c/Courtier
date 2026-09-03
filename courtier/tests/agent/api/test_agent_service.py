@@ -214,30 +214,29 @@ def test_build_model_client_uses_router_when_fallback_backends_configured():
     assert len(client._backend._backends) == 2
 
 
-def test_build_agent_seeds_path_policy_declarations():
-    """内置文件工具的路径管辖以 Capability 声明播种（每会话注册表）。"""
-    import asyncio
-    from unittest.mock import MagicMock
-
-    from courtier.agent.core.capability import Capability, CapabilityRegistry
-
-    # 不跑完整 build_agent（依赖模型客户端），直接验证其播种逻辑等价物：
-    # guard 与 registry 共享时，read 受管判定走显式声明而非老名单。
+def test_path_policy_seeding_tracks_self_declared_tools():
+    """路径管辖声明随工具自声明走：新受管工具不需要改接线代码。"""
+    from courtier.agent.core.capability import CapabilityRegistry
     from courtier.agent.core.guardrails import PathPolicyGuard
+    from courtier.agent.core.guardrails.permission_guards import (
+        declare_path_policy_tools,
+    )
+    from courtier.agent.tools.builtin.file_tools import ReadTool
+
+    class ExportTool:
+        name = "export_report"
+        path_policy = True
+
+    class PlainTool:
+        name = "plain"
 
     registry = CapabilityRegistry()
-    for tool in ("read", "edit", "write"):
-        registry.register(
-            Capability(
-                type="tool",
-                name=tool,
-                meta={"permission": {"path_policy": True}},
-            )
-        )
-    guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
-    assert guard._policy_applies("read") is True
-    # 已声明 + 显式 False → 豁免（数据优先）
-    registry.register(
-        Capability(type="tool", name="read", meta={"permission": {"path_policy": False}})
+    declared = declare_path_policy_tools(
+        registry, [ReadTool(), ExportTool(), PlainTool()]
     )
-    assert guard._policy_applies("read") is False
+    assert sorted(declared) == ["export_report", "read"]
+    # 自声明工具受管；未声明工具回退老名单（plain 不在 → 不管）
+    guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
+    assert guard._policy_applies("export_report") is True
+    assert guard._policy_applies("read") is True
+    assert guard._policy_applies("plain") is False
