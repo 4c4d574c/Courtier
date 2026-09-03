@@ -472,10 +472,12 @@
                 <div
                   v-else-if="field.name === TOOL_PATH_FIELD"
                   class="toolpath-editor"
+                  data-toolpath-root
                 >
                   <div class="toolpath-head" aria-hidden="true">
                     <span>工具名</span>
                     <span>允许的路径（逗号分隔）</span>
+                    <span>豁免</span>
                     <span />
                   </div>
                   <div
@@ -483,15 +485,32 @@
                     :key="i"
                     class="toolpath-row"
                   >
-                    <input
-                      v-model="row.tool"
-                      class="toolpath-input"
-                      list="tool-path-known-tools"
-                      :disabled="!editable"
-                      placeholder="工具名（如 export_report）"
-                      spellcheck="false"
-                      @input="writeToolPathRows"
-                    />
+                    <div class="toolpath-tool">
+                      <input
+                        v-model="row.tool"
+                        class="toolpath-input"
+                        :disabled="!editable"
+                        placeholder="选择或输入工具名"
+                        spellcheck="false"
+                        @focus="openToolPathSuggest(i)"
+                        @input="openToolPathSuggest(i)"
+                        @keydown.escape="suggestFor = null"
+                      />
+                      <div
+                        v-if="suggestFor === i && toolPathSuggestions(i).length"
+                        class="toolpath-suggest"
+                      >
+                        <button
+                          v-for="name in toolPathSuggestions(i)"
+                          :key="name"
+                          type="button"
+                          class="toolpath-suggest-item"
+                          @mousedown.prevent="pickToolPathSuggest(i, name)"
+                        >
+                          {{ name }}
+                        </button>
+                      </div>
+                    </div>
                     <input
                       v-model="row.paths"
                       class="toolpath-input toolpath-input--paths"
@@ -500,14 +519,13 @@
                       spellcheck="false"
                       @input="writeToolPathRows"
                     />
-                    <label class="toolpath-exempt">
+                    <label class="toolpath-exempt" title="勾选后该工具不受路径白名单管">
                       <input
                         type="checkbox"
                         v-model="row.exempt"
                         :disabled="!editable"
-                        @change="writeToolPathRows"
+                        @change="onToolPathExemptChange(i)"
                       />
-                      豁免
                     </label>
                     <button
                       class="toolpath-remove"
@@ -519,14 +537,11 @@
                       ×
                     </button>
                   </div>
-                  <datalist id="tool-path-known-tools">
-                    <option v-for="n in knownToolNames" :key="n" :value="n" />
-                  </datalist>
                   <button
                     class="toolpath-add"
                     type="button"
                     :disabled="!editable"
-                    @click="addToolPathRow"
+                    @click="addToolPathRow(); fetchKnownToolNames()"
                   >
                     ＋ 添加工具
                   </button>
@@ -706,7 +721,7 @@
 
 <script setup lang="ts">
 import AppIcon from "../components/AppIcon.vue";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 
 import { api, type DeploymentField, type SettingsView } from "../api/client";
 import {
@@ -865,6 +880,48 @@ function removeEndpointRow(index: number) {
 
 const toolPathRows = ref<Array<{ tool: string; paths: string; exempt: boolean }>>([]);
 const knownToolNames = ref<string[]>([]);
+const suggestFor = ref<number | null>(null);
+
+function openToolPathSuggest(index: number) {
+  suggestFor.value = index;
+}
+
+function closeToolPathSuggest() {
+  suggestFor.value = null;
+}
+
+/** 候选 = 已知工具 − 其它行已占用 − 不匹配当前输入（忽略大小写）。 */
+function toolPathSuggestions(index: number): string[] {
+  const rows = toolPathRows.value;
+  const query = (rows[index]?.tool ?? "").trim().toLowerCase();
+  const used = new Set(
+    rows.filter((_, i) => i !== index).map((row) => row.tool.trim())
+  );
+  return knownToolNames.value.filter(
+    (name) => !used.has(name) && (!query || name.toLowerCase().includes(query))
+  );
+}
+
+function pickToolPathSuggest(index: number, name: string) {
+  const row = toolPathRows.value[index];
+  if (row) {
+    row.tool = name;
+    writeToolPathRows();
+  }
+  suggestFor.value = null;
+}
+
+function onToolPathExemptChange(index: number) {
+  const row = toolPathRows.value[index];
+  if (row?.exempt) row.paths = "";
+  writeToolPathRows();
+}
+
+function onDocumentClickCloseSuggest(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  if (target && target.closest("[data-toolpath-root]")) return;
+  closeToolPathSuggest();
+}
 
 function syncToolPathRows() {
   const raw = String(formState["guards"]?.[TOOL_PATH_FIELD] ?? "{}");
@@ -1289,6 +1346,8 @@ async function rotateJwt() {
 }
 
 onMounted(load);
+onMounted(() => document.addEventListener("click", onDocumentClickCloseSuggest));
+onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSuggest));
 </script>
 
 <style scoped>
@@ -2476,57 +2535,111 @@ onMounted(load);
   }
 }
 .toolpath-editor {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  max-width: 720px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
 }
-
+.toolpath-head,
 .toolpath-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) 1fr 44px 28px;
+  gap: 8px;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
-
 .toolpath-head {
-  display: flex;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--admin-text-secondary, #888);
+  padding: 7px 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--chat-text-tertiary);
+  background: var(--chat-bg-hover);
+  border-radius: var(--chat-radius-sm) var(--chat-radius-sm) 0 0;
 }
-
-.toolpath-head span:first-child {
-  width: 200px;
+.toolpath-row {
+  padding: 0 12px;
+  position: relative;
 }
-
+.toolpath-row + .toolpath-row {
+  border-top: 1px solid var(--chat-border);
+}
+.toolpath-row:hover {
+  background: var(--chat-bg-hover);
+}
+.toolpath-tool {
+  position: relative;
+}
 .toolpath-input {
-  border: 1px solid var(--admin-border, #ddd);
-  border-radius: 6px;
-  padding: 6px 8px;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--chat-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
+  outline: none;
 }
-
-.toolpath-input--paths {
-  flex: 1;
-  min-width: 220px;
+.toolpath-input:focus {
+  border-bottom-color: var(--chat-border);
 }
-
+.toolpath-input:disabled {
+  color: var(--chat-text-tertiary);
+}
 .toolpath-exempt {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  white-space: nowrap;
+  justify-content: center;
 }
-
-.toolpath-remove,
-.toolpath-add {
-  border: 1px solid var(--admin-border, #ddd);
+.toolpath-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
+.toolpath-suggest-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
   background: transparent;
-  border-radius: 6px;
-  padding: 5px 10px;
+  color: var(--chat-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   cursor: pointer;
+}
+.toolpath-suggest-item:hover {
+  background: var(--chat-bg-hover);
+}
+.toolpath-remove,
+.toolpath-add {
+  border: 1px solid var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+}
+.toolpath-remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.toolpath-add {
+  margin: 10px 12px;
+  padding: 6px 10px;
+  align-self: flex-start;
+}
+.toolpath-remove:hover {
+  color: var(--chat-accent);
+  border-color: var(--chat-accent);
 }
 </style>
