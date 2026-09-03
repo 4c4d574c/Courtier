@@ -574,6 +574,74 @@
                     ＋ 添加工具
                   </button>
                 </div>
+                <div
+                  v-else-if="field.name === CONFIRM_FIELD"
+                  class="toolconfirm-editor"
+                  data-toolconfirm-root
+                >
+                  <div class="toolconfirm-head" aria-hidden="true">
+                    <span>工具名</span>
+                    <span>确认提示语（可选）</span>
+                    <span />
+                  </div>
+                  <div
+                    v-for="(row, i) in confirmRows"
+                    :key="i"
+                    class="toolconfirm-row"
+                  >
+                    <div class="toolconfirm-tool">
+                      <input
+                        v-model="row.tool"
+                        class="toolconfirm-input"
+                        :disabled="!editable"
+                        placeholder="选择或输入工具名"
+                        spellcheck="false"
+                        @focus="openConfirmSuggest(i)"
+                        @input="openConfirmSuggest(i)"
+                        @keydown.escape="suggestConfirmFor = null"
+                      />
+                      <div
+                        v-if="suggestConfirmFor === i && confirmSuggestions(i).length"
+                        class="toolconfirm-suggest"
+                      >
+                        <button
+                          v-for="name in confirmSuggestions(i)"
+                          :key="name"
+                          type="button"
+                          class="toolconfirm-suggest-item"
+                          @mousedown.prevent="pickConfirmSuggest(i, name)"
+                        >
+                          {{ name }}
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      v-model="row.message"
+                      class="toolconfirm-input"
+                      :disabled="!editable"
+                      placeholder="如：写入文件需要你确认"
+                      spellcheck="false"
+                      @input="writeConfirmRows"
+                    />
+                    <button
+                      class="toolconfirm-remove"
+                      type="button"
+                      :aria-label="`删除 ${row.tool || '工具'}`"
+                      :disabled="!editable"
+                      @click="removeConfirmRow(i)"
+                    >
+                      <AppIcon name="trash" :size="14" />
+                    </button>
+                  </div>
+                  <button
+                    class="toolconfirm-add"
+                    type="button"
+                    :disabled="!editable"
+                    @click="addConfirmRow(); fetchKnownToolNames()"
+                  >
+                    ＋ 添加工具
+                  </button>
+                </div>
                 <div v-else-if="field.is_secret" class="secret-wrap">
                   <input
                     v-model="formState[activeCategory][field.name]"
@@ -754,8 +822,11 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { api, type DeploymentField, type SettingsView } from "../api/client";
 import {
   buildUpdateBody,
+  parseToolConfirmationRows,
   parseToolPathRows,
+  serializeToolConfirmationRows,
   serializeToolPathRows,
+  toolConfirmationRowError,
   toolPathRowError,
   initFormState,
   secretPlaceholder,
@@ -866,6 +937,7 @@ function resolveConfirm(ok: boolean) {
  */
 const ENDPOINTS_FIELD = "courtier_plugin_endpoints";
 const TOOL_PATH_FIELD = "tool_path_policies";
+const CONFIRM_FIELD = "tool_confirmation";
 const endpointRows = ref<Array<{ name: string; addr: string }>>([]);
 
 function parseEndpoints(raw: string): Array<{ name: string; addr: string }> {
@@ -911,6 +983,61 @@ const toolPathRows = ref<
 >([]);
 const knownToolNames = ref<string[]>([]);
 const suggestFor = ref<number | null>(null);
+const suggestConfirmFor = ref<number | null>(null);
+
+const confirmRows = ref<Array<{ tool: string; message: string }>>([]);
+
+function syncConfirmRows() {
+  confirmRows.value = parseToolConfirmationRows(
+    String(formState["guards"]?.[CONFIRM_FIELD] ?? "[]")
+  );
+}
+
+function writeConfirmRows() {
+  const state = formState["guards"];
+  if (state) state[CONFIRM_FIELD] = serializeToolConfirmationRows(confirmRows.value);
+}
+
+function addConfirmRow() {
+  confirmRows.value.push({ tool: "", message: "" });
+  writeConfirmRows();
+  fetchKnownToolNames();
+}
+
+function removeConfirmRow(index: number) {
+  confirmRows.value.splice(index, 1);
+  writeConfirmRows();
+}
+
+function openConfirmSuggest(index: number) {
+  suggestConfirmFor.value = index;
+}
+
+/** 候选 = 已知工具 − 其它确认行已占用 − 不匹配当前输入。 */
+function confirmSuggestions(index: number): string[] {
+  const query = (confirmRows.value[index]?.tool ?? "").trim().toLowerCase();
+  const used = new Set(
+    confirmRows.value
+      .filter((_, i) => i !== index)
+      .map((row) => row.tool.trim())
+  );
+  return knownToolNames.value.filter(
+    (name) => !used.has(name) && (!query || name.toLowerCase().includes(query))
+  );
+}
+
+function pickConfirmSuggest(index: number, name: string) {
+  const row = confirmRows.value[index];
+  if (row) {
+    row.tool = name;
+    writeConfirmRows();
+  }
+  suggestConfirmFor.value = null;
+}
+
+function closeConfirmSuggest() {
+  suggestConfirmFor.value = null;
+}
 
 function openToolPathSuggest(index: number) {
   suggestFor.value = index;
@@ -965,7 +1092,9 @@ function removeToolPath(
 function onDocumentClickCloseSuggest(event: MouseEvent) {
   const target = event.target as HTMLElement | null;
   if (target && target.closest("[data-toolpath-root]")) return;
+  if (target && target.closest("[data-toolconfirm-root]")) return;
   closeToolPathSuggest();
+  closeConfirmSuggest();
 }
 
 function syncToolPathRows() {
@@ -992,6 +1121,14 @@ function removeToolPathRow(index: number) {
 function toolPathRowErrors(): string {
   const bad = toolPathRows.value
     .map((row) => toolPathRowError(row))
+    .filter((msg) => msg !== "");
+  return bad[0] ?? "";
+}
+
+/** 行校验：确认名单行。 */
+function confirmRowErrors(): string {
+  const bad = confirmRows.value
+    .map((row) => toolConfirmationRowError(row))
     .filter((msg) => msg !== "");
   return bad[0] ?? "";
 }
@@ -1269,6 +1406,7 @@ function resetForms(data: SettingsView) {
   for (const key of Object.keys(revealed)) delete revealed[key];
   syncEndpointRows();
   syncToolPathRows();
+  syncConfirmRows();
   syncPoolRows();
 }
 
@@ -1316,13 +1454,23 @@ async function save() {
   for (const key of Object.keys(formErrors)) delete formErrors[key];
   Object.assign(formErrors, errors);
   writeToolPathRows();
+  writeConfirmRows();
   const endpointError = cat === "plugins" ? endpointRowErrors() : "";
   if (endpointError) formErrors[ENDPOINTS_FIELD] = endpointError;
   const toolPathError = cat === "guards" ? toolPathRowErrors() : "";
   if (toolPathError) formErrors[TOOL_PATH_FIELD] = toolPathError;
+  const confirmError = cat === "guards" ? confirmRowErrors() : "";
+  if (confirmError) formErrors[CONFIRM_FIELD] = confirmError;
   const poolError = cat === "model" ? poolEditorErrors() : "";
   if (poolError) formErrors[POOL_FIELD] = poolError;
-  if (Object.keys(errors).length || endpointError || poolError || toolPathError) return;
+  if (
+    Object.keys(errors).length ||
+    endpointError ||
+    poolError ||
+    toolPathError ||
+    confirmError
+  )
+    return;
   if (cat === "model" && keysDirty.value) {
     // Swap the dirty sentinel for real entry-level ops (draft → overwrite,
     // removal → null; everything absent is kept server-side).
@@ -2579,19 +2727,26 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
     align-self: stretch;
   }
 }
+.toolconfirm-editor,
 .toolpath-editor {
   max-width: 720px;
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-body);
 }
+.toolconfirm-head,
+.toolconfirm-row,
 .toolpath-head,
 .toolpath-row {
   display: grid;
-  grid-template-columns: minmax(150px, 190px) 1fr 44px 28px;
+  grid-template-columns: minmax(150px, 190px) 1fr 28px;
   gap: 8px;
   align-items: center;
 }
+.toolpath-row {
+  grid-template-columns: minmax(150px, 190px) 1fr 44px 28px;
+}
+.toolconfirm-head,
 .toolpath-head {
   padding: 7px 12px;
   font-size: 11px;
@@ -2600,19 +2755,24 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   background: var(--chat-bg-hover);
   border-radius: var(--chat-radius-sm) var(--chat-radius-sm) 0 0;
 }
+.toolconfirm-row,
 .toolpath-row {
   padding: 0 12px;
   position: relative;
 }
+.toolconfirm-row + .toolconfirm-row,
 .toolpath-row + .toolpath-row {
   border-top: 1px solid var(--chat-border);
 }
+.toolconfirm-row:hover,
 .toolpath-row:hover {
   background: var(--chat-bg-hover);
 }
+.toolconfirm-tool,
 .toolpath-tool {
   position: relative;
 }
+.toolconfirm-input,
 .toolpath-input {
   width: 100%;
   padding: 8px 0;
@@ -2625,17 +2785,15 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   font-size: 13px;
   outline: none;
 }
+.toolconfirm-input:focus,
 .toolpath-input:focus {
   border-bottom-color: var(--chat-border);
 }
+.toolconfirm-input:disabled,
 .toolpath-input:disabled {
   color: var(--chat-text-tertiary);
 }
-.toolpath-exempt {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
+.toolconfirm-suggest,
 .toolpath-suggest {
   position: absolute;
   top: calc(100% + 4px);
@@ -2649,6 +2807,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   border-radius: var(--chat-radius-sm);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 }
+.toolconfirm-suggest-item,
 .toolpath-suggest-item {
   display: block;
   width: 100%;
@@ -2661,14 +2820,11 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   font-size: 13px;
   cursor: pointer;
 }
+.toolconfirm-suggest-item:hover,
 .toolpath-suggest-item:hover {
   background: var(--chat-bg-hover);
 }
-.toolpath-paths {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.toolconfirm-remove,
 .toolpath-tool-remove {
   width: 28px;
   height: 28px;
@@ -2680,55 +2836,20 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   color: var(--chat-text-tertiary);
   cursor: pointer;
 }
+.toolconfirm-remove:hover:not(:disabled),
 .toolpath-tool-remove:hover:not(:disabled) {
   color: var(--chat-accent);
 }
+.toolconfirm-remove:disabled,
 .toolpath-tool-remove:disabled {
   opacity: 0.4;
   cursor: default;
 }
-.toolpath-path-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.toolpath-path-remove {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: var(--chat-text-tertiary);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-.toolpath-path-remove:hover:not(:disabled) {
-  color: var(--chat-accent);
-}
-.toolpath-path-remove:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.toolpath-path-add {
-  align-self: flex-start;
-  border: 1px dashed var(--chat-border);
-  background: transparent;
-  color: var(--chat-text-secondary);
-  border-radius: var(--chat-radius-sm);
-  font-size: 12px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.toolpath-path-add:hover:not(:disabled) {
-  color: var(--chat-text-primary);
-  border-color: var(--chat-text-tertiary);
-}
-.toolpath-path-add:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+.toolconfirm-add,
 .toolpath-add {
+  margin: 10px 12px;
+  padding: 6px 10px;
+  align-self: flex-start;
   border: 1px solid var(--chat-border);
   background: transparent;
   color: var(--chat-text-secondary);
@@ -2736,9 +2857,10 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   font-size: 13px;
   cursor: pointer;
 }
-.toolpath-add {
-  margin: 10px 12px;
-  padding: 6px 10px;
-  align-self: flex-start;
+.toolconfirm-add:hover:not(:disabled),
+.toolpath-add:hover:not(:disabled) {
+  color: var(--chat-text-primary);
+  border-color: var(--chat-text-tertiary);
 }
+
 </style>

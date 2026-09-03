@@ -23,7 +23,14 @@ execFileSync(
   { cwd: rootDir, stdio: "inherit" },
 );
 
-const { parseToolPathRows, serializeToolPathRows, toolPathRowError } = await import(
+const {
+  parseToolPathRows,
+  serializeToolPathRows,
+  toolPathRowError,
+  parseToolConfirmationRows,
+  serializeToolConfirmationRows,
+  toolConfirmationRowError,
+} = await import(
   pathToFileURL(resolve(outDir, "settingsForm.bundle.js")).href
 );
 
@@ -56,3 +63,27 @@ assert.equal(toolPathRowError({ tool: "t", exempt: true, paths: ["/x"] }), "");
 assert.deepEqual(parseToolPathRows("not-json"), []);
 
 console.log("tool path rows tests passed");
+
+// 确认名单行：解析 / 序列化 / 半行校验
+const confirmRows = parseToolConfirmationRows(
+  JSON.stringify([
+    { tool: "write", message: "写入需要确认" },
+    { tool: "deploy", message: "" },
+  ])
+);
+assert.deepEqual(confirmRows, [
+  { tool: "write", message: "写入需要确认" },
+  { tool: "deploy", message: "" },
+]);
+const out = JSON.parse(serializeToolConfirmationRows(confirmRows));
+assert.deepEqual(out, [
+  { tool: "write", message: "写入需要确认" },
+  { tool: "deploy" },
+]);
+assert.equal(toolConfirmationRowError({ tool: "", message: "hi" }), "缺少工具名");
+assert.equal(toolConfirmationRowError({ tool: "w", message: "" }), "");
+
+// 坏 JSON / 非数组 → 空行
+assert.deepEqual(parseToolConfirmationRows("not-json"), []);
+assert.deepEqual(parseToolConfirmationRows("{}"), []);
+console.log("confirmation rows tests passed");

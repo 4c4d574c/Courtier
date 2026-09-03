@@ -207,3 +207,50 @@ export function toolPathRowError(row: ToolPathRow): string {
   if (!row.exempt && paths.length === 0) return "需要至少一个路径，或勾选豁免";
   return "";
 }
+
+
+/** 工具确认名单行（tool_confirmation 的结构化编辑模型）。 */
+export interface ToolConfirmationRow {
+  tool: string;
+  message: string;
+}
+
+/** 把设置里的 JSON 文本解析为确认名单行（解析失败返回空）。 */
+export function parseToolConfirmationRows(raw: string): ToolConfirmationRow[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => ({
+    tool: typeof entry?.tool === "string" ? entry.tool : "",
+    message: typeof entry?.message === "string" ? entry.message : "",
+  }));
+}
+
+/** 行序列化回设置值（JSON 文本）；无工具名的行跳过；message 为空则省略。 */
+export function serializeToolConfirmationRows(
+  rows: ToolConfirmationRow[],
+): string {
+  const value = rows
+    .map((row) => ({
+      tool: row.tool.trim(),
+      message: row.message.trim(),
+    }))
+    .filter((row) => row.tool !== "");
+  return JSON.stringify(
+    value.map((row) =>
+      row.message ? { tool: row.tool, message: row.message } : { tool: row.tool }
+    )
+  );
+}
+
+/** 行校验：有提示语但没工具名 = 半行。 */
+export function toolConfirmationRowError(row: ToolConfirmationRow): string {
+  const tool = row.tool.trim();
+  const message = row.message.trim();
+  if (!tool && message) return "缺少工具名";
+  return "";
+}
