@@ -1,12 +1,22 @@
 """Permission guards for the ``tool_call`` layer.
 
-Ported verbatim from ``PermissionGate`` (deleted in the guardrails
-unification) — the denial texts are byte-identical and are part of the
-regression contract (see docs/architecture/guardrails-unification-plan.md).
+Name-level rule (``ToolDisabledGuard``) and path whitelist
+(``PathPolicyGuard``). The path policy's per-tool scope is **declaration
+is the whole truth**: a tool that carries
+``path_policy = {"path": [p1, p2, ...]}`` is governed by exactly those
+roots — nothing else applies, and there is no implicit default.
+``False`` or no attribute means the tool is not governed by the path
+policy at all. Built-in file tools (read/edit/write) are the platform
+baseline: governed by the session roots via the fallback list.
+
+Denial texts are byte-identical to the former ``PermissionGate`` and are
+part of the regression contract (see
+docs/architecture/guardrails-unification-plan.md).
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,77 +26,37 @@ from .base import CallGuardResult, GuardLayer
 if TYPE_CHECKING:
     from ..tool_call import ToolCall
 
-#: Tools whose ``path`` argument is validated against the allowed roots.
-#: The guard carries no knowledge of specific tools beyond this list —
-#: the file tools themselves are policy-free primitives. (From T7 on, the
-#: list is overridden per tool by ``Capability.meta["permission"]``.)
+#: 兜底名单：未做 Capability 声明的工具里，这些名字仍受会话路径白名单管。
+#: 内置文件工具（read/edit/write）的会话根约束由它承担——平台基线。
 DEFAULT_PATH_POLICY_TOOLS = ("read", "edit", "write")
 
 
-def resolve_path_policy_declaration(
-    value: Any, *, memory_home: Any, workspace: Any
-) -> list[str] | None:
-    """把工具自声明的 path_policy 值解析为具体根列表。
+def declare_path_policy_tools(registry: Any, tools: Iterable[Any]) -> list[str]:
+    """把工具自声明的 path_policy 注册为 Capability 名片。
 
-    声明即全部：写明哪些路径，工具就恰好只有那些路径，没有任何隐式默认。
-
-    - "session" → 会话自有空间（memory_home + workspace）——内置文件工具用
-    - {"subpath": p} → 仅 workspace/p（收窄：工具只能写自己的子目录）
-    - {"roots": [...]} → 恰好这些根（路径展开 ~，相对路径相对 workspace）
-    - False → None（豁免，不注册名片）
-
-    非法声明抛 ValueError——安全声明宁可 fail loud 也不静默裸奔。
-    """
-    if value is False:
-        return None
-    if value == "session":
-        return [str(memory_home), str(workspace)]
-    if isinstance(value, dict):
-        keys = set(value)
-        if keys == {"subpath"}:
-            return [str(Path(workspace) / str(value["subpath"]))]
-        if keys == {"roots"}:
-            return [
-                str(Path(root).expanduser()) for root in value["roots"]
-            ] or None
-        raise ValueError(f"path_policy 声明键不合法: {sorted(keys)}")
-    raise ValueError(
-        f"path_policy 声明必须是 \"session\"、False 或字典: {value!r}"
-    )
-
-
-def declare_path_policy_tools(
-    registry: Any,
-    tools: Iterable[Any],
-    *,
-    resolve,
-) -> list[str]:
-    """Register path-policy declarations for tools that self-declare.
-
-    A tool opts in with a ``path_policy`` class attribute ("session",
-    {"subpath": ...}, {"roots": [...]} — see
-    resolve_path_policy_declaration) — the declaration lands in the
-    session ``CapabilityRegistry`` as data, so adding a governed tool
-    never means editing the wiring code. Explicit declarations beat
-    ``PathPolicyGuard``'s legacy fallback list. Returns the declared
-    tool names.
+    声明即全部：``{"path": [p1, p2, ...]}`` → 该工具恰好只能读写这些路径
+    （支持 ``~`` 展开）。``False`` / 未声明 → 不受管。声明不完整直接抛
+    ValueError——安全声明宁可 fail loud 也不静默裸奔。返回已声明的工具名。
     """
     from courtier.agent.core.capability import Capability
 
     declared: list[str] = []
     for tool in tools:
         name = getattr(tool, "name", None)
-        value = getattr(tool, "path_policy", False)
-        if not name or not value:
+        value = getattr(tool, "path_policy", None)
+        if not name or value is None or value is False:
             continue
-        roots = resolve(value)
-        if not roots:
-            continue
+        if not (isinstance(value, dict) and "path" in value):
+            raise ValueError(
+                f"工具 {name} 的 path_policy 声明必须是 "
+                f'{{"path": [路径, ...]}}: {value!r}'
+            )
+        paths = [os.path.expanduser(str(p)) for p in value["path"]]
         registry.register(
             Capability(
                 type="tool",
                 name=name,
-                meta={"permission": {"path_policy": {"roots": roots}}},
+                meta={"permission": {"path_policy": {"path": paths}}},
             )
         )
         declared.append(name)
@@ -112,13 +82,15 @@ class ToolDisabledGuard:
 
 
 class PathPolicyGuard:
-    """Parameter-level rule: file-tool paths must resolve inside the roots.
+    """Parameter-level rule: file-tool paths must stay inside declared roots.
 
-    Which tools the policy applies to: an explicit capability declaration
-    (``Capability.meta["permission"]["path_policy"]``) wins when present —
-    including an explicit ``False`` opt-out for a default-list tool;
-    otherwise the tool must be on ``path_policy_tools`` (the legacy
-    read/edit/write list).
+    每个工具的生效根，按顺序取第一处能回答的来源：
+
+    1. Capability 声明（``meta["permission"]["path_policy"]``）：
+       ``{"path": [...]}`` → 恰好这些根；声明不完整 → fail-closed 空根
+       （拒绝一切路径）；``False`` → 显式豁免，不受管。
+    2. 未声明 → 老名单（``read``/`edit``/``write``）受**会话根**管；
+       其余工具不受管。
 
     Inactive when no roots are configured (allow-all, preserving legacy
     behavior). Path resolution exceptions are fail-closed: deny.
@@ -142,36 +114,33 @@ class PathPolicyGuard:
         )
 
     def _managed_roots(self, tool_name: str) -> list[str] | None:
-        """该工具生效的根列表；None = 不受管。
-
-        判定顺序：显式 Capability 声明（播种时已把 "session"/{subpath}/
-        {roots} 解析为具体 roots 字典）→ 未声明回退构造时的默认名单。
-        """
+        """该工具生效的根列表；None = 不受管（空列表 = fail-closed 拒绝一切）。"""
         if self._capabilities is not None:
             capability = self._capabilities.get("tool", tool_name)
-            permission = getattr(capability, "meta", {}).get("permission")
-            if capability is not None and isinstance(permission, dict):
-                if "path_policy" not in permission:
-                    # 带权限字典却没写 path_policy：声明不完整，fail-closed
-                    return []
-                declaration = permission["path_policy"]
-                if declaration is False:
-                    return None                     # 显式豁免 → 不受管
-                if isinstance(declaration, dict) and "roots" in declaration:
-                    return [str(root) for root in declaration["roots"]]
-                # 看不懂的声明 fail-closed：该工具所有路径拒绝
-                return []
+            if capability is not None:
+                permission = getattr(capability, "meta", {}).get("permission")
+                if isinstance(permission, dict):
+                    declaration = permission.get("path_policy")
+                    if declaration is False:
+                        return None                 # 显式豁免 → 不受管
+                    if isinstance(declaration, dict) and "path" in declaration:
+                        return [
+                            os.path.expanduser(str(p))
+                            for p in declaration["path"]
+                        ]
+                    return []                       # 声明不完整 → fail-closed
         if tool_name in self._path_tools:
             return [str(root) for root in self._roots]
         return None
 
     async def check_call(self, call: "ToolCall", context: Any) -> CallGuardResult:
         roots = self._managed_roots(call.name)
-        # roots is None = 未受管 → 放行；roots == [] = 声明无法解析的
-        # fail-closed 态 → 走 _check_path，空根清单拒绝一切路径。
+        # roots is None = 未受管 → 放行；roots == [] = fail-closed → 全拒。
         if not self._roots or roots is None:
             return CallGuardResult.allow(self.name)
-        denial = self._check_path(call.name, (call.arguments or {}).get("path"), roots)
+        denial = self._check_path(
+            call.name, (call.arguments or {}).get("path"), roots
+        )
         if denial is None:
             return CallGuardResult.allow(self.name)
         return CallGuardResult.deny(self.name, denial)

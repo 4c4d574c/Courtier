@@ -392,10 +392,7 @@ async def build_agent(
         PathPolicyGuard,
         ToolDisabledGuard,
     )
-    from ...core.guardrails.permission_guards import (
-        declare_path_policy_tools,
-        resolve_path_policy_declaration,
-    )
+    from ...core.guardrails.permission_guards import declare_path_policy_tools
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
     from ...runtime.activation import DomainActivator, build_domain_catalog
@@ -455,11 +452,7 @@ async def build_agent(
     # 新增受管工具不需要改动本文件。
     if session_registry is not None:
         declare_path_policy_tools(
-            capability_registry,
-            session_registry.list_tools(),
-            resolve=lambda value: resolve_path_policy_declaration(
-                value, memory_home=memory_home, workspace=session_workspace
-            ),
+            capability_registry, session_registry.list_tools()
         )
     session_guardrails = GuardrailSystem(tool_mode="block", tool_call_mode="block")
     session_guardrails.register(ToolDisabledGuard())

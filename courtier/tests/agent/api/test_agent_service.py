@@ -215,35 +215,27 @@ def test_build_model_client_uses_router_when_fallback_backends_configured():
 
 
 def test_path_policy_seeding_tracks_self_declared_tools():
-    """路径管辖声明随工具自声明走：新受管工具不需要改接线代码。"""
+    """自声明 {"path": [...]} 的工具获得专属根；未声明工具回退老名单基线。"""
     from courtier.agent.core.capability import CapabilityRegistry
     from courtier.agent.core.guardrails import PathPolicyGuard
     from courtier.agent.core.guardrails.permission_guards import (
         declare_path_policy_tools,
-        resolve_path_policy_declaration,
     )
-    from courtier.agent.tools.builtin.file_tools import ReadTool
 
     class ExportTool:
         name = "export_report"
-        path_policy = {"subpath": "exports"}   # 收窄：仅工作区 exports/ 子目录
+        path_policy = {"path": ["/srv/reports"]}
 
     class PlainTool:
         name = "plain"
 
     registry = CapabilityRegistry()
     declared = declare_path_policy_tools(
-        registry,
-        [ReadTool(), ExportTool(), PlainTool()],
-        resolve=lambda value: resolve_path_policy_declaration(
-            value, memory_home="/tmp/mem", workspace="/tmp/work"
-        ),
+        registry, [ExportTool(), PlainTool()]
     )
-    assert sorted(declared) == ["export_report", "read"]
+    assert declared == ["export_report"]
     guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
-    # 内置 read：True 声明 → 会话根
-    assert guard._managed_roots("read") == ["/tmp/mem", "/tmp/work"]
-    # 自定义工具：subpath 声明 → 专属根
-    assert guard._managed_roots("export_report") == ["/tmp/work/exports"]
-    # 未声明：回退老名单（plain 不在 → 不受管）
+    # 自声明工具：恰好声明的根
+    assert guard._managed_roots("export_report") == ["/srv/reports"]
+    # 未声明工具：不受 Capability 管（老名单基线由守卫自身的 _path_tools 兜底）
     assert guard._managed_roots("plain") is None

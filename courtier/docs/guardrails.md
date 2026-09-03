@@ -270,114 +270,46 @@ guards:
 
 ### 4.5 让自定义工具受路径白名单管
 
-**先说清它在解决什么问题。** `PathPolicyGuard` 拦截一个 `read`/`write` 调用时，
-第一件事是回答："**这个工具，是我要管的工具吗？**"——是，才去检查它的 `path`
-参数是否落在会话根内。这份"受管工具名单"有两种来源：
+**先说清它在解决什么问题。** `PathPolicyGuard` 拦截一个文件类工具调用时，
+第一件事是回答："**这个工具，允许它读写哪些路径？**"
 
-1. **老名单（默认兜底）**：硬编码的 `read`/`edit`/`write`。内置文件工具靠它工作。
-   缺点：你新写一个会写文件的工具（比如 `export_report`），它不在名单里，
-   就**完全绕过路径检查**——可以在磁盘任何地方写文件。
-2. **Capability 声明（可扩展）**：把"谁受管"变成运行时数据，自定义工具不用改
-   核心代码就能入列。
+- 内置的 `read`/`edit`/`write` 是**平台基线**：始终受管，范围 = 会话根
+  （记忆目录 + 会话工作区），由 `build_agent` 注入——不需要任何声明；
+- **自定义工具**：默认不受管（可以碰磁盘任何位置——通常这正是漏洞），
+  需要在工具类上**声明自己的路径**，声明了就恰好只有声明的那些。
 
-**Capability 是什么**：一张名片，不是工具本体。工具还是登记在 `ToolRegistry`
-里；名片只是往会话的 `CapabilityRegistry` 里放一条
-`(类型, 名字, meta 声明)`，让守卫来查的时候能查到。
+**声明即全部**：写明哪些路径，工具就恰好只有那些路径，没有任何隐式默认、
+没有"会话根打底"。
 
-**声明的写法（去中心化）**：声明跟着**工具类**走——类上写一个真值属性即可，
-不需要在任何注册点手工调用：
+**怎么写**（工具类上一个属性，和 `name` 放在一起，忘不掉）：
 
 ```python
 class ExportReportTool:
     name = "export_report"
-    path_policy = True     # ← 声明受路径白名单管；和 name 放一起，忘不掉
+    path_policy = {"path": ["/srv/reports", "~/data/exports"]}
+    # 该工具只能读写这两个目录（支持 ~ 展开）；其余一律拒绝
 ```
 
-`build_agent` 每次构建会话时扫描会话工具表（`declare_path_policy_tools`），
-凡自带该属性的工具自动注册名片。新增受管工具 = 写工具类时多一行属性，
-**任何接线代码（含 agent_service.py）都不用改**。
+声明不完整（带了权限字典却没有 `path` 键）在**播种时抛 ValueError**（fail
+loud）；守卫侧遇到看不懂的声明按 **fail-closed** 处理（该工具全部路径拒绝）。
+两条路都不给"静默裸奔"留门。
 
-**声明值还支持按工具定制根**——不同工具限制不同的目录：
-
-| `path_policy` 值 | 生效根 |
-|---|---|
-| `"session"` | 会话自有空间（记忆目录 + 会话工作区）——内置文件工具用 |
-| `{"subpath": "exports"}` | **收窄**：仅会话工作区的 `exports/` 子目录 |
-| `{"roots": ["/data/only"]}` | **替换**：恰好这些根（`~` 可用，相对路径相对工作区） |
-| `False` | 豁免：完全不受管（注意：宽口径工具仍在，模型可绕道） |
-
-**声明即全部**：没有任何隐式默认——不声明 = 不受管（除非工具名恰好在老名单
-`read`/`edit`/`write` 里）；声明了就只有声明的那些。**安全语义**：声明值在播种时
-由 `resolve_path_policy_declaration` 解析成具体根；解析失败在播种时 fail loud，
-守卫侧遇到看不懂/不完整的声明按 **fail-closed** 处理（该工具全部路径拒绝，
-显式 `False` 豁免除外）。另注意替代效应：给某工具放宽的根，模型就能借它
-碰到放宽区域——每工具的根应当**等于或窄于**会话基线，放宽前想清楚。
-
-例：导出工具只许写自己的产物目录——
-
-```python
-class ExportReportTool:
-    name = "export_report"
-    path_policy = {"subpath": "exports"}   # 模型只能写 <工作区>/exports/
-```
-
-**安全语义**：声明值在播种时由
-`resolve_path_policy_declaration(value, memory_home=..., workspace=...)`
-解析成具体根（工具的类属性 → 会话相关路径的换算发生在播种处，守卫只见
-具体路径）；解析失败的声明在**播种时 fail loud**，而守卫侧遇到看不懂的
-声明按 **fail-closed** 处理（该工具所有路径拒绝）——宁可误拒不可裸奔。
-另注意替代效应：给某工具放宽的根，模型就能借它碰到放宽区域——
-每工具的根应当**等于或窄于**会话基线，放宽前想清楚。
-
-**判定流程**（模型发起 `export_report(path=...)` 时，守卫依次问）：
-
-```
-registry.get("tool", "export_report") 返回什么？
-│
-├─ 查到显式注册的名片，且 meta 里有 permission 字典？
-│     ├─ path_policy=True  → 受管 → 走路径白名单检查
-│     └─ path_policy=False → 显式豁免 → 直接放行
-│
-├─ 查到自动包装的名片（工具存在但没人声明，meta 为空）？
-│     └─ 回退老名单：在 read/edit/write 里 → 受管；不在 → 不受管
-│        （不声明就是安全漏洞所在！）
-│
-└─ 工具不存在 → 不受管（后面执行自然报错）
-```
-
-两个要点：
-
-- **显式声明永远赢**。默认受管的 `read` 也可以被 `{"path_policy": False}`
-  豁免（适合"该变体工具内部已自行做路径控制"的场景，慎用）；
-- **内置三件套已声明化**：`build_agent` 创建共享注册表时会按
-  `DEFAULT_PATH_POLICY_TOOLS` 播种三条 `path_policy: True` 声明——内置工具的
-  管辖同样是数据而非硬编码（老名单只剩两个职责：未声明的自定义工具的回退
-  判断，以及无注册表构造守卫时的独立策略来源）。
-
-**怎么做**：在工具登记进会话的时机，往 `CapabilityRegistry` 注册一张名片：
-
-```python
-from courtier.agent.core.capability import Capability, CapabilityRegistry
-
-registry.register(Capability(
-    type="tool",
-    name="export_report",                          # 与 ToolRegistry 里的工具名一致
-    meta={"permission": {"path_policy": True}},    # 声明受管
-))
-```
-
-**放在哪里（扫描时机）**：`build_agent` 每次构建会话时扫描会话工具表并
-播种声明——平台自带工具与你的自定义工具一视同仁，无需任何手工注册。
-扫描入口是 `permission_guards.declare_path_policy_tools(registry, tools)`，
-注册表实例同时交给 `PathPolicyGuard` 和 `AgentRuntime`（守卫 + 运行时都查得到）。
-需要特殊声明（如豁免，见上）时才手工调 `registry.register(...)` 覆盖。
+**放在哪里**：不需要任何注册调用。`build_agent` 每次构建会话时扫描会话
+工具表（`permission_guards.declare_path_policy_tools`），凡自带
+`path_policy` 声明的工具自动注册名片；注册表实例同时交给 `PathPolicyGuard`
+和 `AgentRuntime`。新增受管工具 = 写工具类时多一行属性，任何接线代码
+（含 agent_service.py）都不用改。
 
 **注意什么**：
 
-- 声明只有"受不受管"一个开关；管的方式（哪些根）仍由会话决定，与声明无关；
-- 名片的名字取自工具的 `name` 属性，与 `ToolRegistry` 登记名天然一致；
-- `DEFAULT_PATH_POLICY_TOOLS` 常量仍有两份职责：未声明的自定义工具的回退
-  判断，以及无注册表构造守卫（如单测）时的出厂默认策略。
+- 声明的路径建议绝对路径或 `~` 开头；相对路径按服务进程工作目录解析，
+  不建议依赖；
+- 一次声明一组路径，**不支持组合**（比如"会话根 + 某个额外目录"表达不了
+  ——这种需求目前需要在会话接线处注册具体根，属于显式特例）；
+- **替代效应**：给某工具放宽的根，模型就能借它触达放宽区域。每工具的根
+  应当**等于或窄于**会话基线，放宽前想清楚；
+- 内置三件套不写 `path_policy` 属性——它们由老名单基线管（见上），
+  写了属性反而会脱离会话根、变成只认自己声明的路径。
 
 ### 4.6 在生命周期点改状态 / 做记录
 

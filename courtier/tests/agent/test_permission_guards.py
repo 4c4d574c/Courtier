@@ -154,23 +154,17 @@ class TestPathPolicy:
 
 
 class TestCapabilityDeclaredPolicy:
-    """显式声明优先于老名单；声明即全部，无隐式默认。"""
+    """Capability 声明即全部：声明 {"path": [...]} 就恰好只有那些路径。"""
 
-    def _registry(self, roots):
+    def _registry(self):
         from courtier.agent.core.capability import Capability, CapabilityRegistry
-        from courtier.agent.core.guardrails.permission_guards import (
-            resolve_path_policy_declaration,
-        )
 
-        dumps_roots = resolve_path_policy_declaration(
-            {"subpath": "dumps"}, memory_home=roots[0], workspace=roots[1]
-        )
         registry = CapabilityRegistry()
         registry.register(
             Capability(
                 type="tool",
                 name="archive_dump",
-                meta={"permission": {"path_policy": {"roots": dumps_roots}}},
+                meta={"permission": {"path_policy": {"path": ["/srv/dumps"]}}},
             )
         )
         registry.register(
@@ -183,33 +177,34 @@ class TestCapabilityDeclaredPolicy:
         return registry
 
     @pytest.mark.asyncio
-    async def test_declared_opt_in_denies_custom_tool(self, roots):
-        allowlist, workspace, _ = roots
+    async def test_declared_paths_are_the_whole_truth(self, roots):
+        allowlist, _, _ = roots
         guard = PathPolicyGuard(
-            allowed_roots=allowlist, capability_registry=self._registry(roots)
+            allowed_roots=allowlist, capability_registry=self._registry()
         )
-        denied = await guard.check_call(
-            _call("archive_dump", path="/etc/passwd"), _ctx()
-        )
-        assert denied.action == "deny"
-        # 声明即全部：仅 subpath 在管内
+        # 声明根内放行（即使不在会话根内——声明即全部）
         allowed = await guard.check_call(
-            _call("archive_dump", path=f"{workspace}/dumps/out.txt"), _ctx()
+            _call("archive_dump", path="/srv/dumps/out.txt"), _ctx()
         )
         assert allowed.action == "allow"
+        # 声明根外拒绝（包括会话根——不再有隐式默认）
+        elsewhere = await guard.check_call(
+            _call("archive_dump", path="/etc/passwd"), _ctx()
+        )
+        assert elsewhere.action == "deny"
 
     @pytest.mark.asyncio
     async def test_declared_opt_out_overrides_default_list(self, roots):
         allowlist, _, _ = roots
         guard = PathPolicyGuard(
-            allowed_roots=allowlist, capability_registry=self._registry(roots)
+            allowed_roots=allowlist, capability_registry=self._registry()
         )
         # read 显式豁免 → 即使在白名单根内也不再受路径检查管（放行）
         result = await guard.check_call(_call("read", path="/etc/passwd"), _ctx())
         assert result.action == "allow"
 
     @pytest.mark.asyncio
-    async def test_uninterpretable_declaration_fails_closed(self, roots):
+    async def test_incomplete_declaration_fails_closed(self, roots):
         from courtier.agent.core.capability import Capability, CapabilityRegistry
 
         registry = CapabilityRegistry()
@@ -225,41 +220,22 @@ class TestCapabilityDeclaredPolicy:
             allowed_roots=allowlist, capability_registry=registry
         )
         result = await guard.check_call(_call("weird", path="/tmp/x"), _ctx())
-        # 看不懂的声明 fail-closed：空根清单拒绝一切
+        # 看不懂/不完整的声明 fail-closed：空根清单拒绝一切
         assert result.action == "deny"
 
 class TestPerToolRoots:
-    """不同工具不同路径限制：声明即全部，无隐式默认。"""
+    """自定义工具以 {"path": [...]} 声明自己的管辖根；未声明走老名单基线。"""
 
     def _registry(self, declaration_for_export):
-        """声明经生产解析器注册（与 build_agent 同路径），meta 只存 roots。"""
         from courtier.agent.core.capability import Capability, CapabilityRegistry
-        from courtier.agent.core.guardrails.permission_guards import (
-            resolve_path_policy_declaration,
-        )
 
         registry = CapabilityRegistry()
-        read_roots = resolve_path_policy_declaration(
-            {"roots": ["/data/only"]}, memory_home="/tmp/mem", workspace="/tmp/work"
-        )
-        registry.register(
-            Capability(
-                type="tool",
-                name="read",
-                meta={"permission": {"path_policy": {"roots": read_roots}}},
-            )
-        )
-        if declaration_for_export:
-            export_roots = resolve_path_policy_declaration(
-                declaration_for_export,
-                memory_home="/tmp/mem",
-                workspace="/tmp/work",
-            )
+        if declaration_for_export is not None:
             registry.register(
                 Capability(
                     type="tool",
                     name="export_report",
-                    meta={"permission": {"path_policy": {"roots": export_roots}}},
+                    meta={"permission": {"path_policy": declaration_for_export}},
                 )
             )
         return registry
@@ -271,30 +247,38 @@ class TestPerToolRoots:
         return await guard.check_call(_call(tool, path=path), _ctx())
 
     @pytest.mark.asyncio
-    async def test_replacement_root_exactly_as_declared(self):
-        registry = self._registry(None)
-        # 声明即全部：/data/only 在管内，连守卫自己的会话根 /tmp 都不管
-        assert (await self._check(registry, "read", "/data/only/f.txt")).action == "allow"
-        assert (await self._check(registry, "read", "/tmp/f.txt")).action == "deny"
-
-    @pytest.mark.asyncio
-    async def test_subpath_narrows_to_workspace_subdir(self):
-        registry = self._registry({"subpath": "exports"})
-        allowed = await self._check(registry, "export_report", "/tmp/work/exports/o.pdf")
+    async def test_declared_roots_exactly_as_given(self):
+        registry = self._registry({"path": ["/srv/reports"]})
+        allowed = await self._check(registry, "export_report", "/srv/reports/o.pdf")
         assert allowed.action == "allow"
         denied = await self._check(registry, "export_report", "/etc/passwd")
         assert denied.action == "deny"
 
     @pytest.mark.asyncio
-    async def test_session_scope_covers_session_space_only(self):
-        registry = self._registry("session")
-        allowed = await self._check(registry, "export_report", "/tmp/work/a.txt")
+    async def test_tilde_expansion_in_declaration(self):
+        registry = self._registry({"path": ["~/reports"]})
+        expanded = Path("~/reports").expanduser()
+        allowed = await self._check(registry, "export_report", str(expanded / "o.pdf"))
         assert allowed.action == "allow"
-        denied = await self._check(registry, "export_report", "/etc/passwd")
-        assert denied.action == "deny"
 
     @pytest.mark.asyncio
-    async def test_exempt_tool_unmanaged(self):
-        # False → 不注册名片 → 回退老名单（export_report 不在 → 不受管）
+    async def test_false_declaration_exempts(self):
         registry = self._registry(False)
-        assert (await self._check(registry, "export_report", "/etc/passwd")).action == "allow"
+        result = await self._check(registry, "export_report", "/etc/passwd")
+        assert result.action == "allow"   # 不受管
+
+    @pytest.mark.asyncio
+    async def test_undeclared_tool_uses_legacy_baseline(self):
+        """未声明的 read 走老名单基线（会话根），未在名单的自定义工具不受管。"""
+        registry = self._registry(None)
+        denied = await self._check(registry, "read", "/etc/hostname")
+        assert denied.action == "deny" and "不在允许范围内" in denied.reason
+        allowed = await self._check(registry, "export_report", "/etc/hostname")
+        assert allowed.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_incomplete_declaration_fails_closed(self):
+        registry = self._registry({"unknown_key": True})
+        result = await self._check(registry, "export_report", "/tmp/x")
+        # 带权限字典却没有 path 键 → fail-closed 拒绝一切
+        assert result.action == "deny"
