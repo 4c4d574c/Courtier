@@ -167,6 +167,7 @@ class OrchestratorAgent(Agent):
         event_bus: Any | None = None,
         use_tree: bool = False,
         confirmation_handler: Any | None = None,
+        media_parts: tuple = (),
     ) -> AgentResult:
         """Run the full audit pipeline."""
         if input is not None:
@@ -247,6 +248,7 @@ class OrchestratorAgent(Agent):
             event_bus=event_bus,
             use_tree=use_tree,
             confirmation_handler=confirmation_handler,
+            media_parts=media_parts,
         )
 
         # Collect audit results from direct skill tool calls.
