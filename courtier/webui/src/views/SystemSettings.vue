@@ -415,7 +415,8 @@
                 :class="{
                   stacked:
                     field.name === ENDPOINTS_FIELD ||
-                    field.name === TOOL_PATH_FIELD,
+                    field.name === TOOL_PATH_FIELD ||
+                    field.name === CONFIRM_FIELD,
                   dirty: isFieldDirty(field.name),
                   error: formErrors[field.name],
                 }"
