@@ -6,6 +6,8 @@ export interface ChatUserMessageItem {
   content: string;
   /** 0-based index into session.turns — the edit-resend anchor. */
   turnIndex: number;
+  /** Media attachments rendered in the bubble. */
+  attachments?: Array<{ fileId: string; kind: string; name: string }>;
 }
 
 /** [[n]] → hit resolution index for one assistant message. */

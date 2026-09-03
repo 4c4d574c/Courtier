@@ -99,6 +99,7 @@ function buildUserItem(
     id: `${baseId}-user`,
     content: turn.message.text,
     turnIndex,
+    attachments: turn.message.attachments ?? [],
   };
 }
 

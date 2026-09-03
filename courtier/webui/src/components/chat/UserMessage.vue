@@ -2,6 +2,20 @@
   <div class="user-message">
     <div v-if="!editing" class="user-message-body">
       <div class="user-message-bubble">
+        <div v-if="attachments.length" class="user-message-attachments">
+          <template v-for="att in attachments" :key="att.fileId">
+            <img
+              v-if="att.kind === 'image'"
+              class="attachment-media attachment-image"
+              :src="fileUrl(att.fileId)"
+              :alt="att.name"
+              loading="lazy"
+            />
+            <audio v-else-if="att.kind === 'audio'" class="attachment-media" controls :src="fileUrl(att.fileId)" />
+            <video v-else-if="att.kind === 'video'" class="attachment-media attachment-video" controls :src="fileUrl(att.fileId)" />
+            <span v-else class="attachment-chip">📄 {{ att.name }}</span>
+          </template>
+        </div>
         <div class="user-message-text">{{ content }}</div>
       </div>
       <div class="user-message-actions">
@@ -60,9 +74,17 @@
 import { computed, nextTick, ref } from "vue";
 import { MESSAGES } from "../../constants/messages";
 
+interface AttachmentMeta {
+  fileId: string;
+  kind: string;
+  name: string;
+}
+
 interface Props {
   content: string;
   turnIndex: number;
+  /** Media attachments rendered inside the bubble (image/audio/video). */
+  attachments?: AttachmentMeta[];
   /** False while the session is running — hides the edit entry. */
   canEdit?: boolean;
   /** Non-empty disables editing with the reason shown as tooltip. */
@@ -70,9 +92,17 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  attachments: () => [],
   canEdit: false,
   editHint: "",
 });
+
+// The files route authenticates via the access_token cookie, which <img> /
+// <audio> / <video> elements send automatically — same channel as the
+// EventSource.
+function fileUrl(fileId: string): string {
+  return `/api/files/${encodeURIComponent(fileId)}`;
+}
 
 const emit = defineEmits<{
   "edit-submit": [payload: { turnIndex: number; text: string }];
@@ -177,6 +207,34 @@ function handleEnter(event: KeyboardEvent) {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.user-message-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.attachment-image {
+  max-width: 280px;
+  max-height: 220px;
+  border-radius: var(--chat-radius-md);
+  object-fit: cover;
+}
+
+.attachment-video {
+  max-width: 320px;
+  border-radius: var(--chat-radius-md);
+}
+
+.attachment-media {
+  display: block;
+}
+
+.attachment-chip {
+  font-size: 13px;
+  color: var(--chat-text-secondary);
 }
 
 /* Hover-revealed action row (ChatSidebar meatballs pattern).  The row is

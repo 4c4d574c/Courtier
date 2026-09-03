@@ -15,6 +15,8 @@ import { api } from "../api/client";
 export interface ModelOption {
   id: string;
   name: string;
+  /** Declared input modalities (vision/audio/video); empty = text-only. */
+  modalities?: string[];
 }
 
 export interface ModelEndpointGroup {
@@ -36,6 +38,19 @@ function allModels(): ModelOption[] {
 function currentModelName(): string {
   const found = allModels().find((m) => m.id === selectedModelId.value);
   return found?.name ?? "";
+}
+
+function currentModel(): ModelOption | undefined {
+  return allModels().find((m) => m.id === selectedModelId.value);
+}
+
+/** Whether the currently selected model declares the given attachment kind's
+ * modality. Scalar-fallback (no pool / unknown id) is text-only. */
+function supportsKind(kind: string): boolean {
+  const model = currentModel();
+  if (!model) return false;
+  const modality = kind === "image" ? "vision" : kind;
+  return (model.modalities ?? []).includes(modality);
 }
 
 async function loadModels(force = false): Promise<void> {
@@ -80,8 +95,10 @@ export function useModelPool() {
     loadModels,
     selectModel,
     preselectModel,
+    supportsKind,
     modelName: computed(() =>
       endpoints.value.length ? currentModelName() : "",
     ),
+    selectedModelModalities: computed(() => currentModel()?.modalities ?? []),
   };
 }

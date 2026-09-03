@@ -186,19 +186,31 @@ function newSessionWithCleanup() {
   newSession();
 }
 
-async function handleSubmit(task: string, file?: File) {
+async function handleSubmit(task: string, file?: File, mediaFiles?: File[]) {
   let fileId: string | undefined;
+  const uploadedMedia: { fileId: string; name: string; kind: string }[] = [];
 
-  if (file) {
+  const toUpload: File[] = [...(file ? [file] : []), ...(mediaFiles ?? [])];
+  if (toUpload.length) {
     uploading.value = true;
     uploadError.value = "";
     try {
-      const result = await api.uploadFile(file);
-      fileId = result.fileId;
-      uploadedFiles.value = [
-        ...uploadedFiles.value,
-        { fileId, name: file.name, url: `/api/files/${encodeURIComponent(fileId)}` },
-      ];
+      for (const f of toUpload) {
+        const result = await api.uploadFile(f);
+        if (f === file) {
+          fileId = result.fileId;
+        } else {
+          uploadedMedia.push({
+            fileId: result.fileId,
+            name: f.name,
+            kind: result.kind ?? "image",
+          });
+        }
+        uploadedFiles.value = [
+          ...uploadedFiles.value,
+          { fileId: result.fileId, name: f.name, url: `/api/files/${encodeURIComponent(result.fileId)}` },
+        ];
+      }
     } catch (e: unknown) {
       uploadError.value = e instanceof Error ? e.message : "上传失败";
       return;
@@ -207,7 +219,14 @@ async function handleSubmit(task: string, file?: File) {
     }
   }
 
-  connect(task, fileId, file?.name);
+  connect(
+    task,
+    fileId,
+    file?.name,
+    undefined,
+    uploadedMedia.length ? uploadedMedia.map((m) => m.fileId) : undefined,
+    uploadedMedia.length ? uploadedMedia : undefined,
+  );
 }
 
 async function handleHistoryDelete(id: string) {

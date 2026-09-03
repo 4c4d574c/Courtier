@@ -40,13 +40,20 @@
       <div v-if="error || fileError" class="input-area-error">
         {{ error || fileError }}
       </div>
-      <div v-if="fileName" class="input-area-file">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-        <span>{{ fileName }}</span>
-        <button class="input-area-file-remove" type="button" @click="clearFile">×</button>
+      <div v-if="attachments.length" class="input-area-files">
+        <div
+          v-for="(att, idx) in attachments"
+          :key="`${att.file.name}-${idx}`"
+          class="input-area-file"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <span>{{ att.file.name }}</span>
+          <span v-if="KIND_LABELS[att.kind]" class="input-area-file-kind">{{ KIND_LABELS[att.kind] }}</span>
+          <button class="input-area-file-remove" type="button" @click="removeAttachment(idx)">×</button>
+        </div>
       </div>
 
       <textarea
@@ -64,6 +71,7 @@
           ref="fileInput"
           type="file"
           :accept="ALLOWED_EXTS"
+          multiple
           style="display: none"
           @change="handleFileChange"
         />
@@ -104,7 +112,14 @@
                   @click="chooseModel(m.id)"
                 >
                   <span>{{ m.name }}</span>
-                  <span v-if="m.id === pool.defaultModelId.value" class="model-menu-default">默认</span>
+                  <span class="model-menu-meta">
+                    <span
+                      v-for="mod in m.modalities ?? []"
+                      :key="mod"
+                      class="model-menu-modality"
+                    >{{ MODALITY_LABELS[mod] ?? mod }}</span>
+                    <span v-if="m.id === pool.defaultModelId.value" class="model-menu-default">默认</span>
+                  </span>
                 </button>
               </template>
             </div>
@@ -134,7 +149,15 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
-import { ALLOWED_EXTS, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } from "../../constants/fileUpload";
+import {
+  ALLOWED_EXTS,
+  ALLOWED_EXTENSIONS,
+  KIND_COUNT_LIMITS,
+  KIND_TO_MODALITY,
+  kindForFile,
+  limitForFile,
+  type FileKind,
+} from "../../constants/fileUpload";
 import { MESSAGES } from "../../constants/messages";
 import { useModelPool } from "../../composables/useModelPool";
 import type { PendingConfirmation } from "../../types/agent";
@@ -150,7 +173,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const emit = defineEmits<{
-  submit: [task: string, file?: File];
+  submit: [task: string, document?: File, media?: File[]];
   stop: [];
   resolve: [
     confirmationId: string,
@@ -160,6 +183,18 @@ const emit = defineEmits<{
 
 const pool = useModelPool();
 const modelMenuOpen = ref(false);
+
+const KIND_LABELS: Record<string, string> = {
+  image: "图片",
+  audio: "音频",
+  video: "视频",
+  document: "文档",
+};
+const MODALITY_LABELS: Record<string, string> = {
+  vision: "视觉",
+  audio: "音频",
+  video: "视频",
+};
 
 // 池存在时展示所选模型，否则退回会话最近运行的模型名（标量模式）。
 const displayModelName = computed(
@@ -179,16 +214,33 @@ function closeModelMenu() {
 function chooseModel(id: string) {
   pool.selectModel(id);
   modelMenuOpen.value = false;
+  validateModalities();
 }
 
 const task = ref("");
 const fileError = ref("");
-const fileName = ref("");
-const selectedFile = ref<File | null>(null);
+const attachments = ref<{ file: File; kind: FileKind }[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 
-const canSubmit = computed(() => task.value.trim().length > 0);
+// 门控：所选模型缺该模态时禁发（不静默降级），与后端 400 双保险。
+const unsupportedKinds = computed(() => {
+  if (!pool.endpoints.value.length) return [] as string[];
+  const kinds = [...new Set(attachments.value.map((a) => a.kind))];
+  return kinds.filter((k) => k in KIND_TO_MODALITY && !pool.supportsKind(k));
+});
+
+const canSubmit = computed(
+  () => task.value.trim().length > 0 && unsupportedKinds.value.length === 0,
+);
+
+function validateModalities() {
+  if (!unsupportedKinds.value.length) {
+    return;
+  }
+  const labels = unsupportedKinds.value.map((k) => KIND_LABELS[k] ?? k);
+  fileError.value = `当前模型不支持${labels.join("、")}输入，请更换模型或移除该附件`;
+}
 
 function autoResize() {
   const el = textareaRef.value;
@@ -208,10 +260,17 @@ function handleClick() {
     emit("stop");
     return;
   }
-  if (!canSubmit.value) return;
-  emit("submit", task.value.trim(), selectedFile.value || undefined);
+  if (!canSubmit.value) {
+    validateModalities();
+    return;
+  }
+  const docFile = attachments.value.find((a) => a.kind === "document")?.file;
+  const mediaFiles = attachments.value
+    .filter((a) => a.kind !== "document")
+    .map((a) => a.file);
+  emit("submit", task.value.trim(), docFile || undefined, mediaFiles.length ? mediaFiles : undefined);
   task.value = "";
-  clearFile();
+  clearAttachments();
   nextTick(() => {
     const el = textareaRef.value;
     if (el) el.style.height = "auto";
@@ -220,29 +279,46 @@ function handleClick() {
 
 function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (!file) return;
+  const files = Array.from(target.files ?? []);
+  if (!files.length) return;
   // The accept attribute is only a picker hint — enforce the whitelist here.
-  const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    fileError.value = `不支持的文件类型：${ext}`;
-    target.value = "";
-    return;
+  const errors: string[] = [];
+  for (const file of files) {
+    const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      errors.push(`不支持的文件类型：${file.name}（${ext}）`);
+      continue;
+    }
+    const kind = kindForFile(file.name);
+    if (file.size > limitForFile(file.name)) {
+      errors.push(`文件过大：${file.name}（${kind} 类型上限 ${limitForFile(file.name) / 1024 / 1024} MB）`);
+      continue;
+    }
+    if (kind === "document" && attachments.value.some((a) => a.kind === "document")) {
+      errors.push("一次只能附一个文档，媒体附件（图片/音频/视频）不受此限");
+      continue;
+    }
+    const count = attachments.value.filter((a) => a.kind === kind).length;
+    const cap = KIND_COUNT_LIMITS[kind];
+    if (cap !== undefined && count >= cap) {
+      errors.push(`附件数量超限：${KIND_LABELS[kind]} 每条消息最多 ${cap} 个`);
+      continue;
+    }
+    attachments.value.push({ file, kind });
   }
-  if (file.size > MAX_FILE_SIZE) {
-    fileError.value = MESSAGES.FILE_TOO_LARGE((file.size / 1024 / 1024).toFixed(1));
-    target.value = "";
-    return;
-  }
-  fileName.value = file.name;
-  selectedFile.value = file;
-  fileError.value = "";
+  fileError.value = errors.join("；");
+  validateModalities();
   target.value = "";
 }
 
-function clearFile() {
-  fileName.value = "";
-  selectedFile.value = null;
+function removeAttachment(idx: number) {
+  attachments.value.splice(idx, 1);
+  validateModalities();
+  if (!unsupportedKinds.value.length) fileError.value = "";
+}
+
+function clearAttachments() {
+  attachments.value = [];
   fileError.value = "";
 }
 </script>
@@ -277,18 +353,31 @@ function clearFile() {
   font-size: 15px;
 }
 
-.input-area-file {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
+.input-area-files {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.input-area-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 10px;
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
   background: var(--chat-bg-hover);
   font-size: 15px;
   color: var(--chat-text-secondary);
+}
+
+.input-area-file-kind {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
 }
 
 .input-area-file-remove {
@@ -468,6 +557,21 @@ function clearFile() {
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
+}
+
+.model-menu-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.model-menu-modality {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--chat-border);
   color: var(--chat-text-tertiary);
 }
 

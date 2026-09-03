@@ -1,5 +1,5 @@
 import { reactive, ref, computed, watch } from "vue";
-import type { Session, Step, Turn } from "../types/agent";
+import type { AttachmentMeta, Session, Step, Turn } from "../types/agent";
 import type { AgentEvent } from "../types/agent";
 import { api } from "../api/client";
 import { MESSAGES } from "../constants/messages";
@@ -205,7 +205,14 @@ export function useAgentSession() {
     };
   }
 
-  function connect(task: string, fileId?: string, fileName?: string, editTurn?: number) {
+  function connect(
+    task: string,
+    fileId?: string,
+    fileName?: string,
+    editTurn?: number,
+    fileIds?: string[],
+    attachments?: AttachmentMeta[],
+  ) {
     disconnect();
     const generation = ++connectGeneration;
     reconnectCount = 0;
@@ -249,7 +256,14 @@ export function useAgentSession() {
     state.subagentThoughtCounters = {};
 
     const turn: Turn = {
-      message: { role: "user", text: task, fileId, fileName, timestamp: Date.now() },
+      message: {
+        role: "user",
+        text: task,
+        fileId,
+        fileName,
+        attachments,
+        timestamp: Date.now(),
+      },
       steps: [],
     };
     session.turns.push(turn);
@@ -259,6 +273,7 @@ export function useAgentSession() {
       .createEventSource({
         task,
         fileId: fileId || undefined,
+        fileIds: fileIds?.length ? fileIds.join(",") : undefined,
         sessionId: currentSessionId.value || undefined,
         editTurn,
         modelId: useModelPool().selectedModelId.value || undefined,
@@ -521,6 +536,9 @@ export function useAgentSession() {
     const edited = session.turns[turnIndex];
     const fileId = edited.message.fileId;
     const fileName = edited.message.fileName;
+    // Edit-resend keeps the turn's media attachments (same fileIds).
+    const editedAttachments = edited.message.attachments ?? [];
+    const editedFileIds = editedAttachments.map((a) => a.fileId);
 
     session.turns = session.turns.slice(0, turnIndex);
     // Rebuild turn-derived top-level state from the surviving turns.
@@ -542,7 +560,14 @@ export function useAgentSession() {
 
     // connect() increments currentTurnIndex and pushes the fresh turn.
     state.currentTurnIndex = turnIndex;
-    connect(text, fileId, fileName, turnIndex);
+    connect(
+      text,
+      fileId,
+      fileName,
+      turnIndex,
+      editedFileIds.length ? editedFileIds : undefined,
+      editedAttachments.length ? editedAttachments : undefined,
+    );
   }
 
   async function forkSession(nodeId?: string, reason?: string) {

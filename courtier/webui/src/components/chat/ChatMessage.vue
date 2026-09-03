@@ -3,6 +3,7 @@
     v-if="item.type === 'user'"
     :content="item.content"
     :turn-index="item.turnIndex"
+    :attachments="item.attachments"
     :can-edit="canEdit"
     :edit-hint="editHint"
     @edit-submit="$emit('edit-submit', $event)"

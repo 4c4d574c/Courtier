@@ -340,7 +340,13 @@ export const api = {
   },
 
   // ---- Existing methods (now using authFetch with cookies + token) ----
-  async uploadFile(file: File): Promise<{ fileId: string }> {
+  async uploadFile(file: File): Promise<{
+    fileId: string;
+    kind?: string;
+    durationSeconds?: number | null;
+    width?: number | null;
+    height?: number | null;
+  }> {
     const formData = new FormData();
     formData.append("file", file);
     // Larger timeout for document uploads.
@@ -427,6 +433,7 @@ export const api = {
   async createEventSource(params: {
     task?: string;
     fileId?: string;
+    fileIds?: string;
     sessionId?: string;
     editTurn?: number;
     modelId?: string;
@@ -438,6 +445,7 @@ export const api = {
     const url = `${API_BASE}/sessions/run${qs({
       task: params.task,
       fileId: params.fileId,
+      fileIds: params.fileIds,
       sessionId: params.sessionId,
       editTurn:
         params.editTurn !== undefined ? String(params.editTurn) : undefined,
@@ -451,7 +459,7 @@ export const api = {
     endpoints: Array<{
       endpointId: string;
       endpointName: string;
-      models: Array<{ id: string; name: string }>;
+      models: Array<{ id: string; name: string; modalities?: string[] }>;
     }>;
     defaultModelId: string;
   }> {

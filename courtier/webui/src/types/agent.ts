@@ -121,11 +121,18 @@ export interface Step {
 }
 
 /** A single conversation message */
+export interface AttachmentMeta {
+  fileId: string
+  kind: 'image' | 'audio' | 'video' | string
+  name: string
+}
+
 export interface Message {
   role: 'user'
   text: string
   fileName?: string
   fileId?: string
+  attachments?: AttachmentMeta[]
   timestamp: number
 }
 
