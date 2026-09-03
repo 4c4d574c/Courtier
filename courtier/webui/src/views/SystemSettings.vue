@@ -283,7 +283,7 @@
                           {{ isAdvancedOpen(m.id) ? "收起" : "高级" }}
                         </button>
                         <button
-                          class="endpoint-remove"
+                          class="tbl-remove"
                           type="button"
                           :aria-label="`删除模型 ${m.name || m.id}`"
                           :disabled="!editable"
@@ -362,7 +362,7 @@
                         </div>
                       </div>
                       <button
-                        class="endpoint-add"
+                        class="tbl-add"
                         type="button"
                         :disabled="!editable"
                         @click="addPoolModel(row)"
@@ -435,16 +435,16 @@
                   <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
                 </div>
                 <div class="field-control">
-                  <div v-if="field.name === ENDPOINTS_FIELD" class="endpoint-editor">
-                  <div class="endpoint-head" aria-hidden="true">
+                  <div v-if="field.name === ENDPOINTS_FIELD" class="tbl-editor endpoint-editor">
+                  <div class="tbl-head" aria-hidden="true">
                     <span>插件名称</span>
                     <span>端点地址</span>
                     <span />
                   </div>
-                  <div v-for="(row, i) in endpointRows" :key="i" class="endpoint-row">
+                  <div v-for="(row, i) in endpointRows" :key="i" class="tbl-row">
                     <input
                       v-model="row.name"
-                      class="endpoint-input"
+                      class="tbl-input"
                       :disabled="!editable"
                       placeholder="插件名"
                       spellcheck="false"
@@ -459,7 +459,7 @@
                       @input="writeEndpoints"
                     />
                     <button
-                      class="endpoint-remove"
+                      class="tbl-remove"
                       type="button"
                       :aria-label="`删除 ${row.name || '端点'}`"
                       :disabled="!editable"
@@ -468,16 +468,16 @@
                       ×
                     </button>
                   </div>
-                  <button class="endpoint-add" type="button" :disabled="!editable" @click="addEndpointRow">
+                  <button class="tbl-add" type="button" :disabled="!editable" @click="addEndpointRow">
                     ＋ 添加端点
                   </button>
                 </div>
                 <div
                   v-else-if="field.name === TOOL_PATH_FIELD"
-                  class="toolpath-editor"
+                  class="tbl-editor toolpath-editor"
                   data-toolpath-root
                 >
-                  <div class="toolpath-head" aria-hidden="true">
+                  <div class="tbl-head" aria-hidden="true">
                     <span>工具名</span>
                     <span>允许的路径（每行一条）</span>
                     <span>豁免</span>
@@ -486,12 +486,12 @@
                   <div
                     v-for="(row, i) in toolPathRows"
                     :key="i"
-                    class="toolpath-row"
+                    class="tbl-row"
                   >
-                    <div class="toolpath-tool">
+                    <div class="tbl-toolcell">
                       <input
                         v-model="row.tool"
-                        class="toolpath-input"
+                        class="tbl-input"
                         :disabled="!editable"
                         placeholder="选择或输入工具名"
                         spellcheck="false"
@@ -501,28 +501,28 @@
                       />
                       <div
                         v-if="suggestFor === i && toolPathSuggestions(i).length"
-                        class="toolpath-suggest"
+                        class="tbl-suggest"
                       >
                         <button
                           v-for="name in toolPathSuggestions(i)"
                           :key="name"
                           type="button"
-                          class="toolpath-suggest-item"
+                          class="tbl-suggest-item"
                           @mousedown.prevent="pickToolPathSuggest(i, name)"
                         >
                           {{ name }}
                         </button>
                       </div>
                     </div>
-                    <div class="toolpath-paths">
+                    <div class="tbl-path-stack">
                       <div
                         v-for="(path, pi) in row.paths"
                         :key="pi"
-                        class="toolpath-path-line"
+                        class="tbl-path-line"
                       >
                         <input
                           v-model="row.paths[pi]"
-                          class="toolpath-input"
+                          class="tbl-input"
                           :disabled="!editable || row.exempt"
                           placeholder="/允许的路径"
                           :title="path"
@@ -530,7 +530,7 @@
                           @input="writeToolPathRows"
                         />
                         <button
-                          class="toolpath-path-remove"
+                          class="tbl-path-remove"
                           type="button"
                           aria-label="删除该路径"
                           :disabled="!editable || row.exempt"
@@ -540,7 +540,7 @@
                         </button>
                       </div>
                       <button
-                        class="toolpath-path-add"
+                        class="tbl-path-add"
                         type="button"
                         :disabled="!editable || row.exempt"
                         @click="addToolPath(row)"
@@ -548,7 +548,7 @@
                         ＋ 添加路径
                       </button>
                     </div>
-                    <label class="toolpath-exempt" title="勾选后该工具不受路径白名单管">
+                    <label class="tbl-exempt" title="勾选后该工具不受路径白名单管">
                       <input
                         type="checkbox"
                         v-model="row.exempt"
@@ -557,7 +557,7 @@
                       />
                     </label>
                     <button
-                      class="toolpath-tool-remove"
+                      class="tbl-remove"
                       type="button"
                       :aria-label="`删除 ${row.tool || '工具'}`"
                       :disabled="!editable"
@@ -567,7 +567,7 @@
                     </button>
                   </div>
                   <button
-                    class="toolpath-add"
+                    class="tbl-add"
                     type="button"
                     :disabled="!editable"
                     @click="addToolPathRow(); fetchKnownToolNames()"
@@ -577,10 +577,10 @@
                 </div>
                 <div
                   v-else-if="field.name === CONFIRM_FIELD"
-                  class="toolconfirm-editor"
+                  class="tbl-editor toolconfirm-editor"
                   data-toolconfirm-root
                 >
-                  <div class="toolconfirm-head" aria-hidden="true">
+                  <div class="tbl-head" aria-hidden="true">
                     <span>工具名</span>
                     <span>确认提示语（可选）</span>
                     <span />
@@ -588,12 +588,12 @@
                   <div
                     v-for="(row, i) in confirmRows"
                     :key="i"
-                    class="toolconfirm-row"
+                    class="tbl-row"
                   >
-                    <div class="toolconfirm-tool">
+                    <div class="tbl-toolcell">
                       <input
                         v-model="row.tool"
-                        class="toolconfirm-input"
+                        class="tbl-input"
                         :disabled="!editable"
                         placeholder="选择或输入工具名"
                         spellcheck="false"
@@ -603,13 +603,13 @@
                       />
                       <div
                         v-if="suggestConfirmFor === i && confirmSuggestions(i).length"
-                        class="toolconfirm-suggest"
+                        class="tbl-suggest"
                       >
                         <button
                           v-for="name in confirmSuggestions(i)"
                           :key="name"
                           type="button"
-                          class="toolconfirm-suggest-item"
+                          class="tbl-suggest-item"
                           @mousedown.prevent="pickConfirmSuggest(i, name)"
                         >
                           {{ name }}
@@ -618,14 +618,14 @@
                     </div>
                     <input
                       v-model="row.message"
-                      class="toolconfirm-input"
+                      class="tbl-input"
                       :disabled="!editable"
                       placeholder="如：写入文件需要你确认"
                       spellcheck="false"
                       @input="writeConfirmRows"
                     />
                     <button
-                      class="toolconfirm-remove"
+                      class="tbl-remove"
                       type="button"
                       :aria-label="`删除 ${row.tool || '工具'}`"
                       :disabled="!editable"
@@ -635,7 +635,7 @@
                     </button>
                   </div>
                   <button
-                    class="toolconfirm-add"
+                    class="tbl-add"
                     type="button"
                     :disabled="!editable"
                     @click="addConfirmRow(); fetchKnownToolNames()"
@@ -2194,37 +2194,58 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   grid-template-columns: 1fr;
   row-gap: 10px;
 }
-.endpoint-editor {
-  max-width: 640px;
+
+/* ── 统一表格编辑器（.tbl-*）──────────────────────────────
+   设置页内所有"按行编辑"的表格共用：插件端点映射、工具确认名单、
+   工具路径白名单，以及后续新增的同类编辑器。
+   用法：
+     <div class="tbl-editor <修饰类>">          ← 修饰类提供 --tbl-cols 列宽
+       <div class="tbl-head">表头单元格…</div>
+       <div class="tbl-row">
+         <input class="tbl-input" … />
+         <button class="tbl-remove">×</button>
+       </div>
+       <button class="tbl-add">＋ 添加…</button>
+     </div>
+   行删除按钮内放图标（如 AppIcon trash）或文字 ×。
+   工具名建议面板：.tbl-toolcell（relative 定位）内放
+   .tbl-suggest / .tbl-suggest-item。
+   路径白名单的路径子行：.tbl-path-stack / .tbl-path-line /
+   .tbl-path-remove / .tbl-path-add。 */
+.tbl-editor {
+  --tbl-cols: 1fr;
+  max-width: 720px;
+  width: 100%;
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-body);
-  overflow: hidden;
 }
-.endpoint-head,
-.endpoint-row {
+.tbl-head,
+.tbl-row {
   display: grid;
-  grid-template-columns: 200px 1fr 28px;
+  grid-template-columns: var(--tbl-cols);
   gap: 8px;
   align-items: center;
 }
-.endpoint-head {
+.tbl-head {
   padding: 7px 12px;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--chat-text-tertiary);
   background: var(--chat-bg-hover);
+  border-radius: var(--chat-radius-sm) var(--chat-radius-sm) 0 0;
 }
-.endpoint-row {
+.tbl-row {
   padding: 0 12px;
+  position: relative;
 }
-.endpoint-row + .endpoint-row {
+.tbl-row + .tbl-row {
   border-top: 1px solid var(--chat-border);
 }
-.endpoint-row:hover {
+.tbl-row:hover {
   background: var(--chat-bg-hover);
 }
-.endpoint-input {
+.tbl-input {
   width: 100%;
   padding: 8px 0;
   border: none;
@@ -2235,86 +2256,141 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   outline: none;
-  transition: border-color 150ms;
 }
-.endpoint-input:focus {
-  border-bottom-color: var(--chat-accent);
+.tbl-input:focus {
+  border-bottom-color: var(--chat-border);
 }
-.endpoint-input:disabled {
-  opacity: 0.55;
-}
-.endpoint-input::placeholder {
-  font-family: "Noto Sans SC", sans-serif;
+.tbl-input:disabled {
   color: var(--chat-text-tertiary);
 }
-.endpoint-remove {
+.tbl-remove {
   width: 28px;
   height: 28px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
   color: var(--chat-text-tertiary);
-  font-size: 18px;
-  line-height: 1;
-  border-radius: var(--chat-radius-sm);
   cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 150ms,
-    background 150ms,
-    color 150ms;
 }
-.endpoint-row:hover .endpoint-remove,
-.endpoint-remove:focus-visible {
-  opacity: 1;
-}
-.endpoint-remove:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--err) 12%, transparent);
-  color: var(--err);
-}
-.endpoint-remove:disabled {
-  cursor: not-allowed;
-}
-.endpoint-add {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  border-top: 1px dashed var(--chat-border);
-  background: transparent;
-  color: var(--chat-text-tertiary);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background 150ms,
-    color 150ms;
-}
-.endpoint-add:hover:not(:disabled) {
-  background: var(--chat-bg-hover);
+.tbl-remove:hover:not(:disabled) {
   color: var(--chat-accent);
 }
-.endpoint-add:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.tbl-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
-@media (max-width: 768px) {
-  .endpoint-head {
-    display: none;
-  }
-  .endpoint-row {
-    grid-template-columns: 1fr 1fr 28px;
-  }
+.tbl-add {
+  margin: 10px 12px;
+  padding: 6px 10px;
+  align-self: flex-start;
+  border: 1px solid var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+  cursor: pointer;
 }
-
-/* ---- Model pool editor ----
-   One dedicated surface replacing two raw settings rows: a status topbar
-   (badges + one-line description left, default model right), bordered
-   endpoint sub-cards whose interior is a uniform label-column form (every
-   row: 64px label + bordered control), and a quiet footer for validation
-   + the clear action. */
+.tbl-add:hover:not(:disabled) {
+  color: var(--chat-text-primary);
+  border-color: var(--chat-text-tertiary);
+}
+/* 工具名建议面板 */
+.tbl-toolcell {
+  position: relative;
+}
+.tbl-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
+.tbl-suggest-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tbl-suggest-item:hover {
+  background: var(--chat-bg-hover);
+}
+/* 豁免勾选 */
+.tbl-exempt {
+  display: inline-flex;
+  align-items: center;
+}
+/* 路径子行（工具路径白名单专用） */
+.tbl-path-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tbl-path-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tbl-path-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tbl-path-remove:hover:not(:disabled) {
+  color: var(--chat-accent);
+}
+.tbl-path-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tbl-path-add {
+  align-self: flex-start;
+  border: 1px dashed var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: var(--chat-radius-sm);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.tbl-path-add:hover:not(:disabled) {
+  color: var(--chat-text-primary);
+  border-color: var(--chat-text-tertiary);
+}
+.tbl-path-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* 各编辑器的列宽声明 */
+.endpoint-editor {
+  --tbl-cols: 200px 1fr 28px;
+  max-width: 640px;
+}
+.toolconfirm-editor {
+  --tbl-cols: minmax(150px, 190px) 1fr 28px;
+}
+.toolpath-editor {
+  --tbl-cols: minmax(150px, 190px) 1fr 44px 28px;
+}
 .pool-row {
   padding: 16px 0;
   display: flex;
@@ -2728,186 +2804,4 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
     align-self: stretch;
   }
 }
-.toolconfirm-editor,
-.toolpath-editor {
-  max-width: 720px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-}
-.toolconfirm-head,
-.toolconfirm-row,
-.toolpath-head,
-.toolpath-row {
-  display: grid;
-  grid-template-columns: minmax(150px, 190px) 1fr 28px;
-  gap: 8px;
-  align-items: center;
-}
-.toolpath-row {
-  grid-template-columns: minmax(150px, 190px) 1fr 44px 28px;
-}
-.toolconfirm-head,
-.toolpath-head {
-  padding: 7px 12px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--chat-text-tertiary);
-  background: var(--chat-bg-hover);
-  border-radius: var(--chat-radius-sm) var(--chat-radius-sm) 0 0;
-}
-.toolconfirm-row,
-.toolpath-row {
-  padding: 0 12px;
-  position: relative;
-}
-.toolconfirm-row + .toolconfirm-row,
-.toolpath-row + .toolpath-row {
-  border-top: 1px solid var(--chat-border);
-}
-.toolconfirm-row:hover,
-.toolpath-row:hover {
-  background: var(--chat-bg-hover);
-}
-.toolconfirm-tool,
-.toolpath-tool {
-  position: relative;
-}
-.toolconfirm-input,
-.toolpath-input {
-  width: 100%;
-  padding: 8px 0;
-  border: none;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--chat-text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  outline: none;
-}
-.toolconfirm-input:focus,
-.toolpath-input:focus {
-  border-bottom-color: var(--chat-border);
-}
-.toolconfirm-input:disabled,
-.toolpath-input:disabled {
-  color: var(--chat-text-tertiary);
-}
-.toolconfirm-suggest,
-.toolpath-suggest {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 30;
-  max-height: 220px;
-  overflow-y: auto;
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
-}
-.toolconfirm-suggest-item,
-.toolpath-suggest-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 7px 10px;
-  border: none;
-  background: transparent;
-  color: var(--chat-text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  cursor: pointer;
-}
-.toolconfirm-suggest-item:hover,
-.toolpath-suggest-item:hover {
-  background: var(--chat-bg-hover);
-}
-.toolconfirm-remove,
-.toolpath-tool-remove {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--chat-text-tertiary);
-  cursor: pointer;
-}
-.toolconfirm-remove:hover:not(:disabled),
-.toolpath-tool-remove:hover:not(:disabled) {
-  color: var(--chat-accent);
-}
-.toolconfirm-remove:disabled,
-.toolpath-tool-remove:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.toolconfirm-add,
-.toolpath-paths {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.toolpath-path-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.toolpath-path-remove {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: var(--chat-text-tertiary);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-.toolpath-path-remove:hover:not(:disabled) {
-  color: var(--chat-accent);
-}
-.toolpath-path-remove:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.toolpath-path-add {
-  align-self: flex-start;
-  border: 1px dashed var(--chat-border);
-  background: transparent;
-  color: var(--chat-text-secondary);
-  border-radius: var(--chat-radius-sm);
-  font-size: 12px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-.toolpath-path-add:hover:not(:disabled) {
-  color: var(--chat-text-primary);
-  border-color: var(--chat-text-tertiary);
-}
-.toolpath-path-add:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.toolpath-add {
-  margin: 10px 12px;
-  padding: 6px 10px;
-  align-self: flex-start;
-  border: 1px solid var(--chat-border);
-  background: transparent;
-  color: var(--chat-text-secondary);
-  border-radius: var(--chat-radius-sm);
-  font-size: 13px;
-  cursor: pointer;
-}
-.toolconfirm-add:hover:not(:disabled),
-.toolpath-add:hover:not(:disabled) {
-  color: var(--chat-text-primary);
-  border-color: var(--chat-text-tertiary);
-}
-
 </style>
