@@ -257,7 +257,7 @@ npm run check
    - `artifacts/` — Artifact system.
    - `prompts/` — Jinja2 PromptEngine, PromptBundle, and core default templates (`defaults/{locale}/`, incl. the domain-agnostic `orchestrator.system_prompt`).
    - `memory/`, `telemetry/` — Cross-cutting concerns.
-   - `guardrails/` — Unified run pipeline (GuardrailSystem v2): per-layer guard checks (input/output/tool/tool_call/post_tool), per-call permission guards (ToolDisabledGuard/PathPolicyGuard/ConfirmationGuard), interceptors and observers dispatched per scope with fixed order adapt → enforce → record. The former `permissions/` gate and `hooks/` chain were merged into it (2026-09-02).
+   - `guardrails/` — Unified run pipeline (GuardrailSystem v2): per-layer guard checks (input/output/tool/tool_call/post_tool), per-call permission guards (ToolDisabledGuard/PathPolicyGuard/ConfirmationGuard), interceptors and observers dispatched per scope with fixed order adapt → enforce → record. The former `permissions/` gate and `hooks/` chain were merged into it (2026-09-02). Reference & extension guide: `courtier/docs/guardrails.md`.
 
 4. **Domain/business layer**
    - `domains/docaudit/` — Domain config, prompts, skills (Markdown + typed input schemas).
