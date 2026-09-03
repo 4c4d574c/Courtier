@@ -28,6 +28,7 @@ from ..telemetry.metrics import (
     record_context_compaction,
     record_context_compaction_duration,
 )
+from .content_parts import MediaPart, TextPart, content_to_plain_text, media_marker
 from .state import Message
 
 if TYPE_CHECKING:
@@ -111,6 +112,9 @@ class ContextManager:
         compact_prompt_template: str | None = None,
         compact_merge_prompt_template: str | None = None,
         artifact_store: Any | None = None,
+        media_image_tokens: int = 1024,
+        media_audio_tokens_per_second: float = 40.0,
+        media_video_tokens_per_second: float = 200.0,
     ) -> None:
         self._model = model
         self._cache_dir = Path(cache_dir)
@@ -120,6 +124,10 @@ class ContextManager:
         self.compact_target_tokens = compact_target_tokens
         self.recent_tool_results_tokens = recent_tool_results_tokens
         self.large_output_threshold = large_output_threshold
+        # Per-modality token estimates for media-bearing user messages.
+        self.media_image_tokens = media_image_tokens
+        self.media_audio_tokens_per_second = media_audio_tokens_per_second
+        self.media_video_tokens_per_second = media_video_tokens_per_second
         self._compact_prompt_template = compact_prompt_template
         self._compact_merge_prompt_template = compact_merge_prompt_template
         self.state = CompactState()
@@ -241,6 +249,11 @@ class ContextManager:
 
         if not force and self.budget_usage(deduped) < self.micro_compact_tokens:
             return deduped
+
+        # Media stripping: re-sending stale attachments on every model call
+        # dominates the token budget, so all but the newest media-bearing
+        # user message degrade to text (readable 已省略 markers).
+        deduped = _strip_stale_media(deduped)
 
         tool_indices = [i for i, m in enumerate(deduped) if m.role == "tool"]
         keep = self._select_recent_tool_indices(deduped, tool_indices)
@@ -568,13 +581,14 @@ class ContextManager:
             # Truncate message content to avoid context overflow
             _MAX_FALLBACK_CONTENT = 4000
             for i, msg in enumerate(fallback_compacted):
-                if msg.content and len(msg.content) > _MAX_FALLBACK_CONTENT:
+                plain = content_to_plain_text(msg.content)
+                if plain and len(plain) > _MAX_FALLBACK_CONTENT:
                     # Message is frozen — build a truncated copy instead of
                     # mutating in place (the old assignment raised
                     # FrozenInstanceError at runtime).
                     fallback_compacted[i] = replace(
                         msg,
-                        content=msg.content[:_MAX_FALLBACK_CONTENT] + "...[truncated]",
+                        content=plain[:_MAX_FALLBACK_CONTENT] + "...[truncated]",
                     )
             self.state.has_compacted = True
             self.state.last_summary = f"[压缩失败，回退到最近 {keep_recent} 条消息]"
@@ -708,12 +722,30 @@ class ContextManager:
         self._estimate_cache[key] = (weakref.ref(msg), tokens)
         return tokens
 
-    @staticmethod
-    def _compute_message_tokens(msg: Message) -> int:
-        """Scan one message's content and tool-call arguments."""
+    def _compute_message_tokens(self, msg: Message) -> int:
+        """Scan one message's content and tool-call arguments.
+
+        Part-list content (multimodal user turns) sums the text parts via
+        the CJK heuristic plus per-media-part estimates: a flat constant
+        for images, probe duration × per-second constant for audio/video
+        (media without probe metadata counts as one second)."""
+        from .content_parts import MediaPart, TextPart
+
         cjk = 0
         other = 0
-        text = msg.content or ""
+        media_tokens = 0
+        content = msg.content
+        if isinstance(content, str):
+            text = content
+        elif content is None:
+            text = ""
+        else:
+            text = ""
+            for part in content:
+                if isinstance(part, TextPart):
+                    text += part.text
+                elif isinstance(part, MediaPart):
+                    media_tokens += self._estimate_media_part_tokens(part)
         text_cjk = sum(1 for c in text if _is_cjk(c))
         cjk += text_cjk
         other += len(text) - text_cjk
@@ -723,7 +755,23 @@ class ContextManager:
                 args_cjk = sum(1 for c in args_json if _is_cjk(c))
                 cjk += args_cjk
                 other += len(args_json) - args_cjk
-        return int(cjk * 0.65 + other * 0.25)
+        return int(cjk * 0.65 + other * 0.25) + media_tokens
+
+    def _estimate_media_part_tokens(self, part: Any) -> int:
+        """Token estimate for one media part (configurable constants)."""
+        from .content_parts import KIND_TO_MODALITY
+
+        modality = KIND_TO_MODALITY.get(getattr(part, "kind", ""), "")
+        if modality == "vision":
+            return self.media_image_tokens
+        per_second = (
+            self.media_audio_tokens_per_second
+            if modality == "audio"
+            else self.media_video_tokens_per_second
+        )
+        duration = getattr(part, "duration_seconds", None)
+        seconds = duration if duration and duration > 0 else 1.0
+        return int(seconds * per_second)
 
     def get_ref_map(self) -> dict[str, str]:
         """Return the persisted output ref_id -> filepath mapping."""
@@ -782,6 +830,41 @@ def _is_cjk(c: str) -> bool:
         return False
 
 
+def _strip_stale_media(messages: tuple[Message, ...]) -> tuple[Message, ...]:
+    """Degrade media parts of user messages to text, keeping the newest one.
+
+    Media attachments ride along on every model call until compacted away;
+    the newest media-bearing user message (the current task) keeps its
+    parts, older ones become plain text with 已省略 markers so the model
+    still knows an attachment existed.
+    """
+    last_media_idx: int | None = None
+    for i, msg in enumerate(messages):
+        if msg.role == "user" and isinstance(msg.content, list):
+            last_media_idx = i
+    if last_media_idx is None:
+        return messages
+
+    out: list[Message] = []
+    changed = False
+    for i, msg in enumerate(messages):
+        if i != last_media_idx and msg.role == "user" and isinstance(msg.content, list):
+            text = "".join(
+                part.text for part in msg.content if isinstance(part, TextPart)
+            )
+            markers = "；".join(
+                media_marker(part, omitted=True)
+                for part in msg.content
+                if isinstance(part, MediaPart)
+            )
+            full = (text.rstrip() + "\n" + markers).strip() if markers else text
+            out.append(replace(msg, content=full))
+            changed = True
+        else:
+            out.append(msg)
+    return tuple(out) if changed else messages
+
+
 def _deduplicate_reminders(messages: list[Message]) -> list[Message]:
     """Remove duplicate injected reminders, keeping the last occurrence of
     each distinct reminder content.
@@ -795,7 +878,7 @@ def _deduplicate_reminders(messages: list[Message]) -> list[Message]:
     last_idx_by_content: dict[str | None, int] = {}
     for i, msg in enumerate(messages):
         if msg.role == "user" and msg.source == "reminder":
-            last_idx_by_content[msg.content] = i
+            last_idx_by_content[content_to_plain_text(msg.content)] = i
 
     if not last_idx_by_content:
         return messages
@@ -943,7 +1026,7 @@ def _build_summary(messages: tuple[Message, ...]) -> str:
     for msg in messages:
         if msg.role == "user" and msg.source == "reminder":
             continue
-        content = msg.content or ""
+        content = content_to_plain_text(msg.content)
         if msg.role == "system":
             if _is_summary_message(msg):
                 parts.append(f"[SYSTEM] {content}")

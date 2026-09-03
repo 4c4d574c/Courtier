@@ -118,12 +118,12 @@ class TestTokenEstimationAndCalibration:
         calls = 0
         original = ContextManager._compute_message_tokens
 
-        def _counting(msg):
+        def _counting(self, msg):
             nonlocal calls
             calls += 1
-            return original(msg)
+            return original(self, msg)
 
-        monkeypatch.setattr(ContextManager, "_compute_message_tokens", staticmethod(_counting))
+        monkeypatch.setattr(ContextManager, "_compute_message_tokens", _counting)
         msgs = (
             Message(role="user", content="汉" * 50 + "a" * 50),
             Message(role="assistant", content="answer " * 20),

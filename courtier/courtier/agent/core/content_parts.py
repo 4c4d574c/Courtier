@@ -39,6 +39,9 @@ class MediaPart:
     kind: MediaKind
     file_id: str
     name: str = ""
+    # Probe metadata (seconds) for audio/video token estimation; None for
+    # images and unprobed legacy files.
+    duration_seconds: float | None = None
 
 
 ContentPart = TextPart | MediaPart
@@ -61,9 +64,7 @@ def content_to_plain_text(content: MessageContent) -> str:
         if isinstance(part, TextPart):
             chunks.append(part.text)
         else:
-            label = _KIND_LABELS.get(part.kind, part.kind)
-            name = part.name or part.file_id
-            chunks.append(f"[附件: {name}（{label}）]")
+            chunks.append(media_marker(part))
     return "".join(chunks)
 
 
@@ -74,17 +75,20 @@ def iter_media_parts(content: MessageContent) -> list[MediaPart]:
     return [part for part in content if isinstance(part, MediaPart)]
 
 
+def media_marker(part: MediaPart, *, omitted: bool = False) -> str:
+    """Readable text marker for one media part (manifest lines / placeholders)."""
+    label = _KIND_LABELS.get(part.kind, part.kind)
+    name = part.name or part.file_id
+    return f"[附件: {name}（{label}）{'已省略' if omitted else ''}]"
+
+
 def media_manifest(media_parts: list[MediaPart]) -> str:
     """Render the attachment manifest lines appended to the task text.
 
     Provider content parts carry no filenames, so the model learns which
     attachments exist (and their names) from these markers.
     """
-    lines = []
-    for part in media_parts:
-        label = _KIND_LABELS.get(part.kind, part.kind)
-        lines.append(f"[附件: {part.name or part.file_id}（{label}）]")
-    return "\n".join(lines)
+    return "\n".join(media_marker(part) for part in media_parts)
 
 
 def parse_content(raw: Any) -> MessageContent:

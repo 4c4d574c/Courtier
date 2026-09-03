@@ -89,6 +89,9 @@ class TestBudgetDerivation:
             "compact_target_tokens": 16_384,  # 0.50 × 32768
             "recent_tool_results_tokens": 4_000,
             "preview_max_chars": 1_000,
+            "media_image_tokens": 1024,
+            "media_audio_tokens_per_second": 40.0,
+            "media_video_tokens_per_second": 200.0,
         }
 
     def test_settings_overrides(self):
@@ -101,12 +104,18 @@ class TestBudgetDerivation:
             context_recent_tool_results_tokens=7,
             context_preview_max_chars=11,
         )
+        settings.media_image_token_estimate = 12
+        settings.media_audio_tokens_per_second = 13.0
+        settings.media_video_tokens_per_second = 14.0
         assert _context_budget_kwargs(settings) == {
             "max_context_tokens": 500,
             "micro_compact_tokens": 400,
             "compact_target_tokens": 300,
             "recent_tool_results_tokens": 7,
             "preview_max_chars": 11,
+            "media_image_tokens": 12,
+            "media_audio_tokens_per_second": 13.0,
+            "media_video_tokens_per_second": 14.0,
         }
 
     def test_zero_window_extreme_config(self):

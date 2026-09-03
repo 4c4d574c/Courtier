@@ -303,7 +303,12 @@ async def handle_session_stream(
         except MediaUnsupportedError as exc:
             raise HTTPException(400, f"当前模型不支持所选媒体类型: {exc}")
         media_parts = tuple(
-            MediaPart(kind=i.kind or infer_kind(i.original_name), file_id=i.file_id, name=i.original_name)
+            MediaPart(
+                kind=i.kind or infer_kind(i.original_name),
+                file_id=i.file_id,
+                name=i.original_name,
+                duration_seconds=i.duration_seconds,
+            )
             for i in resolved_infos
         )
 

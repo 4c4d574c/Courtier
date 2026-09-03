@@ -545,6 +545,9 @@ class _ContextBudgetKwargs(TypedDict):
     compact_target_tokens: int
     recent_tool_results_tokens: int
     preview_max_chars: int
+    media_image_tokens: int
+    media_audio_tokens_per_second: float
+    media_video_tokens_per_second: float
 
 
 class _CompactPromptKwargs(TypedDict, total=False):
@@ -583,6 +586,13 @@ def _context_budget_kwargs(
             getattr(settings, "context_recent_tool_results_tokens", 4000)
         ),
         "preview_max_chars": int(getattr(settings, "context_preview_max_chars", 1000)),
+        "media_image_tokens": int(getattr(settings, "media_image_token_estimate", 1024)),
+        "media_audio_tokens_per_second": float(
+            getattr(settings, "media_audio_tokens_per_second", 40)
+        ),
+        "media_video_tokens_per_second": float(
+            getattr(settings, "media_video_tokens_per_second", 200)
+        ),
     }
 
 
