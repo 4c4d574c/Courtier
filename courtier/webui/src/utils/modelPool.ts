@@ -18,6 +18,8 @@ export interface PoolModelRow {
   context_window_tokens: string;
   max_tokens: string;
   temperature: string;
+  /** Declared input modalities (vision/audio/video); empty = text-only. */
+  modalities: string[];
   /** Advanced per-model overrides, same "" = default semantics. */
   timeout_seconds: string;
   frequency_penalty: string;
@@ -25,6 +27,13 @@ export interface PoolModelRow {
   /** Raw JSON object text; "" = unset. */
   extra_body: string;
 }
+
+/** Declared modality options for the pool editor checkboxes. */
+export const MODEL_MODALITIES: Array<{ value: string; label: string }> = [
+  { value: "vision", label: "视觉" },
+  { value: "audio", label: "音频" },
+  { value: "video", label: "视频" },
+];
 
 export interface PoolEndpointRow {
   id: string;
@@ -47,6 +56,7 @@ interface PoolModelDoc {
   id: string;
   name: string;
   model: string;
+  modalities?: string[];
   context_window_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;
@@ -87,6 +97,7 @@ export function emptyModelRow(): PoolModelRow {
     context_window_tokens: "",
     max_tokens: "",
     temperature: "",
+    modalities: [],
     timeout_seconds: "",
     frequency_penalty: "",
     presence_penalty: "",
@@ -137,6 +148,9 @@ export function parsePool(
         context_window_tokens: optText(m.context_window_tokens),
         max_tokens: optText(m.max_tokens),
         temperature: optText(m.temperature),
+        modalities: Array.isArray(m.modalities)
+          ? m.modalities.filter((x): x is string => typeof x === "string")
+          : [],
         timeout_seconds: optText(m.timeout_seconds),
         frequency_penalty: optText(m.frequency_penalty),
         presence_penalty: optText(m.presence_penalty),
@@ -190,6 +204,7 @@ export function serializeEndpoint(row: PoolEndpointRow): string {
       if (max_tokens !== null) entry.max_tokens = max_tokens;
       const temperature = optNum(m.temperature);
       if (temperature !== null) entry.temperature = temperature;
+      if (m.modalities.length) entry.modalities = [...m.modalities];
       const timeout_seconds = optNum(m.timeout_seconds);
       if (timeout_seconds !== null) entry.timeout_seconds = timeout_seconds;
       const frequency_penalty = optNum(m.frequency_penalty);

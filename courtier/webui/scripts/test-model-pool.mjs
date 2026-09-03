@@ -203,6 +203,53 @@ const KEYS_VIEW = { ep_a: { set: true, tail: "sk-1" } };
   assert.ok(poolErrors(badTemp.rows, "mdl_a1").includes("温度需在 0 ~ 2"));
 }
 
+// --- modalities round-trip ---
+{
+  const doc = {
+    endpoints: [
+      {
+        id: "ep_m",
+        name: "多模态接入点",
+        base_url: "https://m.example.com/v1",
+        enabled: true,
+        models: [
+          { id: "mdl_v", name: "视觉模型", model: "vl-model", modalities: ["vision", "video"] },
+          { id: "mdl_t", name: "文本模型", model: "text-model" },
+        ],
+      },
+    ],
+    default_model_id: "mdl_v",
+  };
+  const { rows } = parsePool(doc, null);
+  assert.deepEqual(rows[0].models[0].modalities, ["vision", "video"]);
+  // Legacy entries without the field default to [] (text-only).
+  assert.deepEqual(rows[0].models[1].modalities, []);
+
+  // Serialize: declared modalities persist, empty ones are omitted.
+  const serialized = JSON.parse(serializeEndpoint(rows[0]));
+  assert.deepEqual(serialized.models[0].modalities, ["vision", "video"]);
+  assert.ok(!("modalities" in serialized.models[1]));
+
+  // Untouched round-trip: parse → serialize → parse keeps the same modalities
+  // without marking the row dirty.
+  const again = parsePool(doc, null);
+  assert.equal(serializeEndpoint(again.rows[0]), serializeEndpoint(rows[0]));
+
+  // toggleModality semantics exercised through the row directly (the Vue
+  // handler mirrors this): add then remove.
+  const row = rows[0];
+  row.models[1].modalities = ["audio"];
+  const withAudio = JSON.parse(serializeEndpoint(row));
+  assert.deepEqual(withAudio.models[1].modalities, ["audio"]);
+
+  // Malformed modalities from hand-edited JSON are filtered, not crashing.
+  const bad = parsePool(
+    { endpoints: [{ ...doc.endpoints[0], models: [{ id: "x", name: "x", model: "x", modalities: "vision" }] }] },
+    null,
+  );
+  assert.deepEqual(bad.rows[0].models[0].modalities, []);
+}
+
 // --- genId / empty rows ---
 {
   assert.match(genId("ep"), /^ep_[0-9a-f]{8}$/);

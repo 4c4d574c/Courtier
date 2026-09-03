@@ -292,6 +292,25 @@
                           ×
                         </button>
                         <div v-if="isAdvancedOpen(m.id)" class="pool-adv">
+                          <div class="pool-adv-item pool-modality-row">
+                            <span>多模态输入</span>
+                            <span class="pool-modality-checks">
+                              <label
+                                v-for="mod in MODEL_MODALITIES"
+                                :key="mod.value"
+                                class="pool-modality-check"
+                              >
+                                <input
+                                  type="checkbox"
+                                  :checked="m.modalities.includes(mod.value)"
+                                  :disabled="!editable"
+                                  @change="toggleModality(m, mod.value)"
+                                />
+                                <span>{{ mod.label }}</span>
+                              </label>
+                              <span class="pool-modality-hint">勾选后该模型可接收对应类型的媒体附件（图片=视觉）</span>
+                            </span>
+                          </div>
                           <div class="pool-adv-grid">
                             <label class="pool-adv-item">
                               <span>超时（秒）</span>
@@ -649,6 +668,7 @@ import {
   type PoolDoc,
   type PoolEndpointRow,
   type PoolModelRow,
+  MODEL_MODALITIES,
 } from "../utils/modelPool";
 import {
   CATEGORY_DESCRIPTIONS,
@@ -906,9 +926,19 @@ function toggleAdvanced(modelId: string): void {
 }
 
 function hasAdvancedValues(m: PoolModelRow): boolean {
-  return [m.timeout_seconds, m.frequency_penalty, m.presence_penalty, m.extra_body].some(
-    (t) => t.trim() !== "",
+  return (
+    m.modalities.length > 0 ||
+    [m.timeout_seconds, m.frequency_penalty, m.presence_penalty, m.extra_body].some(
+      (t) => t.trim() !== "",
+    )
   );
+}
+
+function toggleModality(m: PoolModelRow, value: string): void {
+  m.modalities = m.modalities.includes(value)
+    ? m.modalities.filter((v) => v !== value)
+    : [...m.modalities, value];
+  writePool();
 }
 
 /**
@@ -2155,6 +2185,35 @@ onMounted(load);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+.pool-modality-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.pool-modality-checks {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pool-modality-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--chat-text-primary);
+  cursor: pointer;
+}
+.pool-modality-check input {
+  accent-color: var(--chat-accent);
+}
+.pool-modality-check input:disabled {
+  cursor: not-allowed;
+}
+.pool-modality-hint {
+  font-size: 11px;
+  color: var(--chat-text-tertiary);
 }
 .pool-adv-item {
   display: flex;
