@@ -32,7 +32,8 @@
           @edit-submit="$emit('edit-submit', $event)"
         />
         <div v-if="session.refusalNotice" class="refusal-banner">
-          {{ session.refusalNotice }}
+          <span class="refusal-banner-icon"><AppIcon name="circle-alert" :size="14" /></span>
+          <span>{{ session.refusalNotice }}</span>
         </div>
         <InputArea
           :model-name="session.modelName"
@@ -63,6 +64,7 @@ import ChatHeader from "./ChatHeader.vue";
 import ChatArea from "./ChatArea.vue";
 import InputArea from "./InputArea.vue";
 import FilePreviewPanel from "./FilePreviewPanel.vue";
+import AppIcon from "../AppIcon.vue";
 
 interface Props {
   title: string;
@@ -137,12 +139,22 @@ defineEmits<{
   flex-direction: column;
 }
 .refusal-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin: 8px 0;
-  padding: 10px 14px;
-  border-radius: var(--chat-radius-md);
-  border-left: 3px solid #ef4444;
-  background: var(--chat-bg-card);
-  font-size: 14px;
+  padding: 9px 12px;
+  border-radius: var(--chat-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--err) 22%, transparent);
+  background: color-mix(in srgb, var(--err) 6%, transparent);
+  font-size: 13px;
+  line-height: 1.55;
   color: var(--chat-text-secondary, inherit);
+}
+
+.refusal-banner-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--err);
 }
 </style>

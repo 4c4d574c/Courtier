@@ -1253,15 +1253,18 @@ onMounted(load);
 .alert {
   padding: 10px 14px;
   border-radius: var(--chat-radius-sm);
+  border: 1px solid transparent;
   font-size: 13px;
   line-height: 1.5;
 }
 .alert-error {
-  background: color-mix(in srgb, var(--err) 10%, transparent);
+  background: color-mix(in srgb, var(--err) 6%, transparent);
+  border-color: color-mix(in srgb, var(--err) 22%, transparent);
   color: var(--err);
 }
 .alert-warn {
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 24%, transparent);
   color: var(--warn);
 }
 .settings-notice {

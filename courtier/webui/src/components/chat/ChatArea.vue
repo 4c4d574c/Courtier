@@ -174,17 +174,17 @@ watch(
 }
 
 .chat-loading-dot--queued {
-  background: #60a5fa;
+  background: var(--chat-text-tertiary);
 }
 
 .chat-queue-banner {
   align-self: flex-start;
   margin-top: 8px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--chat-border, #3a3f4b);
-  background: var(--chat-bg-elevated, #23272f);
-  color: #60a5fa;
+  padding: 5px 12px;
+  border-radius: var(--chat-radius-sm);
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-secondary);
   font-size: 12px;
 }
 

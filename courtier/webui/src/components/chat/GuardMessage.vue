@@ -26,7 +26,7 @@ const props = defineProps<Props>();
 
 const icon = computed(() => {
   if (props.action === "block") return "x" as const;
-  if (props.action === "log") return "ban" as const;
+  if (props.action === "log") return "shield" as const;
   return "check" as const;
 });
 
@@ -38,48 +38,53 @@ const title = computed(() => {
 </script>
 
 <style scoped>
+/* Same quiet notice language as ChatStatusMessage: tinted background +
+   hairline border in the semantic color, no accent bar. */
 .guard-message {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: var(--chat-radius-md);
-  border-left: 3px solid;
-  background: var(--chat-bg-card);
-  font-size: 15px;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--chat-radius-sm);
+  border: 1px solid;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .guard-message--block {
-  border-left-color: #ef4444;
+  border-color: color-mix(in srgb, var(--err) 22%, transparent);
+  background: color-mix(in srgb, var(--err) 6%, transparent);
 }
 
 .guard-message--log {
-  border-left-color: #f59e0b;
+  border-color: color-mix(in srgb, var(--warn) 24%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
 }
 
 .guard-message--allow {
-  border-left-color: #22c55e;
+  border-color: color-mix(in srgb, var(--ok) 24%, transparent);
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
 }
 
 .guard-message-icon {
-  font-weight: 700;
-  line-height: 1.4;
+  flex: none;
+  margin-top: 2px;
 }
 
 .guard-message--block .guard-message-icon {
-  color: #ef4444;
+  color: var(--err);
 }
 
 .guard-message--log .guard-message-icon {
-  color: #f59e0b;
+  color: var(--warn);
 }
 
 .guard-message--allow .guard-message-icon {
-  color: #22c55e;
+  color: var(--ok);
 }
 
 .guard-message-title {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--chat-text-primary);
 }
 
@@ -90,7 +95,7 @@ const title = computed(() => {
 }
 
 .guard-message-reason {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--chat-text-secondary);
 }
 </style>

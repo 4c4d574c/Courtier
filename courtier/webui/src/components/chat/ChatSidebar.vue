@@ -656,10 +656,9 @@ function onMenuDelete(id: string) {
 .chat-sidebar-list-error {
   margin: 0 4px 8px;
   padding: 6px 10px;
-  border: 1px solid var(--chat-border);
-  border-left: 3px solid #d97706;
+  border: 1px solid color-mix(in srgb, var(--warn) 24%, transparent);
   border-radius: var(--chat-radius-xs, 6px);
-  background: var(--chat-bg-elevated);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
   color: var(--chat-text-secondary);
   font-size: 12px;
   line-height: 1.5;

@@ -71,13 +71,13 @@ defineExpose({ push, dismiss });
   align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--chat-border, #3a3f4b);
-  border-radius: 10px;
-  background: var(--chat-bg-elevated, #23272f);
-  color: var(--chat-text, #e6e8ec);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-primary);
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
+  box-shadow: var(--chat-shadow);
   animation: run-toast-in 0.18s ease-out;
 }
 
@@ -101,15 +101,15 @@ defineExpose({ push, dismiss });
 }
 
 .run-toast.completed .run-toast-dot {
-  background: #22c55e;
+  background: var(--ok);
 }
 
 .run-toast.error .run-toast-dot {
-  background: #ef4444;
+  background: var(--err);
 }
 
 .run-toast.stopped .run-toast-dot {
-  background: #94a3b8;
+  background: var(--chat-text-tertiary);
 }
 
 .run-toast-body {
@@ -121,12 +121,12 @@ defineExpose({ push, dismiss });
 
 .run-toast-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .run-toast-detail {
   font-size: 12px;
-  color: var(--chat-text-secondary, #9aa3b2);
+  color: var(--chat-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -136,7 +136,7 @@ defineExpose({ push, dismiss });
 
 .run-toast-close {
   margin-left: 6px;
-  color: var(--chat-text-tertiary, #6b7280);
+  color: var(--chat-text-tertiary);
   font-size: 16px;
   line-height: 1;
 }
