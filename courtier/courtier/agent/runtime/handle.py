@@ -27,6 +27,8 @@ class AgentHandle:
     context_mode: str = "blackbox"
     context: dict[str, str] | None = None
     ref_ids: list[str] = field(default_factory=list)
+    # 媒体附件（core.content_parts.MediaPart）——随子代理首条用户消息内联。
+    media_parts: tuple = ()
     model_config: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     scope_id: str | None = None
@@ -48,6 +50,7 @@ class AgentHandle:
         model_config: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
         scope_id: str | None = None,
+        media_parts: tuple = (),
     ) -> "AgentHandle":
         """Factory that generates a fresh UUID handle id."""
         return cls(
@@ -61,6 +64,7 @@ class AgentHandle:
             context_mode=context_mode,
             context=context,
             ref_ids=ref_ids or [],
+            media_parts=media_parts,
             model_config=model_config or {},
             metadata=metadata or {},
             scope_id=scope_id,

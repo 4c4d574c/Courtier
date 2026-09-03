@@ -11,7 +11,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from ..content_parts import KIND_TO_MODALITY
+from ..content_parts import KIND_TO_MODALITY, MediaPart, media_marker
 from ..model import _normalize_response, _parse_tool_arguments
 from ..protocol import (
     ChatMessage,
@@ -115,9 +115,17 @@ class OpenAIModelBackend:
 
     async def _materialize_media(self, item: dict[str, Any]) -> dict[str, Any]:
         kind = item.get("kind", "")
-        name = item.get("name") or item.get("file_id", "")
-        label = {"image": "图片", "audio": "音频", "video": "视频"}.get(kind, kind)
-        placeholder = {"type": "text", "text": f"[附件: {name}（{label}）已省略]"}
+        placeholder = {
+            "type": "text",
+            "text": media_marker(
+                MediaPart(
+                    kind=kind if kind in ("image", "audio", "video") else "image",
+                    file_id=item.get("file_id", ""),
+                    name=item.get("name", ""),
+                ),
+                omitted=True,
+            ),
+        }
 
         if KIND_TO_MODALITY.get(kind, kind) not in self._declared_modalities:
             logger.info(
@@ -140,6 +148,9 @@ class OpenAIModelBackend:
             )
             return placeholder
 
+        logger.info(
+            "Materializing %s part %s (%d bytes, %s)", kind, item.get("file_id"), len(data), mime
+        )
         b64 = base64.b64encode(data).decode()
         if kind == "image":
             data, mime = _normalize_image_bytes(

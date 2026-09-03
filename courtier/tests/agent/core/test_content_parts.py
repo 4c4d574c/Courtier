@@ -78,17 +78,17 @@ class TestPlainTextView:
     def test_media_become_markers(self):
         text = content_to_plain_text([TextPart(TASK), PNG_PART, WAV_PART])
         assert TASK in text
-        assert "[附件: photo.png（图片）]" in text
-        assert "[附件: note.wav（音频）]" in text
+        assert "[附件: photo.png（图片，file_id=file_1）]" in text
+        assert "[附件: note.wav（音频，file_id=file_2）]" in text
 
     def test_media_without_name_uses_file_id(self):
         text = content_to_plain_text([MediaPart(kind="video", file_id="f9")])
-        assert "[附件: f9（视频）]" in text
+        assert "[附件: f9（视频，file_id=f9）]" in text
 
     def test_unknown_kind_label_falls_back(self):
         part = MediaPart(kind="image", file_id="f", name="a.png")
         object.__setattr__(part, "kind", "?")  # bypass Literal for label fallback
-        assert "[附件: a.png（?）]" in content_to_plain_text([part])
+        assert "[附件: a.png（?，file_id=f）]" in content_to_plain_text([part])
 
 
 class TestIterMediaParts:

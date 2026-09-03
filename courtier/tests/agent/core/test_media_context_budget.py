@@ -59,7 +59,7 @@ class TestStripStaleMedia:
         assert out[1].content == [TextPart("新的"), MediaPart("image", "f2", "new.png")]
         assert isinstance(out[0].content, str)
         assert "旧的" in out[0].content
-        assert "[附件: old.png（图片）已省略]" in out[0].content
+        assert "[附件: old.png（图片，file_id=f1）已省略]" in out[0].content
 
     def test_no_media_is_noop(self):
         msgs = (Message(role="user", content="a"), Message(role="assistant", content="b"))
@@ -86,7 +86,7 @@ class TestSummaryTolerance:
             Message(role="assistant", content="好的"),
         )
         text = _build_summary(msgs)
-        assert "[USER] 看图[附件: a.png（图片）]" in text
+        assert "[USER] 看图[附件: a.png（图片，file_id=f1）]" in text
         assert "[ASSISTANT] 好的" in text
 
 

@@ -531,7 +531,10 @@ class Agent:
                 ]
             else:
                 user_content = task
-            if not (messages and messages[-1].role == "user" and messages[-1].content == task):
+            # Dedupe compares against the full intended user content so a
+            # pre-seeded state (sub-agent delegate) that already carries the
+            # media message is not duplicated.
+            if not (messages and messages[-1].role == "user" and messages[-1].content == user_content):
                 messages.append(Message(role="user", content=user_content))
             current_state = state.model_copy(
                 update={

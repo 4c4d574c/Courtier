@@ -18,6 +18,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from pydantic import BaseModel, model_validator
+
 MediaKind = Literal["image", "audio", "video"]
 MEDIA_KINDS: tuple[str, ...] = ("image", "audio", "video")
 
@@ -76,10 +78,16 @@ def iter_media_parts(content: MessageContent) -> list[MediaPart]:
 
 
 def media_marker(part: MediaPart, *, omitted: bool = False) -> str:
-    """Readable text marker for one media part (manifest lines / placeholders)."""
+    """Readable text marker for one media part (manifest lines / placeholders).
+
+    The file_id is always included — the model needs it to reference the
+    attachment (e.g. filling a skill's MediaRef parameter); it cannot see
+    the internal part structure otherwise.
+    """
     label = _KIND_LABELS.get(part.kind, part.kind)
     name = part.name or part.file_id
-    return f"[附件: {name}（{label}）{'已省略' if omitted else ''}]"
+    omitted_suffix = "已省略" if omitted else ""
+    return f"[附件: {name}（{label}，file_id={part.file_id}）{omitted_suffix}]"
 
 
 def media_manifest(media_parts: list[MediaPart]) -> str:
@@ -165,3 +173,55 @@ def ensure_parts_allowed(role: str, content: MessageContent) -> None:
         raise ValueError(
             f"only user messages may carry content parts (got role={role!r})"
         )
+
+
+# -- Typed skill inputs (T10: media passthrough into sub-agents) --------------
+
+
+class MediaRef(BaseModel):
+    """Typed skill input carrying a session media attachment by file id.
+
+    Skill input models declare ``ImageRef``/``AudioRef``/``VideoRef`` fields;
+    the orchestrator fills the file_id (a plain string is accepted too).
+    SkillTool converts validated refs into ``MediaPart`` attachments on the
+    sub-agent's task message — the bytes never travel through the task text.
+    """
+
+    file_id: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_file_id_string(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return {"file_id": value}
+        return value
+
+    @classmethod
+    def media_kind(cls) -> str:
+        raise NotImplementedError
+
+
+class ImageRef(MediaRef):
+    @classmethod
+    def media_kind(cls) -> str:
+        return "image"
+
+
+class AudioRef(MediaRef):
+    @classmethod
+    def media_kind(cls) -> str:
+        return "audio"
+
+
+class VideoRef(MediaRef):
+    @classmethod
+    def media_kind(cls) -> str:
+        return "video"
+
+
+def media_ref_kind(ref_cls: type) -> str:
+    """Media kind declared by a ``MediaRef`` subclass ("" for foreign types)."""
+    try:
+        return ref_cls.media_kind() if issubclass(ref_cls, MediaRef) else ""
+    except (AttributeError, TypeError):
+        return ""

@@ -171,6 +171,7 @@ class AgentRuntime:
         ref_ids: list[str] | None = None,
         model_config: dict[str, Any] | None = None,
         budget: AgentRuntimeBudget | None = None,
+        media_parts: tuple = (),
     ) -> AgentHandle:
         """Spawn a sub-agent and return its handle."""
         config = self._configs.get(name)
@@ -219,6 +220,7 @@ class AgentRuntime:
             model_config=model_config,
             metadata={"session_id": self.session_id},
             scope_id=scope_id,
+            media_parts=media_parts,
         )
 
         self._handles[handle.handle_id] = handle
@@ -369,6 +371,7 @@ class AgentRuntime:
                 task=handle.task,
                 system_prompt=agent.build_system_prompt(run_kwargs.get("context")),
                 max_steps=handle.budget.max_turns,
+                media_parts=getattr(handle, "media_parts", ()) or (),
             )
             run_kwargs["state"] = initial_state
 

@@ -134,7 +134,7 @@ class TestDegradation:
         wire = await backend._materialize_messages(
             (ChatMessage(role="user", content=[MediaPart("image", "f1", "old.png")]),)
         )
-        assert wire[0]["content"] == [{"type": "text", "text": "[附件: old.png（图片）已省略]"}]
+        assert wire[0]["content"] == [{"type": "text", "text": "[附件: old.png（图片，file_id=f1）已省略]"}]
 
     async def test_no_resolver_degrades(self):
         backend = _backend(None)
@@ -151,7 +151,7 @@ class TestDegradation:
         wire = await backend._materialize_messages(
             (ChatMessage(role="user", content=[MediaPart("audio", "f2", "gone.wav")]),)
         )
-        assert wire[0]["content"] == [{"type": "text", "text": "[附件: gone.wav（音频）已省略]"}]
+        assert wire[0]["content"] == [{"type": "text", "text": "[附件: gone.wav（音频，file_id=f2）已省略]"}]
 
     async def test_plain_messages_untouched(self):
         backend = _backend(None)
@@ -191,7 +191,7 @@ class TestMessageConstruction:
         assert user.role == "user"
         assert isinstance(user.content, list)
         text = user.content[0].text
-        assert "分析" in text and "[附件: a.png（图片）]" in text
+        assert "分析" in text and "[附件: a.png（图片，file_id=f1）]" in text
         assert user.content[1] == MediaPart("image", "f1", "a.png")
 
     def test_initial_without_media_is_plain_str(self):

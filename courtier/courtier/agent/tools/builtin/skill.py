@@ -24,6 +24,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_KIND_TO_MODALITY = {"image": "vision", "audio": "audio", "video": "video"}
+
+
+def _declared_modalities(model: Any) -> tuple[str, ...]:
+    """Read the run model backend's declared input modalities (fail-closed)."""
+    backend = getattr(model, "_backend", None)
+    return tuple(getattr(backend, "_declared_modalities", ()) or ())
+
 _OnSubagentEvent = Callable[..., Awaitable[None]]
 
 
@@ -99,23 +107,56 @@ class SkillTool:
         self._on_subagent_event: _OnSubagentEvent | None = None
         self._parent_handle: AgentHandle | None = None
 
+    def _media_fields(self) -> dict[str, str]:
+        """Map input-model field names to their media kind (MediaRef fields).
+
+        Non-media fields are absent; kind comes from the declared MediaRef
+        subclass (ImageRef → "image", …).
+        """
+        from ...agents.subagent.base import data_field_names
+        from ...core.content_parts import MediaRef
+
+        if self._input_model is None:
+            return {}
+        out: dict[str, str] = {}
+        for name in data_field_names(self._input_model):
+            annotation = self._input_model.model_fields[name].annotation
+            if isinstance(annotation, type) and issubclass(annotation, MediaRef):
+                out[name] = annotation.media_kind()
+        return out
+
     def _merge_typed_parameters(self) -> None:
         """Project the skill's typed data fields onto the tool parameter schema.
 
         Only subclass-declared fields participate (framework plumbing like
         task/ref_ids stays out); Field descriptions carry the $ref usage
-        guidance to the model.
+        guidance to the model. MediaRef fields project as plain string
+        parameters (the attachment file_id) — the media itself travels as
+        message parts, not through the schema.
         """
         from ...agents.subagent.base import data_field_names
 
         schema = self._input_model.model_json_schema()
         props = self.parameters["properties"]
+        media_fields = self._media_fields()
         for name in sorted(data_field_names(self._input_model)):
             if name in props:
                 raise ValueError(
                     f"Skill {self.name}: input_model field {name!r} conflicts "
                     f"with a built-in SkillTool parameter"
                 )
+            if name in media_fields:
+                original = schema.get("properties", {}).get(name, {})
+                description = original.get("description") or ""
+                props[name] = {
+                    "type": "string",
+                    "description": (
+                        f"{description}"
+                        f"（填当前会话媒体附件的 file_id，类型必须为 "
+                        f"{media_fields[name]}）"
+                    ).strip(),
+                }
+                continue
             sub_schema = dict(schema.get("properties", {}).get(name, {}))
             sub_schema.pop("title", None)
             props[name] = sub_schema
@@ -130,14 +171,32 @@ class SkillTool:
         from ...agents.subagent.base import data_field_names
 
         parts: list[str] = []
+        media_fields = self._media_fields()
         for name in sorted(data_field_names(self._input_model)):
             value = getattr(validated, name)
             if value is None:
+                continue
+            if name in media_fields:
+                parts.append(
+                    f"## {name}\n[媒体附件已随消息内联: {value.file_id}]"
+                )
                 continue
             if not isinstance(value, str):
                 value = json.dumps(value, ensure_ascii=False, default=str)
             parts.append(f"## {name}\n{value}")
         return "\n".join(parts)
+
+    def _extract_media_parts(self, validated: Any) -> tuple:
+        """Collect validated MediaRef fields into MediaPart attachments."""
+        from ...core.content_parts import MediaPart
+
+        parts = []
+        for name, kind in self._media_fields().items():
+            ref = getattr(validated, name, None)
+            if ref is None:
+                continue
+            parts.append(MediaPart(kind=kind, file_id=ref.file_id, name=ref.file_id))
+        return tuple(parts)
 
     def _render_validation_error(self, exc: Any) -> str:
         """Render a field-level validation report via errors.skill_input_validation."""
@@ -201,6 +260,8 @@ class SkillTool:
                 ),
             )
 
+        media_parts: tuple = ()
+
         # Typed data fields (e.g. document) — validated against the skill's
         # input model, then assembled into a "# 输入数据" section appended to
         # the task so the sub-agent receives the resolved values.
@@ -218,6 +279,7 @@ class SkillTool:
             except ValidationError as exc:
                 return ToolResult(success=False, error=self._render_validation_error(exc))
             data_section = self._render_data_section(validated)
+            media_parts = self._extract_media_parts(validated)
         elif data_fields:
             # No schema declared: unknown extra arguments would silently vanish.
             logger.warning(
@@ -258,6 +320,33 @@ class SkillTool:
         if file_path:
             context = {"file_path": file_path}
 
+        # Media passthrough gate (fail-closed): the sub-agent shares the
+        # run's model, so its declared modalities must cover every media
+        # field before the spawn happens.
+        if media_parts:
+            declared = _declared_modalities(self._runtime.model)
+            for part in media_parts:
+                if _KIND_TO_MODALITY.get(part.kind, part.kind) not in declared:
+                    return ToolResult(
+                        success=False,
+                        error=render_error(
+                            "errors.media_model_unsupported",
+                            kind_label={
+                                "image": "图片",
+                                "audio": "音频",
+                                "video": "视频",
+                            }.get(part.kind, part.kind),
+                            name=part.name or part.file_id,
+                            engine=self._prompt_engine,
+                        ),
+                    )
+
+        logger.info(
+            "Skill %s spawning with %d media part(s): %s",
+            self.name,
+            len(media_parts),
+            [(p.kind, p.file_id) for p in media_parts],
+        )
         try:
             handle = self._runtime.spawn(
                 name=self.name,
@@ -265,6 +354,7 @@ class SkillTool:
                 parent_handle=self._parent_handle,
                 ref_ids=ref_ids or [],
                 context=context,
+                media_parts=media_parts,
             )
         except (ValueError, RuntimeError) as exc:
             logger.exception("Failed to spawn skill %s", self.name)
