@@ -556,13 +556,13 @@
                       />
                     </label>
                     <button
-                      class="toolpath-remove"
+                      class="toolpath-tool-remove"
                       type="button"
                       :aria-label="`删除 ${row.tool || '工具'}`"
                       :disabled="!editable"
                       @click="removeToolPathRow(i)"
                     >
-                      ×
+                      <AppIcon name="trash" :size="14" />
                     </button>
                   </div>
                   <button
@@ -2664,11 +2664,28 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 .toolpath-suggest-item:hover {
   background: var(--chat-bg-hover);
 }
-.toolpath-remove,
 .toolpath-paths {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.toolpath-tool-remove {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-tertiary);
+  cursor: pointer;
+}
+.toolpath-tool-remove:hover:not(:disabled) {
+  color: var(--chat-accent);
+}
+.toolpath-tool-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .toolpath-path-line {
   display: flex;
@@ -2719,18 +2736,9 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   font-size: 13px;
   cursor: pointer;
 }
-.toolpath-remove {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-}
 .toolpath-add {
   margin: 10px 12px;
   padding: 6px 10px;
   align-self: flex-start;
-}
-.toolpath-remove:hover {
-  color: var(--chat-accent);
-  border-color: var(--chat-accent);
 }
 </style>
