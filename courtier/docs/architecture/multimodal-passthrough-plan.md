@@ -171,8 +171,30 @@ content: str | list[TextPart | MediaPart] | None
 ## 实施状态（滚动更新）
 
 - 2026-09-03：需求对齐完成（对齐结论 9 条），vLLM part 格式源码级确认（video data URI 可行），方案成文，待批准后排期。
-- 2026-09-03（批准后）：**T0 完成**，结论：
+- 2026-09-03（批准后当日）：**T0 完成**，结论：
   - 部署 runtime pin 到 **vLLM 0.23.0**（`192.168.100.31:8008`，`GET /version` 确认；池内另一端点 `192.168.100.67:8001` 当前拒连）。
   - **wire 格式 pinning 通过**：对 vLLM 0.23.0 分别发送 `image_url`（data URI）/ `input_audio`（base64 wav）/ `video_url`（data URI）三种 part，服务器一律以 `"DeepSeek-V4-Flash is not a multimodal model"`（HTTP 400）拒绝——三种 part 类型均在请求解析层被正确识别，拒绝发生在模型能力检查，证明 part 命名与嵌套结构正确。
-  - **当前无多模态模型部署**：唯一在线端点仅 DeepSeek-V4-Flash（纯文本）。真实解码冒烟（尤其视频 data URI）顺延到 T7/T8/T9 验收，前置条件是池内接入 Qwen-VL/Omni 级多模态模型（需运维部署）。
-  - 备注：开发库标量回退指向 DashScope compatible-mode（在约定的 vLLM/SGLang 范围之外），其 `modalities` 按设计为空，媒体功能在该路径自然关闭。
+  - **当时无多模态模型部署**：唯一在线端点仅 DeepSeek-V4-Flash（纯文本）。真实解码冒烟顺延到 T7/T8/T9 验收。
+- 2026-09-03：**T1-T11 全部落地**（662385a → ec9e7f5 + 文档提交）。任务与提交对照：
+  - T1 契约层 c396144（content-part 契约 + user-only part list 硬约束）
+  - T2 能力门控 7501885（池 `modalities` + `/models` 下发 + 门控 + `errors.media_model_unsupported` 中英模板）
+  - T3 上传与 probe edb9e11（白名单/分级大小/magic bytes/`FileInfo` kind+probe 元数据/media 插件 9109/fail-closed）
+  - T4 图片物化 73510bb（MediaResolver 注入 + Pillow 归一化 + data URI + `fileIds` 多附件门控 + 消息构造）
+  - T5 记账压缩 2a55f90 + af31816（媒体 token 估算 + 过期媒体剥离 + MemoryManager 透传）
+  - T6 持久化回放 e06f287（serialize/deserialize/turns attachments/编辑裁剪）
+  - T7 webui 282400b（模型徽标 + 多选上传 + 门控禁发 + 媒体气泡 + 编辑重发保留附件）
+  - T10 skill 直通 ec9e7f5（MediaRef/ImageRef/AudioRef/VideoRef + SkillTool 投影注入 + runtime/handle 管道 + 试点技能 `visual_inspection` + internal 工具对会话隐藏）
+  - T8 音频：上传/probe/门控链路真机验证通过；**运行期直通待音频模型部署**（当前 Qwen3.8-27B 部署 `limit_mm_per_prompt` audio=0，服务器明确拒绝，wire 格式识别无误）
+  - T9 视频：真机全链路通过（真实 mp4 data URI → vLLM 解码 → 模型准确识别 testsrc 测试图案）
+- **T7/T9 真机验收记录（Qwen3.8-27B @ vLLM 0.27.1，192.168.100.22:8006，验收中途用户切换的新端点）**：
+  - 图片直通：上传（kind=image）→ SSE 运行 → 模型准确描述图片（绿底/左上黄块/中央红圆）✓
+  - 历史回放：`turns[].message.attachments` 落库与下发 ✓
+  - 跨轮召回：续轮追问图片主色 → 回答正确（图片随历史重发）✓
+  - 门控：无 vision 声明模型（DeepSeek-V4-Flash）+ 图片附件 → 400「当前模型不支持所选媒体类型」✓
+  - 降级：媒体会话换纯文本模型续跑 → 正常完成，历史媒体占位 ✓
+  - 视频直通：上传（probe 出 1.0s/128x96）→ 技能派发 → 子代理内联收到视频帧并给出正确结论 ✓
+- 实施中的关键修正（真机暴露）：
+  1. **manifest 必须携带 file_id**：orchestrator 从材料化后的消息里看不到内部 part 结构，首次技能派发时把文件名当 file_id 传（resolver 找不到 → 占位降级）。`media_marker` 改为固定携带 `file_id=` 后一次通过。
+  2. **内部插件工具对会话隐藏**：`probe_media` 起初按普通插件工具注册，orchestrator 看到后试图用文件名调用它（沙箱拒绝）并被"如实汇报"规则带偏。SDK spec 新增 `internal` 字段，build_agent 克隆会话注册表后注销 internal 工具（base registry 保留供上传链路使用）。
+  3. `shared/file-upload-limits.json` 的加载路径 bug（`parents[3]` 少算一级）为存量问题——旧回退默认值恰好与 JSON 内容一致未暴露，T3 修正为向上查找到仓库根并补齐 Dockerfile `COPY shared/`。
+- 已知边界：媒体内注入内容不做扫描；`full_government_audit` 编排技能（enabled=false）未含媒体字段；音频运行期直通待部署 audio 模型（`modalities` 声明 audio 即可启用，代码路径已就绪）。
