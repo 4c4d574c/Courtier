@@ -187,6 +187,25 @@ async def get_settings_view(request: Request, user: dict = Depends(require_admin
     }
 
 
+@router.get("/tool-names")
+async def list_known_tool_names(request: Request, _: dict = Depends(require_admin)):
+    """已知工具名（内置 + 插件），供路径白名单按工具编辑。
+
+    read/edit/write 是 Agent.run 时才懒注册的基线工具，应用级注册表里
+    没有——这里显式并入。
+    """
+    registry = getattr(request.app.state, "tool_registry", None)
+    names = (
+        {t.name for t in registry.list_tools()}
+        if registry is not None
+        else set()
+    )
+    from courtier.agent.tools.builtin.file_tools import EditTool, ReadTool, WriteTool
+
+    names |= {tool.name for tool in (ReadTool(), WriteTool(), EditTool())}
+    return {"tools": sorted(names)}
+
+
 @router.put("/{category}")
 async def update_category(
     category: str,

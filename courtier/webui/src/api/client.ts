@@ -575,6 +575,12 @@ export const api = {
     return res.json();
   },
 
+  async listKnownToolNames(): Promise<{ tools: string[] }> {
+    const res = await authFetch(`${API_BASE}/admin/settings/tool-names`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/settings/tool-names failed");
+    return res.json();
+  },
+
   async updateSettings(
     category: string,
     body: Record<string, unknown>,

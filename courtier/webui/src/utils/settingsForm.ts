@@ -158,3 +158,58 @@ export function buildUpdateBody(
   }
   return { body, errors };
 }
+
+/** 工具路径白名单行（tool_path_policies 的结构化编辑模型）。 */
+export interface ToolPathRow {
+  tool: string;
+  /** 逗号分隔的允许路径；豁免行忽略此值 */
+  paths: string;
+  exempt: boolean;
+}
+
+/** 把设置里的 JSON 文本解析为按工具的行（解析失败返回空 = 无有效声明）。 */
+export function parseToolPathRows(raw: string): ToolPathRow[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw || "{}");
+  } catch {
+    return [];
+  }
+  if (value == null || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).map(([tool, v]) => ({
+    tool,
+    paths: Array.isArray(v) ? v.join(", ") : "",
+    exempt: v === false,
+  }));
+}
+
+/** 行序列化回设置值（JSON 文本）；无工具名的行跳过。 */
+export function serializeToolPathRows(rows: ToolPathRow[]): string {
+  const value: Record<string, unknown> = {};
+  for (const row of rows) {
+    const tool = row.tool.trim();
+    if (!tool) continue;
+    if (row.exempt) {
+      value[tool] = false;
+      continue;
+    }
+    value[tool] = row.paths
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p !== "");
+  }
+  return JSON.stringify(value);
+}
+
+/** 行校验：豁免行或完整行合法；有工具名但既不豁免又无路径 = 半行。 */
+export function toolPathRowError(row: ToolPathRow): string {
+  const tool = row.tool.trim();
+  const paths = row.paths
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!tool && paths.length === 0) return "";
+  if (!tool) return "缺少工具名";
+  if (!row.exempt && paths.length === 0) return "需要至少一个路径，或勾选豁免";
+  return "";
+}

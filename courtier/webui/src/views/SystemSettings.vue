@@ -469,6 +469,68 @@
                     ＋ 添加端点
                   </button>
                 </div>
+                <div
+                  v-else-if="field.name === TOOL_PATH_FIELD"
+                  class="toolpath-editor"
+                >
+                  <div class="toolpath-head" aria-hidden="true">
+                    <span>工具名</span>
+                    <span>允许的路径（逗号分隔）</span>
+                    <span />
+                  </div>
+                  <div
+                    v-for="(row, i) in toolPathRows"
+                    :key="i"
+                    class="toolpath-row"
+                  >
+                    <input
+                      v-model="row.tool"
+                      class="toolpath-input"
+                      list="tool-path-known-tools"
+                      :disabled="!editable"
+                      placeholder="工具名（如 export_report）"
+                      spellcheck="false"
+                      @input="writeToolPathRows"
+                    />
+                    <input
+                      v-model="row.paths"
+                      class="toolpath-input toolpath-input--paths"
+                      :disabled="!editable || row.exempt"
+                      placeholder="/srv/reports, ~/data"
+                      spellcheck="false"
+                      @input="writeToolPathRows"
+                    />
+                    <label class="toolpath-exempt">
+                      <input
+                        type="checkbox"
+                        v-model="row.exempt"
+                        :disabled="!editable"
+                        @change="writeToolPathRows"
+                      />
+                      豁免
+                    </label>
+                    <button
+                      class="toolpath-remove"
+                      type="button"
+                      :aria-label="`删除 ${row.tool || '工具'}`"
+                      :disabled="!editable"
+                      @click="removeToolPathRow(i)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <datalist id="tool-path-known-tools">
+                    <option v-for="n in knownToolNames" :key="n" :value="n" />
+                  </datalist>
+                  <button
+                    class="toolpath-add"
+                    type="button"
+                    :disabled="!editable"
+                    @click="addToolPathRow"
+                  >
+                    ＋ 添加工具
+                  </button>
+                </div>
                 <div v-else-if="field.is_secret" class="secret-wrap">
                   <input
                     v-model="formState[activeCategory][field.name]"
@@ -649,6 +711,9 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { api, type DeploymentField, type SettingsView } from "../api/client";
 import {
   buildUpdateBody,
+  parseToolPathRows,
+  serializeToolPathRows,
+  toolPathRowError,
   initFormState,
   secretPlaceholder,
   type FormState,
@@ -757,6 +822,7 @@ function resolveConfirm(ok: boolean) {
  * connection tests keep using the unchanged string pipeline.
  */
 const ENDPOINTS_FIELD = "courtier_plugin_endpoints";
+const TOOL_PATH_FIELD = "tool_path_policies";
 const endpointRows = ref<Array<{ name: string; addr: string }>>([]);
 
 function parseEndpoints(raw: string): Array<{ name: string; addr: string }> {
@@ -793,6 +859,49 @@ function addEndpointRow() {
 function removeEndpointRow(index: number) {
   endpointRows.value.splice(index, 1);
   writeEndpoints();
+}
+
+// —— 工具路径白名单（tool_path_policies）：按工具行编辑，设置优先于类内声明 ——
+
+const toolPathRows = ref<Array<{ tool: string; paths: string; exempt: boolean }>>([]);
+const knownToolNames = ref<string[]>([]);
+
+function syncToolPathRows() {
+  const raw = String(formState["guards"]?.[TOOL_PATH_FIELD] ?? "{}");
+  toolPathRows.value = parseToolPathRows(raw);
+}
+
+function writeToolPathRows() {
+  const state = formState["guards"];
+  if (state) state[TOOL_PATH_FIELD] = serializeToolPathRows(toolPathRows.value);
+}
+
+function addToolPathRow() {
+  toolPathRows.value.push({ tool: "", paths: "", exempt: false });
+  writeToolPathRows();
+}
+
+function removeToolPathRow(index: number) {
+  toolPathRows.value.splice(index, 1);
+  writeToolPathRows();
+}
+
+/** 行校验：豁免行或完整行合法；有工具名但既不豁免又无路径 = 半行。 */
+function toolPathRowErrors(): string {
+  const bad = toolPathRows.value
+    .map((row) => toolPathRowError(row))
+    .filter((msg) => msg !== "");
+  return bad[0] ?? "";
+}
+
+/** 已知工具名（内置 + 插件）——供行内下拉补全。 */
+async function fetchKnownToolNames() {
+  if (knownToolNames.value.length) return;
+  try {
+    knownToolNames.value = (await api.listKnownToolNames()).tools;
+  } catch (exc) {
+    console.warn("工具名列表获取失败（可手动输入工具名）", exc);
+  }
 }
 
 /** A row must be fully filled or completely empty (unsaved placeholder). */
@@ -991,6 +1100,7 @@ const activeGroups = computed<Array<SettingsGroup<SettingsField>>>(() =>
 function selectCategory(key: string) {
   activeCategory.value = key;
   showDeployment.value = false;
+  if (key === "guards") void fetchKnownToolNames();
 }
 
 function hasDeferredEffect(cat: SettingsCategory): boolean {
@@ -1056,6 +1166,7 @@ function resetForms(data: SettingsView) {
   }
   for (const key of Object.keys(revealed)) delete revealed[key];
   syncEndpointRows();
+  syncToolPathRows();
   syncPoolRows();
 }
 
@@ -1102,11 +1213,14 @@ async function save() {
   const { body, errors } = buildUpdateBody(activeFields.value, formState[cat], cleared[cat]);
   for (const key of Object.keys(formErrors)) delete formErrors[key];
   Object.assign(formErrors, errors);
+  writeToolPathRows();
   const endpointError = cat === "plugins" ? endpointRowErrors() : "";
   if (endpointError) formErrors[ENDPOINTS_FIELD] = endpointError;
+  const toolPathError = cat === "guards" ? toolPathRowErrors() : "";
+  if (toolPathError) formErrors[TOOL_PATH_FIELD] = toolPathError;
   const poolError = cat === "model" ? poolEditorErrors() : "";
   if (poolError) formErrors[POOL_FIELD] = poolError;
-  if (Object.keys(errors).length || endpointError || poolError) return;
+  if (Object.keys(errors).length || endpointError || poolError || toolPathError) return;
   if (cat === "model" && keysDirty.value) {
     // Swap the dirty sentinel for real entry-level ops (draft → overwrite,
     // removal → null; everything absent is kept server-side).
@@ -2360,5 +2474,59 @@ onMounted(load);
   .field-control {
     align-self: stretch;
   }
+}
+.toolpath-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toolpath-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolpath-head {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--admin-text-secondary, #888);
+}
+
+.toolpath-head span:first-child {
+  width: 200px;
+}
+
+.toolpath-input {
+  border: 1px solid var(--admin-border, #ddd);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.toolpath-input--paths {
+  flex: 1;
+  min-width: 220px;
+}
+
+.toolpath-exempt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.toolpath-remove,
+.toolpath-add {
+  border: 1px solid var(--admin-border, #ddd);
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
 }
 </style>
