@@ -1,215 +1,390 @@
-# Guardrails 统一管线 — 参考文档与扩展指南
+# Guardrails 统一管线 — 原理、参考与扩展指南
 
-> 对应实现：`courtier/agent/core/guardrails/`。设计与实施记录见
-> `docs/architecture/guardrails-unification-plan.md`。本文是**使用与扩展**的参考手册。
+> 对应实现：`courtier/agent/core/guardrails/`。设计来龙去脉见
+> `docs/architecture/guardrails-unification-plan.md`；本文回答两个问题：
+> **这套系统是什么、怎么工作的**，以及**我想扩展它时该怎么做**。
 
-GuardrailSystem（v2）是 agent 运行的统一扩展/执法管线：一个派发对象、三类处理器
-词汇、五个 scope。历史上独立的 `PermissionGate` 与 `HookChain` 均已收编进它（2026-09-02）。
+## 1. 它是什么：一条流水线上的质检站
 
-## 1. 核心模型
+Agent 每个回合按「思考 → 调工具 → 看结果」循环。GuardrailSystem 在这条流水线的
+**5 个固定位置（scope）** 派发检查，每个位置按固定顺序跑三类处理器：
 
-### 1.1 Scope 表（派发点 × 守卫层）
-
-| scope | 派发位置 | interceptors | guards（守卫层） | observers |
-|---|---|---|---|---|
-| `pre_think` | think 阶段开头，模型调用前 | ✓ | input | ✓ |
-| `output` | 模型响应后、工具执行前 | ✓ | output | ✓ |
-| `tool` | 工具批执行前（**轮级**） | ✓ | tool | ✓ |
-| `tool_call` | **每个**工具调用分派前 | ✗（裁决独占） | tool_call | ✓ |
-| `post_tool` | 工具执行/观察后 | ✓ | post_tool | ✓ |
-
-每个 scope 内固定顺序：**适配（interceptors）→ 裁决（guards）→ 记录（observers）**。
-适配在前保证裁决对象是"适配后将要真实发生的状态"。`pre_think`/`post_tool` 两个
-scope 同时是前 HookChain 事件（PRE_THINK/POST_OBSERVE）的合并落点；
-`tool_call` 禁止 interceptor 注册（会改状态/注入调用），observer 允许（逐调用审计）。
-
-### 1.2 三类处理器词汇（失效语义恒定，不可配置）
-
-| 词汇 | 签名 | 失效语义 |
-|---|---|---|
-| **guards（裁决）** | 轮级 `check(ctx) -> GuardResult`；每调用 `check_call(call, ctx) -> CallGuardResult` | 行为层（input/output/tool/post_tool）**fail-open**：异常→跳过；`tool_call` 层 **fail-closed**：异常→按拒绝处理（`error_code: permission_error`） |
-| **interceptors（适配）** | `handler(ctx) -> AgentState \| None`（None = 不变） | **恒 fail-open**：异常记日志跳过；支持每注册超时 + 系统级 `interceptor_timeout`（默认 None） |
-| **observers（记录）** | `handler(ctx) -> None` | 异常恒吞 |
-
-双契约的依据：行为层保护的是运行成本（上游有步数/预算硬底线，跳过的代价有界）；
-`tool_call` 层是安全边界（fail-open 的权限系统只是日志系统）。
-
-### 1.3 决策词汇表
-
-```python
-# 轮级（base.py）
-GuardResult.allow(guard_name, reason="", metadata=None)
-GuardResult.log(guard_name, reason)          # 仅记录
-GuardResult.block(guard_name, reason)        # 阻断本轮（转 blocked/completed 终态）
-
-# 每调用（base.py）
-CallGuardResult.allow(guard_name)
-CallGuardResult.deny(guard_name, reason, error_code="permission_denied")
-CallGuardResult.confirm(guard_name, message)  # 确认链路预留（见 §3.3）
+```
+思考前(pre_think) → 模型 → 输出后(output) → 工具批前(tool)
+    → 【逐个工具调用前(tool_call) → 执行】×N → 观察后(post_tool)
 ```
 
-**聚合语义**：动作/署名取"最严格"（allow < log < block，先到先得），**metadata 按
-执行顺序合并自全部已执行结果**（后者覆盖同名键）——guard 想向循环传状态
-（如 `ExploreLoopGuard` 的 `consecutive_exploratory` 计数）就放 allow 的 metadata。
+三类处理器各司其职，**失败时的行为是写死的，不随配置变化**：
 
-### 1.4 每层模式（`GuardMode`）
+| 词汇 | 干什么 | 出错时 |
+|------|--------|--------|
+| **守卫 guard** | 裁决：放行 / 记录 / 拦截 | 行为类位置（思考前/输出/工具/观察后）跳过继续；**调用前（tool_call）一律按拒绝处理** |
+| **拦截器 interceptor** | 改写：往状态里注入/修改内容 | 跳过继续（fail-open），可设超时 |
+| **观察者 observer** | 记录：审计、指标、打点 | 异常静默吞掉 |
 
-`off`（跳过整层）/ `log`（**影子模式**：只记 `guard.triggered` 事件不执法——新规则
-灰度的手动通道）/ `block`（执行裁决，默认）/ `allow`（短路放行）。
-`tool_call_mode` 默认 block；log 模式下守卫异常也不执法。
+这个不对称是刻意的：行为类护栏挂了顶多浪费几轮（有步数上限兜底），
+**调用前的权限检查挂了绝不能放行**——fail-open 的权限系统只是日志系统。
 
-## 2. 内置守卫与生产接线
+两个容易混淆的边界，先划清：
 
-`build_agent`（`agent_service.py`）为每个会话构造**无状态**系统，orchestrator 与
-所有子代理共享：
+- **工具"看不见"不归它管**——域门控（`DomainActivator`）决定模型能看到哪些工具；
+  guardrails 决定**看到了、调过来了，放不放行**。
+- **模型拒绝/空响应不归它管**——那属于 think 阶段的重试策略
+  （`refusal_*` 设置，见 `refusal-retry-plan.md`），不在 guardrails 派发路径上。
 
-| Guard | 层 | 作用 | 关键参数 |
-|---|---|---|---|
-| `ToolDisabledGuard` | tool_call | 名级禁用（生产默认空名单） | `blocked` |
-| `PathPolicyGuard` | tool_call | 文件路径白名单：`resolve()` 归一后必须落在根内；解析异常 fail-closed | `allowed_roots`（会话根：`memory_home` + 会话工作区）、`capability_registry` |
-| `ConfirmationGuard` | tool_call | 名单内工具返回 confirm → 挂起等用户裁决（见 §3.3） | `rules`（settings `tool_confirmation`）、`approved_tools`（会话持久集合） |
+## 2. 三种"拦截"的写法
 
-**有状态**的行为护栏 `ExploreLoopGuard` / `BusinessArtifactProgressGuard`
-（post_tool 层）由 `agent_loop` 在**每轮运行期临时注册、finally 注销**——共享会话
-系统绝不能混用它们的历史。新增有状态 guard 必须走同样的生命周期。
+### 轮级守卫（`check`）
 
-循环在 `loop_phases.execute_tools_phase` 逐调用派发 `check_call`；拒绝合成
-（错误结果、`error_code`、SSE、审计）由循环独占，guard 只决策。
-
-## 3. 扩展方式
-
-### 3.1 写一个轮级守卫（behavioral layer）
+一个层级的所有工具调用打包检查一次。返回 `GuardResult`：
 
 ```python
+GuardResult.allow(name, metadata={...})   # 放行；metadata 会合并进聚合结果
+GuardResult.log(name, reason)             # 只记一条事件，不拦截
+GuardResult.block(name, reason)           # 拦下整轮（状态机转终态）
+```
+
+### 每调用守卫（`check_call`）
+
+只作用于 `tool_call` 层，**每个工具调用单独裁决**。返回 `CallGuardResult`：
+
+```python
+CallGuardResult.allow(name)
+CallGuardResult.deny(name, reason, error_code="permission_denied")  # 该调用变错误结果，运行继续
+CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路，见 §6）
+```
+
+被拒的调用**不会执行**，但会变成一条错误观察喂回模型（模型可以换路子重试），
+同批其余调用不受影响——这叫单调用拒绝。
+
+### 每层模式（off / log / block / allow）
+
+每个层级可以整体设模式（管理后台「运行守卫与预算」里部分可调）：
+
+- `block`（默认）：裁决生效；
+- `log`：**影子模式**——照常跑检查、只发事件不拦截。新规则先影子观察一段时间
+  再切 block，是推荐的上线方式；
+- `off` / `allow`：整层跳过。
+
+### metadata 怎么流动（容易踩的点）
+
+聚合结果的动作/署名取**最严格**的（allow < log < block），
+但 **metadata 是全部结果按执行顺序合并的**（同名键后者覆盖）。
+所以守卫想往外传状态（比如"连续空转计数"），放 `allow` 的 metadata 即可，
+循环侧从聚合结果的 `metadata` 里读。
+
+## 3. 内置了什么
+
+| 守卫 | 位置 | 干什么 | 归谁配置 |
+|------|------|--------|----------|
+| `ToolDisabledGuard` | tool_call | 名单内工具整体禁用 | 代码注册（生产默认空名单） |
+| `PathPolicyGuard` | tool_call | 文件路径白名单：`read`/`edit`/`write` 的路径解析后必须落在会话根（记忆目录 + 会话工作区）内 | `build_agent` 按会话注入 |
+| `ConfirmationGuard` | tool_call | 名单内工具挂起等用户确认 | 管理后台 `tool_confirmation` 名单 |
+| `ExploreLoopGuard` | post_tool | 连续空结果 / 重复调用 / 空转 → 强制收尾 | `loop_*` 设置 |
+| `BusinessArtifactProgressGuard` | post_tool | 连续无业务产出 → 强制收尾 | `loop_*` 设置 |
+
+前三个是**无状态**的，由 `build_agent` 构造后 orchestrator 和所有子代理共享；
+后两个是**有状态**的（要记历史），由 agent 循环**每轮运行期注册、结束注销**——
+这两类生命周期不能混，见 §8 坑 3。
+
+## 4. 扩展场景逐个讲
+
+> 每个场景按固定结构：**怎么写 → 放在哪里 → 和谁接线 → 注意什么**。
+> 先看总览，按目的对号入座：
+
+| 我想…… | 去哪一节 | 要不要改代码 |
+|--------|----------|--------------|
+| 拦截/检查整轮行为（输出敏感词、注入提醒前检查等） | §4.1 | 要（新守卫类） |
+| 控制某个工具调用能不能执行（参数级规则） | §4.2 | 要（新守卫类） |
+| 让某工具执行前必须用户点头 | §4.3 | **不要**（纯配置） |
+| 给域包加专属策略检查 | §4.4 | 要（guard 类 + yaml 一行） |
+| 让自定义工具受路径白名单管 | §4.5 | 要（注册一条 Capability） |
+| 在生命周期点改状态 / 做审计 | §4.6 | 要（拦截器/观察者） |
+| 加一个给模型看的错误/提示文案 | §4.7 | 要（模板键） |
+
+### 4.1 加一个轮级行为守卫
+
+**场景举例**：输出层检查模型回复里是否泄露了内部提示词；工具批前检查调用总
+大小是否超限。
+
+**怎么写**（完整骨架）：
+
+```python
+# courtier/agent/core/guardrails/my_guard.py
 from courtier.agent.core.guardrails import GuardContext, GuardResult
 
+
 class MyOutputGuard:
-    name = "my_output"            # 必需，聚合署名/事件用
-    layer = "output"              # 必需，必须是 SCOPES 的守卫层之一
+    name = "my_output"      # 必填：聚合署名、事件、日志都用它
+    layer = "output"        # 必填："input" | "output" | "tool" | "post_tool"
+                            # （"tool_call" 属于 §4.2，这里不要用）
 
     async def check(self, context: GuardContext) -> GuardResult:
-        ...
-        return GuardResult.allow(self.name, metadata={"any": "state"})
+        text = context.response_text or ""
+        if "内部提示词" in text:
+            # 拦截：本轮转终态，reason 会展示/落审计
+            return GuardResult.block(self.name, "回复包含内部信息，已拦截")
+        # 想给循环传状态：放 allow 的 metadata（会合并进聚合结果）
+        return GuardResult.allow(self.name, metadata={"checked": len(text)})
 ```
 
-- 想传状态给循环：放 `allow` 的 metadata（会合并进聚合结果）。
-- 想"只告警不拦截"：返回 `log`，或把所在层 mode 设为 `log`（shadow）。
-- 失败安全：异常会被吞掉跳过（fail-open）——不要在 check 里做不可靠的 IO。
+**放在哪里**：`courtier/agent/core/guardrails/` 下新建模块（如 `my_guard.py`），
+并在同目录 `__init__.py` 导出。
 
-### 3.2 写一个每调用守卫（tool_call 层）
+**怎么注册（关键，二选一）**：
+
+- **无状态守卫**（每次 check 独立）→ 加进 `agent_service.py` 里 `build_agent`
+  的 `session_guardrails` 注册序列，对所有会话 + 子代理生效；
+- **有状态守卫**（类里存历史/计数）→ 必须在 `loop.py` 的 `_run_guards` 列表里
+  注册（运行期注册、结束自动注销）。直接塞进会话系统会和其它代理混用历史，
+  这是事故源，见 §8 坑 3。
+
+**和其他模块的接线**：
+
+- **配置项**：阈值之类放 `config.py` 的 `Settings`（字段名用 `loop_` / `refusal_`
+  前缀或加入 `_setting_category` 的 guards 组），自动出现在管理后台
+  「运行守卫与预算」且热生效；守卫内 `get_settings()` 读取（参考
+  `loop_guardrails.py`）。
+- **前端可见**：`GuardResult` 任何动作都会自动发 `guard_triggered` 事件 →
+  时间线里出现一条守卫提示（`GuardMessage`），无需前端改动。
+- **指标**：block 动作自动计 `guardrail_blocked_total{layer, guard_name}`。
+
+**注意什么**：
+
+- `check` 抛异常 = 该守卫本轮被跳过（fail-open）。别在里面做网络请求这类
+  不可靠操作；抛了异常的守卫等于不存在。
+- `reason` 会在拦截时展示给模型/用户，写清楚"发生了什么 + 建议怎么办"。
+- 改**既有**守卫的拦截文案属于回归红线（测试逐字节断言），新增随意。
+
+### 4.2 加一个每调用权限守卫
+
+**场景举例**：禁止对同一工具的并发调用；按参数组合拒绝某类调用；
+按会话来源放行/拒绝。
+
+**怎么写**：
 
 ```python
+# courtier/agent/core/guardrails/my_call_guard.py
 from courtier.agent.core.guardrails import CallGuardResult
+
 
 class MyCallGuard:
     name = "my_call"
-    layer = "tool_call"
+    layer = "tool_call"     # 固定这个值
 
-    async def check_call(self, call: ToolCall, context: GuardContext) -> CallGuardResult:
-        if something_bad(call):
-            return CallGuardResult.deny(self.name, "拒绝原因（模型可见）")
+    async def check_call(self, call, context) -> CallGuardResult:
+        # call: ToolCall（.name / .arguments / .id）
+        if call.name == "search" and not call.arguments.get("query"):
+            return CallGuardResult.deny(
+                self.name,
+                "search 需要非空 query 参数，请补全后重试",
+            )
         return CallGuardResult.allow(self.name)
 ```
 
-**硬约束**：tool_call 层守卫必须是**纯内存判定**（集合查找、路径 resolve），
-无 IO、无超时——该层 fail-closed，不可靠的检查等于拒绝用户的调用。
-未实现 `check_call` 的 guard 不参与此层（协议 `CallGuardrail`）。
+**放在哪里**：同 §4.1（`guardrails/` 新模块 + 导出），注册进 `build_agent`
+的会话系统（tool_call 层守卫都是无状态的，放心共享）。
 
-拒绝文案是**模型可见**的（会成为该调用的错误结果）：走 `errors.*` 模板
-（`render_error`）或与既有 guard 一样的明确中文文案；改既有文案属于回归红线。
+**和其他模块的接线**：
 
-### 3.3 注册位置与确认链路
+- **审计**：被拒调用自动进 `ToolExecutionRecord`（`result_error` = 你的 reason）
+  和 SSE 工具卡（红色错误态）——无需额外接线。
+- **每个子代理同样受限**：会话系统共享给子代理；它们没有确认通道
+  （见 §4.3 注意事项），返回 `confirm` 会直接按拒绝处理。
+- **配置注入**：需要会话级差异（如按 owner 放行）时，在 `build_agent` 里
+  构造守卫时传参——参考 `PathPolicyGuard(allowed_roots=[...])` 的做法。
 
-生产守卫在 `build_agent` 注册（`agent_service.py` 的 session 系统构造处）；
-往那里加 guard 即对 orchestrator + 全部子代理生效。返回 `confirm` 的守卫
-（`ConfirmationGuard` 模式）需要循环侧 handler 支持——目前只有 RunManager
-桥接的确认链路（`docs/architecture/confirmation-interaction-plan.md`）；
-子代理没有 handler，confirm 一律 fail-closed 拒绝（`confirmation_denied`）。
+**注意什么**：
 
-### 3.4 拦截器与观察者（运行期扩展）
+- **纯内存判定是硬约束**：无网络请求、无文件读写、无数据库。该层 fail-closed
+  ——守卫抛异常时调用会被**拒绝**（`error_code: permission_error`），
+  一个不可靠的检查等于不停拒绝用户。
+- **拒绝文案是模型可见的**：它是喂回模型的错误观察。写"什么被拒 + 为什么 +
+  模型该怎么办"；需要复用既有文案走 `render_error("errors.xxx", ...)`（见 §4.7）。
+- 派发顺序即注册顺序，**首个 deny 生效即短路**。权限类守卫放在确认类之前，
+  保证"越界路径"直接被拒而不是弹确认。
+- **不要**返回 `confirm`，除非你接了确认链路（§4.3）——没有 handler 时它会被
+  当拒绝处理。
 
-```python
-async def my_interceptor(context: GuardContext):
-    # context.state 是当前 AgentState；返回新状态或 None
-    return context.state
+### 4.3 让某个工具执行前必须用户确认（不改代码）
 
-async def my_observer(context: GuardContext):
-    ...  # 记录/审计；异常自动吞
+**场景举例**：`write` 写文件前让用户点头；某个高成本插件调用要审批。
 
-system.register_interceptor("pre_think", my_interceptor, priority=10, timeout=2.0)
-system.register_observer("post_tool", my_observer)
+**怎么做（纯配置）**：管理后台 → 运行守卫与预算 → `tool_confirmation`，填：
+
+```json
+[{"tool": "write", "message": "写操作需要你确认后才会执行"}]
 ```
 
-- `register_interceptor("tool_call", ...)` 直接拒绝（裁决独占 scope）。
-- 未知的 scope 名拒绝；`set_context(agent_name=, session_id=, **meta)` 注入的
-  会话上下文会合并进每次派发的 GuardContext。
+保存即热生效（下一次该工具调用时挂起）。用户会看到三种裁决：
+**仅本次执行 / 本会话内放行 / 拒绝**。
 
-### 3.5 域包声明 guard（推荐的产品化扩展路径）
+**背后自动发生了什么**（都已实现，无需接线）：
 
-域包在 `config/domain.yaml` 声明类路径，**零 core 改动**：
+- `build_agent` 检测名单非空 → 注册 `ConfirmationGuard`；
+- 该工具被调用时运行**挂起**（RunManager 持有一个待决 Future），SSE 发
+  `confirmation_requested`；当前标签页弹出确认卡（输入框顶部分区）；
+- 其他标签页的历史列表该会话行显示「待确认」徽标（NotificationHub 推送）；
+- 裁决走 `POST /api/sessions/{id}/confirmations/{cid}`；「本会话内放行」
+  持久化到会话（`approvedTools`），重开页面也不再询问；
+- 「拒绝」给模型一条 `confirmation_denied` 错误观察，模型自己调整。
+
+**注意什么**：
+
+- **无自动超时**：挂起的运行一直占用户并发额度，用户可点停止；
+- **子代理没有确认通道**：子代理里调用名单内工具会被直接拒绝
+  （`confirmation_denied`）——名单里只放主流程会用的工具；
+- 名单是**工具名级**的，不做参数级条件（参数级的事归 §4.2 / §4.5）；
+- 输入必须是**合法 JSON**（键名带双引号）。
+
+### 4.4 给域包加专属守卫
+
+**场景举例**：docaudit 想加一条"查重前必须先解析"的调用顺序检查。
+
+**怎么写**：§4.1 / §4.2 的标准守卫类，但**放在可导入的模块里**——
+声明是类路径（`"<module>.<Class>"`），加载靠 `importlib`。当前约束：
+域包目录本身不是 Python 包，所以类要么放在已安装的包里
+（测试先例：`courtier/agent/testing/domain_guard.py` 的 `DummyDomainGuard`），
+要么随域包分发可安装的 Python 包后用其导入路径。
+
+**放在哪里（声明）**：域包 `config/domain.yaml`：
 
 ```yaml
-# domains/<name>/config/domain.yaml
 guards:
-  - docaudit.guards.FormatGuard   # 可导入的 "<module>.<Class>"，无参构造
+  - docaudit.guards.FormatGuard
 ```
 
-- **约束**：类必须有 `name` + 合法 `layer`；tool_call 层守卫须纯内存（见 §3.2）。
-- `courtier validate-domain domains/<name>/` 会校验可导入性与 layer 合法性。
-- 域激活时（含会话重建的重放路径）经 `DomainActivator` 注册进会话系统，
-  owner = `domain:<name>`；`system.unregister_owner("domain:<name>")` 对称注销。
-- 声明加载失败只告警跳过，不阻断域激活。
-- 加载器：`guardrails/domain_guards.py`（`load_domain_guard` /
-  `register_domain_guards`）；测试 dummy 见 `courtier/agent/testing/domain_guard.py`。
+**怎么接线**：
 
-### 3.6 capability 元数据驱动策略
+- `courtier validate-domain domains/<name>/` 会校验：类可导入、有 `name`、
+  `layer` 合法——写完先跑一遍；
+- 域激活时（包括会话重开后的自动重放）由 `DomainActivator` 注册进会话系统，
+  归属 `domain:<名字>`；`unregister_owner` 可对称注销；
+- 加载失败**只告警跳过**，不会阻断域激活——但 validate-domain 会提前拦住。
 
-工具可通过 `Capability.meta` 声明策略，替代硬编码名单：
+**注意什么**：
+
+- tool_call 层的域守卫同样受"纯内存"约束；
+- 机制本身有测试 dummy（`tests/agent/test_domain_guards.py`），目前
+  docaudit 尚无真实域守卫——你写的会是第一个，记得补一个真名守卫的用例。
+
+### 4.5 让自定义工具受路径白名单管
+
+**场景举例**：新写了一个 `export_report` 工具会写文件，希望它和
+`read`/`edit`/`write` 一样受会话路径白名单约束。
+
+**怎么做**：给工具注册一条 Capability 声明：
 
 ```python
-CapabilityRegistry().register(Capability(
-    type="tool", name="archive_dump",
-    meta={"permission": {"path_policy": True}},   # 让自定义工具受路径白名单管
+from courtier.agent.core.capability import Capability, CapabilityRegistry
+
+registry.register(Capability(
+    type="tool",
+    name="export_report",
+    meta={"permission": {"path_policy": True}},   # 声明受管
 ))
 ```
 
-`PathPolicyGuard` 判定顺序：显式声明（含 `False` 显式豁免）→ 未声明回退
-`DEFAULT_PATH_POLICY_TOOLS`（read/edit/write）。
+**放在哪里**：工具的注册方（域激活代码 / 插件接线处 / 测试 setup）。
+`build_agent` 已为每个会话建好共享的 `CapabilityRegistry` 并同时交给
+`PathPolicyGuard` 和 `AgentRuntime`——往**同一个**实例注册即可生效。
 
-## 4. 运维面
+**注意什么**：
 
-- **设置**（管理后台 → 运行守卫与预算，均 hot）：`tool_confirmation`
-  （JSON `[{tool, message}]`）、`refusal_detection_enabled` / `refusal_patterns` /
-  `refusal_retry_max`（模型行为恢复策略，**在管线外**——检测器在 think 阶段，
-  不走 guard 派发）、`loop_*` 系列阈值。
-- **事件/指标**：`guard.triggered` 总线事件（结构兼容，deny 映射 block）；
-  `guardrail_blocked_total{layer, guard_name}`；`refusal_total{outcome}`。
-- **确认 API**：`POST /api/sessions/{id}/confirmations/{cid}`
-  （approve / approve_session / deny，owner 幂等）；会话详情带
-  `pendingConfirmations`；跨标签页侧栏"待确认"徽标走 NotificationHub。
+- 显式声明优先于默认名单：`{"path_policy": False}` 可以把 `read` 从白名单里
+  **豁免**出去（慎用）；未声明的工具走默认的 read/edit/write；
+- 声明只有"受不受管"一个开关；管的方式（哪些根）仍由会话决定；
+- 目前没有自动把所有工具注册进 CapabilityRegistry 的代码——自定义工具
+  需要在上述位置显式注册，这是已知待完善点。
 
-## 5. 修改守卫的检查清单
+### 4.6 在生命周期点改状态 / 做记录
 
-1. 新守卫放 `guardrails/` 下独立模块，导出进包 `__init__.py`。
-2. 确定层与词汇：轮策略用 `check`，调用策略用 `check_call`（纯内存！）；观察用
-   observer；改状态用 interceptor（非 tool_call）。
-3. 决定注册点：会话级 → `build_agent`；域级 → domain.yaml；运行期 → 注册 API。
-4. **有状态 guard 必须在 agent_loop 里走"运行期注册/finally 注销"**
-   （参考 `loop.py` 的 `_run_guards`），否则共享系统会混用历史。
-5. 新增/修改**模型可见文案**走 `errors.*` 模板（zh/en 双语 + `engine.py`
-  RESERVED 注册）；既有拒绝文案逐字节不动（回归红线）。
-6. 测试：`tests/agent/core/test_guardrails.py`（聚合语义）、
-   `test_guardrail_call_dispatch.py`（派发/fail-closed）、
-   `test_permission_guards.py`（路径策略，文案逐字节断言）、
-   `test_domain_guards.py`（域机制）、`test_confirmation.py`（确认链路）。
-7. 改完跑 `uv run pytest tests/agent -q`；涉及循环行为时补
-   `tests/agent/test_loop.py` 级别的用例。
+**场景举例**：思考前给状态注入一段提示；每次工具批结束后打一条审计点。
 
-## 6. 已知坑（历史教训）
+**怎么写**：
 
-- **`OrchestratorAgent.run` 覆写**是参数透传的惯发故障点：给 `Agent.run` 加新
-  kwarg（confirmation_handler、media_parts 各踩过一次）必须同步覆写签名并转发，
-  否则所有 API 运行在启动调用处 TypeError（单测覆盖不到 runner 路径）。
-- 聚合 metadata 按"执行顺序合并、同名后者覆盖"——依赖某个键存在时确认执行顺序；
-  allow 之间的动作/署名保持系统占位（`guardrail_system`）。
-- 有状态守卫注册进共享会话系统 = 跨代理历史污染（必须走运行期注册/注销）。
+```python
+async def my_observer(context: GuardContext):
+    # context: state / tool_calls / tool_results / agent_name / session_id ...
+    ...  # 记录、上报；异常自动吞，随便写
+
+async def my_interceptor(context: GuardContext):
+    state = context.state
+    ...  # 检查/修改状态
+    return new_state   # 返回 None 表示不修改
+```
+
+**放在哪里 + 怎么接线**：在持有 `GuardrailSystem` 实例的代码里注册——
+通常是 `build_agent` 构造会话系统之后，或运行期拿到
+`agent.guardrail_system`：
+
+```python
+system.register_observer("post_tool", my_observer)
+system.register_interceptor("pre_think", my_interceptor, priority=10, timeout=2.0)
+```
+
+**注意什么**：
+
+- 拦截器**恒 fail-open**（异常跳过）、按 priority 降序执行；
+- `tool_call` 拒绝注册拦截器（它必须保持裁决独占，防止扩展点改写/注入调用）；
+- 生命周期点只需要**观察**（不需要在派发路径上）时，优先考虑 EventBus 订阅
+  而不是 observer——两者区别：观察者在管线内、同步、能拿到 GuardContext；
+  EventBus 是异步扇出（SSE/遥测），拿不到返回值。
+
+### 4.7 加模型可见的错误/提示文案
+
+守卫的 `reason`（拒绝原因）和 `CallGuardResult.deny` 的文案都是**喂给模型的
+观察内容**。约定：
+
+1. 文案定义进 `courtier/prompts/defaults/{zh-CN,en-US}/errors.yaml`（双语都要）；
+2. 在 `prompts/engine.py` 的 `RESERVED_TEMPLATE_KEYS` 和 `FALLBACK_TEMPLATES`
+   各注册同名键（否则引擎忽略该键）；
+3. 代码里 `render_error("errors.your_key", param=value)` 渲染（自动按 locale）。
+
+**注意**：修改**既有**守卫文案（如路径白名单的"不在允许范围内"）属于回归
+红线——测试逐字节断言，且用户已按旧文案形成预期。新增键随意。
+
+## 5. 注册点总览（接线地图）
+
+| 时机 | 谁 | 注册什么 |
+|------|-----|----------|
+| 每会话构建（`build_agent`） | 平台 | ToolDisabledGuard、PathPolicyGuard（会话根）、ConfirmationGuard（名单非空时） |
+| 每轮运行（`agent_loop` 进入/退出） | 平台 | ExploreLoopGuard、BusinessArtifactProgressGuard（临时注册/注销） |
+| 域激活（`DomainActivator`） | 域包（yaml 声明） | 域守卫（owner = `domain:<名字>`） |
+| 运行期（你的代码） | 扩展者 | 拦截器 / 观察者 / 追加守卫 |
+
+注册 API 一览（`GuardrailSystem`）：
+
+```python
+system.register(guard)                          # 轮级/每调用守卫
+system.register(guard, owner="domain:x")        # 带 owner，可 unregister_owner 撤销
+system.register_interceptor(scope, handler, priority=0, timeout=None)
+system.register_observer(scope, handler)
+system.set_context(agent_name=..., session_id=...)   # 循环自动调用
+```
+
+## 6. 调试与测试
+
+- **看触发了什么**：总线事件 `guard.triggered`（含 layer/guard_name/action/reason）
+  会进会话时间线；服务端指标 `guardrail_blocked_total{layer, guard_name}`。
+- **确认链路排查**：会话详情 `pendingConfirmations` 字段 + SSE
+  `confirmation_requested/resolved`；挂起时 `/api/stop` 仍可终止。
+- **单测落点**：聚合语义 `tests/agent/core/test_guardrails.py`；每调用派发与
+  fail-closed `test_guardrail_call_dispatch.py`；路径策略（文案逐字节）
+  `test_permission_guards.py`；域机制 `test_domain_guards.py`；确认链路
+  `test_confirmation.py`。跑法：`uv run pytest tests/agent -q`。
+- **真机验证**：配 `tool_confirmation` 触发一次确认；用 `read` 读
+  `/etc/hostname` 触发一次路径拒绝——两者都有稳定可断言的用户可见结果。
+
+## 7. 已知坑（都是踩过的）
+
+1. **`OrchestratorAgent.run` 覆写必须同步转发新 kwarg**。给 `Agent.run` 加参数
+   后只改基类，所有 API 运行会在启动调用处 TypeError（`confirmation_handler`、
+   `media_parts` 各踩过一次，单测覆盖不到 runner 路径）。加参数时把 orch 覆写
+   列入清单。
+2. **有状态守卫塞进会话系统 = 跨代理历史污染**。会话系统被 orchestrator 和
+   子代理共享，有状态守卫必须走 `agent_loop` 的运行期注册/注销。
+3. **聚合 metadata 合并但动作严格度独立**：全 allow 时聚合的动作/署名仍是
+   系统占位（`guardrail_system`），只有 metadata 保留各守卫的贡献。
+4. **拒绝文案逐字节**是回归红线：改文案前先搜
+   `tests/agent/test_permission_guards.py` 里的断言。
