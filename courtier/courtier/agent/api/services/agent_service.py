@@ -452,7 +452,9 @@ async def build_agent(
     # 新增受管工具不需要改动本文件。
     if session_registry is not None:
         declare_path_policy_tools(
-            capability_registry, session_registry.list_tools()
+            capability_registry,
+            session_registry.list_tools(),
+            overrides=getattr(settings, "tool_path_policies", None) or {},
         )
     session_guardrails = GuardrailSystem(tool_mode="block", tool_call_mode="block")
     session_guardrails.register(ToolDisabledGuard())

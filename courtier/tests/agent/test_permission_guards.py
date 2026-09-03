@@ -282,3 +282,62 @@ class TestPerToolRoots:
         result = await self._check(registry, "export_report", "/tmp/x")
         # 带权限字典却没有 path 键 → fail-closed 拒绝一切
         assert result.action == "deny"
+
+
+class TestSettingsOverrides:
+    """管理后台 tool_path_policies 覆盖：设置优先于类内声明。"""
+
+    def _registry(self, tools, overrides):
+        from courtier.agent.core.capability import CapabilityRegistry
+        from courtier.agent.core.guardrails.permission_guards import (
+            declare_path_policy_tools,
+        )
+
+        registry = CapabilityRegistry()
+        declare_path_policy_tools(registry, tools, overrides=overrides)
+        return registry
+
+    def _guard(self, registry):
+        from courtier.agent.core.guardrails import PathPolicyGuard
+
+        return PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
+
+    def _tool(self, name, declared=None):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(name=name, path_policy=declared)
+
+    def test_settings_override_wins_over_class_declaration(self):
+        tools = [self._tool("export_report", {"path": ["/code/default"]})]
+        registry = self._registry(
+            tools, {"export_report": ["/srv/reports"]}
+        )
+        guard = self._guard(registry)
+        assert guard._managed_roots("export_report") == ["/srv/reports"]
+
+    def test_settings_false_exempts_class_declared_tool(self):
+        tools = [self._tool("export_report", {"path": ["/code/default"]})]
+        registry = self._registry(tools, {"export_report": False})
+        guard = self._guard(registry)
+        # 显式豁免名片遮蔽类内声明与老名单基线
+        assert guard._managed_roots("export_report") is None
+
+    def test_settings_governs_undeclared_tool(self):
+        tools = [self._tool("custom_tool", None)]
+        registry = self._registry(tools, {"custom_tool": ["/srv/data"]})
+        guard = self._guard(registry)
+        assert guard._managed_roots("custom_tool") == ["/srv/data"]
+
+    def test_unlisted_tool_falls_back_to_class_or_baseline(self):
+        tools = [self._tool("declared", {"path": ["/d"]}), self._tool("bare", None)]
+        registry = self._registry(tools, {})
+        guard = self._guard(registry)
+        assert guard._managed_roots("declared") == ["/d"]
+        assert guard._managed_roots("bare") is None
+
+    def test_incomplete_settings_override_fails_closed(self):
+        tools = [self._tool("broken", None)]
+        registry = self._registry(tools, {"broken": {"oops": 1}})
+        guard = self._guard(registry)
+        # 带权限字典但没有 path 键 → fail-closed 拒绝一切
+        assert guard._managed_roots("broken") == []

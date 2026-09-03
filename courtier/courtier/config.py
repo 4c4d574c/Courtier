@@ -361,6 +361,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- 工具路径白名单（guards 类；工具自声明 + 管理后台覆盖） --------------
+    tool_path_policies: dict[str, list[str] | bool] = Field(
+        default_factory=dict,
+        alias="tool_path_policies",
+        description=(
+            "工具路径白名单（JSON）：{工具名: [允许的路径, ...] 或 false}。"
+            "列出的工具恰好只能读写这些路径（支持 ~）；false = 显式豁免；"
+            "未列出的工具按代码内声明或基线。设置项优先于工具类内的代码声明。"
+        ),
+    )
+
     # -- Model pool (multi-model selection; the chat chain follows the pick) --
     llm_model_pool: ModelPoolConfig = Field(
         default_factory=ModelPoolConfig,
@@ -1095,6 +1106,7 @@ def _setting_category(field: str) -> str:
         "max_runs_per_user",
         "max_total_runs",
         "tool_confirmation",
+        "tool_path_policies",
     ):
         return "guards"
     if field.startswith(("otel_", "audit_log_")) or field == "logger_level":

@@ -21,31 +21,67 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import logging
+
 from .base import CallGuardResult, GuardLayer
 
 if TYPE_CHECKING:
     from ..tool_call import ToolCall
+
+logger = logging.getLogger(__name__)
 
 #: 兜底名单：未做 Capability 声明的工具里，这些名字仍受会话路径白名单管。
 #: 内置文件工具（read/edit/write）的会话根约束由它承担——平台基线。
 DEFAULT_PATH_POLICY_TOOLS = ("read", "edit", "write")
 
 
-def declare_path_policy_tools(registry: Any, tools: Iterable[Any]) -> list[str]:
+def declare_path_policy_tools(
+    registry: Any,
+    tools: Iterable[Any],
+    overrides: Any | None = None,
+) -> list[str]:
     """把工具自声明的 path_policy 注册为 Capability 名片。
 
     声明即全部：``{"path": [p1, p2, ...]}`` → 该工具恰好只能读写这些路径
     （支持 ``~`` 展开）。``False`` / 未声明 → 不受管。声明不完整直接抛
     ValueError——安全声明宁可 fail loud 也不静默裸奔。返回已声明的工具名。
+
+    ``overrides``（管理后台 `tool_path_policies` 设置，按工具名覆盖）优先于
+    类内声明：值同语法（路径列表 = 恰好这些根；``false`` = 显式豁免，会注册
+    一张豁免名片以遮蔽老名单基线）。设置值在保存时已过类型校验；即便仍有
+    逻辑坏值，按 fail-closed 处理（空根名片 = 全部路径拒绝）而非裸奔。
     """
     from courtier.agent.core.capability import Capability
 
+    overrides = overrides or {}
     declared: list[str] = []
     for tool in tools:
         name = getattr(tool, "name", None)
-        value = getattr(tool, "path_policy", None)
-        if not name or value is None or value is False:
+        if not name:
             continue
+        if name in overrides:
+            value = overrides[name]        # 管理后台逐工具覆盖
+            if value is False:
+                # 显式豁免名片：遮蔽类内声明与老名单基线
+                registry.register(
+                    Capability(
+                        type="tool",
+                        name=name,
+                        meta={"permission": {"path_policy": False}},
+                    )
+                )
+                declared.append(name)
+                continue
+            if isinstance(value, (list, tuple)):
+                value = {"path": list(value)}   # 列表形式归一
+        else:
+            value = getattr(tool, "path_policy", None)   # 代码内声明
+        if value is None or value is False:
+            continue
+        if isinstance(value, dict) and "path" not in value:
+            # 坏值 fail-closed：注册空根名片（该工具全部路径拒绝）
+            logger.warning("path_policy 声明缺少 path 键，%s 将全部拒绝", name)
+            value = {"path": []}
         if not (isinstance(value, dict) and "path" in value):
             raise ValueError(
                 f"工具 {name} 的 path_policy 声明必须是 "
