@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import HTTPException
@@ -14,6 +17,32 @@ from ..models import SessionRecord, context_state_compacted
 from .stream_service import deserialize_messages, serialize_messages
 
 logger = logging.getLogger(__name__)
+
+# Mirrors SessionStore's id pattern — used to make the workspace path
+# composition traversal-proof before any filesystem touch.
+_SESSION_ID_RE = re.compile(r"^sess_[a-f0-9]{12}$")
+
+
+async def _remove_session_workspace(cache_dir: str, session_id: str) -> None:
+    """Best-effort removal of the session's file workspace.
+
+    ``build_agent`` scopes the PathPolicyGuard to
+    ``<cache_dir>/.agent_sessions/<session_id>`` (the only in-root location
+    file tools may write for this session); when the session is deleted the
+    folder has no owner left, so it goes with it.
+    """
+    if not cache_dir or not _SESSION_ID_RE.match(session_id):
+        return
+    workspace = Path(cache_dir).parent / ".agent_sessions" / session_id
+    try:
+        shutil.rmtree(workspace)
+        logger.info("Removed workspace for deleted session %s", session_id)
+    except FileNotFoundError:
+        return
+    except Exception:
+        logger.warning(
+            "Workspace cleanup failed for session %s", session_id, exc_info=True
+        )
 
 
 async def list_sessions(
@@ -68,6 +97,8 @@ async def delete_session(
                     session_id,
                     exc_info=True,
                 )
+    if deleted:
+        await _remove_session_workspace(cache_dir, session_id)
     return deleted
 
 
