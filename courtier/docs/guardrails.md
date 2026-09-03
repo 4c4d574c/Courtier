@@ -51,7 +51,7 @@ GuardResult.block(name, reason)           # 拦下整轮（状态机转终态）
 ```python
 CallGuardResult.allow(name)
 CallGuardResult.deny(name, reason, error_code="permission_denied")  # 该调用变错误结果，运行继续
-CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路，见 §6）
+CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路，见 §4.3）
 ```
 
 被拒的调用**不会执行**，但会变成一条错误观察喂回模型（模型可以换路子重试），
@@ -300,10 +300,25 @@ loud）；守卫侧遇到看不懂的声明按 **fail-closed** 处理（该工�
 和 `AgentRuntime`。新增受管工具 = 写工具类时多一行属性，任何接线代码
 （含 agent_service.py）都不用改。
 
+**管理后台覆盖（无需改代码的管理方式）**：管理后台 → 运行守卫与预算 →
+`tool_path_policies`（JSON：`{"工具名": ["/路径", ...] 或 false}`）：
+
+- 列出的工具**恰好只能读写这些路径，且优先于工具类内的代码声明**——
+  管理员可以给没做声明的工具补上管辖，也可以收窄/豁免已声明的工具；
+- `false` = 显式豁免（连类内声明和老名单基线一并遮蔽）；
+- 未列出的工具按代码声明或基线；
+- 热生效（下一次会话构建即用新值）。
+
+**两条安全语义**：声明值在播种时由 `declare_path_policy_tools` 解析成具体根
+（`~` 展开；会话相关路径在工具类里写不了的，就用设置项给具体路径）；解析
+失败在播种时抛 ValueError（fail loud），守卫侧遇到看不懂/不完整的声明按
+**fail-closed** 处理（该工具全部路径拒绝，显式豁免除外）——两条路都不给
+"静默裸奔"留门。
+
 **注意什么**：
 
-- 声明的路径建议绝对路径或 `~` 开头；相对路径按服务进程工作目录解析，
-  不建议依赖；
+- 声明与设置里的路径都建议绝对路径或 `~` 开头；相对路径按服务进程
+  工作目录解析，不建议依赖；
 - 一次声明一组路径，**不支持组合**（比如"会话根 + 某个额外目录"表达不了
   ——这种需求目前需要在会话接线处注册具体根，属于显式特例）；
 - **替代效应**：给某工具放宽的根，模型就能借它触达放宽区域。每工具的根
@@ -377,7 +392,19 @@ system.register_observer(scope, handler)
 system.set_context(agent_name=..., session_id=...)   # 循环自动调用
 ```
 
-## 6. 调试与测试
+## 6. 设置与运维
+
+相关设置键（管理后台 → 运行守卫与预算，均热生效）：
+
+| 键 | 作用 |
+|----|------|
+| `tool_confirmation` | 确认名单（JSON `[{tool, message}]`），见 §3 与 confirmation-interaction-plan |
+| `tool_path_policies` | 按工具覆盖路径白名单（§4.5 管理后台覆盖层） |
+| `loop_*` / `subagent_*` / `run_*` / `max_runs_per_user` / `max_total_runs` | 行为护栏与运行预算阈值 |
+
+`refusal_*` 三键属于模型行为恢复策略（think 阶段，管线外），但同页可配。
+
+## 7. 调试与测试
 
 - **看触发了什么**：总线事件 `guard.triggered`（含 layer/guard_name/action/reason）
   会进会话时间线；服务端指标 `guardrail_blocked_total{layer, guard_name}`。
@@ -390,7 +417,7 @@ system.set_context(agent_name=..., session_id=...)   # 循环自动调用
 - **真机验证**：配 `tool_confirmation` 触发一次确认；用 `read` 读
   `/etc/hostname` 触发一次路径拒绝——两者都有稳定可断言的用户可见结果。
 
-## 7. 已知坑（都是踩过的）
+## 8. 已知坑（都是踩过的）
 
 1. **`OrchestratorAgent.run` 覆写必须同步转发新 kwarg**。给 `Agent.run` 加参数
    后只改基类，所有 API 运行会在启动调用处 TypeError（`confirmation_handler`、
