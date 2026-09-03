@@ -304,9 +304,10 @@ registry.get("tool", "export_report") 返回什么？
 
 - **显式声明永远赢**。默认受管的 `read` 也可以被 `{"path_policy": False}`
   豁免（适合"该变体工具内部已自行做路径控制"的场景，慎用）；
-- **内置三件套不用声明也能管**：`registry.get()` 对未注册的工具会自动包装
-  一张 meta 为空的名片——空 meta = 没有声明 = 回退老名单。声明机制纯粹是
-  给自定义工具开的口子。
+- **内置三件套已声明化**：`build_agent` 创建共享注册表时会按
+  `DEFAULT_PATH_POLICY_TOOLS` 播种三条 `path_policy: True` 声明——内置工具的
+  管辖同样是数据而非硬编码（老名单只剩两个职责：未声明的自定义工具的回退
+  判断，以及无注册表构造守卫时的独立策略来源）。
 
 **怎么做**：在工具登记进会话的时机，往 `CapabilityRegistry` 注册一张名片：
 
@@ -322,8 +323,8 @@ registry.register(Capability(
 
 **放在哪里（注册时机）**：注册不会自己发生——要搭"工具进会话"的便车：
 
-- 平台自带工具：不用管，老名单兜底（这就是你平时感知不到它的原因——
-  生产代码里目前没有任何 `register` 调用）；
+- 平台自带工具：不用管——`build_agent` 已按 `DEFAULT_PATH_POLICY_TOOLS`
+  逐个播种声明；
 - 自己写的工具：在它注册进 `ToolRegistry` 的同一处（工具接线代码、域激活
   代码、测试 setup）调用 `register`；
 - **必须用 `build_agent` 创建的那个实例**：它同时交给了 `PathPolicyGuard` 和

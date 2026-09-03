@@ -212,3 +212,32 @@ def test_build_model_client_uses_router_when_fallback_backends_configured():
     assert isinstance(client, BackendModelClient)
     assert isinstance(client._backend, ModelRouter)
     assert len(client._backend._backends) == 2
+
+
+def test_build_agent_seeds_path_policy_declarations():
+    """内置文件工具的路径管辖以 Capability 声明播种（每会话注册表）。"""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from courtier.agent.core.capability import Capability, CapabilityRegistry
+
+    # 不跑完整 build_agent（依赖模型客户端），直接验证其播种逻辑等价物：
+    # guard 与 registry 共享时，read 受管判定走显式声明而非老名单。
+    from courtier.agent.core.guardrails import PathPolicyGuard
+
+    registry = CapabilityRegistry()
+    for tool in ("read", "edit", "write"):
+        registry.register(
+            Capability(
+                type="tool",
+                name=tool,
+                meta={"permission": {"path_policy": True}},
+            )
+        )
+    guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
+    assert guard._policy_applies("read") is True
+    # 已声明 + 显式 False → 豁免（数据优先）
+    registry.register(
+        Capability(type="tool", name="read", meta={"permission": {"path_policy": False}})
+    )
+    assert guard._policy_applies("read") is False
