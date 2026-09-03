@@ -281,7 +281,10 @@ async def handle_session_stream(
     media_parts: tuple = ()
     if fileIds:
         from ...core.content_parts import MediaPart
-        from ..services.agent_service import MediaUnsupportedError
+        from ..services.agent_service import (
+            MediaUnsupportedError,
+            ensure_model_supports_media,
+        )
         from ..services.file_service import gate_media_attachments, infer_kind
 
         file_store_media = request.app.state.file_store
@@ -311,6 +314,9 @@ async def handle_session_stream(
             )
             for i in resolved_infos
         )
+    attachment_dicts = [
+        {"fileId": p.file_id, "kind": p.kind, "name": p.name} for p in media_parts
+    ]
 
     if not is_new:
         # Record the new turn boundary so historical sessions render
@@ -325,6 +331,7 @@ async def handle_session_stream(
             file_id=fileId,
             model_id=run_model_id,
             model_name=run_model_name,
+            attachments=attachment_dicts,
         )
 
     # One unified builder for every session shape: chat-only, uploaded
@@ -377,6 +384,7 @@ async def handle_session_stream(
             owner=current_user,
             status="initial",
             model_id=run_model_id,
+            attachments=attachment_dicts,
         )
     else:
         await session_store.update(

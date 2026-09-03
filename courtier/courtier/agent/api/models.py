@@ -407,6 +407,9 @@ class SessionRecord:
                         "timestamp": msg.get("timestamp", self.created_at),
                         "fileName": msg.get("fileName"),
                         "fileId": msg.get("fileId"),
+                        # Message-level media attachments (kind/name/fileId);
+                        # legacy turns keep the single fileName/fileId fields.
+                        "attachments": msg.get("attachments", []),
                         "modelId": msg.get("modelId"),
                         "modelName": msg.get("modelName"),
                     },

@@ -957,3 +957,36 @@ class TestModelProvenance:
         assert s.last_model_id == "mdl_a2"
         assert s.to_summary_dict()["lastModelId"] == "mdl_a2"
         assert s.to_detail_dict()["lastModelId"] == "mdl_a2"
+
+
+class TestTurnAttachmentsPersistence:
+    """T6: create/add_turn 落盘媒体附件元数据。"""
+
+    def test_create_records_attachments(self, tmp_path):
+        import asyncio
+
+        store = SessionStore(str(tmp_path / "sessions"))
+        created = asyncio.run(
+            store.create(
+                session_id="sess_a1a1a1a1a1a1",
+                task="看图",
+                file_id="",
+                attachments=[{"fileId": "file_9", "kind": "image", "name": "pic.jpg"}],
+            )
+        )
+        assert created.turn_messages[0]["attachments"][0]["fileId"] == "file_9"
+
+    def test_add_turn_records_attachments(self, tmp_path):
+        import asyncio
+
+        store = SessionStore(str(tmp_path / "sessions"))
+        asyncio.run(store.create(session_id="sess_b2b2b2b2b2b2", task="t1", file_id=""))
+        asyncio.run(
+            store.add_turn(
+                "sess_b2b2b2b2b2b2",
+                "t2",
+                attachments=[{"fileId": "file_8", "kind": "audio", "name": "a.wav"}],
+            )
+        )
+        record = asyncio.run(store.get("sess_b2b2b2b2b2b2"))
+        assert record.turn_messages[1]["attachments"][0]["kind"] == "audio"

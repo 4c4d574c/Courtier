@@ -602,3 +602,36 @@ class TestSubagentRunRecord:
         restored2 = SRR.from_dict(camel_data)
         assert restored2.handle_id == "hdl_2"
         assert restored2.parent_handle_id == "hdl_parent_2"
+
+
+class TestTurnAttachments:
+    """T6: turns[].message.attachments（媒体附件回放元数据）。"""
+
+    def test_detail_turns_include_attachments(self):
+        s = SessionRecord(
+            id="sess_m",
+            task="看图",
+            file_id="",
+            created_at=100.0,
+            turn_messages=[
+                {
+                    "text": "看图",
+                    "timestamp": 100.0,
+                    "attachments": [{"fileId": "file_1", "kind": "image", "name": "a.png"}],
+                }
+            ],
+        )
+        detail = s.to_detail_dict()
+        msg = detail["turns"][0]["message"]
+        assert msg["attachments"] == [{"fileId": "file_1", "kind": "image", "name": "a.png"}]
+
+    def test_legacy_turns_have_empty_attachments(self):
+        s = SessionRecord(
+            id="sess_m",
+            task="纯文本",
+            file_id="",
+            created_at=100.0,
+            turn_messages=[{"text": "纯文本", "timestamp": 100.0}],
+        )
+        msg = s.to_detail_dict()["turns"][0]["message"]
+        assert msg["attachments"] == []

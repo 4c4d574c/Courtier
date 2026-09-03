@@ -81,6 +81,7 @@ class SessionStore:
         owner: str = "",
         status: str = "running",
         model_id: str = "",
+        attachments: list[dict] | None = None,
     ) -> SessionRecord:
         import time as _time
 
@@ -101,6 +102,7 @@ class SessionStore:
                     "timestamp": now,
                     "fileName": file_name or None,
                     "fileId": file_id or None,
+                    "attachments": attachments or [],
                     "modelId": model_id or None,
                     "modelName": model_name or None,
                 }
@@ -336,6 +338,7 @@ class SessionStore:
         event_seq: int | None = None,
         model_id: str = "",
         model_name: str = "",
+        attachments: list[dict] | None = None,
     ) -> None:
         """Record a new turn boundary for multi-turn continuation.
 
@@ -366,6 +369,7 @@ class SessionStore:
                         "timestamp": _time.time(),
                         "fileName": file_name,
                         "fileId": file_id,
+                        "attachments": attachments or [],
                         "modelId": model_id or None,
                         "modelName": model_name or None,
                     }

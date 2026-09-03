@@ -18,10 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 def serialize_messages(messages: tuple) -> str:
-    """Serialize AgentState messages to a JSON string for persistence."""
+    """Serialize AgentState messages to a JSON string for persistence.
+
+    Part-list content (multimodal user turns) persists in its internal
+    logical form — media parts are file references, never bytes.
+    """
+    from ...core.content_parts import parts_to_internal
+
     data = []
     for msg in messages:
-        d: dict = {"role": msg.role, "content": msg.content}
+        d: dict = {"role": msg.role, "content": parts_to_internal(msg.content)}
         if msg.tool_calls:
             d["tool_calls"] = [
                 {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls
@@ -38,6 +44,7 @@ def serialize_messages(messages: tuple) -> str:
 
 def deserialize_messages(json_str: str) -> tuple:
     """Deserialize a JSON string back to a tuple of Message objects."""
+    from ...core.content_parts import parse_content
     from ...core.model import ToolCall
     from ...core.state import Message as _Msg
 
@@ -55,7 +62,7 @@ def deserialize_messages(json_str: str) -> tuple:
         messages.append(
             _Msg(
                 role=d["role"],
-                content=d.get("content"),
+                content=parse_content(d.get("content")),
                 tool_calls=tuple(tool_calls) if tool_calls is not None else None,
                 tool_call_id=d.get("tool_call_id"),
                 name=d.get("name"),

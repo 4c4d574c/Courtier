@@ -66,3 +66,71 @@ class TestSerializeDeserializeMessages:
         assert result[0].tool_call_id is None
         assert result[0].name is None
         assert result[0].source is None
+
+
+class TestMultimodalRoundTrip:
+    """T6: 媒体 part 消息的持久化往返（引用形态，无字节）。"""
+
+    def test_serialize_part_message_persists_refs(self):
+        from courtier.agent.core.content_parts import MediaPart, TextPart
+        from courtier.agent.core.state import Message
+        from courtier.agent.api.services.stream_service import (
+            deserialize_messages,
+            serialize_messages,
+        )
+
+        msgs = (
+            Message(role="user", content=[TextPart("看这张图"), MediaPart("image", "file_1", "a.png")]),
+            Message(role="assistant", content="好的"),
+        )
+        raw = serialize_messages(msgs)
+        assert '"file_1"' in raw
+        assert "base64" not in raw
+        restored = deserialize_messages(raw)
+        assert restored[0].content == [
+            TextPart("看这张图"),
+            MediaPart("image", "file_1", "a.png"),
+        ]
+        assert restored[1].content == "好的"
+
+    def test_deserialize_legacy_plain_messages(self):
+        import json
+
+        from courtier.agent.api.services.stream_service import deserialize_messages
+
+        raw = json.dumps([{"role": "user", "content": "hello"}])
+        (msg,) = deserialize_messages(raw)
+        assert msg.content == "hello"
+
+    def test_edit_truncation_with_media_turn(self):
+        """compute_turn_truncation 对含媒体轮次的历史可正常裁剪。"""
+        from courtier.agent.core.content_parts import MediaPart, TextPart
+        from courtier.agent.core.state import Message
+        from courtier.agent.api.models import SessionRecord
+        from courtier.agent.api.services.session_service import compute_turn_truncation
+        from courtier.agent.api.services.stream_service import (
+            deserialize_messages,
+            serialize_messages,
+        )
+
+        msgs = (
+            Message(role="user", content=[TextPart("turn-1"), MediaPart("image", "file_1", "a.png")]),
+            Message(role="assistant", content="r1"),
+            Message(role="user", content="turn-2"),
+            Message(role="assistant", content="r2"),
+        )
+        session = SessionRecord(
+            id="sess_x",
+            task="turn-1",
+            file_id="",
+            messages_json=serialize_messages(msgs),
+            turn_messages=[
+                {"text": "turn-1", "timestamp": 1.0, "attachments": []},
+                {"text": "turn-2", "timestamp": 2.0, "attachments": []},
+            ],
+            turn_step_starts=[0, 2],
+        )
+        kwargs = compute_turn_truncation(session, 1)
+        cut = deserialize_messages(kwargs["messages_json"])
+        assert len(cut) == 2
+        assert cut[0].content == [TextPart("turn-1"), MediaPart("image", "file_1", "a.png")]
