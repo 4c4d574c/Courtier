@@ -80,6 +80,9 @@ export const FIELD_DISPLAY_NAMES: Record<string, string> = {
   subagent_max_runtime_seconds: "单子代理运行时长上限（秒）",
   subagent_max_cumulative_runtime_seconds: "子代理累计运行时长上限（秒）",
   subagent_max_total_spawns: "子代理派生总数上限",
+  // guards — 确认与路径策略
+  tool_confirmation: "工具确认名单",
+  tool_path_policies: "工具路径白名单",
   // guards — 并发与运行
   max_runs_per_user: "每用户并发运行上限",
   max_total_runs: "全局并发运行上限",
@@ -182,6 +185,11 @@ const CATEGORY_GROUPS: Record<string, GroupSpec[]> = {
   guards: [
     { key: "loop", label: "主循环守卫", prefixes: ["loop_"] },
     { key: "subagent", label: "子代理", prefixes: ["subagent_"] },
+    {
+      key: "confirm",
+      label: "确认与路径策略",
+      names: ["tool_confirmation", "tool_path_policies"],
+    },
     { key: "runs", label: "并发与运行", prefixes: ["run_"], names: ["max_runs_per_user", "max_total_runs"] },
   ],
   observability: [
