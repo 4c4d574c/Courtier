@@ -2846,6 +2846,52 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   cursor: default;
 }
 .toolconfirm-add,
+.toolpath-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.toolpath-path-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolpath-path-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-tertiary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.toolpath-path-remove:hover:not(:disabled) {
+  color: var(--chat-accent);
+}
+.toolpath-path-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.toolpath-path-add {
+  align-self: flex-start;
+  border: 1px dashed var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: var(--chat-radius-sm);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.toolpath-path-add:hover:not(:disabled) {
+  color: var(--chat-text-primary);
+  border-color: var(--chat-text-tertiary);
+}
+.toolpath-path-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .toolpath-add {
   margin: 10px 12px;
   padding: 6px 10px;
