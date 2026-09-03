@@ -10,6 +10,9 @@ export function handleRuntimeEvent(
 
   switch (event.type) {
     case "guard_triggered": {
+      // 确认链路的守卫事件不进时间线：挂起本身已由确认卡表达，
+      // "tool_confirmation 已记录"一行对用户是冗余噪声。
+      if (event.guardName === "tool_confirmation") break;
       pushRuntimeEvent(session, "guardEvents", event);
       break;
     }

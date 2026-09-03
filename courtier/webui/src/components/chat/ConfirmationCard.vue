@@ -1,29 +1,35 @@
 <template>
   <div v-for="item in items" :key="item.confirmationId" class="confirm-card">
-    <span class="confirm-card-icon"><AppIcon name="shield" :size="15" /></span>
-    <div class="confirm-card-body">
-      <div class="confirm-card-title">
-        工具 <code>{{ item.toolName }}</code> 请求执行，等待你的确认
-      </div>
-      <div v-if="item.message" class="confirm-card-message">{{ item.message }}</div>
-      <div class="confirm-card-actions">
-        <button class="confirm-btn confirm-btn--once" @click="$emit('resolve', item.confirmationId, 'approve')">
-          仅本次执行
-        </button>
-        <button class="confirm-btn confirm-btn--session" @click="$emit('resolve', item.confirmationId, 'approve_session')">
-          本会话内放行
-        </button>
-        <button class="confirm-btn confirm-btn--deny" @click="$emit('resolve', item.confirmationId, 'deny')">
-          拒绝
-        </button>
-      </div>
+    <div class="confirm-head">
+      <span class="confirm-tag">待确认</span>
+      <code class="confirm-tool">{{ item.toolName }}</code>
+    </div>
+    <p v-if="item.message" class="confirm-message">{{ item.message }}</p>
+    <div class="confirm-actions">
+      <button
+        class="confirm-btn confirm-btn--primary"
+        @click="$emit('resolve', item.confirmationId, 'approve')"
+      >
+        仅本次执行
+      </button>
+      <button
+        class="confirm-btn confirm-btn--ghost"
+        @click="$emit('resolve', item.confirmationId, 'approve_session')"
+      >
+        本会话内放行
+      </button>
+      <button
+        class="confirm-btn confirm-btn--text"
+        @click="$emit('resolve', item.confirmationId, 'deny')"
+      >
+        拒绝
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { PendingConfirmation } from "../../types/agent";
-import AppIcon from "../AppIcon.vue";
 
 withDefaults(
   defineProps<{
@@ -43,68 +49,84 @@ defineEmits<{
 
 <style scoped>
 .confirm-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
-  border-left: 3px solid #f59e0b;
   background: var(--chat-bg-card);
-  font-size: 15px;
 }
 
-.confirm-card-icon {
-  color: #f59e0b;
-  margin-top: 2px;
-}
-
-.confirm-card-title code {
-  font-size: 13px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--chat-bg-input, rgba(127, 127, 127, 0.15));
-}
-
-.confirm-card-message {
-  margin-top: 4px;
-  color: var(--chat-text-secondary, inherit);
-  opacity: 0.85;
-  font-size: 14px;
-}
-
-.confirm-card-actions {
+.confirm-head {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 10px;
-  flex-wrap: wrap;
+}
+
+.confirm-tag {
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: #9a5b00;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.06);
+}
+
+.confirm-tool {
+  font-size: 13px;
+  color: var(--chat-text-primary);
+}
+
+.confirm-message {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--chat-text-secondary);
+}
+
+.confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--chat-border);
 }
 
 .confirm-btn {
-  border: 1px solid var(--chat-border, rgba(127, 127, 127, 0.3));
-  background: transparent;
-  color: inherit;
-  border-radius: 8px;
-  padding: 5px 12px;
   font-size: 13px;
+  line-height: 1;
+  padding: 7px 14px;
+  border-radius: var(--chat-radius-sm);
   cursor: pointer;
 }
 
-.confirm-btn--once {
-  border-color: #3b82f6;
-  color: #3b82f6;
+.confirm-btn--primary {
+  border: none;
+  background: var(--chat-accent);
+  color: var(--chat-accent-contrast);
 }
 
-.confirm-btn--session {
-  border-color: #22c55e;
-  color: #22c55e;
+.confirm-btn--primary:hover {
+  background: var(--chat-accent-hover);
 }
 
-.confirm-btn--deny {
-  border-color: #ef4444;
-  color: #ef4444;
+.confirm-btn--ghost {
+  border: 1px solid var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-primary);
 }
 
-.confirm-btn:hover {
-  filter: brightness(1.15);
+.confirm-btn--ghost:hover {
+  border-color: var(--chat-text-tertiary);
+}
+
+.confirm-btn--text {
+  border: none;
+  background: none;
+  color: var(--chat-text-secondary);
+}
+
+.confirm-btn--text:hover {
+  color: var(--chat-accent);
 }
 </style>
