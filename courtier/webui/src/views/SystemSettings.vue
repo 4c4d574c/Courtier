@@ -452,7 +452,7 @@
                     />
                     <input
                       v-model="row.addr"
-                      class="endpoint-input endpoint-input--addr"
+                      class="tbl-input"
                       :disabled="!editable"
                       placeholder="host:port"
                       spellcheck="false"
