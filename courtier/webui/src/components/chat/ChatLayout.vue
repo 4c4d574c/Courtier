@@ -41,7 +41,7 @@
           :is-running="isRunning"
           :pending-confirmations="session.pendingConfirmations ?? []"
           @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
-          @submit="(task, file) => $emit('submit', task, file)"
+          @submit="(task, docFile, mediaFiles) => $emit('submit', task, docFile, mediaFiles)"
           @stop="$emit('stop')"
         />
       </div>
@@ -99,7 +99,7 @@ defineEmits<{
   "preview-file": [file: ChatFileItem];
   "citation-click": [hit: CitationHit | undefined];
   "close-preview": [];
-  submit: [task: string, file?: File];
+  submit: [task: string, document?: File, media?: File[]];
   stop: [];
   "resolve-confirmation": [
     confirmationId: string,
