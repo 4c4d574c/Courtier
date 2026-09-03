@@ -27,6 +27,8 @@
           :queue-position="session.queuePosition"
           :can-edit="canEdit"
           :edit-hint="editHint"
+          :pending-confirmations="session.pendingConfirmations ?? []"
+          @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
           @preview="$emit('preview-file', $event)"
           @citation-click="$emit('citation-click', $event)"
           @edit-submit="$emit('edit-submit', $event)"
@@ -34,10 +36,6 @@
         <div v-if="session.refusalNotice" class="refusal-banner">
           {{ session.refusalNotice }}
         </div>
-        <ConfirmationCard
-          :items="session.pendingConfirmations ?? []"
-          @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
-        />
         <InputArea
           :model-name="session.modelName"
           :uploading="uploading"
@@ -64,7 +62,6 @@ import ChatSidebar from "./ChatSidebar.vue";
 import ChatHeader from "./ChatHeader.vue";
 import ChatArea from "./ChatArea.vue";
 import InputArea from "./InputArea.vue";
-import ConfirmationCard from "./ConfirmationCard.vue";
 import FilePreviewPanel from "./FilePreviewPanel.vue";
 
 interface Props {

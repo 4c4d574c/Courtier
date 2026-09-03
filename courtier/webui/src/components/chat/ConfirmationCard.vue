@@ -25,9 +25,12 @@
 import type { PendingConfirmation } from "../../types/agent";
 import AppIcon from "../AppIcon.vue";
 
-defineProps<{
-  items: PendingConfirmation[];
-}>();
+withDefaults(
+  defineProps<{
+    items?: PendingConfirmation[];
+  }>(),
+  { items: () => [] },
+);
 
 defineEmits<{
   (
@@ -43,7 +46,6 @@ defineEmits<{
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin: 8px 0;
   padding: 12px 14px;
   border-radius: var(--chat-radius-md);
   border-left: 3px solid #f59e0b;
