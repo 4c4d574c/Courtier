@@ -270,32 +270,72 @@ guards:
 
 ### 4.5 让自定义工具受路径白名单管
 
-**场景举例**：新写了一个 `export_report` 工具会写文件，希望它和
-`read`/`edit`/`write` 一样受会话路径白名单约束。
+**先说清它在解决什么问题。** `PathPolicyGuard` 拦截一个 `read`/`write` 调用时，
+第一件事是回答："**这个工具，是我要管的工具吗？**"——是，才去检查它的 `path`
+参数是否落在会话根内。这份"受管工具名单"有两种来源：
 
-**怎么做**：给工具注册一条 Capability 声明：
+1. **老名单（默认兜底）**：硬编码的 `read`/`edit`/`write`。内置文件工具靠它工作。
+   缺点：你新写一个会写文件的工具（比如 `export_report`），它不在名单里，
+   就**完全绕过路径检查**——可以在磁盘任何地方写文件。
+2. **Capability 声明（可扩展）**：把"谁受管"变成运行时数据，自定义工具不用改
+   核心代码就能入列。
+
+**Capability 是什么**：一张名片，不是工具本体。工具还是登记在 `ToolRegistry`
+里；名片只是往会话的 `CapabilityRegistry` 里放一条
+`(类型, 名字, meta 声明)`，让守卫来查的时候能查到。
+
+**判定流程**（模型发起 `export_report(path=...)` 时，守卫依次问）：
+
+```
+registry.get("tool", "export_report") 返回什么？
+│
+├─ 查到显式注册的名片，且 meta 里有 permission 字典？
+│     ├─ path_policy=True  → 受管 → 走路径白名单检查
+│     └─ path_policy=False → 显式豁免 → 直接放行
+│
+├─ 查到自动包装的名片（工具存在但没人声明，meta 为空）？
+│     └─ 回退老名单：在 read/edit/write 里 → 受管；不在 → 不受管
+│        （不声明就是安全漏洞所在！）
+│
+└─ 工具不存在 → 不受管（后面执行自然报错）
+```
+
+两个要点：
+
+- **显式声明永远赢**。默认受管的 `read` 也可以被 `{"path_policy": False}`
+  豁免（适合"该变体工具内部已自行做路径控制"的场景，慎用）；
+- **内置三件套不用声明也能管**：`registry.get()` 对未注册的工具会自动包装
+  一张 meta 为空的名片——空 meta = 没有声明 = 回退老名单。声明机制纯粹是
+  给自定义工具开的口子。
+
+**怎么做**：在工具登记进会话的时机，往 `CapabilityRegistry` 注册一张名片：
 
 ```python
 from courtier.agent.core.capability import Capability, CapabilityRegistry
 
 registry.register(Capability(
     type="tool",
-    name="export_report",
-    meta={"permission": {"path_policy": True}},   # 声明受管
+    name="export_report",                          # 与 ToolRegistry 里的工具名一致
+    meta={"permission": {"path_policy": True}},    # 声明受管
 ))
 ```
 
-**放在哪里**：工具的注册方（域激活代码 / 插件接线处 / 测试 setup）。
-`build_agent` 已为每个会话建好共享的 `CapabilityRegistry` 并同时交给
-`PathPolicyGuard` 和 `AgentRuntime`——往**同一个**实例注册即可生效。
+**放在哪里（注册时机）**：注册不会自己发生——要搭"工具进会话"的便车：
+
+- 平台自带工具：不用管，老名单兜底（这就是你平时感知不到它的原因——
+  生产代码里目前没有任何 `register` 调用）；
+- 自己写的工具：在它注册进 `ToolRegistry` 的同一处（工具接线代码、域激活
+  代码、测试 setup）调用 `register`；
+- **必须用 `build_agent` 创建的那个实例**：它同时交给了 `PathPolicyGuard` 和
+  `AgentRuntime`，同一实例注册一次全会话可见（守卫 + 运行时都查得到）。
 
 **注意什么**：
 
-- 显式声明优先于默认名单：`{"path_policy": False}` 可以把 `read` 从白名单里
-  **豁免**出去（慎用）；未声明的工具走默认的 read/edit/write；
-- 声明只有"受不受管"一个开关；管的方式（哪些根）仍由会话决定；
-- 目前没有自动把所有工具注册进 CapabilityRegistry 的代码——自定义工具
-  需要在上述位置显式注册，这是已知待完善点。
+- 声明只有"受不受管"一个开关；管的方式（哪些根）仍由会话决定，与声明无关；
+- `registry.get()` 对不在 `ToolRegistry` 里的名字返回 None → 回退老名单 →
+  自定义名字不匹配即放行——所以**名片的名字必须和工具登记名一字不差**；
+- 目前没有自动把所有工具注册进 CapabilityRegistry 的代码（消费端就绪、
+  注册端按需）——这是已知待完善点。
 
 ### 4.6 在生命周期点改状态 / 做记录
 
