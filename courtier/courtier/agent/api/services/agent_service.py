@@ -343,7 +343,9 @@ def _make_media_resolver(file_store: Any, upload_dir: str) -> Any:
         if path is None or not path.is_file():
             raise FileNotFoundError(file_id)
         data = await asyncio.to_thread(path.read_bytes)
-        mime = mimetypes.guess_type(info.original_name)[0] or "application/octet-stream"
+        # MIME follows the STORED file: transcoded videos keep their original
+        # display name but the bytes are mp4 after upload-time normalization.
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         return data, mime
 
     return resolve

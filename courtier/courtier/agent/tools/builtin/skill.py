@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import types
+import typing
+from typing import get_args, get_origin, Union
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -123,6 +126,16 @@ class SkillTool:
             annotation = self._input_model.model_fields[name].annotation
             if isinstance(annotation, type) and issubclass(annotation, MediaRef):
                 out[name] = annotation.media_kind()
+                continue
+            # Optional[ImageRef] (incl. PEP 604 `X | None`) — unwrap the union.
+            origin = get_origin(annotation)
+            if origin is Union or origin is types.UnionType:
+                for arg in get_args(annotation):
+                    if arg is types.NoneType:
+                        continue
+                    if isinstance(arg, type) and issubclass(arg, MediaRef):
+                        out[name] = arg.media_kind()
+                        break
         return out
 
     def _merge_typed_parameters(self) -> None:

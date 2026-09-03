@@ -202,3 +202,82 @@ class TestRuntimeHandleMedia:
             media_parts=(MediaPart(kind="image", file_id="f1", name="a.png"),),
         )
         assert handle.media_parts[0].file_id == "f1"
+
+
+class TestOptionalMediaFields:
+    """双模态技能：Optional[MediaRef] 字段识别与校验（图片+视频扩展）。"""
+
+    @staticmethod
+    def _model():
+        from pydantic import BaseModel, Field
+
+        from courtier.agent.core.content_parts import VideoRef
+
+        class DualInput(BaseModel):
+            task: str = ""
+            image: ImageRef | None = None
+            video: VideoRef | None = None
+
+        return DualInput
+
+    def test_union_fields_detected(self):
+        from courtier.agent.tools.builtin.skill import SkillTool
+
+        skill = SimpleNamespace(
+            name="visual_inspection", display_name="视觉检查",
+            description="检查", default_mode="subagent",
+            input_model=self._model(),
+        )
+        tool = SkillTool(skill=skill, runtime=None, prompt_engine=None)
+        assert tool._media_fields() == {"image": "image", "video": "video"}
+
+    def test_requires_one_medium(self):
+        import sys
+        from pathlib import Path
+
+        domain_root = str(Path(__file__).resolve().parents[3] / "domains" / "docaudit")
+        if domain_root not in sys.path:
+            sys.path.insert(0, domain_root)
+        from skills.schemas.visual_inspection import VisualInspectionInput
+
+        with pytest.raises(ValidationError):
+            VisualInspectionInput.model_validate({"task": "t"})
+        # 官方 schema 的双字段同样可被识别为媒体字段
+        from courtier.agent.tools.builtin.skill import SkillTool
+
+        skill = SimpleNamespace(
+            name="visual_inspection", display_name="视觉检查",
+            description="检查", default_mode="subagent",
+            input_model=VisualInspectionInput,
+        )
+        tool = SkillTool(skill=skill, runtime=None, prompt_engine=None)
+        assert tool._media_fields() == {"image": "image", "video": "video"}
+
+    def test_extract_video_only(self):
+        from courtier.agent.tools.builtin.skill import SkillTool
+
+        skill = SimpleNamespace(
+            name="visual_inspection", display_name="视觉检查",
+            description="检查", default_mode="subagent",
+            input_model=self._model(),
+        )
+        tool = SkillTool(skill=skill, runtime=None, prompt_engine=None)
+        validated = self._model().model_validate({"task": "t", "video": "file_v"})
+        assert tool._extract_media_parts(validated) == (
+            MediaPart(kind="video", file_id="file_v", name="file_v"),
+        )
+
+    def test_data_section_marks_filled_medium(self):
+        from courtier.agent.tools.builtin.skill import SkillTool
+
+        skill = SimpleNamespace(
+            name="visual_inspection", display_name="视觉检查",
+            description="检查", default_mode="subagent",
+            input_model=self._model(),
+        )
+        tool = SkillTool(skill=skill, runtime=None, prompt_engine=None)
+        validated = self._model().model_validate({"task": "t", "video": "file_v"})
+        section = tool._render_data_section(validated)
+        assert "## video" in section
+        assert "[媒体附件已随消息内联: file_v]" in section
+        assert "## image" not in section
