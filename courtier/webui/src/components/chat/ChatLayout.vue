@@ -27,8 +27,6 @@
           :queue-position="session.queuePosition"
           :can-edit="canEdit"
           :edit-hint="editHint"
-          :pending-confirmations="session.pendingConfirmations ?? []"
-          @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
           @preview="$emit('preview-file', $event)"
           @citation-click="$emit('citation-click', $event)"
           @edit-submit="$emit('edit-submit', $event)"
@@ -41,6 +39,8 @@
           :uploading="uploading"
           :error="uploadError"
           :is-running="isRunning"
+          :pending-confirmations="session.pendingConfirmations ?? []"
+          @resolve="(id, decision) => $emit('resolve-confirmation', id, decision)"
           @submit="(task, file) => $emit('submit', task, file)"
           @stop="$emit('stop')"
         />

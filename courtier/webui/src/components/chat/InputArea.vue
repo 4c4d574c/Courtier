@@ -1,6 +1,42 @@
 <template>
   <div class="input-area">
     <div class="input-card">
+      <div
+        v-for="item in pendingConfirmations"
+        :key="item.confirmationId"
+        class="input-card-confirm"
+      >
+        <div class="input-card-confirm-info">
+          <span class="input-card-confirm-tag">待确认</span>
+          <code class="input-card-confirm-tool">{{ item.toolName }}</code>
+          <span v-if="item.message" class="input-card-confirm-message">{{
+            item.message
+          }}</span>
+        </div>
+        <div class="input-card-confirm-actions">
+          <button
+            class="confirm-btn confirm-btn--primary"
+            type="button"
+            @click="$emit('resolve', item.confirmationId, 'approve')"
+          >
+            仅本次执行
+          </button>
+          <button
+            class="confirm-btn confirm-btn--ghost"
+            type="button"
+            @click="$emit('resolve', item.confirmationId, 'approve_session')"
+          >
+            本会话内放行
+          </button>
+          <button
+            class="confirm-btn confirm-btn--text"
+            type="button"
+            @click="$emit('resolve', item.confirmationId, 'deny')"
+          >
+            拒绝
+          </button>
+        </div>
+      </div>
       <div v-if="error || fileError" class="input-area-error">
         {{ error || fileError }}
       </div>
@@ -101,18 +137,25 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount } from "vue";
 import { ALLOWED_EXTS, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } from "../../constants/fileUpload";
 import { MESSAGES } from "../../constants/messages";
 import { useModelPool } from "../../composables/useModelPool";
+import type { PendingConfirmation } from "../../types/agent";
 
 interface Props {
   modelName?: string;
   uploading?: boolean;
   error?: string;
   isRunning?: boolean;
+  /** 确认链路：挂起中的工具确认（输入卡顶部分区，与输入框一体）。 */
+  pendingConfirmations?: PendingConfirmation[];
 }
 
 const props = defineProps<Props>();
 const emit = defineEmits<{
   submit: [task: string, file?: File];
   stop: [];
+  resolve: [
+    confirmationId: string,
+    decision: "approve" | "approve_session" | "deny",
+  ];
 }>();
 
 const pool = useModelPool();
@@ -471,5 +514,96 @@ function clearFile() {
   to {
     transform: rotate(360deg);
   }
+}
+.input-card-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: -14px -16px 12px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-lg) var(--chat-radius-lg) 0 0;
+  background: rgba(180, 83, 9, 0.04);
+}
+
+.input-card-confirm-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.input-card-confirm-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: #9a5b00;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.06);
+}
+
+.input-card-confirm-tool {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--chat-text-primary);
+}
+
+.input-card-confirm-message {
+  font-size: 14px;
+  color: var(--chat-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-card-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.confirm-btn {
+  font-size: 13px;
+  line-height: 1;
+  padding: 6px 12px;
+  border-radius: var(--chat-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.confirm-btn--primary {
+  border: none;
+  background: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+
+.confirm-btn--primary:hover {
+  background: var(--chat-accent-hover);
+}
+
+.confirm-btn--ghost {
+  border: 1px solid var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-primary);
+}
+
+.confirm-btn--ghost:hover {
+  border-color: var(--chat-text-tertiary);
+}
+
+.confirm-btn--text {
+  border: none;
+  background: none;
+  color: var(--chat-text-secondary);
+}
+
+.confirm-btn--text:hover {
+  color: var(--chat-accent);
 }
 </style>

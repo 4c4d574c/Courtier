@@ -34,10 +34,6 @@
         @citation-click="$emit('citation-click', $event)"
         @edit-submit="$emit('edit-submit', $event)"
       />
-      <ConfirmationCard
-        :items="pendingConfirmations"
-        @resolve="(id, decision) => $emit('resolve', id, decision)"
-      />
       <div v-if="isRunning && queuePosition !== undefined" class="chat-queue-banner">
         {{ queuePosition > 0 ? `排队中，前面还有 ${queuePosition} 个任务` : "排队中，即将开始" }}
       </div>
@@ -51,8 +47,6 @@ import type { ChatMessageItem } from "../../types/chat";
 import { MESSAGES } from "../../constants/messages";
 import { useAutoScroll } from "../../composables/useAutoScroll";
 import ChatMessage from "./ChatMessage.vue";
-import ConfirmationCard from "./ConfirmationCard.vue";
-import type { PendingConfirmation } from "../../types/agent";
 import logoUrl from "../../assets/logo.png";
 
 interface Props {
@@ -64,8 +58,6 @@ interface Props {
   canEdit?: boolean;
   /** Non-empty disables editing with the reason shown as tooltip. */
   editHint?: string;
-  /** 确认链路：挂起中的工具确认（内联渲染在消息流末尾，紧跟守卫提示）。 */
-  pendingConfirmations?: PendingConfirmation[];
 }
 
 const props = defineProps<Props>();
@@ -73,10 +65,6 @@ defineEmits<{
   preview: [file: Extract<ChatMessageItem, { type: "file" }>];
   "citation-click": [hit: import("../../types/agent").CitationHit | undefined];
   "edit-submit": [payload: { turnIndex: number; text: string }];
-  resolve: [
-    confirmationId: string,
-    decision: "approve" | "approve_session" | "deny",
-  ];
 }>();
 
 const { containerRef, mount, unmount, scrollToBottom } = useAutoScroll();
