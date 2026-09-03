@@ -413,7 +413,9 @@
                 v-else-if="field.name !== KEYS_FIELD"
                 class="field-row"
                 :class="{
-                  stacked: field.name === ENDPOINTS_FIELD,
+                  stacked:
+                    field.name === ENDPOINTS_FIELD ||
+                    field.name === TOOL_PATH_FIELD,
                   dirty: isFieldDirty(field.name),
                   error: formErrors[field.name],
                 }"
