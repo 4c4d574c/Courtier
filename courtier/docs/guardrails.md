@@ -421,6 +421,13 @@ system.set_context(agent_name=..., session_id=...)   # 循环自动调用
 - **真机验证**：配 `tool_confirmation` 触发一次确认；用 `read` 读
   `/etc/hostname` 触发一次路径拒绝——两者都有稳定可断言的用户可见结果。
 
+- **配套前端表格编辑器**：为设置项做"按行增删"的结构化编辑时，复用
+  SystemSettings.vue 的统一表格样式（`.tbl-*` 体系）：`.tbl-editor` +
+  修饰类提供 `--tbl-cols` 列宽，表头 `.tbl-head`、行 `.tbl-row`、输入
+  `.tbl-input`、行删除 `.tbl-remove`、底部添加 `.tbl-add`；工具名建议
+  面板用 `.tbl-toolcell / .tbl-suggest / .tbl-suggest-item`。现成参照：
+  插件端点映射、工具确认名单、工具路径白名单。
+
 ## 8. 已知坑（都是踩过的）
 
 1. **`OrchestratorAgent.run` 覆写必须同步转发新 kwarg**。给 `Agent.run` 加参数
