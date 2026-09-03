@@ -65,6 +65,9 @@ class ProxyTool:
         self.display_name: str | None = tool_spec.get("display_name")
         self.description: str = tool_spec.get("description", "")
         self.parameters: dict[str, Any] = tool_spec.get("parameters", {})
+        # Host-only service tools (internal) stay in the base registry for
+        # API-layer callers but never reach agent sessions.
+        self.internal: bool = bool(tool_spec.get("internal", False))
 
         # Contract fields — read from plugin spec if present (#2)
         self.output_artifact_type: str | None = tool_spec.get("output_artifact_type")

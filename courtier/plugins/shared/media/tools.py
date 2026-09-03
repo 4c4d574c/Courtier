@@ -85,6 +85,8 @@ class ProbeMediaTool:
 
     name: str = "probe_media"
     display_name: str | None = "媒体探测"
+    # Host-only service (upload-time validation) — hidden from agents.
+    internal: bool = True
     description: str = (
         "Probe an uploaded audio/video file with ffprobe. Returns real format "
         "name, duration (seconds), dimensions and codecs. The host uses this "

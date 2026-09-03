@@ -576,6 +576,9 @@ class PluginRuntime:
             "output_schema",
             "skip_persist",
             "skip_ref_resolution",
+            # internal: host-only tool (e.g. upload-time services) — never
+            # exposed to agent sessions.
+            "internal",
         ):
             value = getattr(tool_instance, attr, None)
             if value is not None:

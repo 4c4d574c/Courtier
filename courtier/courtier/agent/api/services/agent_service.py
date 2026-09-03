@@ -414,6 +414,10 @@ async def build_agent(
     # ToolRegistry.clone).  Admin/management endpoints keep reading the base
     # registry, which retains the raw plugin proxies.
     session_registry = tool_registry.clone() if tool_registry is not None else None
+    if session_registry is not None:
+        for _t in list(session_registry.list_tools()):
+            if getattr(_t, "internal", False):
+                session_registry.unregister(_t.name)
 
     # Build unified ArtifactStore (which now subsumes CacheStore).
     # Session-scoped: disk cache subdir and ES documents are keyed by
