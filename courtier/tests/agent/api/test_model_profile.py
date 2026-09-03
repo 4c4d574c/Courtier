@@ -12,7 +12,13 @@ from courtier.agent.api.services.agent_service import (
     build_model_client,
     resolve_model_profile,
 )
-from courtier.config import AgentRuntimeConfig, ModelRoutingConfig, Settings
+from courtier.config import (
+    AgentRuntimeConfig,
+    ModelPoolConfig,
+    ModelRoutingConfig,
+    PoolModelConfig,
+    Settings,
+)
 
 
 def _pool() -> dict:
@@ -269,3 +275,80 @@ class TestContextWindowOverride:
         kwargs = _context_budget_kwargs(settings, profile)
 
         assert kwargs["max_context_tokens"] == int(32768 * 0.75)
+
+
+class TestModalities:
+    """静态 modalities 声明：解析透传 + 媒体附件门控（T2）。"""
+
+    def test_pool_entry_modalities_default_empty(self):
+        settings = _settings()
+        profile = resolve_model_profile(settings, model_id="mdl_a1")
+        assert profile is not None
+        assert profile.modalities == ()
+
+    def test_pool_entry_modalities_pass_through(self):
+        pool = _pool()
+        pool["endpoints"][0]["models"][1]["modalities"] = ["vision", "audio"]
+        settings = Settings(
+            _env_file=None, llm_model_pool=pool, llm_endpoint_keys={"ep_a": "sk-a"}
+        )
+        profile = resolve_model_profile(settings, model_id="mdl_a2")
+        assert profile is not None
+        assert profile.modalities == ("vision", "audio")
+
+    def test_pool_entry_rejects_unknown_modality(self):
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            PoolModelConfig(id="m", name="m", model="m", modalities=["smell"])
+
+    def test_gate_passes_without_media(self):
+        from courtier.agent.api.services.agent_service import (
+            ensure_model_supports_media,
+        )
+
+        ensure_model_supports_media(None, [])
+        profile = resolve_model_profile(_settings(), model_id="mdl_a1")
+        ensure_model_supports_media(profile, [])
+
+    def test_gate_passes_when_modality_declared(self):
+        from courtier.agent.api.services.agent_service import (
+            ensure_model_supports_media,
+        )
+
+        pool = _pool()
+        pool["endpoints"][0]["models"][0]["modalities"] = ["vision"]
+        settings = Settings(
+            _env_file=None, llm_model_pool=pool, llm_endpoint_keys={"ep_a": "sk-a"}
+        )
+        profile = resolve_model_profile(settings, model_id="mdl_a1")
+        ensure_model_supports_media(profile, ["image"])
+
+    def test_gate_rejects_missing_modality(self):
+        from courtier.agent.api.services.agent_service import (
+            MediaUnsupportedError,
+            ensure_model_supports_media,
+        )
+
+        pool = _pool()
+        pool["endpoints"][0]["models"][0]["modalities"] = ["vision"]
+        settings = Settings(
+            _env_file=None, llm_model_pool=pool, llm_endpoint_keys={"ep_a": "sk-a"}
+        )
+        profile = resolve_model_profile(settings, model_id="mdl_a1")
+        with pytest.raises(MediaUnsupportedError, match="audio"):
+            ensure_model_supports_media(profile, ["audio"])
+        # 多附件报告全部缺失的 kind，image 在声明内不被点名
+        with pytest.raises(MediaUnsupportedError) as exc:
+            ensure_model_supports_media(profile, ["image", "audio", "video"])
+        assert "audio" in str(exc.value) and "video" in str(exc.value)
+        assert "image" not in str(exc.value)
+
+    def test_gate_scalar_fallback_is_text_only(self):
+        from courtier.agent.api.services.agent_service import (
+            MediaUnsupportedError,
+            ensure_model_supports_media,
+        )
+
+        with pytest.raises(MediaUnsupportedError):
+            ensure_model_supports_media(None, ["image"])

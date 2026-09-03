@@ -23,6 +23,34 @@ class UnknownModelError(LookupError):
     or its endpoint is disabled) — the run route turns this into a 400."""
 
 
+class MediaUnsupportedError(LookupError):
+    """A run carries media attachments the selected model does not support
+    (declared ``modalities`` lack the required entry) — the run route turns
+    this into a 400. Scalar-fallback runs (no profile) never support media."""
+
+
+# 附件 kind → 模型能力声明名的对应（image 附件要求模型声明 vision）。
+KIND_TO_MODALITY = {"image": "vision", "audio": "audio", "video": "video"}
+
+
+def ensure_model_supports_media(profile: "ModelProfile | None", kinds: list[str]) -> None:
+    """Gate media attachments against the run's declared model modalities.
+
+    Static declaration is the single source of truth: ``None`` profile
+    (scalar fallback) is text-only, and every required kind must appear in
+    ``profile.modalities``. Raises :class:`MediaUnsupportedError`; no silent
+    degradation or model switching.
+    """
+    if not kinds:
+        return
+    declared = set(profile.modalities) if profile else set()
+    missing = sorted(
+        {k for k in kinds if KIND_TO_MODALITY.get(k, k) not in declared}
+    )
+    if missing:
+        raise MediaUnsupportedError(",".join(missing))
+
+
 @dataclass(frozen=True)
 class ModelProfile:
     """A resolved model-pool selection for one run.
@@ -40,6 +68,10 @@ class ModelProfile:
     context_window_tokens: int | None = None
     max_tokens: int | None = None
     temperature: float | None = None
+    # Declared input modalities of the entry (static admin declaration; the
+    # single gating source). Empty = text-only. Scalar fallback runs have no
+    # profile at all, which consumers must treat as text-only too.
+    modalities: tuple[str, ...] = ()
     # Per-entry advanced overrides; None = the scalar llm_* default applies.
     timeout_seconds: float | None = None
     frequency_penalty: float | None = None
@@ -96,6 +128,7 @@ def resolve_model_profile(
         context_window_tokens=entry.context_window_tokens,
         max_tokens=entry.max_tokens,
         temperature=entry.temperature,
+        modalities=tuple(getattr(entry, "modalities", None) or ()),
         timeout_seconds=getattr(entry, "timeout_seconds", None),
         frequency_penalty=getattr(entry, "frequency_penalty", None),
         presence_penalty=getattr(entry, "presence_penalty", None),

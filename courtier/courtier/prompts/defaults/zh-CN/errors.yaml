@@ -40,6 +40,7 @@ errors:
   confirmation_denied: "用户拒绝了对工具 {{ tool_name }} 的确认，调用未执行。请调整方式或直接向用户说明。（提示：{{ message }}）"
   confirmation_unavailable: "工具 {{ tool_name }} 需要用户确认，但当前环境没有确认通道，调用未执行。"
   refusal_exhausted: "模型多次拒绝执行该任务，当前模型可能不可用；请稍后重试或联系管理员更换模型。"
+  media_model_unsupported: "当前模型不支持{{ kind_label }}输入，无法处理附件「{{ name }}」。请更换为支持该媒体类型的模型，或移除该附件后重试。"
   subagent_failed: "子代理执行失败：{{ error }}"
   # —— 插件通道 ——
   plugin_arg_path_escape: "参数 {{ param_name }} 的路径越出上传目录，已拒绝: {{ value }}"

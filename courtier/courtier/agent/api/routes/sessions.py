@@ -688,7 +688,17 @@ async def list_available_models(
         {
             "endpointId": ep.id,
             "endpointName": ep.name,
-            "models": [{"id": m.id, "name": m.name} for m in ep.models],
+            "models": [
+                {
+                    "id": m.id,
+                    "name": m.name,
+                    # Declared input modalities (vision/audio/video); empty
+                    # = text-only. The frontend gates media attachments on
+                    # this and renders capability badges.
+                    "modalities": list(getattr(m, "modalities", None) or ()),
+                }
+                for m in ep.models
+            ],
         }
         for ep in endpoints
         if ep.enabled and ep.models

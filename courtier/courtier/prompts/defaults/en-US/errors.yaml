@@ -40,6 +40,7 @@ errors:
   confirmation_denied: "The user rejected the confirmation for tool {{ tool_name }}; the call was not executed. Adjust your approach or answer directly. (Note: {{ message }})"
   confirmation_unavailable: "Tool {{ tool_name }} requires user confirmation, but no confirmation channel is available here — the call was not executed."
   refusal_exhausted: "The model repeatedly refused this task and may be unavailable — try again later or ask an administrator to switch models."
+  media_model_unsupported: "The current model does not support {{ kind_label }} input and cannot process the attachment \"{{ name }}\". Switch to a model that supports this media type, or remove the attachment and retry."
   subagent_failed: "Sub-agent execution failed: {{ error }}"
   # —— Plugin channel ——
   plugin_arg_path_escape: "Argument {{ param_name }} escapes the upload directory and was rejected: {{ value }}"

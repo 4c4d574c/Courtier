@@ -109,6 +109,11 @@ class PoolModelConfig(BaseModel):
     id: str
     name: str
     model: str
+    # Declared input modalities the entry can natively consume (static admin
+    # declaration — the single gating source for media attachments). Empty =
+    # text-only. Values follow model-capability naming (vision/audio/video);
+    # attachment kinds map onto these via agent_service.KIND_TO_MODALITY.
+    modalities: list[Literal["vision", "audio", "video"]] = Field(default_factory=list)
     context_window_tokens: int | None = Field(default=None, ge=1)
     max_tokens: int | None = Field(default=None, ge=1)
     temperature: float | None = Field(default=None, ge=0, le=2)

@@ -668,7 +668,12 @@ def model_pool_snapshot():
                     "enabled": True,
                     "models": [
                         {"id": "mdl_a1", "name": "模型A1", "model": "model-a1"},
-                        {"id": "mdl_a2", "name": "模型A2", "model": "model-a2"},
+                        {
+                            "id": "mdl_a2",
+                            "name": "模型A2",
+                            "model": "model-a2",
+                            "modalities": ["vision"],
+                        },
                     ],
                 },
                 {
@@ -765,7 +770,11 @@ class TestModelSelection:
         # disabled endpoints are hidden; no endpoint internals leak
         assert [g["endpointId"] for g in body["endpoints"]] == ["ep_a"]
         assert body["endpoints"][0]["endpointName"] == "接入点A"
-        assert body["endpoints"][0]["models"][1] == {"id": "mdl_a2", "name": "模型A2"}
+        assert body["endpoints"][0]["models"][1] == {
+            "id": "mdl_a2",
+            "name": "模型A2",
+            "modalities": ["vision"],
+        }
         payload = json.dumps(body)
         assert "base_url" not in payload and "sk-a" not in payload
 
