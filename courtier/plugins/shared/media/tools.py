@@ -151,6 +151,16 @@ def _transcode_max_edge() -> int:
     return int(os.environ.get("MEDIA_TRANSCODE_MAX_EDGE", "1920"))
 
 
+def _transcode_fps() -> str:
+    """Constant output fps — low on purpose: model-side processors sample
+    frames off the container metadata, so a 30fps screen recording balloons
+    into hundreds of vision tokens per second and stalls prefill. 2fps is
+    the Qwen video-understanding sampling rate."""
+    import os
+
+    return os.environ.get("MEDIA_TRANSCODE_FPS", "2")
+
+
 class TranscodeVideoTool:
     """Re-encode a non-mp4 video into a provider-friendly mp4 (h264/aac).
 
@@ -199,7 +209,7 @@ class TranscodeVideoTool:
                 "-i", str(local),
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-vf", f"scale=min(iw\\,{max_edge}):-2",
-                "-r", "30",
+                "-r", _transcode_fps(),
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart",
                 str(out_path),
