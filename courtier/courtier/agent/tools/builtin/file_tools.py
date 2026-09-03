@@ -33,8 +33,9 @@ def _err(message: str) -> ToolResult:
 
 
 class ReadTool:
-    # 自声明：本工具的 path 参数受会话路径白名单（PathPolicyGuard）管辖
-    path_policy = True
+    # 自声明：本工具的 path 参数受会话路径白名单（PathPolicyGuard）管辖，
+    # 作用域 = 会话自有空间（记忆目录 + 会话工作区）
+    path_policy = "session"
     """Read a file (line-numbered, paged) or list a directory."""
 
     name: str = "read"
@@ -156,8 +157,9 @@ class ReadTool:
 
 
 class WriteTool:
-    # 自声明：本工具的 path 参数受会话路径白名单（PathPolicyGuard）管辖
-    path_policy = True
+    # 自声明：本工具的 path 参数受会话路径白名单（PathPolicyGuard）管辖，
+    # 作用域 = 会话自有空间（记忆目录 + 会话工作区）
+    path_policy = "session"
     """Create or overwrite a file (parent directories created as needed)."""
 
     name: str = "write"
@@ -216,8 +218,9 @@ class WriteTool:
 
 
 class EditTool:
-    # 自声明：本工具的 path 参数受会话路径白名单（PathPolicyGuard）管辖
-    path_policy = True
+    # 自声明：本工具的 path 参数受会话路径白名单（PathPolicyGuard）管辖，
+    # 作用域 = 会话自有空间（记忆目录 + 会话工作区）
+    path_policy = "session"
     """Replace an exact, unique occurrence within a file."""
 
     name: str = "edit"

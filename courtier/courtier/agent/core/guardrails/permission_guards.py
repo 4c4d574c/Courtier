@@ -28,17 +28,18 @@ def resolve_path_policy_declaration(
 ) -> list[str] | None:
     """把工具自声明的 path_policy 值解析为具体根列表。
 
-    - True → 会话根（memory_home + workspace）
+    声明即全部：写明哪些路径，工具就恰好只有那些路径，没有任何隐式默认。
+
+    - "session" → 会话自有空间（memory_home + workspace）——内置文件工具用
     - {"subpath": p} → 仅 workspace/p（收窄：工具只能写自己的子目录）
-    - {"extra_roots": [...]} → 会话根 + 额外根（放宽；相对路径相对 workspace）
-    - {"roots": [...]} → 恰好这些根（完全替换；路径展开 ~，相对相对 workspace）
+    - {"roots": [...]} → 恰好这些根（路径展开 ~，相对路径相对 workspace）
     - False → None（豁免，不注册名片）
 
     非法声明抛 ValueError——安全声明宁可 fail loud 也不静默裸奔。
     """
     if value is False:
         return None
-    if value is True:
+    if value == "session":
         return [str(memory_home), str(workspace)]
     if isinstance(value, dict):
         keys = set(value)
@@ -48,15 +49,10 @@ def resolve_path_policy_declaration(
             return [
                 str(Path(root).expanduser()) for root in value["roots"]
             ] or None
-        if keys == {"extra_roots"}:
-            extra = [
-                str(Path(workspace) / str(root)) if not str(root).startswith("~")
-                else str(Path(root).expanduser())
-                for root in value["extra_roots"]
-            ]
-            return [str(memory_home), str(workspace), *extra]
         raise ValueError(f"path_policy 声明键不合法: {sorted(keys)}")
-    raise ValueError(f"path_policy 声明必须是 True/False/字典: {value!r}")
+    raise ValueError(
+        f"path_policy 声明必须是 \"session\"、False 或字典: {value!r}"
+    )
 
 
 def declare_path_policy_tools(
@@ -67,19 +63,13 @@ def declare_path_policy_tools(
 ) -> list[str]:
     """Register path-policy declarations for tools that self-declare.
 
-    A tool opts in with a truthy ``path_policy`` class attribute — the
-    declaration lands in the session ``CapabilityRegistry`` as data, so
-    adding a governed tool never means editing the wiring code. Explicit
-    declarations beat ``PathPolicyGuard``'s legacy fallback list. Returns
-    the declared tool names.
-    """
-    """Register path-policy declarations for tools that self-declare.
-
-    A tool opts in with a truthy ``path_policy`` class attribute — the
-    declaration lands in the session ``CapabilityRegistry`` as data, so
-    adding a governed tool never means editing the wiring code. Explicit
-    declarations beat ``PathPolicyGuard``'s legacy fallback list. Returns
-    the declared tool names.
+    A tool opts in with a ``path_policy`` class attribute ("session",
+    {"subpath": ...}, {"roots": [...]} — see
+    resolve_path_policy_declaration) — the declaration lands in the
+    session ``CapabilityRegistry`` as data, so adding a governed tool
+    never means editing the wiring code. Explicit declarations beat
+    ``PathPolicyGuard``'s legacy fallback list. Returns the declared
+    tool names.
     """
     from courtier.agent.core.capability import Capability
 
@@ -154,20 +144,22 @@ class PathPolicyGuard:
     def _managed_roots(self, tool_name: str) -> list[str] | None:
         """该工具生效的根列表；None = 不受管。
 
-        判定顺序：显式 Capability 声明（声明值可为 True=会话根，或携带
-        "roots" 的字典=该工具专属根）→ 未声明回退构造时的默认名单。
+        判定顺序：显式 Capability 声明（播种时已把 "session"/{subpath}/
+        {roots} 解析为具体 roots 字典）→ 未声明回退构造时的默认名单。
         """
         if self._capabilities is not None:
             capability = self._capabilities.get("tool", tool_name)
-            if capability is not None and isinstance(
-                capability.meta.get("permission"), dict
-            ):
-                declaration = capability.meta["permission"].get("path_policy", False)
-                if declaration is True:
-                    return [str(root) for root in self._roots]
+            permission = getattr(capability, "meta", {}).get("permission")
+            if capability is not None and isinstance(permission, dict):
+                if "path_policy" not in permission:
+                    # 带权限字典却没写 path_policy：声明不完整，fail-closed
+                    return []
+                declaration = permission["path_policy"]
+                if declaration is False:
+                    return None                     # 显式豁免 → 不受管
                 if isinstance(declaration, dict) and "roots" in declaration:
                     return [str(root) for root in declaration["roots"]]
-                # 看不懂的声明 fail-closed：该工具所有路径拒绝，而不是裸奔
+                # 看不懂的声明 fail-closed：该工具所有路径拒绝
                 return []
         if tool_name in self._path_tools:
             return [str(root) for root in self._roots]
@@ -175,7 +167,9 @@ class PathPolicyGuard:
 
     async def check_call(self, call: "ToolCall", context: Any) -> CallGuardResult:
         roots = self._managed_roots(call.name)
-        if not self._roots or not roots:
+        # roots is None = 未受管 → 放行；roots == [] = 声明无法解析的
+        # fail-closed 态 → 走 _check_path，空根清单拒绝一切路径。
+        if not self._roots or roots is None:
             return CallGuardResult.allow(self.name)
         denial = self._check_path(call.name, (call.arguments or {}).get("path"), roots)
         if denial is None:
