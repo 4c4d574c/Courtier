@@ -162,9 +162,9 @@ export function buildUpdateBody(
 /** 工具路径白名单行（tool_path_policies 的结构化编辑模型）。 */
 export interface ToolPathRow {
   tool: string;
-  /** 逗号分隔的允许路径；豁免行忽略此值 */
-  paths: string;
   exempt: boolean;
+  /** 允许的路径，一条一项 */
+  paths: string[];
 }
 
 /** 把设置里的 JSON 文本解析为按工具的行（解析失败返回空 = 无有效声明）。 */
@@ -178,12 +178,12 @@ export function parseToolPathRows(raw: string): ToolPathRow[] {
   if (value == null || typeof value !== "object") return [];
   return Object.entries(value as Record<string, unknown>).map(([tool, v]) => ({
     tool,
-    paths: Array.isArray(v) ? v.join(", ") : "",
     exempt: v === false,
+    paths: Array.isArray(v) ? v.map((p) => String(p)) : [],
   }));
 }
 
-/** 行序列化回设置值（JSON 文本）；无工具名的行跳过。 */
+/** 行序列化回设置值（JSON 文本）；无工具名的行跳过；路径逐条去空白。 */
 export function serializeToolPathRows(rows: ToolPathRow[]): string {
   const value: Record<string, unknown> = {};
   for (const row of rows) {
@@ -193,10 +193,7 @@ export function serializeToolPathRows(rows: ToolPathRow[]): string {
       value[tool] = false;
       continue;
     }
-    value[tool] = row.paths
-      .split(",")
-      .map((p) => p.trim())
-      .filter((p) => p !== "");
+    value[tool] = row.paths.map((p) => p.trim()).filter((p) => p !== "");
   }
   return JSON.stringify(value);
 }
@@ -204,10 +201,7 @@ export function serializeToolPathRows(rows: ToolPathRow[]): string {
 /** 行校验：豁免行或完整行合法；有工具名但既不豁免又无路径 = 半行。 */
 export function toolPathRowError(row: ToolPathRow): string {
   const tool = row.tool.trim();
-  const paths = row.paths
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
+  const paths = row.paths.map((p) => p.trim()).filter(Boolean);
   if (!tool && paths.length === 0) return "";
   if (!tool) return "缺少工具名";
   if (!row.exempt && paths.length === 0) return "需要至少一个路径，或勾选豁免";
