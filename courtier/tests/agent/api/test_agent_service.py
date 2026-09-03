@@ -220,23 +220,30 @@ def test_path_policy_seeding_tracks_self_declared_tools():
     from courtier.agent.core.guardrails import PathPolicyGuard
     from courtier.agent.core.guardrails.permission_guards import (
         declare_path_policy_tools,
+        resolve_path_policy_declaration,
     )
     from courtier.agent.tools.builtin.file_tools import ReadTool
 
     class ExportTool:
         name = "export_report"
-        path_policy = True
+        path_policy = {"subpath": "exports"}   # 收窄：仅工作区 exports/ 子目录
 
     class PlainTool:
         name = "plain"
 
     registry = CapabilityRegistry()
     declared = declare_path_policy_tools(
-        registry, [ReadTool(), ExportTool(), PlainTool()]
+        registry,
+        [ReadTool(), ExportTool(), PlainTool()],
+        resolve=lambda value: resolve_path_policy_declaration(
+            value, memory_home="/tmp/mem", workspace="/tmp/work"
+        ),
     )
     assert sorted(declared) == ["export_report", "read"]
-    # 自声明工具受管；未声明工具回退老名单（plain 不在 → 不管）
     guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
-    assert guard._policy_applies("export_report") is True
-    assert guard._policy_applies("read") is True
-    assert guard._policy_applies("plain") is False
+    # 内置 read：True 声明 → 会话根
+    assert guard._managed_roots("read") == ["/tmp/mem", "/tmp/work"]
+    # 自定义工具：subpath 声明 → 专属根
+    assert guard._managed_roots("export_report") == ["/tmp/work/exports"]
+    # 未声明：回退老名单（plain 不在 → 不受管）
+    assert guard._managed_roots("plain") is None

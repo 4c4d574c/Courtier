@@ -297,6 +297,32 @@ class ExportReportTool:
 凡自带该属性的工具自动注册名片。新增受管工具 = 写工具类时多一行属性，
 **任何接线代码（含 agent_service.py）都不用改**。
 
+**声明值还支持按工具定制根**——不同工具限制不同的目录：
+
+| `path_policy` 值 | 生效根 |
+|---|---|
+| `True` | 会话根（记忆目录 + 会话工作区）——默认 |
+| `{"subpath": "exports"}` | **收窄**：仅会话工作区的 `exports/` 子目录 |
+| `{"extra_roots": ["/srv/reports"]}` | **放宽**：会话根 + 额外根（`~` 可用，相对路径相对工作区） |
+| `{"roots": ["/data/only"]}` | **替换**：恰好这些根 |
+| `False` | 豁免：完全不受管 |
+
+例：导出工具只许写自己的产物目录——
+
+```python
+class ExportReportTool:
+    name = "export_report"
+    path_policy = {"subpath": "exports"}   # 模型只能写 <工作区>/exports/
+```
+
+**安全语义**：声明值在播种时由
+`resolve_path_policy_declaration(value, memory_home=..., workspace=...)`
+解析成具体根（工具的类属性 → 会话相关路径的换算发生在播种处，守卫只见
+具体路径）；解析失败的声明在**播种时 fail loud**，而守卫侧遇到看不懂的
+声明按 **fail-closed** 处理（该工具所有路径拒绝）——宁可误拒不可裸奔。
+另注意替代效应：给某工具放宽的根，模型就能借它碰到放宽区域——
+每工具的根应当**等于或窄于**会话基线，放宽前想清楚。
+
 **判定流程**（模型发起 `export_report(path=...)` 时，守卫依次问）：
 
 ```

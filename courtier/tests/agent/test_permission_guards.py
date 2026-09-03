@@ -212,3 +212,83 @@ class TestCapabilityDeclaredPolicy:
         guard = PathPolicyGuard(allowed_roots=allowlist)
         assert (await guard.check_call(_call("read", path="/etc/passwd"), _ctx())).action == "deny"
         assert (await guard.check_call(_call("echo", text="x"), _ctx())).action == "allow"
+
+
+class TestPerToolRoots:
+    """不同工具不同路径限制：声明携带该工具专属的根。"""
+
+    def _registry(self, declaration_for_export):
+        """声明经生产解析器注册（与 build_agent 同路径），meta 只存 roots。"""
+        from courtier.agent.core.capability import Capability, CapabilityRegistry
+        from courtier.agent.core.guardrails.permission_guards import (
+            resolve_path_policy_declaration,
+        )
+
+        registry = CapabilityRegistry()
+        roots = resolve_path_policy_declaration(
+            {"roots": ["/data/only"]}, memory_home="/tmp/mem", workspace="/tmp/work"
+        )
+        registry.register(
+            Capability(
+                type="tool",
+                name="read",
+                meta={"permission": {"path_policy": {"roots": roots}}},
+            )
+        )
+        if declaration_for_export is not None:
+            export_roots = resolve_path_policy_declaration(
+                declaration_for_export,
+                memory_home="/tmp/mem",
+                workspace="/tmp/work",
+            )
+            registry.register(
+                Capability(
+                    type="tool",
+                    name="export_report",
+                    meta={"permission": {"path_policy": {"roots": export_roots}}},
+                )
+            )
+        return registry
+
+    async def _check(self, registry, tool, path):
+        from courtier.agent.core.guardrails import PathPolicyGuard
+
+        guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
+        return await guard.check_call(_call(tool, path=path), _ctx())
+
+
+    @pytest.mark.asyncio
+    async def test_narrower_root_denies_outside_and_allows_inside(self):
+        registry = self._registry({"roots": ["/data/only"]})
+        outside = await self._check(registry, "read", "/etc/hostname")
+        assert outside.action == "deny" and "不在允许范围内" in outside.reason
+        # 老会话根 /tmp 不再对 read 生效（被声明替换）
+        old_root = await self._check(registry, "read", "/tmp/anything")
+        assert old_root.action == "deny"
+        inside = await self._check(registry, "read", "/data/only/file.txt")
+        assert inside.action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_wider_root_grants_extra_dir(self):
+        registry = self._registry({"extra_roots": ["/srv/reports"]})
+        extra = await self._check(registry, "export_report", "/srv/reports/out.pdf")
+        assert extra.action == "allow"
+        elsewhere = await self._check(registry, "export_report", "/etc/passwd")
+        assert elsewhere.action == "deny"
+        # extra_roots = 会话根 + 额外根（workspace 仍在管辖内）
+        assert (await self._check(registry, "export_report", "/tmp/work/a.txt")).action == "allow"
+
+    @pytest.mark.asyncio
+    async def test_true_declaration_uses_session_roots(self):
+        from courtier.agent.core.capability import Capability, CapabilityRegistry
+
+        registry = CapabilityRegistry()
+        registry.register(
+            Capability(
+                type="tool",
+                name="export_report",
+                meta={"permission": {"path_policy": True}},
+            )
+        )
+        result = await self._check(registry, "export_report", "/tmp/ok.txt")
+        assert result.action == "allow"   # /tmp 是该守卫的会话根
