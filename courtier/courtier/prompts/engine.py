@@ -85,6 +85,7 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.confirmation_denied",
         "errors.confirmation_unavailable",
         "errors.refusal_exhausted",
+        "errors.media_model_unsupported",
         "errors.plugin_arg_path_escape",
         "errors.plugin_arg_file_missing",
         "errors.plugin_file_transfer_failed",
@@ -283,6 +284,11 @@ FALLBACK_TEMPLATES: dict[str, str] = {
     "errors.refusal_exhausted": (
         "The model repeatedly refused this task and may be unavailable — try again later "
         "or ask an administrator to switch models."
+    ),
+    "errors.media_model_unsupported": (
+        "The current model does not support {{ kind_label }} input and cannot process the "
+        'attachment "{{ name }}". Switch to a model that supports this media type, or '
+        "remove the attachment and retry."
     ),
     "errors.subagent_failed": ("Sub-agent execution failed: {{ error }}\n"),
     "errors.plugin_arg_path_escape": (

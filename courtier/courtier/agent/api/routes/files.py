@@ -38,6 +38,7 @@ async def upload_file(
         settings,
         file_store,
         owner=current_user_payload.get("sub", ""),
+        tool_registry=getattr(request.app.state, "tool_registry", None),
     )
 
 

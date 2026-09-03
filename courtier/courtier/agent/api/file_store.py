@@ -19,6 +19,13 @@ class FileInfo:
     stored_path: str  # filesystem path relative to upload_dir
     size_bytes: int
     owner: str = ""  # uploader username; empty for legacy records
+    # Attachment kind ("document"/"image"/"audio"/"video"); "" for legacy
+    # records — consumers fall back to extension-based inference.
+    kind: str = ""
+    # Media probe metadata (media plugin); None for documents/legacy records.
+    duration_seconds: float | None = None
+    width: int | None = None
+    height: int | None = None
 
 
 class FileStore:
@@ -45,6 +52,10 @@ class FileStore:
         stored_path: str,
         size_bytes: int,
         owner: str = "",
+        kind: str = "",
+        duration_seconds: float | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> FileInfo:
         file_id = f"file_{secrets.token_hex(16)}"
         info = FileInfo(
@@ -53,6 +64,10 @@ class FileStore:
             stored_path=stored_path,
             size_bytes=size_bytes,
             owner=owner,
+            kind=kind,
+            duration_seconds=duration_seconds,
+            width=width,
+            height=height,
         )
         async with self._lock:
             self._files[file_id] = info
@@ -121,6 +136,10 @@ class FileStore:
                 "stored_path": fi.stored_path,
                 "size_bytes": fi.size_bytes,
                 "owner": fi.owner,
+                "kind": fi.kind,
+                "duration_seconds": fi.duration_seconds,
+                "width": fi.width,
+                "height": fi.height,
             }
             for fid, fi in self._files.items()
         }
@@ -148,4 +167,8 @@ class FileStore:
                 stored_path=d.get("stored_path", ""),
                 size_bytes=d.get("size_bytes", 0),
                 owner=d.get("owner", ""),
+                kind=d.get("kind", ""),
+                duration_seconds=d.get("duration_seconds"),
+                width=d.get("width"),
+                height=d.get("height"),
             )

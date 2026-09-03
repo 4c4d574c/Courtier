@@ -30,6 +30,7 @@ COPY pyproject.toml uv.lock ./
 COPY README.md ./
 COPY courtier/ courtier/
 COPY domains/ domains/
+COPY shared/ shared/
 COPY libs/ libs/
 COPY plugins/ plugins/
 

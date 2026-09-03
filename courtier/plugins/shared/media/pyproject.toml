@@ -1,0 +1,10 @@
+[project]
+name = "courtier-plugin-media"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "courtier-plugin-sdk",
+]
+
+[tool.uv.sources]
+courtier-plugin-sdk = { path = "../../../libs/shared/plugin_sdk", editable = true }

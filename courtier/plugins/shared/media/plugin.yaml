@@ -1,0 +1,13 @@
+name: media
+version: "1.0.0"
+api: "2.0"
+description: "Media file probing (ffprobe metadata for uploaded audio/video)"
+
+# Tool declarations and usage guidance are runtime-registered from entry.py
+# (register_tool / register_capabilities) — no capabilities block here.
+runtime:
+  port: 9109
+
+dependencies:
+  host_services: []
+  permissions: []

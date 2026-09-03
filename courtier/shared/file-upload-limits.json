@@ -9,8 +9,23 @@
     ".png",
     ".gif",
     ".tif",
-    ".tiff"
+    ".tiff",
+    ".mp3",
+    ".wav",
+    ".m4a",
+    ".flac",
+    ".mp4",
+    ".mov",
+    ".webm",
+    ".mkv",
+    ".avi"
   ],
+  "kind_limits": {
+    "document": 52428800,
+    "image": 20971520,
+    "audio": 26214400,
+    "video": 52428800
+  },
   "mime_types": {
     ".pdf": ["application/pdf"],
     ".docx": [
@@ -23,6 +38,15 @@
     ".png": ["image/png"],
     ".gif": ["image/gif"],
     ".tif": ["image/tiff"],
-    ".tiff": ["image/tiff"]
+    ".tiff": ["image/tiff"],
+    ".mp3": ["audio/mpeg"],
+    ".wav": ["audio/wav", "audio/x-wav", "audio/vnd.wave", "audio/wave"],
+    ".m4a": ["audio/mp4", "audio/x-m4a"],
+    ".flac": ["audio/flac", "audio/x-flac"],
+    ".mp4": ["video/mp4"],
+    ".mov": ["video/quicktime"],
+    ".webm": ["video/webm"],
+    ".mkv": ["video/x-matroska"],
+    ".avi": ["video/x-msvideo", "video/avi"]
   }
 }

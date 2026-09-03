@@ -93,3 +93,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 EXPOSE 9105
 CMD ["/opt/courtier/plugins/shared/search/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-media
+# ffprobe (ffmpeg) decodes the media containers the plugin probes.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+COPY plugins/shared/media/ plugins/shared/media/
+WORKDIR /opt/courtier/plugins/shared/media
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9109
+CMD ["/opt/courtier/plugins/shared/media/.venv/bin/python", "entry.py"]

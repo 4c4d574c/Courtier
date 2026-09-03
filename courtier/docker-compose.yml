@@ -168,6 +168,14 @@ services:
       elasticsearch:
         condition: service_healthy
 
+  plugin-media:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-media }
+    container_name: courtier-plugin-media
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
   plugin-check_format:
     build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-check_format }
     container_name: courtier-plugin-check-format
