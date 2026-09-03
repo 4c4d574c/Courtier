@@ -292,9 +292,9 @@
                           ×
                         </button>
                         <div v-if="isAdvancedOpen(m.id)" class="pool-adv">
-                          <div class="pool-adv-item pool-modality-row">
-                            <span>多模态输入</span>
-                            <span class="pool-modality-checks">
+                          <div class="pool-modality-row">
+                            <span class="pool-modality-label">多模态输入</span>
+                            <div class="pool-modality-checks">
                               <label
                                 v-for="mod in MODEL_MODALITIES"
                                 :key="mod.value"
@@ -309,7 +309,7 @@
                                 <span>{{ mod.label }}</span>
                               </label>
                               <span class="pool-modality-hint">勾选后该模型可接收对应类型的媒体附件（图片=视觉）</span>
-                            </span>
+                            </div>
                           </div>
                           <div class="pool-adv-grid">
                             <label class="pool-adv-item">
@@ -2187,31 +2187,41 @@ onMounted(load);
   gap: 10px;
 }
 .pool-modality-row {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.pool-modality-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--chat-text-tertiary);
 }
 .pool-modality-checks {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 .pool-modality-check {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 13px;
   color: var(--chat-text-primary);
   cursor: pointer;
 }
 .pool-modality-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
   accent-color: var(--chat-accent);
 }
 .pool-modality-check input:disabled {
   cursor: not-allowed;
 }
 .pool-modality-hint {
+  margin-left: auto;
   font-size: 11px;
   color: var(--chat-text-tertiary);
 }
