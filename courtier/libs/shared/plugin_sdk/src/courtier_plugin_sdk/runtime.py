@@ -579,6 +579,10 @@ class PluginRuntime:
             # internal: host-only tool (e.g. upload-time services) — never
             # exposed to agent sessions.
             "internal",
+            # call_timeout_seconds: host-side JSON-RPC wait budget for this
+            # tool (long-running services like media transcoding override
+            # the 30s default).
+            "call_timeout_seconds",
         ):
             value = getattr(tool_instance, attr, None)
             if value is not None:

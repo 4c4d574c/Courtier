@@ -295,3 +295,122 @@ class TestGateMediaAttachments:
 
     def test_duration_without_probe_metadata_skipped(self):
         gate_media_attachments([self._info("video", duration=None)], self._settings())
+
+
+class TestVideoTranscode:
+    """上传链路的非 mp4 视频统一转码（T-转码）。"""
+
+    @staticmethod
+    def _stub_registry(transcode_result):
+        tool = _StubProbeTool(transcode_result)
+
+        class _PathAwareProbe:
+            def __init__(self):
+                self.calls = []
+
+            async def execute(self, *, on_progress=None, **kwargs):
+                self.calls.append(kwargs)
+                fmt = (
+                    "mov,mp4,m4a,3gp,3g2,mj2"
+                    if kwargs.get("file_path", "").endswith(".mp4")
+                    else "matroska,webm"
+                )
+                return ToolResult(
+                    success=True,
+                    data={"success": True, "format_name": fmt, "duration_seconds": 2.0},
+                )
+
+        class _Registry:
+            def __init__(self):
+                self.probe = _PathAwareProbe()
+
+            def get(self, name):
+                if name == "probe_media":
+                    return self.probe
+                if name == "transcode_video":
+                    return tool
+                raise KeyError(name)
+
+        registry = _Registry()
+        return registry, tool
+
+    def test_needs_transcode_decision(self):
+        from courtier.agent.api.services.file_service import _needs_video_transcode
+
+        assert _needs_video_transcode({"format_name": "matroska,webm"}) is True
+        assert _needs_video_transcode({"format_name": "avi"}) is True
+        assert _needs_video_transcode({"format_name": "mov,mp4,m4a,3gp,3g2,mj2"}) is False
+        assert _needs_video_transcode({}) is True  # 未知格式宁转勿赌
+
+    def test_webm_upload_transcoded_and_stored_as_mp4(self, tmp_path):
+        import asyncio
+        from pathlib import Path
+
+        store = FileStore(str(tmp_path / "files"))
+        registry, transcode_tool = self._stub_registry(
+            ToolResult(success=True, data={"success": True, "minio_ref": "minio://bkt/out/rec.mp4"})
+        )
+        mp4_bytes = b"\x00\x00\x00\x18ftypisom" + b"x" * 64
+
+        def fake_get_object(bucket, key):
+            assert bucket == "bkt" and key == "out/rec.mp4"
+            return mp4_bytes
+
+        import courtier.storage.client as storage_client
+
+        original = storage_client.get_object
+        storage_client.get_object = fake_get_object
+        try:
+            info = asyncio.run(
+                upload_file(
+                    _upload_file(_wav_bytes(0.1), "recording.webm", "video/webm"),
+                    SimpleNamespace(upload_dir=str(tmp_path / "uploads")),
+                    store,
+                    owner="u",
+                    tool_registry=registry,
+                )
+            )
+        finally:
+            storage_client.get_object = original
+
+        # probe 在转码后重跑：wav 工具桩返回的仍是 probe 结果，但存储文件已是 mp4
+        assert info["fileId"]
+        stored = asyncio.run(store.resolve(info["fileId"]))
+        assert stored is not None
+        assert stored.stored_path.endswith(".mp4")
+        path = asyncio.run(store.resolve_path(info["fileId"], str(tmp_path / "uploads")))
+        assert path.read_bytes() == mp4_bytes
+        assert transcode_tool.calls[0]["file_path"].endswith(".webm")
+
+    def test_transcode_failure_fails_closed(self, tmp_path):
+        import asyncio
+
+        registry, _ = self._stub_registry(ToolResult(success=False, error="ffmpeg boom"))
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                upload_file(
+                    _upload_file(_wav_bytes(0.1), "recording.webm", "video/webm"),
+                    SimpleNamespace(upload_dir=str(tmp_path / "uploads")),
+                    FileStore(str(tmp_path / "files")),
+                    owner="u",
+                    tool_registry=registry,
+                )
+            )
+        assert exc.value.status_code == 400
+        assert "ffmpeg boom" in exc.value.detail
+
+    def test_transcode_invalid_ref_fails_closed(self, tmp_path):
+        import asyncio
+
+        registry, _ = self._stub_registry(ToolResult(success=True, data={"success": True}))
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                upload_file(
+                    _upload_file(_wav_bytes(0.1), "recording.webm", "video/webm"),
+                    SimpleNamespace(upload_dir=str(tmp_path / "uploads")),
+                    FileStore(str(tmp_path / "files")),
+                    owner="u",
+                    tool_registry=registry,
+                )
+            )
+        assert exc.value.status_code == 400

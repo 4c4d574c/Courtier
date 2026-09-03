@@ -211,6 +211,52 @@ async def probe_media_file(
     return data
 
 
+def _needs_video_transcode(probe: dict[str, Any]) -> bool:
+    """True when a probed video is not an mp4 container (needs re-encode)."""
+    fmt = str(probe.get("format_name", ""))
+    return "mp4" not in fmt.lower()
+
+
+async def transcode_video_file(
+    file_path: Path,
+    tool_registry: Any,
+) -> bytes:
+    """Transcode a stored video to mp4 via the media plugin.
+
+    The plugin re-encodes (h264/aac, capped long edge, constant 30fps),
+    uploads the result to the transfer bucket, and returns a minio:// ref;
+    the host reads the object with its own (full-permission) credentials.
+    Raises HTTPException(400) on any failure — media uploads fail closed.
+    """
+    from fastapi import HTTPException
+
+    if tool_registry is None:
+        raise HTTPException(400, "媒体上传不可用：media 插件未连接")
+    try:
+        tool = tool_registry.get("transcode_video")
+    except KeyError:
+        raise HTTPException(400, "媒体上传不可用：media 插件缺少转码工具") from None
+
+    result = await tool.execute(on_progress=lambda _p: None, file_path=str(file_path))
+    if not result.success:
+        raise HTTPException(400, f"视频转码失败: {result.error}")
+    data = result.data if isinstance(result.data, dict) else {}
+    ref = data.get("minio_ref")
+    if not isinstance(ref, str) or not ref.startswith("minio://"):
+        raise HTTPException(400, "视频转码结果无效")
+
+    from courtier.storage import client as storage_client
+
+    parts = ref.removeprefix("minio://").split("/", 1)
+    if len(parts) != 2:
+        raise HTTPException(400, "视频转码结果无效")
+    bucket, key = parts
+    try:
+        return await asyncio.to_thread(storage_client.get_object, bucket, key)
+    except Exception as exc:
+        raise HTTPException(400, f"转码结果取回失败: {exc}") from exc
+
+
 async def upload_file(
     file: UploadFile,
     settings: Any,
@@ -288,6 +334,28 @@ async def upload_file(
         if probe is None:
             await asyncio.to_thread(full_path.unlink, True)
             raise HTTPException(400, "媒体上传不可用：media 插件未连接")
+
+        # Non-mp4 videos are uniformly transcoded to mp4 (h264/aac) by the
+        # media plugin: model-side video processors choke on containers with
+        # broken fps metadata (e.g. VP8 screen recordings read as 1000fps).
+        if kind == "video" and _needs_video_transcode(probe):
+            transcode = await transcode_video_file(full_path, tool_registry)
+            await asyncio.to_thread(full_path.unlink, True)
+            date_dir = target_dir
+            safe_mp4 = f"{safe_name.rsplit('.', 1)[0]}.mp4"
+            full_path = (date_dir / safe_mp4).resolve()
+            if not full_path.is_relative_to(upload_root):
+                raise HTTPException(400, "非法文件路径")
+            await asyncio.to_thread(full_path.write_bytes, transcode)
+            relative_path = f"{date_str}/{safe_mp4}"
+            try:
+                probe = await probe_media_file(full_path, tool_registry)
+            except HTTPException:
+                await asyncio.to_thread(full_path.unlink, True)
+                raise
+            if probe is None:
+                await asyncio.to_thread(full_path.unlink, True)
+                raise HTTPException(400, "媒体上传不可用：media 插件未连接")
 
     def _probe_int(key: str) -> int | None:
         value = (probe or {}).get(key)

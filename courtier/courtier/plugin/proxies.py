@@ -68,6 +68,9 @@ class ProxyTool:
         # Host-only service tools (internal) stay in the base registry for
         # API-layer callers but never reach agent sessions.
         self.internal: bool = bool(tool_spec.get("internal", False))
+        # Per-tool JSON-RPC wait budget (long-running services like media
+        # transcoding declare call_timeout_seconds in their spec).
+        self.call_timeout_seconds: float = float(tool_spec.get("call_timeout_seconds") or 30.0)
 
         # Contract fields — read from plugin spec if present (#2)
         self.output_artifact_type: str | None = tool_spec.get("output_artifact_type")
@@ -171,6 +174,7 @@ class ProxyTool:
                 "tool": self.name,
                 "args": args,
             },
+            timeout=self.call_timeout_seconds,
         )
         on_progress(
             {

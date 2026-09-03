@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from courtier_plugin_sdk import ToolResult
-from courtier_plugin_sdk.files import resolve_file
+from courtier_plugin_sdk.files import put_file, resolve_file
 
 
 def _ffprobe_path() -> str:
@@ -137,3 +137,105 @@ def run_probe_standalone(path: str) -> dict[str, Any]:
 
 
 __all__ = ["ProbeMediaTool", "run_probe_standalone", "_probe_success"]
+
+
+def _transcode_timeout() -> float:
+    import os
+
+    return float(os.environ.get("MEDIA_TRANSCODE_TIMEOUT", "570"))
+
+
+def _transcode_max_edge() -> int:
+    import os
+
+    return int(os.environ.get("MEDIA_TRANSCODE_MAX_EDGE", "1920"))
+
+
+class TranscodeVideoTool:
+    """Re-encode a non-mp4 video into a provider-friendly mp4 (h264/aac).
+
+    Screen-recordings often carry broken container fps metadata (e.g. VP8
+    webm read as 1000fps) that crashes model-side video processors even
+    though decoding succeeds; a clean mp4 re-encode fixes both the container
+    and the metadata. The transcoded file is uploaded to the transfer bucket
+    (put_file) and returned as a minio:// reference for the host to fetch.
+    """
+
+    name: str = "transcode_video"
+    display_name: str | None = "视频转码"
+    description: str = (
+        "Transcode an uploaded video into mp4 (h264 + aac, capped long edge, "
+        "constant 30fps) via ffmpeg. Long-running: the host waits up to "
+        "call_timeout_seconds. Returns the minio:// reference of the output."
+    )
+    internal: bool = True
+    call_timeout_seconds: int = 600
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "format": "file-ref",
+                "description": "Path (or minio:// reference) of the source video.",
+            },
+        },
+        "required": ["file_path"],
+    }
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        file_path = kwargs.get("file_path")
+        if not isinstance(file_path, str) or not file_path:
+            return ToolResult(success=False, error="缺少必填参数 file_path")
+
+        try:
+            local = Path(await resolve_file(file_path)).resolve()
+            if not local.is_file():
+                return ToolResult(success=False, error=f"文件不存在: {file_path}")
+            out_path = local.parent / f"{local.stem}_transcoded.mp4"
+            max_edge = _transcode_max_edge()
+            proc = await asyncio.create_subprocess_exec(
+                _ffmpeg_path(),
+                "-y", "-loglevel", "error",
+                "-i", str(local),
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-vf", f"scale=min(iw\\,{max_edge}):-2",
+                "-r", "30",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(out_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_transcode_timeout())
+            if proc.returncode != 0:
+                return ToolResult(
+                    success=False,
+                    error=f"ffmpeg 退出 {proc.returncode}: {stderr.decode(errors='replace')[:300]}",
+                )
+            ref = await put_file(out_path, filename=out_path.name, content_type="video/mp4")
+        except FileNotFoundError:
+            return ToolResult(
+                success=False,
+                error=(
+                    "ffmpeg 不可用：media 插件宿主需安装 ffmpeg（或通过 "
+                    "MEDIA_FFPROBE_PATH/MEDIA_FFMPEG_PATH 指定可执行文件）"
+                ),
+            )
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                error=f"转码超时（上限 {int(_transcode_timeout())} 秒），请压缩视频后重试",
+            )
+        except Exception as exc:
+            return ToolResult(success=False, error=f"转码失败: {exc}")
+
+        return ToolResult(success=True, data={"success": True, "minio_ref": ref})
+
+
+def _ffmpeg_path() -> str:
+    import os
+
+    return os.environ.get("MEDIA_FFMPEG_PATH", "ffmpeg")
+
+
+__all__ = ["ProbeMediaTool", "TranscodeVideoTool", "run_probe_standalone", "_probe_success"]

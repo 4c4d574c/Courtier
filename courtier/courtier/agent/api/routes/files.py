@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
 from fastapi import UploadFile
@@ -65,9 +67,12 @@ async def download_file(
     )
     info = await file_store.resolve(file_id)
     name = info.original_name if info else file_id
+    # Serve by the STORED file's extension: transcoded videos keep their
+    # original display name but the bytes are mp4 after normalization.
+    media_type = _media_type_for(Path(path).name) or _media_type_for(name)
     return FileResponse(
         path,
-        media_type=_media_type_for(name),
+        media_type=media_type,
         filename=name,
         content_disposition_type="inline",
     )

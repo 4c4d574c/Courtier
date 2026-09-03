@@ -104,3 +104,67 @@ class TestProbeMediaTool:
         assert result.data["format_name"] == "wav"
         assert abs(result.data["duration_seconds"] - 2.0) < 0.2
         assert result.data["audio_codec"] == "pcm_s16le"
+
+
+class TestTranscodeVideoTool:
+    """T-转码：非 mp4 视频重编码为 mp4（真机 ffmpeg，跳过无 ffmpeg 环境）。"""
+
+    @staticmethod
+    def _make_webm(tmp_path: Path, seconds: float = 2.0) -> Path:
+        import subprocess
+
+        p = tmp_path / "recording.webm"
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-f", "lavfi", "-i", f"testsrc=duration={seconds}:size=320x240:rate=8",
+                "-c:v", "libvpx", str(p),
+            ],
+            check=True,
+        )
+        return p
+
+    @pytest.mark.skipif(_FFPROBE is None, reason="ffprobe not installed")
+    def test_webm_transcodes_to_mp4(self, tmp_path, monkeypatch):
+        import asyncio
+
+        from plugins.shared.media import tools as media_tools
+
+        webm = self._make_webm(tmp_path)
+        uploaded: dict = {}
+
+        async def fake_put_file(local_path, *, filename=None, content_type=None):
+            uploaded["path"] = Path(local_path)
+            uploaded["filename"] = filename
+            return f"minio://courtier-plugin-io/out/media/{filename}"
+
+        monkeypatch.setattr(media_tools, "put_file", fake_put_file)
+
+        result = asyncio.run(ProbeMediaToolTranscodeRunner().run(str(webm)))
+        assert result.success is True
+        assert result.data["minio_ref"].startswith("minio://courtier-plugin-io/")
+        out = uploaded["path"]
+        assert out.read_bytes()[4:8] == b"ftyp"  # ISO-BMFF mp4 container
+
+    @pytest.mark.skipif(_FFPROBE is None, reason="ffprobe not installed")
+    def test_transcode_timeout_reports_failure(self, tmp_path, monkeypatch):
+        import asyncio
+
+        from plugins.shared.media import tools as media_tools
+
+        webm = self._make_webm(tmp_path)
+        monkeypatch.setattr(media_tools, "_transcode_timeout", lambda: 0.001)
+        result = asyncio.run(ProbeMediaToolTranscodeRunner().run(str(webm)))
+        assert result.success is False
+        assert "超时" in (result.error or "")
+
+
+class ProbeMediaToolTranscodeRunner:
+    """驱动 TranscodeVideoTool 的辅助（resolve_file 直通本地路径）。"""
+
+    @staticmethod
+    async def run(path: str):
+        from plugins.shared.media.tools import TranscodeVideoTool
+
+        return await TranscodeVideoTool().execute(file_path=path)
+

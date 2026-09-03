@@ -349,14 +349,14 @@ export const api = {
   }> {
     const formData = new FormData();
     formData.append("file", file);
-    // Larger timeout for document uploads.
+    // Larger timeout: media uploads may include server-side video transcoding.
     const res = await authFetch(
       `${API_BASE}/files`,
       {
         method: "POST",
         body: formData,
       },
-      120_000,
+      600_000,
     );
     if (!res.ok) throw await parseErrorDetail(res, "Upload failed");
     return res.json();
