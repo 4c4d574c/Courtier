@@ -66,6 +66,9 @@ class MemoryManager(ContextManager):
         compact_prompt_template: str | None = None,
         compact_merge_prompt_template: str | None = None,
         artifact_store: Any | None = None,
+        media_image_tokens: int = 1024,
+        media_audio_tokens_per_second: float = 40.0,
+        media_video_tokens_per_second: float = 200.0,
         memory_auto_inject_enabled: bool = True,
         memory_auto_inject_max_chars: int = 400,
         memory_auto_inject_total_chars: int = 1500,
@@ -83,6 +86,9 @@ class MemoryManager(ContextManager):
             compact_prompt_template=compact_prompt_template,
             compact_merge_prompt_template=compact_merge_prompt_template,
             artifact_store=artifact_store,
+            media_image_tokens=media_image_tokens,
+            media_audio_tokens_per_second=media_audio_tokens_per_second,
+            media_video_tokens_per_second=media_video_tokens_per_second,
         )
         self.session_id = session_id
         self._auto_inject_enabled = memory_auto_inject_enabled
