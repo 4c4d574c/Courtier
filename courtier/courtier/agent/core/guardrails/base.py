@@ -132,6 +132,8 @@ class GuardContext:
     tool_calls: Any | None = None
     tool_results: Any | None = None
     response_text: str | None = None
+    agent_name: str = ""
+    session_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def with_field(self, **kwargs: Any) -> "GuardContext":
@@ -142,6 +144,8 @@ class GuardContext:
             tool_calls=kwargs.get("tool_calls", self.tool_calls),
             tool_results=kwargs.get("tool_results", self.tool_results),
             response_text=kwargs.get("response_text", self.response_text),
+            agent_name=kwargs.get("agent_name", self.agent_name),
+            session_id=kwargs.get("session_id", self.session_id),
             metadata={**self.metadata, **kwargs.get("metadata", {})},
         )
 
