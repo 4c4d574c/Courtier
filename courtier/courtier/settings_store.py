@@ -411,9 +411,9 @@ async def refresh_settings_snapshot(
     Runs at startup and after admin settings saves.  Degrades to the
     env-only snapshot (mode="env") when *store* is None or the DB is
     unreachable.  Includes one-shot .env seeding (first start, empty
-    audit trail), the one-shot scalar→model-pool migration, and
-    JWT-secret bootstrap (generate + encrypt + save when empty and an
-    encryption key exists)."""
+    audit trail), the one-shot scalar→model-pool migration, the one-shot
+    baseline guard-declaration seed, and JWT-secret bootstrap (generate +
+    encrypt + save when empty and an encryption key exists)."""
     from courtier.config import get_settings
 
     info: dict[str, Any] = {
@@ -450,9 +450,7 @@ async def refresh_settings_snapshot(
 
     pool_advanced_baked = False
     existing_pool = overrides.get("llm_model_pool")
-    if isinstance(existing_pool, dict) and not existing_pool.get(
-        "advanced_defaults_materialized"
-    ):
+    if isinstance(existing_pool, dict) and not existing_pool.get("advanced_defaults_materialized"):
         # One-shot legacy migration: pools saved before the per-model
         # advanced params existed carry None fields (inherit-invisible-
         # scalars semantics). Materialize the current scalar defaults into
@@ -482,6 +480,35 @@ async def refresh_settings_snapshot(
         except Exception:
             logger.warning("model pool migration seed failed; continuing", exc_info=True)
 
+    guards_seeded = False
+    if "guardrail_guards" not in overrides and not await store.key_has_history("guardrail_guards"):
+        # One-shot baseline seeding: the five built-in guards land as real
+        # rows so the admin UI edits actual values. key_has_history keeps an
+        # admin-emptied list from being re-seeded on the next start.
+        try:
+            from courtier.agent.core.guardrails.registry import DEFAULT_GUARD_DECLARATIONS
+
+            await store.save(
+                {
+                    "guardrail_guards": [
+                        {
+                            "name": d.name,
+                            "class_path": d.class_path,
+                            "scope": d.scope,
+                            "enabled": d.enabled,
+                            "builtin": d.builtin,
+                        }
+                        for d in DEFAULT_GUARD_DECLARATIONS
+                    ]
+                },
+                actor="system-guard-seed",
+            )
+            overrides, unreadable = await store.load_overrides()
+            guards_seeded = True
+            logger.info("seeded baseline guard declarations (guardrail_guards)")
+        except Exception:
+            logger.warning("guardrail_guards baseline seed failed; continuing", exc_info=True)
+
     jwt_generated = False
     if not overrides.get("jwt_secret") and not base.jwt_secret:
         if store.codec is not None:
@@ -508,6 +535,7 @@ async def refresh_settings_snapshot(
         seeded=seeded,
         pool_seeded=pool_seeded,
         pool_advanced_baked=pool_advanced_baked,
+        guards_seeded=guards_seeded,
         jwt_generated=jwt_generated,
     )
     return info

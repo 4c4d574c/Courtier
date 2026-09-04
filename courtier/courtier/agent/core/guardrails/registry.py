@@ -62,6 +62,39 @@ class GuardDescriptor:
     builtin: bool = False
 
 
+#: The five seeded baseline guards, in dispatch order (list order = check
+#: order per scope; deny-priority permission guards come before the
+#: confirmation guard). Seeded into the ``guardrail_guards`` setting on
+#: first start; admin may disable them (audited) but identity fields are
+#: server-authoritative.
+DEFAULT_GUARD_DECLARATIONS: tuple[GuardDescriptor, ...] = tuple(
+    GuardDescriptor(name=name, class_path=class_path, scope=scope, enabled=True, builtin=True)
+    for name, class_path, scope in (
+        (
+            "tool_disabled",
+            "courtier.agent.core.guardrails.permission_guards.ToolDisabledGuard",
+            "session",
+        ),
+        (
+            "path_policy",
+            "courtier.agent.core.guardrails.permission_guards.PathPolicyGuard",
+            "session",
+        ),
+        (
+            "confirmation",
+            "courtier.agent.core.guardrails.confirmation.ConfirmationGuard",
+            "session",
+        ),
+        ("explore_loop", "courtier.agent.core.guardrails.loop_guardrails.ExploreLoopGuard", "run"),
+        (
+            "business_artifact",
+            "courtier.agent.core.guardrails.loop_guardrails.BusinessArtifactProgressGuard",
+            "run",
+        ),
+    )
+)
+
+
 @dataclass(frozen=True)
 class GuardSessionContext:
     """Session-level dependencies handed to guard factories (``build``).

@@ -140,6 +140,21 @@ class ToolConfirmationRule(BaseModel):
     message: str = ""
 
 
+class GuardDeclaration(BaseModel):
+    """One entry of the guard declaration list (settings key guardrail_guards).
+
+    ``builtin`` entries are seed-managed: the server forces their identity
+    fields back to the seed definition on every save — only ``enabled`` is
+    admin-controllable (disabling is allowed and audited).
+    """
+
+    name: str
+    class_path: str
+    scope: Literal["session", "run"] = "session"
+    enabled: bool = True
+    builtin: bool = False
+
+
 class ModelPoolConfig(BaseModel):
     """Two-level model pool (endpoints → models) plus the pool default.
 
@@ -176,9 +191,7 @@ class ModelPoolConfig(BaseModel):
                         )
                     break
             else:
-                raise ValueError(
-                    f"default_model_id {self.default_model_id!r} not found in pool"
-                )
+                raise ValueError(f"default_model_id {self.default_model_id!r} not found in pool")
         return self
 
 
@@ -362,6 +375,28 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- 守卫声明（guards 类；新增守卫 = 写类 + 加一条声明，不改核心） -------
+    guardrail_guards: list[GuardDeclaration] = Field(
+        default_factory=list,
+        alias="guardrail_guards",
+        description=(
+            "守卫声明（JSON）：[{name, class_path, scope, enabled}]。scope="
+            "session 注册进会话系统（编排器与子代理共享，须无状态）；run 每"
+            "次 agent_loop 新实例（有状态守卫必须选它）；tool_call 层只允许 "
+            "session。列表顺序即各 scope 内的检查顺序。builtin 条目为种子"
+            "基线：身份字段服务端权威、仅 enabled 可改（可停用，审计留痕）。"
+            "首次启动自动播种五个内置守卫。"
+        ),
+    )
+    tools_disabled: list[str] = Field(
+        default_factory=list,
+        alias="tools_disabled",
+        description=(
+            '禁用工具名单（JSON 字符串数组，如 ["deploy"]）。名单内工具仍'
+            "在模型工具表中，调用时收到模型可见的拒绝提示；空名单 = 无禁用。"
+        ),
+    )
+
     # -- Guardrail 分层模式（guards 类；构造会话 GuardrailSystem 时读取，
     #    热生效于下一次会话构建；默认值 = 历史装配行为） --------------------
     guardrail_input_layer: Literal["allow", "log", "block", "off"] = Field(
@@ -465,6 +500,100 @@ class Settings(BaseSettings):
         raise ValueError(
             f"llm_extra_body must be a dict, JSON string, or null, got: {type(v).__name__}"
         )
+
+    @field_validator("guardrail_guards", mode="before")
+    @classmethod
+    def validate_guardrail_guards(cls, v: Any) -> list[dict[str, Any]]:
+        """Normalize + deep-validate the guard declaration list.
+
+        Structural parsing and class-level checks (importable, guard-shaped,
+        legal layer, tool_call never run-scoped) run here so a bad
+        declaration is rejected at save time instead of failing at run
+        start. Builtin entries are server-authoritative: identity fields are
+        forced back to the seed definition; only ``enabled`` passes through
+        from the client."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError(f"guardrail_guards must be a valid JSON string, got: {v!r}")
+        if not isinstance(v, list):
+            raise ValueError(f"guardrail_guards must be a list, got: {type(v).__name__}")
+        from courtier.agent.core.guardrails.registry import (
+            DEFAULT_GUARD_DECLARATIONS,
+            GuardLoadError,
+            check_guard_declaration,
+            descriptor_from_raw,
+        )
+
+        seed_by_name = {d.name: d for d in DEFAULT_GUARD_DECLARATIONS}
+        seen: set[str] = set()
+        items: list[dict[str, Any]] = []
+        for raw in v:
+            try:
+                descriptor = descriptor_from_raw(raw)
+            except GuardLoadError as exc:
+                raise ValueError(str(exc)) from exc
+            if descriptor.name in seen:
+                raise ValueError(
+                    f"guardrail_guards: duplicate declaration name {descriptor.name!r}"
+                )
+            seen.add(descriptor.name)
+            seed = seed_by_name.get(descriptor.name)
+            if seed is not None:
+                items.append(
+                    {
+                        "name": seed.name,
+                        "class_path": seed.class_path,
+                        "scope": seed.scope,
+                        "enabled": descriptor.enabled,
+                        "builtin": True,
+                    }
+                )
+            else:
+                items.append(
+                    {
+                        "name": descriptor.name,
+                        "class_path": descriptor.class_path,
+                        "scope": descriptor.scope,
+                        "enabled": descriptor.enabled,
+                        "builtin": False,
+                    }
+                )
+        for item in items:
+            try:
+                check_guard_declaration(item["class_path"], item["scope"])
+            except GuardLoadError as exc:
+                raise ValueError(f"guardrail_guards[{item['name']}]: {exc}") from exc
+        return items
+
+    @field_validator("tools_disabled", mode="before")
+    @classmethod
+    def validate_tools_disabled(cls, v: Any) -> list[str]:
+        """Accept None/''/JSON string/list; keep non-empty unique names.
+
+        No existence check against the tool registry: the deny list is
+        blacklist semantics (an unknown name simply never matches) and tool
+        availability varies with activated domains/plugins."""
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except json.JSONDecodeError:
+                raise ValueError(f"tools_disabled must be a valid JSON string, got: {v!r}")
+        if not isinstance(v, list):
+            raise ValueError(f"tools_disabled must be a list, got: {type(v).__name__}")
+        names: list[str] = []
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(f"tools_disabled entries must be non-empty strings, got: {item!r}")
+            name = item.strip()
+            if name not in names:
+                names.append(name)
+        return names
 
     # -- Context budget (token-based, model-aware) --
     llm_context_window_tokens: int = Field(
@@ -1141,6 +1270,7 @@ def _setting_category(field: str) -> str:
         "max_total_runs",
         "tool_confirmation",
         "tool_path_policies",
+        "tools_disabled",
     ):
         return "guards"
     if field.startswith(("otel_", "audit_log_")) or field == "logger_level":

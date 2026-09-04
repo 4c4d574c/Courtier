@@ -206,6 +206,44 @@ class TestModelPoolSeed:
         assert service.get().llm_model_pool.endpoints == []
 
 
+class TestGuardDeclarationSeed:
+    async def test_seeds_five_builtins_once(self, db):
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        service = ConfigService()
+
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        assert info["guards_seeded"] is True
+        entries = service.get().guardrail_guards
+        assert [e.name for e in entries] == [
+            "tool_disabled",
+            "path_policy",
+            "confirmation",
+            "explore_loop",
+            "business_artifact",
+        ]
+        assert all(e.builtin for e in entries)
+        assert {e.scope for e in entries} == {"session", "run"}
+
+        # Stable on re-refresh: the row exists, no re-seed.
+        info2 = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+        assert info2["guards_seeded"] is False
+        assert len(service.get().guardrail_guards) == 5
+
+    async def test_admin_delete_is_respected(self, db):
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        service = ConfigService()
+        await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        await store.save({"guardrail_guards": []}, actor="admin")
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        assert info["guards_seeded"] is False
+        assert service.get().guardrail_guards == []
+
+
 class TestRefreshSnapshot:
     async def test_degrades_to_env_without_store(self):
         service = ConfigService()
@@ -332,9 +370,7 @@ class TestAdvancedDefaultsMaterialization:
         await store.save({"llm_model_pool": await self._unmaterialized_pool()}, actor="admin")
         service = ConfigService()
 
-        info = await refresh_settings_snapshot(
-            service, store, base=Settings(_env_file=None)
-        )
+        info = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
 
         assert info["pool_advanced_baked"] is True
         pool = service.get().llm_model_pool
@@ -346,8 +382,6 @@ class TestAdvancedDefaultsMaterialization:
 
         # 幂等：第二次 refresh 不再改写（标记已置位）
         entry_before = service.get().llm_model_pool.endpoints[0].models[0]
-        info2 = await refresh_settings_snapshot(
-            service, store, base=Settings(_env_file=None)
-        )
+        info2 = await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
         assert info2["pool_advanced_baked"] is False
         assert service.get().llm_model_pool.endpoints[0].models[0] == entry_before
