@@ -36,7 +36,6 @@ Key capabilities:
 ```
 /home/lmwl/Documents/docaudit/agent/
 ├── AGENTS.md                 # This file
-├── CLAUDE.md                 # Repo-wide guidance (Courtier-focused)
 ├── .gitignore                # Root ignores: .env_bak, .worktrees/
 ├── docs/                     # Courtier design specs and implementation plans
 ├── courtier/                 # Courtier backend + frontend + infrastructure
@@ -319,21 +318,22 @@ courtier/courtier/
 │   ├── agents/          # OrchestratorAgent, SubAgent runtime
 │   ├── api/             # FastAPI app, routes, services, SSE, stores
 │   ├── artifacts/       # Artifact registry, store, models
-│   ├── core/            # Loop, state, model, context, guards, streaming, event bus
-│   ├── memory/          # Memory abstractions
-│   ├── guardrails/      # Unified guardrail pipeline (guards/interceptors/observers)
-│   ├── prompts/         # PromptEngine, PromptBundle, defaults/{locale}/ (core default templates)
-│   ├── runtime/         # Agent runtime bridge
+│   ├── core/            # Loop, state, model, context, streaming, event bus
+│   │   └── guardrails/  # Unified guardrail pipeline (guards/interceptors/observers)
+│   ├── prompts/         # Prompt pipeline (engine lives in courtier/prompts/)
+│   ├── runtime/         # Agent runtime bridge, domain activation
 │   ├── skills/          # Skill registry/loader
 │   ├── telemetry/       # OpenTelemetry tracer
 │   └── tools/           # Tool registry, protocol, builtin/domain tools
 ├── cli/                 # CLI entry point (courtier validate-domain)
-├── common/              # Shared utilities
 ├── config.py            # Settings and CourtierConfig
 ├── db/                  # SQLAlchemy models, CRUD, async DB helpers
 ├── domain/              # DomainPackage discovery and validation
 ├── es/                  # Elasticsearch client
 ├── plugin/              # PluginSystem, PluginRuntime, protocol types
+├── prompts/             # Jinja2 PromptEngine, errors, defaults/{locale}/
+├── settings_store.py    # DB-backed settings store (ConfigService seam)
+├── shared/              # Cross-cutting helpers (file-upload limits, ...)
 └── storage/             # MinIO client
 ```
 
@@ -481,13 +481,13 @@ See `pi/AGENTS.md` for the full rule set. Key points:
 
 ## 11. Notes for AI Agents
 
-- **Two projects, two contexts:** If you are asked to work on Courtier, stay in `courtier/` and use the root `CLAUDE.md` and this file. If you are asked to work on Pi, `cd pi/` and follow `pi/AGENTS.md`.
+- **Two projects, two contexts:** If you are asked to work on Courtier, stay in `courtier/` and follow this file. If you are asked to work on Pi, `cd pi/` and follow `pi/AGENTS.md`.
 - **Do not mix commits:** `pi/` is an independent git repository. Never stage `pi/` files from the Courtier root with `git add -A`.
 - **Run the right test command:**
   - Courtier Python: `uv run pytest` (or `uv run pytest -m "not integration"`).
   - Courtier frontend: `npm test` inside `courtier/webui/`.
   - Pi: `./test.sh` from `pi/`.
 - **Check environment versions:** Courtier needs Python 3.12+ and `uv`. Pi needs Node >=22.19.0.
-- **After Courtier code changes:** The local `courtier/CLAUDE.md` requires committing after every change with conventional commits. Review that file for the exact rule.
-- **Documentation drift:** If you change build commands, architecture, or conventions, update `AGENTS.md` (root), `CLAUDE.md` (root), and `courtier/CLAUDE.md` as appropriate.
+- **After Courtier code changes:** Commit after every logical change with conventional commits (`feat`/`fix`/`refactor`/`docs`/`test`/`chore`/`perf`/`ci`); never leave working-tree changes uncommitted across tasks.
+- **Documentation drift:** If you change build commands, architecture, or conventions, update this `AGENTS.md` as appropriate.
 - **Migration in progress:** Courtier is incrementally adopting concepts from Pi (event bus, state machine, model backend abstraction, capability registry, memory hierarchy, conversation tree, guardrails). See `courtier/docs/architecture/pi-architecture-migration-plan.md` before modifying core agent loop or event/SSE code.
