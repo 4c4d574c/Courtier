@@ -56,11 +56,57 @@ class TestDomainGuardRegistration:
         )
         assert registered == ["dummy_domain_guard"]
 
+    def test_object_form_session_declaration_registers(self):
+        system = GuardrailSystem()
+        registered = register_domain_guards(
+            system,
+            [{"name": "dummy_obj", "class_path": "courtier.agent.testing.DummyDomainGuard"}],
+            owner="domain:dummy",
+        )
+        assert registered == ["dummy_domain_guard"]
+        assert [g.name for g in system.guardrails] == ["dummy_domain_guard"]
+        assert system.run_descriptors == []
+
+    def test_object_form_run_declaration_becomes_descriptor(self):
+        system = GuardrailSystem()
+        registered = register_domain_guards(
+            system,
+            [
+                {
+                    "name": "stateful_run",
+                    "class_path": "courtier.agent.testing.StatefulRunGuard",
+                    "scope": "run",
+                }
+            ],
+            owner="domain:dummy",
+        )
+        assert registered == ["stateful_run"]
+        assert system.guardrails == []
+        assert [d.name for d in system.run_descriptors] == ["stateful_run"]
+
+    def test_bad_object_declaration_skipped_not_fatal(self):
+        system = GuardrailSystem()
+        registered = register_domain_guards(
+            system,
+            [{"name": "broken", "class_path": "no.such.module.Guard"}],
+            owner="domain:dummy",
+        )
+        assert registered == []
+        assert system.guardrails == []
+        assert system.run_descriptors == []
+
 
 def test_domain_config_accepts_guards():
     config = DomainConfig(name="d", guards=["courtier.agent.testing.DummyDomainGuard"])
     assert config.guards == ["courtier.agent.testing.DummyDomainGuard"]
     assert DomainConfig(name="d").guards == []
+    obj_form = DomainConfig(
+        name="d",
+        guards=[
+            {"name": "g", "class_path": "courtier.agent.testing.DummyDomainGuard", "scope": "run"}
+        ],
+    )
+    assert obj_form.guards[0]["scope"] == "run"
 
 
 class TestActivatorSeam:
@@ -103,6 +149,37 @@ class TestValidateDomainGuards:
         (domain / "skills" / "x.md").write_text("s")
         (domain / "config" / "domain.yaml").write_text(
             "name: d\nguards: ['no.such.module.Guard']\n"
+        )
+        issues = DomainLoader.validate_domain(domain, plugins_root=tmp_path / "plugins")
+        assert any("Guard declaration" in i for i in issues)
+
+    def test_object_form_declaration_validated(self, tmp_path):
+        from courtier.domain.loader import DomainLoader
+
+        domain = tmp_path / "d"
+        (domain / "config" / "prompts" / "zh-CN").mkdir(parents=True)
+        (domain / "config" / "prompts" / "zh-CN" / "x.yaml").write_text("a: b")
+        (domain / "skills").mkdir()
+        (domain / "skills" / "x.md").write_text("s")
+        (domain / "config" / "domain.yaml").write_text(
+            "name: d\nguards:\n"
+            "  - name: g\n"
+            "    class_path: courtier.agent.testing.StatefulRunGuard\n"
+            "    scope: run\n"
+        )
+        issues = DomainLoader.validate_domain(domain, plugins_root=tmp_path / "plugins")
+        assert not any("Guard declaration" in i for i in issues)
+
+    def test_object_form_bad_class_reported(self, tmp_path):
+        from courtier.domain.loader import DomainLoader
+
+        domain = tmp_path / "d"
+        (domain / "config" / "prompts" / "zh-CN").mkdir(parents=True)
+        (domain / "config" / "prompts" / "zh-CN" / "x.yaml").write_text("a: b")
+        (domain / "skills").mkdir()
+        (domain / "skills" / "x.md").write_text("s")
+        (domain / "config" / "domain.yaml").write_text(
+            "name: d\nguards:\n  - name: g\n    class_path: no.such.module.Guard\n"
         )
         issues = DomainLoader.validate_domain(domain, plugins_root=tmp_path / "plugins")
         assert any("Guard declaration" in i for i in issues)

@@ -13,16 +13,19 @@ logger = logging.getLogger(__name__)
 
 class DomainConfig(BaseModel):
     """Validated domain.yaml metadata."""
+
     name: str
     title: str = ""
     description: str = ""
     locales: list[str] = Field(default_factory=lambda: ["en-US"])
     requires_plugins: list[str] = Field(default_factory=list)
     requires_services: list[str] = Field(default_factory=list)
-    #: Dotted class paths of in-process guardrails contributed by this
-    #: domain (e.g. "docaudit.guards.FormatGuard"), registered into the
-    #: session GuardrailSystem on activation.
-    guards: list[str] = Field(default_factory=list)
+    #: In-process guardrails contributed by this domain, registered into the
+    #: session GuardrailSystem on activation. Each entry is either a dotted
+    #: class path (``"docaudit.guards.FormatGuard"`` — session-scoped,
+    #: no-arg) or an object form (``{name, class_path, scope, enabled}``)
+    #: that may declare ``scope: run`` (fresh instance per agent_loop).
+    guards: list[str | dict] = Field(default_factory=list)
 
 
 class DomainLoader:
@@ -110,15 +113,20 @@ class DomainLoader:
         elif not list(skills_dir.glob("*.md")):
             issues.append("No skill .md files found in skills/")
 
-        # 5. Guard declarations: importable, guard-shaped, legal layer
-        for guard_path in config.guards:
+        # 5. Guard declarations: importable, guard-shaped, legal layer/scope
+        for guard_decl in config.guards:
             try:
-                from courtier.agent.core.guardrails.domain_guards import (
-                    load_domain_guard,
+                from courtier.agent.core.guardrails.registry import (
+                    check_guard_declaration,
+                    descriptor_from_raw,
                 )
 
-                load_domain_guard(guard_path)
+                if isinstance(guard_decl, str):
+                    check_guard_declaration(guard_decl)
+                else:
+                    descriptor = descriptor_from_raw(guard_decl)
+                    check_guard_declaration(descriptor.class_path, descriptor.scope)
             except Exception as exc:
-                issues.append(f"Guard declaration '{guard_path}' invalid: {exc}")
+                issues.append(f"Guard declaration '{guard_decl}' invalid: {exc}")
 
         return issues
