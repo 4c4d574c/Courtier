@@ -576,6 +576,167 @@
                   </button>
                 </div>
                 <div
+                  v-else-if="field.name === GUARDS_DECL_FIELD"
+                  class="tbl-editor guarddecl-editor"
+                  data-toolsguards-root
+                >
+                  <div class="tbl-head" aria-hidden="true">
+                    <span>启用</span>
+                    <span>名称</span>
+                    <span>类路径（module.Class）</span>
+                    <span>作用域</span>
+                    <span />
+                  </div>
+                  <div
+                    v-for="(row, i) in guardRows"
+                    :key="i"
+                    class="tbl-row guard-row"
+                  >
+                    <label class="switch-label guard-switch">
+                      <span class="switch">
+                        <input
+                          v-model="row.enabled"
+                          type="checkbox"
+                          :disabled="!editable"
+                          @change="writeGuardRows()"
+                        />
+                        <span class="track" />
+                      </span>
+                    </label>
+                    <input
+                      v-model="row.name"
+                      class="tbl-input"
+                      :disabled="!editable || row.builtin"
+                      placeholder="守卫名称"
+                      spellcheck="false"
+                      @input="writeGuardRows"
+                    />
+                    <input
+                      v-model="row.classPath"
+                      class="tbl-input"
+                      :disabled="!editable || row.builtin"
+                      placeholder="courtier 包内守卫类的完整路径"
+                      spellcheck="false"
+                      @input="writeGuardRows"
+                    />
+                    <select
+                      v-model="row.scope"
+                      class="tbl-input"
+                      :disabled="!editable || row.builtin"
+                      @change="writeGuardRows()"
+                    >
+                      <option value="session">session</option>
+                      <option value="run">run</option>
+                    </select>
+                    <div class="tbl-ops">
+                      <span v-if="row.builtin" class="tbl-badge">内置</span>
+                      <button
+                        class="tbl-op"
+                        type="button"
+                        aria-label="上移"
+                        :disabled="!editable || i === 0"
+                        @click="moveGuardRow(i, -1)"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        class="tbl-op"
+                        type="button"
+                        aria-label="下移"
+                        :disabled="!editable || i === guardRows.length - 1"
+                        @click="moveGuardRow(i, 1)"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        class="tbl-remove"
+                        type="button"
+                        :aria-label="`删除 ${row.name || '守卫'}`"
+                        :disabled="!editable"
+                        @click="removeGuardRow(i)"
+                      >
+                        <AppIcon name="trash" :size="14" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    class="tbl-add"
+                    type="button"
+                    :disabled="!editable"
+                    @click="addGuardRow()"
+                  >
+                    ＋ 添加守卫
+                  </button>
+                  <button
+                    class="tbl-add"
+                    type="button"
+                    :disabled="!editable"
+                    title="重置为五个内置基线守卫（会移除自定义声明）"
+                    @click="restoreDefaultGuards()"
+                  >
+                    恢复默认
+                  </button>
+                </div>
+                <div
+                  v-else-if="field.name === TOOLS_DISABLED_FIELD"
+                  class="tbl-editor disabletool-editor"
+                  data-toolsguards-root
+                >
+                  <div class="tbl-head" aria-hidden="true">
+                    <span>工具名</span>
+                    <span />
+                  </div>
+                  <div
+                    v-for="(tool, i) in toolsDisabledRows"
+                    :key="i"
+                    class="tbl-row"
+                  >
+                    <div class="tbl-toolcell">
+                      <input
+                        v-model="toolsDisabledRows[i]"
+                        class="tbl-input"
+                        :disabled="!editable"
+                        placeholder="选择或输入工具名"
+                        spellcheck="false"
+                        @focus="openDisabledSuggest(i)"
+                        @input="openDisabledSuggest(i); writeToolsDisabledRows()"
+                        @keydown.escape="suggestDisabledFor = null"
+                      />
+                      <div
+                        v-if="suggestDisabledFor === i && disabledToolSuggestions(i).length"
+                        class="tbl-suggest"
+                      >
+                        <button
+                          v-for="name in disabledToolSuggestions(i)"
+                          :key="name"
+                          type="button"
+                          class="tbl-suggest-item"
+                          @mousedown.prevent="pickDisabledSuggest(i, name)"
+                        >
+                          {{ name }}
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      class="tbl-remove"
+                      type="button"
+                      :aria-label="`删除 ${tool || '工具'}`"
+                      :disabled="!editable"
+                      @click="removeDisabledToolRow(i)"
+                    >
+                      <AppIcon name="trash" :size="14" />
+                    </button>
+                  </div>
+                  <button
+                    class="tbl-add"
+                    type="button"
+                    :disabled="!editable"
+                    @click="addDisabledToolRow()"
+                  >
+                    ＋ 添加工具
+                  </button>
+                </div>
+                <div
                   v-else-if="field.name === CONFIRM_FIELD"
                   class="tbl-editor toolconfirm-editor"
                   data-toolconfirm-root
@@ -838,15 +999,22 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { api, type DeploymentField, type SettingsView } from "../api/client";
 import {
   buildUpdateBody,
+  DEFAULT_GUARD_ROWS,
+  guardRowError,
+  initFormState,
+  parseGuardRows,
+  parseStringList,
   parseToolConfirmationRows,
   parseToolPathRows,
+  secretPlaceholder,
+  serializeGuardRows,
+  serializeStringList,
   serializeToolConfirmationRows,
   serializeToolPathRows,
   toolConfirmationRowError,
   toolPathRowError,
-  initFormState,
-  secretPlaceholder,
   type FormState,
+  type GuardRow,
   type SettingsCategory,
   type SettingsField,
 } from "../utils/settingsForm";
@@ -1109,13 +1277,122 @@ function onDocumentClickCloseSuggest(event: MouseEvent) {
   const target = event.target as HTMLElement | null;
   if (target && target.closest("[data-toolpath-root]")) return;
   if (target && target.closest("[data-toolconfirm-root]")) return;
+  if (target && target.closest("[data-toolsguards-root]")) return;
   closeToolPathSuggest();
   closeConfirmSuggest();
+  closeDisabledSuggest();
 }
 
 function syncToolPathRows() {
   const raw = String(formState["guards"]?.[TOOL_PATH_FIELD] ?? "{}");
   toolPathRows.value = parseToolPathRows(raw);
+}
+
+// —— 守卫声明（guardrail_guards）：行编辑；builtin 身份只读、enabled 可切换 ——
+
+const GUARDS_DECL_FIELD = "guardrail_guards";
+const TOOLS_DISABLED_FIELD = "tools_disabled";
+
+const guardRows = ref<GuardRow[]>([]);
+const toolsDisabledRows = ref<string[]>([]);
+const suggestDisabledFor = ref<number | null>(null);
+
+function syncGuardRows() {
+  guardRows.value = parseGuardRows(
+    String(formState["guards"]?.[GUARDS_DECL_FIELD] ?? "[]")
+  );
+}
+
+function writeGuardRows() {
+  const state = formState["guards"];
+  if (state) state[GUARDS_DECL_FIELD] = serializeGuardRows(guardRows.value);
+}
+
+function addGuardRow() {
+  guardRows.value.push({
+    name: "",
+    classPath: "",
+    scope: "session",
+    enabled: true,
+    builtin: false,
+  });
+  writeGuardRows();
+}
+
+function removeGuardRow(index: number) {
+  guardRows.value.splice(index, 1);
+  writeGuardRows();
+}
+
+/** 列表顺序即各 scope 内的检查顺序，行内提供上移/下移。 */
+function moveGuardRow(index: number, delta: number) {
+  const target = index + delta;
+  const rows = guardRows.value;
+  if (target < 0 || target >= rows.length) return;
+  [rows[index], rows[target]] = [rows[target], rows[index]];
+  writeGuardRows();
+}
+
+/** 恢复默认 = 重写五个内置种子行（builtin 身份保存时由服务端权威校正）。 */
+function restoreDefaultGuards() {
+  guardRows.value = DEFAULT_GUARD_ROWS.map((row) => ({ ...row }));
+  writeGuardRows();
+}
+
+function guardDeclRowErrors(): string {
+  const bad = guardRows.value
+    .map((row) => guardRowError(row))
+    .filter((msg) => msg !== "");
+  return bad[0] ?? "";
+}
+
+// —— 禁用工具名单（tools_disabled）：字符串行 + 工具名补全 ——
+
+function syncToolsDisabledRows() {
+  toolsDisabledRows.value = parseStringList(
+    String(formState["guards"]?.[TOOLS_DISABLED_FIELD] ?? "[]")
+  );
+}
+
+function writeToolsDisabledRows() {
+  const state = formState["guards"];
+  if (state) state[TOOLS_DISABLED_FIELD] = serializeStringList(toolsDisabledRows.value);
+}
+
+function addDisabledToolRow() {
+  toolsDisabledRows.value.push("");
+  writeToolsDisabledRows();
+  fetchKnownToolNames();
+}
+
+function removeDisabledToolRow(index: number) {
+  toolsDisabledRows.value.splice(index, 1);
+  writeToolsDisabledRows();
+}
+
+function openDisabledSuggest(index: number) {
+  suggestDisabledFor.value = index;
+}
+
+/** 候选 = 已知工具 − 其它行已占用 − 不匹配当前输入。 */
+function disabledToolSuggestions(index: number): string[] {
+  const query = (toolsDisabledRows.value[index] ?? "").trim().toLowerCase();
+  const used = new Set(
+    toolsDisabledRows.value.filter((_, i) => i !== index).map((row) => row.trim())
+  );
+  return knownToolNames.value.filter(
+    (name) => !used.has(name) && (!query || name.toLowerCase().includes(query))
+  );
+}
+
+function pickDisabledSuggest(index: number, name: string) {
+  toolsDisabledRows.value[index] = name;
+  writeToolsDisabledRows();
+  suggestDisabledFor.value = null;
+}
+
+function closeDisabledSuggest() {
+  suggestDisabledFor.value = null;
 }
 
 function writeToolPathRows() {
@@ -1429,6 +1706,8 @@ function resetForms(data: SettingsView) {
   syncEndpointRows();
   syncToolPathRows();
   syncConfirmRows();
+  syncGuardRows();
+  syncToolsDisabledRows();
   syncPoolRows();
 }
 
@@ -1477,12 +1756,16 @@ async function save() {
   Object.assign(formErrors, errors);
   writeToolPathRows();
   writeConfirmRows();
+  writeGuardRows();
+  writeToolsDisabledRows();
   const endpointError = cat === "plugins" ? endpointRowErrors() : "";
   if (endpointError) formErrors[ENDPOINTS_FIELD] = endpointError;
   const toolPathError = cat === "guards" ? toolPathRowErrors() : "";
   if (toolPathError) formErrors[TOOL_PATH_FIELD] = toolPathError;
   const confirmError = cat === "guards" ? confirmRowErrors() : "";
   if (confirmError) formErrors[CONFIRM_FIELD] = confirmError;
+  const guardDeclError = cat === "guards" ? guardDeclRowErrors() : "";
+  if (guardDeclError) formErrors[GUARDS_DECL_FIELD] = guardDeclError;
   const poolError = cat === "model" ? poolEditorErrors() : "";
   if (poolError) formErrors[POOL_FIELD] = poolError;
   if (
@@ -1490,7 +1773,8 @@ async function save() {
     endpointError ||
     poolError ||
     toolPathError ||
-    confirmError
+    confirmError ||
+    guardDeclError
   )
     return;
   if (cat === "model" && keysDirty.value) {
@@ -2408,6 +2692,52 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 .toolconfirm-editor {
   --tbl-cols: minmax(150px, 190px) 1fr 28px;
+}
+.guarddecl-editor {
+  --tbl-cols: 52px minmax(110px, 150px) 1fr 96px auto;
+}
+.guarddecl-editor .guard-row {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.guard-switch {
+  justify-content: center;
+}
+.tbl-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: flex-end;
+}
+.tbl-op {
+  width: 24px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tbl-op:hover:not(:disabled) {
+  color: var(--chat-accent);
+}
+.tbl-op:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.tbl-badge {
+  padding: 1px 7px;
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  color: var(--chat-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.disabletool-editor {
+  --tbl-cols: 1fr 28px;
 }
 .toolpath-editor {
   --tbl-cols: minmax(150px, 190px) 1fr 44px 28px;

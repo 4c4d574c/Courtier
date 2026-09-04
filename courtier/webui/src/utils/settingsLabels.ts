@@ -89,6 +89,9 @@ export const FIELD_DISPLAY_NAMES: Record<string, string> = {
   // guards — 确认与路径策略
   tool_confirmation: "工具确认名单",
   tool_path_policies: "工具路径白名单",
+  // guards — 守卫声明与禁用
+  guardrail_guards: "守卫声明",
+  tools_disabled: "禁用工具名单",
   // guards — 并发与运行
   max_runs_per_user: "每用户并发运行上限",
   max_total_runs: "全局并发运行上限",
@@ -189,6 +192,12 @@ const CATEGORY_GROUPS: Record<string, GroupSpec[]> = {
   ],
   plugins: [{ key: "conn", label: "插件连接", prefixes: ["courtier_plugin_"] }],
   guards: [
+    // names 匹配需先于 guardrail_ 前缀组（matchGroup 顺序即优先级）
+    {
+      key: "declarations",
+      label: "守卫声明与禁用",
+      names: ["guardrail_guards", "tools_disabled"],
+    },
     { key: "layers", label: "分层模式", prefixes: ["guardrail_"] },
     { key: "loop", label: "主循环守卫", prefixes: ["loop_"] },
     { key: "subagent", label: "子代理", prefixes: ["subagent_"] },
@@ -242,7 +251,7 @@ export const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   model: "模型接入参数与上下文窗口管理",
   retrieval: "Elasticsearch 检索与 MinIO 对象存储",
   plugins: "插件端点与通道鉴权",
-  guards: "代理循环、子代理与并发守卫",
+  guards: "代理循环、子代理、并发守卫与守卫声明",
   observability: "链路追踪与审计日志",
   web: "认证、会话与跨域安全",
 };

@@ -256,3 +256,119 @@ export function toolConfirmationRowError(row: ToolConfirmationRow): string {
   if (!tool && message) return "缺少工具名";
   return "";
 }
+
+/** 守卫声明行（guardrail_guards 的结构化编辑模型）。 */
+export interface GuardRow {
+  name: string;
+  classPath: string;
+  scope: "session" | "run";
+  enabled: boolean;
+  builtin: boolean;
+}
+
+/**
+ * 五个内置基线，与服务端种子一致。仅作「恢复默认」的初值；builtin 条目
+ * 的身份字段以服务端权威为准（保存时被强制回种子值），此处不一致只会被
+ * 静默纠正，不会破坏运行语义。
+ */
+export const DEFAULT_GUARD_ROWS: GuardRow[] = [
+  {
+    name: "tool_disabled",
+    classPath: "courtier.agent.core.guardrails.permission_guards.ToolDisabledGuard",
+    scope: "session",
+    enabled: true,
+    builtin: true,
+  },
+  {
+    name: "path_policy",
+    classPath: "courtier.agent.core.guardrails.permission_guards.PathPolicyGuard",
+    scope: "session",
+    enabled: true,
+    builtin: true,
+  },
+  {
+    name: "confirmation",
+    classPath: "courtier.agent.core.guardrails.confirmation.ConfirmationGuard",
+    scope: "session",
+    enabled: true,
+    builtin: true,
+  },
+  {
+    name: "explore_loop",
+    classPath: "courtier.agent.core.guardrails.loop_guardrails.ExploreLoopGuard",
+    scope: "run",
+    enabled: true,
+    builtin: true,
+  },
+  {
+    name: "business_artifact",
+    classPath: "courtier.agent.core.guardrails.loop_guardrails.BusinessArtifactProgressGuard",
+    scope: "run",
+    enabled: true,
+    builtin: true,
+  },
+];
+
+/** 把设置里的 JSON 文本解析为守卫声明行（解析失败返回空）。 */
+export function parseGuardRows(raw: string): GuardRow[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => ({
+    name: typeof entry?.name === "string" ? entry.name : "",
+    classPath: typeof entry?.class_path === "string" ? entry.class_path : "",
+    scope: entry?.scope === "run" ? "run" : "session",
+    enabled: entry?.enabled !== false,
+    builtin: entry?.builtin === true,
+  }));
+}
+
+/** 行序列化回设置值（JSON 文本）；缺名称或类路径的行跳过。 */
+export function serializeGuardRows(rows: GuardRow[]): string {
+  const value = rows
+    .map((row) => ({
+      name: row.name.trim(),
+      class_path: row.classPath.trim(),
+      scope: row.scope,
+      enabled: row.enabled,
+      builtin: row.builtin,
+    }))
+    .filter((row) => row.name !== "" && row.class_path !== "");
+  return JSON.stringify(value);
+}
+
+/** 行校验：有名称没类路径（或反之）= 半行。 */
+export function guardRowError(row: GuardRow): string {
+  const name = row.name.trim();
+  const classPath = row.classPath.trim();
+  if (!name && !classPath) return "";
+  if (!name) return "缺少守卫名称";
+  if (!classPath) return "缺少类路径";
+  return "";
+}
+
+/** 把设置里的 JSON 文本解析为字符串名单（tools_disabled；解析失败返回空）。 */
+export function parseStringList(raw: string): string[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item));
+}
+
+/** 序列化字符串名单；空项与首尾空白剔除，保序去重。 */
+export function serializeStringList(items: string[]): string {
+  const seen: string[] = [];
+  for (const item of items) {
+    const value = item.trim();
+    if (value && !seen.includes(value)) seen.push(value);
+  }
+  return JSON.stringify(seen);
+}
