@@ -50,7 +50,9 @@ def _load_dotenv_settings() -> None:
                 continue
             key, _, value = line.partition("=")
             key = key.strip()
-            if key.startswith("MINIO_") and not os.environ.get(key):
+            if (
+                key.startswith("MINIO_") or key.startswith("COURTIER_PLUGIN_MINIO_")
+            ) and not os.environ.get(key):
                 os.environ[key] = value.strip().strip('"').strip("'")
         break
 

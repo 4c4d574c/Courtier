@@ -55,4 +55,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 ENV COURTIER_REPO_ROOT=/app
 ENV UV_NO_SYNC=1
 
-CMD ["uv", "run", "python", "-m", "uvicorn", "courtier.agent.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Route through main.py: it applies Alembic migrations before serving.
+# A bare uvicorn CMD produced "healthy" deployments with an empty schema.
+CMD ["uv", "run", "python", "main.py", "--host", "0.0.0.0", "--port", "8000"]

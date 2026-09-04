@@ -217,12 +217,18 @@ class MemoryManager(ContextManager):
                 if len(preview) > self._auto_inject_max_chars:
                     preview = preview[: self._auto_inject_max_chars] + "…"
                 suffix = f"（{domain}）" if domain != "common" else ""
-                lines.append(f"- {title}{suffix}：{preview}" if title else f"- {preview}")
+                line = f"- {title}{suffix}：{preview}" if title else f"- {preview}"
+                # Greedy per-entry fill: a full segment over budget must
+                # degrade to a truncated segment, never to "no memory at
+                # all" — heavy users would otherwise silently lose every
+                # injection (all-or-nothing used to break on the first
+                # oversized segment).
+                if total + len(line) + 1 > self._auto_inject_total_chars:
+                    break
+                lines.append(line)
+                total += len(line) + 1
             if not lines:
                 continue
             segment = f"【{label}】\n" + "\n".join(lines)
-            if total + len(segment) > self._auto_inject_total_chars:
-                break
             segments.append(segment)
-            total += len(segment)
         return segments

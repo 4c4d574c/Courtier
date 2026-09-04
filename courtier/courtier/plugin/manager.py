@@ -684,7 +684,14 @@ class ProcessManager:
             if method == METHOD_MEMORY_STORE_CALL:
                 if "memory_store" not in host_services:
                     return _deny(INVALID_PARAMS, "Missing memory_store host service")
-                if "read:memory" not in perms and "write:memory" not in perms:
+                action = str(params.get("action") or "")
+                # Action-level matrix: mutating actions need the write
+                # permission even when the manifest also (or only) declares
+                # read:memory — an OR check let read-only plugins mutate.
+                if action in ("write", "delete"):
+                    if "write:memory" not in perms:
+                        return _deny(INVALID_PARAMS, "Missing write:memory permission")
+                elif "read:memory" not in perms and "write:memory" not in perms:
                     return _deny(INVALID_PARAMS, "Missing read:memory / write:memory permission")
                 # 调用者身份由宿主在派发边界注入（x-host-injected），插件只透传。
                 # 信任层级与 template_store 相同：插件自身被攻破才可能伪造。
@@ -706,7 +713,7 @@ class ProcessManager:
                         return await memory_service.tool_action(
                             session,
                             identity=identity,
-                            action=str(params.get("action") or ""),
+                            action=action,
                             entry_id=params.get("entry_id"),
                             title=params.get("title"),
                             domain=params.get("domain"),

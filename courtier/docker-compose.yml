@@ -29,7 +29,9 @@ services:
     networks:
       - courtier
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-courtier-dev-root}"]
+      # 127.0.0.1 forces TCP: during first-run init MySQL serves a temporary
+# unix-socket-only server that would pass a localhost ping early.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
       interval: 5s
       timeout: 3s
       retries: 30

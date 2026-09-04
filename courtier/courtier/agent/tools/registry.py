@@ -814,6 +814,17 @@ class ToolRegistry:
         own parameter.
         """
         if not self._param_injectors:
+            # No injectors registered: still strip model-supplied
+            # host-injected params — passing them through would let the
+            # model forge identity (_caller_uid/_caller_is_admin).
+            properties = tool.parameters.get("properties", {})
+            forged = [
+                name
+                for name, prop in properties.items()
+                if isinstance(prop, dict) and prop.get(HOST_INJECTED_MARKER)
+            ]
+            if forged and all(name in kwargs for name in forged):
+                return {k: v for k, v in kwargs.items() if k not in forged}
             return kwargs
         properties = tool.parameters.get("properties", {})
         updates: dict[str, Any] = {}

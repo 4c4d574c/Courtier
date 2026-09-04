@@ -94,7 +94,27 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         from .db import get_db
 
         # DB-less mode (empty MYSQL_URL) is a supported configuration for
-        # tests and local dev — skip engine creation in that mode.
+        # tests and local dev — skip engine creation in that mode.  In the
+        # datacenter environments an empty URL or missing settings key used
+        # to produce a "healthy" server where every login 500s (fail-late):
+        # refuse to start instead.
+        if getattr(settings, "deployment_env", "development") in (
+            "staging",
+            "production",
+        ):
+            if not settings.mysql_url:
+                raise RuntimeError(
+                    "MYSQL_URL is required when DEPLOYMENT_ENVIRONMENT is "
+                    "staging/production"
+                )
+            from ..settings_store import FernetCodec
+
+            if FernetCodec.from_env() is None:
+                raise RuntimeError(
+                    "COURTIER_SETTINGS_KEY is required when DEPLOYMENT_ENVIRONMENT "
+                    "is staging/production (without it DB-stored secrets are "
+                    "unreadable and JWT bootstrap is skipped)"
+                )
         if settings.mysql_url:
             db = get_db()
             await db.ensure_database()
@@ -415,8 +435,15 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     # Serve built frontend static assets in production/Docker images.
     # The Dockerfile copies webui/dist to $COURTIER_REPO_ROOT/static.
-    static_dir = Path(os.environ.get("COURTIER_REPO_ROOT", ".")) / "static"
+    # Default to the source tree root (…/courtier) rather than the process
+    # CWD — a systemd/other-cwd launch silently skipped the mount before.
+    repo_root = Path(__file__).resolve().parents[2]
+    static_dir = Path(os.environ.get("COURTIER_REPO_ROOT", str(repo_root))) / "static"
     if static_dir.is_dir():
         app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+    else:
+        logging.getLogger(__name__).info(
+            "No static frontend at %s — serving API only (dev mode)", static_dir
+        )
 
     return app

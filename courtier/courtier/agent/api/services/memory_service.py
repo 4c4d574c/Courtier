@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import delete, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from courtier.db.tables.memory import (
@@ -223,7 +224,7 @@ async def list_entries(
     rows = await session.execute(
         select(MemoryTable)
         .where(*_layer_filters(layer, identity.owner_id, domain, query))
-        .order_by(MemoryTable.domain, MemoryTable.updated_at.desc())
+        .order_by(MemoryTable.domain, MemoryTable.updated_at.desc(), MemoryTable.id.desc())
         .offset(max(0, skip))
         .limit(max(1, min(limit, _MAX_LIST_LIMIT)))
     )
@@ -266,7 +267,31 @@ async def upsert_entry(
             updated_by=identity.actor,
         )
         session.add(row)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError:
+            # Concurrent upsert of the same (layer, owner, domain, title):
+            # the unique address fired between our find and insert — merge
+            # into the winner instead of failing the whole call.
+            await session.rollback()
+            row = await _find_by_address(
+                session, layer=layer, owner_id=owner, domain=domain, title=title
+            )
+            if row is None:
+                raise
+            row.content = content
+            row.updated_by = identity.actor
+            await _audit(
+                session,
+                entry_id=row.id,
+                action="update",
+                row=row,
+                old_hash=None,
+                new_hash=_content_hash(content),
+                actor=identity.actor,
+            )
+            await session.commit()
+            return _entry_dict(row)
         await _audit(
             session,
             entry_id=row.id,
