@@ -194,7 +194,9 @@ async def execute_account_deletion(
             audit_rows += res.rowcount or 0
         result.counts["audit_results"] = audit_rows
 
-        result.counts["memories"] = await _delete_user_memory(session, user_id)
+        result.counts["memories"] = await _delete_user_memory(
+            session, user_id, commit=False
+        )
         result.counts["memory_audit_anonymized"] = await _anonymize_actor(
             session, MemoryChangeTable, actor_values, anonymized_as
         )
@@ -239,11 +241,11 @@ async def execute_account_deletion(
     return result
 
 
-async def _delete_user_memory(session: Any, user_id: int) -> int:
+async def _delete_user_memory(session: Any, user_id: int, *, commit: bool = True) -> int:
     from .memory_service import delete_user_memory
 
     try:
-        return await delete_user_memory(session, user_id)
+        return await delete_user_memory(session, user_id, commit=commit)
     except Exception:
         logger.warning("memory cleanup failed for user %s", user_id, exc_info=True)
         return 0

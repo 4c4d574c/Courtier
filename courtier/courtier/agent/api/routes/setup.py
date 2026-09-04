@@ -12,6 +12,7 @@ The setup gate middleware (setup_gate.py) keeps these routes reachable.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import ipaddress
 import logging
@@ -24,6 +25,11 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
+
+# Serializes create_admin: the SELECT-then-INSERT below is not atomic, and
+# two concurrent first-run requests could race past the "no admin yet"
+# check (the process is single-worker, so an in-process lock is sufficient).
+_create_admin_lock = asyncio.Lock()
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,64}$")
 
@@ -96,6 +102,11 @@ async def create_admin(request: Request, body: CreateAdminRequest):
     exists, in any environment."""
     if not _db_mode(request):
         raise HTTPException(409, "env-only 模式无需向导（dev 回退登录由 env 提供）")
+    async with _create_admin_lock:
+        return await _create_admin_locked(request, body)
+
+
+async def _create_admin_locked(request: Request, body: CreateAdminRequest):
     if not _USERNAME_RE.match(body.username):
         raise HTTPException(422, "用户名仅允许字母、数字与 _ . -（3-64 位）")
 

@@ -550,7 +550,15 @@ async def collect_for_injection(
     return {"user": await _segment(LAYER_USER), "global": await _segment(LAYER_GLOBAL)}
 
 
-async def delete_user_memory(session: AsyncSession, owner_id: int) -> int:
+async def delete_user_memory(
+    session: AsyncSession, owner_id: int, *, commit: bool = True
+) -> int:
+    """Delete every user-layer memory row of *owner_id*.
+
+    Pass ``commit=False`` inside a larger transaction (account deletion) —
+    an inner commit there would break the pipeline's all-or-nothing
+    guarantee."""
+
     """Remove every user-layer entry of *owner_id* (account deletion cascade).
 
     Audit rows keep the deletion record with actor ``system`` — content
@@ -584,5 +592,6 @@ async def delete_user_memory(session: AsyncSession, owner_id: int) -> int:
                 MemoryTable.layer == LAYER_USER, MemoryTable.owner_id == owner_id
             )
         )
-        await session.commit()
+        if commit:
+            await session.commit()
     return count
