@@ -18,8 +18,17 @@ def _declaration(name: str, class_path: str = FACTORY_GUARD, **overrides):
 
 
 class TestGuardrailGuardsValidator:
-    def test_default_is_empty(self):
-        assert Settings(_env_file=None).guardrail_guards == []
+    def test_default_is_the_five_builtins(self):
+        """Baseline present even with no DB row (env-only mode)."""
+        entries = Settings(_env_file=None).guardrail_guards
+        assert [e.name for e in entries] == [
+            "tool_disabled",
+            "path_policy",
+            "confirmation",
+            "explore_loop",
+            "business_artifact",
+        ]
+        assert all(e.builtin for e in entries)
 
     def test_valid_declaration_constructs(self):
         settings = Settings(_env_file=None, guardrail_guards=[_declaration("my_guard")])

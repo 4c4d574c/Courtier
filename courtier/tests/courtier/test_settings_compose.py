@@ -243,6 +243,26 @@ class TestGuardDeclarationSeed:
         assert info["guards_seeded"] is False
         assert service.get().guardrail_guards == []
 
+    async def test_raw_key_delete_restores_model_default(self, db):
+        """Deleting the row entirely (no override) falls back to the field
+        default — the factory baseline — not to an empty list."""
+        codec = FernetCodec("ab" * 32)
+        store = _store(db, codec)
+        service = ConfigService()
+        await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        await store.delete(["guardrail_guards"], actor="admin")
+        await refresh_settings_snapshot(service, store, base=Settings(_env_file=None))
+
+        entries = service.get().guardrail_guards
+        assert [e.name for e in entries] == [
+            "tool_disabled",
+            "path_policy",
+            "confirmation",
+            "explore_loop",
+            "business_artifact",
+        ]
+
 
 class TestRefreshSnapshot:
     async def test_degrades_to_env_without_store(self):
