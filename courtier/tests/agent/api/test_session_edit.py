@@ -61,13 +61,15 @@ def _make_session(turns: int = 3) -> SessionRecord:
         StepRecord(index=i + 1, label=f"步骤{i + 1}", skill="", turn_index=t)
         for i, t in enumerate([0, 0, 1, 1, 1, 2])
     ]
+    # Production thought turn_index is 1-based (sse_adapter
+    # _resolve_turn_index returns >= 1).
     thoughts = [
         ThoughtRecord(
             id=i + 1,
             text=f"思考{i + 1}",
             turn=t + 1,
             timestamp=0.0,
-            turn_index=t,
+            turn_index=t + 1,
         )
         for i, t in enumerate([0, 1, 2])
     ]

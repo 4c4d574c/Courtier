@@ -82,10 +82,12 @@ try {
         },
       ],
       steps: [step(1, 0), step(2, 1), step(3, 2)],
+      // turnIndex is 1-based in production (connect increments the counter
+      // before pushing the first turn's thought).
       thoughts: [
-        { id: 1, text: "思一", turn: 1, turnIndex: 0, timestamp: 1 },
-        { id: 2, text: "思二", turn: 2, turnIndex: 1, timestamp: 2 },
-        { id: 3, text: "思三", turn: 3, turnIndex: 2, timestamp: 3 },
+        { id: 1, text: "思一", turn: 1, turnIndex: 1, timestamp: 1 },
+        { id: 2, text: "思二", turn: 2, turnIndex: 2, timestamp: 2 },
+        { id: 3, text: "思三", turn: 3, turnIndex: 3, timestamp: 3 },
       ],
       stats: { tokensIn: 0, tokensOut: 0, elapsed: 0 },
       createdAt: 1,

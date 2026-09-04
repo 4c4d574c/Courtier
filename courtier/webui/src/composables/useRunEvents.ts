@@ -36,6 +36,7 @@ const reconnectListeners = new Set<() => void>();
 let es: EventSource | null = null;
 let seqCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectDelay = 3000;
 let stopped = false;
 
 function dispatch(sessionId: string, entry: RunStatusEntry) {
@@ -51,6 +52,12 @@ function open() {
     try {
       const payload = JSON.parse(e.data);
       if (payload?.type !== "run_status" || !payload.sessionId) return;
+      if (reconnectDelay !== 3000) {
+        // Connection is healthy again; restore fast reconnects and realign
+        // the sidebar once (the channel has no replay).
+        reconnectDelay = 3000;
+        for (const fn of reconnectListeners) fn();
+      }
       dispatch(payload.sessionId, {
         status: payload.status,
         queuePosition: payload.queuePosition,
@@ -68,13 +75,15 @@ function open() {
     es?.close();
     es = null;
     if (stopped) return;
-    // Re-fetch dependent state (the channel has no replay), then re-open.
-    for (const fn of reconnectListeners) fn();
+    // Exponential backoff (3s → cap 30s): a long outage must not turn
+    // into a 3s SOS loop of reconnect attempts.
+    const delay = reconnectDelay;
+    reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
     if (!reconnectTimer) {
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         open();
-      }, 3000);
+      }, delay);
     }
   };
 }

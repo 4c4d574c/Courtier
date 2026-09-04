@@ -90,7 +90,9 @@ try {
     assert.equal(Object.keys(runEvents.statuses).length, 0);
   }
 
-  // 2. Channel error → reconnect listeners fire → channel re-opens (timer).
+  // 2. Channel error → backoff timer re-opens; reconnect listeners fire
+  //    only after the reopened channel delivers a message (successful
+  //    realign), not on every failed error event.
   {
     const runEvents = useRunEvents();
     esInstances.length = 0;
@@ -101,10 +103,26 @@ try {
     esInstances[0].error();
     await tick();
     assert.equal(esInstances[0].closed, true);
-    assert.equal(refetched, 1);
+    // Errors alone must not spam the list route.
+    assert.equal(refetched, 0);
     // Timer-based re-open: wait past the 3s backoff.
     await new Promise((r) => setTimeout(r, 3200));
     assert.equal(esInstances.length, 2);
+    // First healthy message realigns once.
+    esInstances[1].emit({
+      type: "run_status",
+      sessionId: "s1",
+      status: "completed",
+    });
+    await tick();
+    assert.equal(refetched, 1);
+    esInstances[1].emit({
+      type: "run_status",
+      sessionId: "s2",
+      status: "running",
+    });
+    await tick();
+    assert.equal(refetched, 1);
     runEvents.stop();
   }
 

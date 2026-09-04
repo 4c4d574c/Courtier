@@ -426,6 +426,7 @@ class AgentRuntime:
         finally:
             if task is not None:
                 self._tasks.pop(handle.handle_id, None)
+            self._handles.pop(handle.handle_id, None)
             elapsed = asyncio.get_running_loop().time() - start
             self._record_runtime(root_id, elapsed)
             await self._emit_event(

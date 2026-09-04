@@ -543,8 +543,14 @@ export function useAgentSession() {
     try {
       await api.resolveConfirmation(sid, confirmationId, decision);
     } catch (err) {
-      session.pendingConfirmations = backup;
-      session.errorMessage = err instanceof Error ? err.message : String(err);
+      // Roll back only in the session the decision belonged to, and only
+      // when it might still be pending (e.g. a network blip) — an
+      // "already resolved" answer means the card is correctly gone.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (session.id === sid && !/already/i.test(msg)) {
+        session.pendingConfirmations = backup;
+        session.errorMessage = msg;
+      }
     }
   }
 
