@@ -279,6 +279,10 @@ async def upsert_entry(
             )
             if row is None:
                 raise
+            old_hash = _content_hash(row.content)
+            if old_hash == _content_hash(content) and row.domain == domain:
+                await session.commit()
+                return _entry_dict(row)  # 无变化不刷审计
             row.content = content
             row.updated_by = identity.actor
             await _audit(
@@ -286,7 +290,7 @@ async def upsert_entry(
                 entry_id=row.id,
                 action="update",
                 row=row,
-                old_hash=None,
+                old_hash=old_hash,
                 new_hash=_content_hash(content),
                 actor=identity.actor,
             )
