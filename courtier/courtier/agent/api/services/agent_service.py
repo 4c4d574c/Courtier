@@ -44,9 +44,7 @@ def ensure_model_supports_media(profile: "ModelProfile | None", kinds: list[str]
     if not kinds:
         return
     declared = set(profile.modalities) if profile else set()
-    missing = sorted(
-        {k for k in kinds if KIND_TO_MODALITY.get(k, k) not in declared}
-    )
+    missing = sorted({k for k in kinds if KIND_TO_MODALITY.get(k, k) not in declared})
     if missing:
         raise MediaUnsupportedError(",".join(missing))
 
@@ -392,13 +390,12 @@ async def build_agent(
 
     from ...agents.orch import OrchestratorAgent
     from ...core.capability import CapabilityRegistry
-    from ...core.guardrails import (
-        ConfirmationGuard,
-        GuardrailSystem,
-        PathPolicyGuard,
-        ToolDisabledGuard,
-    )
+    from ...core.guardrails import GuardrailSystem
     from ...core.guardrails.permission_guards import declare_path_policy_tools
+    from ...core.guardrails.registry import (
+        GuardSessionContext,
+        wire_guard_declarations,
+    )
     from ...core.memory_manager import MemoryManager
     from ...runtime import AgentRuntime
     from ...runtime.activation import DomainActivator, build_domain_catalog
@@ -477,11 +474,12 @@ async def build_agent(
     session_workspace = (
         Path(settings.cache_dir).parent / ".agent_sessions" / (session_id or "default")
     )
-    # Session guardrail system: stateless permission guards shared by the
-    # orchestrator and every spawned sub-agent (loop guards stay per-run —
-    # agent_loop registers its own fresh instances). The capability registry
-    # is shared too, so a meta["permission"] declaration steers the path
-    # policy the same way for every agent in the session.
+    # Session guardrail system: declaratively registered guards shared by
+    # the orchestrator and every spawned sub-agent (run-scoped guards stay
+    # per-loop — agent_loop instantiates fresh instances from
+    # ``run_descriptors``). The capability registry is shared too, so a
+    # meta["permission"] declaration steers the path policy the same way for
+    # every agent in the session.
     capability_registry = CapabilityRegistry(tool_registry=session_registry)
     # 路径管辖声明去中心化：扫描会话工具表，凡自带 path_policy 声明的
     # 工具（含内置三件套与任意自定义工具）注册为 Capability 数据——
@@ -494,7 +492,7 @@ async def build_agent(
         )
     # Layer modes come from settings (hot: applied at the next session
     # build); tool_call is restricted to block/log by the Settings type —
-    # the permission layer never gets an "off" switch.
+    # a disabled guard is the only way to drop an individual check.
     session_guardrails = GuardrailSystem(
         input_mode=settings.guardrail_input_layer,
         output_mode=settings.guardrail_output_layer,
@@ -502,22 +500,18 @@ async def build_agent(
         tool_call_mode=settings.guardrail_tool_call_layer,
         post_tool_mode=settings.guardrail_post_tool_layer,
     )
-    session_guardrails.register(ToolDisabledGuard())
-    session_guardrails.register(
-        PathPolicyGuard(
-            # 文件工具基线根只剩会话工作区（便签/中间产物）——记忆已 DB 化，
-            # 走 memory 插件工具，不再受路径管辖。
-            allowed_roots=[session_workspace],
-            capability_registry=capability_registry,
-        )
+    # 守卫声明（settings 键 guardrail_guards）：列表顺序即检查顺序，内置
+    # 基线作为种子条目与其余声明一视同仁。session 级在此注册；run 级描述
+    # 符挂到系统上、由 agent_loop 每轮实例化。
+    guard_session_ctx = GuardSessionContext(
+        session_workspace=session_workspace,
+        capability_registry=capability_registry,
+        approved_tools=approved_tools if approved_tools is not None else set(),
+        settings=settings,
     )
-    if getattr(settings, "tool_confirmation", None):
-        session_guardrails.register(
-            ConfirmationGuard(
-                rules=settings.tool_confirmation,
-                approved_tools=approved_tools,
-            )
-        )
+    session_guardrails.run_descriptors = wire_guard_declarations(
+        session_guardrails, settings.guardrail_guards, guard_session_ctx
+    )
 
     agent_runtime = AgentRuntime(
         tool_registry=session_registry,

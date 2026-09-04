@@ -12,7 +12,7 @@ from courtier.agent.runtime import AgentRuntime
 from courtier.agent.tools.builtin.activate_domain import ActivateDomainTool
 from courtier.agent.tools.builtin.skill import SkillTool
 from courtier.agent.tools.registry import ToolRegistry
-from courtier.config import CourtierConfig
+from courtier.config import CourtierConfig, default_guard_declarations
 
 
 class _DummySettings:
@@ -38,6 +38,8 @@ class _DummySettings:
     guardrail_tool_layer = "block"
     guardrail_tool_call_layer = "block"
     guardrail_post_tool_layer = "block"
+    # 守卫声明（声明式装配起 build_agent 直读；取真实基线默认值）
+    guardrail_guards = default_guard_declarations()
 
 
 def _fake_plugin_tool(name: str, plugin_name: str):
@@ -249,9 +251,7 @@ def test_path_policy_seeding_tracks_self_declared_tools():
         name = "plain"
 
     registry = CapabilityRegistry()
-    declared = declare_path_policy_tools(
-        registry, [ExportTool(), PlainTool()]
-    )
+    declared = declare_path_policy_tools(registry, [ExportTool(), PlainTool()])
     assert declared == ["export_report"]
     guard = PathPolicyGuard(allowed_roots=["/tmp"], capability_registry=registry)
     # 自声明工具：恰好声明的根

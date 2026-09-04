@@ -155,6 +155,27 @@ class GuardDeclaration(BaseModel):
     builtin: bool = False
 
 
+def default_guard_declarations() -> list[GuardDeclaration]:
+    """Field default for guardrail_guards: the five seeded baseline guards.
+
+    Living on the model default (not only in the DB seed row) keeps the
+    permission baseline present in env-only mode (no DB) and after an admin
+    deletes the raw setting; an explicit DB value — including an emptied
+    list — always wins over the default."""
+    from courtier.agent.core.guardrails.registry import DEFAULT_GUARD_DECLARATIONS
+
+    return [
+        GuardDeclaration(
+            name=d.name,
+            class_path=d.class_path,
+            scope=d.scope,
+            enabled=d.enabled,
+            builtin=d.builtin,
+        )
+        for d in DEFAULT_GUARD_DECLARATIONS
+    ]
+
+
 class ModelPoolConfig(BaseModel):
     """Two-level model pool (endpoints → models) plus the pool default.
 
@@ -377,7 +398,7 @@ class Settings(BaseSettings):
 
     # -- 守卫声明（guards 类；新增守卫 = 写类 + 加一条声明，不改核心） -------
     guardrail_guards: list[GuardDeclaration] = Field(
-        default_factory=list,
+        default_factory=default_guard_declarations,
         alias="guardrail_guards",
         description=(
             "守卫声明（JSON）：[{name, class_path, scope, enabled}]。scope="
@@ -385,7 +406,8 @@ class Settings(BaseSettings):
             "次 agent_loop 新实例（有状态守卫必须选它）；tool_call 层只允许 "
             "session。列表顺序即各 scope 内的检查顺序。builtin 条目为种子"
             "基线：身份字段服务端权威、仅 enabled 可改（可停用，审计留痕）。"
-            "首次启动自动播种五个内置守卫。"
+            "字段默认值即五个内置守卫；DB 值（含清空的列表）总是覆盖默认，"
+            "首次启动另行播种为真实行供后台编辑。"
         ),
     )
     tools_disabled: list[str] = Field(
@@ -532,6 +554,8 @@ class Settings(BaseSettings):
         seen: set[str] = set()
         items: list[dict[str, Any]] = []
         for raw in v:
+            if isinstance(raw, BaseModel):  # defaults arrive as model instances
+                raw = raw.model_dump()
             try:
                 descriptor = descriptor_from_raw(raw)
             except GuardLoadError as exc:

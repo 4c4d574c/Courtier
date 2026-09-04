@@ -15,6 +15,7 @@ import pytest
 from courtier.agent.api.services.agent_service import apply_owner_scope
 from courtier.agent.tools.registry import ToolRegistry
 from courtier.agent.tools.scoped import ScopedTool
+from courtier.config import default_guard_declarations
 
 
 class _RecordingTool:
@@ -134,6 +135,8 @@ class _DummySettings:
     guardrail_tool_layer = "block"
     guardrail_tool_call_layer = "block"
     guardrail_post_tool_layer = "block"
+    # 守卫声明（声明式装配起 build_agent 直读；取真实基线默认值）
+    guardrail_guards = default_guard_declarations()
 
 
 class TestBuildAgentSessionRegistry:

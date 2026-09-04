@@ -33,11 +33,18 @@ _ENC_KEY = "__enc__"
 def _json_safe(value: Any) -> Any:
     """Normalize structured settings values for storage and comparison.
 
-    Structured fields (``llm_model_pool``) are pydantic models — they must
-    never reach the JSON column or ``!=`` comparisons as instances (the
-    column cannot serialize them, and class identity is unstable across
-    the config-module reload in the test suite)."""
-    return value.model_dump() if isinstance(value, BaseModel) else value
+    Structured fields (``llm_model_pool``, ``guardrail_guards``) are pydantic
+    models or lists/dicts of them — they must never reach the JSON column or
+    ``!=`` comparisons as instances (the column cannot serialize them, and
+    class identity is unstable across the config-module reload in the test
+    suite)."""
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    return value
 
 
 class SettingsKeyMissing(RuntimeError):

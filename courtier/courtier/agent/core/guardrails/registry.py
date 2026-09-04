@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from .guardrail_system import SCOPES
+from .guardrail_system import SCOPES, GuardrailSystem
 
 logger = logging.getLogger(__name__)
 
@@ -235,3 +235,47 @@ def descriptor_from_raw(raw: Any) -> GuardDescriptor:
         enabled=enabled,
         builtin=builtin,
     )
+
+
+def wire_guard_declarations(
+    system: GuardrailSystem,
+    declarations: Any,
+    session_ctx: GuardSessionContext | None = None,
+) -> list[GuardDescriptor]:
+    """Session assembly for a declaration list (settings ``guardrail_guards``).
+
+    Enabled session-scope guards are instantiated (in list order) and
+    registered into *system*; enabled run-scope descriptors are returned for
+    ``agent_loop`` to instantiate fresh per run. A broken declaration is
+    logged and skipped — mirroring the domain channel, a bad guard must not
+    fail the session build. Entries may be ``GuardDescriptor`` instances or
+    any duck-typed declaration exposing the same five attributes.
+    """
+    run_descriptors: list[GuardDescriptor] = []
+    for declaration in declarations or []:
+        descriptor = (
+            declaration
+            if isinstance(declaration, GuardDescriptor)
+            else GuardDescriptor(
+                name=getattr(declaration, "name", ""),
+                class_path=getattr(declaration, "class_path", ""),
+                scope=getattr(declaration, "scope", "session"),
+                enabled=getattr(declaration, "enabled", True),
+                builtin=getattr(declaration, "builtin", False),
+            )
+        )
+        if not descriptor.enabled:
+            continue
+        if descriptor.scope == "run":
+            run_descriptors.append(descriptor)
+            continue
+        try:
+            system.register(load_guard_descriptor(descriptor, session_ctx))
+        except GuardLoadError:
+            logger.warning(
+                "Skipping declared guard %s (%s)",
+                descriptor.name,
+                descriptor.class_path,
+                exc_info=True,
+            )
+    return run_descriptors

@@ -21,12 +21,15 @@ import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Literal
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 
 from courtier.prompts.errors import render_error
 
 from ...telemetry.metrics import record_guardrail_blocked
 from .base import CallGuardResult, GuardContext, GuardLayer, Guardrail, GuardResult
+
+if TYPE_CHECKING:
+    from .registry import GuardDescriptor
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,13 @@ class GuardrailSystem:
     """
 
     guardrails: list[Guardrail] = field(default_factory=list)
+    #: Run-scoped guard declarations (settings ``guardrail_guards`` entries
+    #: with ``scope: run``). Recipes, not instances: ``agent_loop``
+    #: instantiates fresh guards from them at the start of every loop —
+    #: orchestrator turn and each sub-agent turn alike — and unregisters
+    #: them in its finally, so per-run state never mixes across the agents
+    #: sharing this system.
+    run_descriptors: list["GuardDescriptor"] = field(default_factory=list)
     input_mode: GuardMode = "block"
     output_mode: GuardMode = "log"
     tool_mode: GuardMode = "block"
