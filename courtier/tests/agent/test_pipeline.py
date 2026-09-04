@@ -188,3 +188,31 @@ class TestRunScope:
         assert set(SCOPES) == {"pre_think", "output", "tool", "tool_call", "post_tool"}
         assert SCOPES["pre_think"] == "input"
         assert SCOPES["post_tool"] == "post_tool"
+
+
+class TestSetContextRestore:
+    """set_context 返回旧上下文——子代理运行结束后恢复归属（wiring-plan T2/D2）。"""
+
+    def test_set_context_returns_previous(self):
+        system = GuardrailSystem()
+        system.set_context(agent_name="orchestrator", session_id="s1", extra="x")
+
+        previous = system.set_context(agent_name="subagent", session_id="s2")
+
+        assert previous == {
+            "agent_name": "orchestrator",
+            "session_id": "s1",
+            "metadata": {"extra": "x"},
+        }
+
+    def test_restore_via_set_context_starstar(self):
+        system = GuardrailSystem()
+        system.set_context(agent_name="orchestrator", session_id="s1")
+        previous = system.set_context(agent_name="subagent", session_id="s2")
+
+        system.set_context(**previous)
+
+        ctx = GuardContext(state=object())
+        system._enrich_context(ctx)
+        assert ctx.agent_name == "orchestrator"
+        assert ctx.session_id == "s1"

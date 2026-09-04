@@ -174,11 +174,35 @@ class GuardrailSystem:
 
     def set_context(
         self, *, agent_name: str = "", session_id: str = "", **metadata: Any
-    ) -> None:
-        """Set session-level context injected into every scope dispatch."""
+    ) -> dict[str, Any]:
+        """Set session-level context injected into every scope dispatch.
+
+        Returns the previous context so a run can restore it when it ends —
+        sub-agent loops share the session system and would otherwise leave
+        their identity behind (orchestrator scopes after a nested run would
+        misattribute).
+        """
+        previous = {
+            "agent_name": self._agent_name,
+            "session_id": self._session_id,
+            "metadata": dict(self._context_metadata),
+        }
         self._agent_name = agent_name
         self._session_id = session_id
         self._context_metadata = dict(metadata)
+        return previous
+
+    def _enrich_context(self, context: GuardContext) -> None:
+        """Inject the stored session identity into one dispatch context.
+
+        Empty stored values never override what the caller already set.
+        """
+        if self._agent_name:
+            context.agent_name = self._agent_name
+        if self._session_id:
+            context.session_id = self._session_id
+        if self._context_metadata:
+            context.metadata = {**self._context_metadata, **context.metadata}
 
     async def run_scope(self, scope: str, context: GuardContext) -> ScopeOutcome:
         """Dispatch one pipeline scope: adapt → enforce → record.
@@ -191,10 +215,7 @@ class GuardrailSystem:
         - observers (record): exceptions always swallowed.
         """
         state = context.state
-        context.agent_name = self._agent_name or context.agent_name
-        context.session_id = self._session_id or context.session_id
-        if self._context_metadata:
-            context.metadata = {**self._context_metadata, **context.metadata}
+        self._enrich_context(context)
 
         entries = sorted(
             self._interceptors.get(scope, []), key=lambda e: (-e[0], e[1])
@@ -335,6 +356,10 @@ class GuardrailSystem:
         mode = self._mode_for_layer(layer)
         if mode == "off" or mode == "allow":
             return CallGuardResult.allow("guardrail_system")
+
+        # The loop passes a bare context here — inject the session identity
+        # the same way run_scope does for the turn-level scopes.
+        self._enrich_context(context)
 
         confirm_result: CallGuardResult | None = None
         for guard in self.guardrails:

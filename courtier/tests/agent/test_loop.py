@@ -345,11 +345,14 @@ class TestAgentLoop:
             model=MockModelClient(tool_calls=[tc]),
             tool_registry=registry_with_echo,
             guardrail_system=system,
+            agent_name="Tester",
         )
 
         assert final.status == "completed"
         assert seen, "post_tool observer never dispatched — run_scope not wired"
         assert seen[0].tool_calls
+        # 全链：循环入口 set_context → run_scope 富化 → 观察者读到身份。
+        assert seen[0].agent_name == "Tester"
 
     @pytest.mark.asyncio
     async def test_pre_think_interceptor_state_swap_propagates(self):

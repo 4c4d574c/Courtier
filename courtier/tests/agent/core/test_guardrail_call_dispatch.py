@@ -38,7 +38,6 @@ class _ConfirmGuard:
 class _BoomGuard:
     name = "boom_guard"
     layer = "tool_call"
-
     async def check_call(self, call: ToolCall, context: GuardContext) -> CallGuardResult:
         raise RuntimeError("guard crashed")
 
@@ -152,3 +151,46 @@ async def test_deny_records_metric_and_mirrored_event():
     assert mirrored.action == "block"
     assert mirrored.layer == "tool_call"
     assert mirrored.metadata.get("error_code") == "permission_denied"
+
+
+class _SpyGuard:
+    name = "spy_guard"
+    layer = "tool_call"
+
+    def __init__(self) -> None:
+        self.contexts: list[GuardContext] = []
+
+    async def check_call(self, call: ToolCall, context: GuardContext) -> CallGuardResult:
+        self.contexts.append(context)
+        return CallGuardResult.allow(self.name)
+
+
+@pytest.mark.asyncio
+async def test_check_call_injects_session_identity():
+    """循环传入裸上下文，会话身份由系统注入（wiring-plan T2/D3）。"""
+    spy = _SpyGuard()
+    system = GuardrailSystem(tool_call_mode="block")
+    system.register(spy)
+    system.set_context(agent_name="Orchestrator", session_id="sess-1")
+
+    decision = await system.check_call(
+        "tool_call", _call(), GuardContext(state=object())
+    )
+
+    assert decision.action == "allow"
+    assert spy.contexts[0].agent_name == "Orchestrator"
+    assert spy.contexts[0].session_id == "sess-1"
+
+
+@pytest.mark.asyncio
+async def test_empty_identity_does_not_override_caller():
+    """系统未 set_context 时，不覆盖调用方自带的身份字段。"""
+    spy = _SpyGuard()
+    system = GuardrailSystem(tool_call_mode="block")
+    system.register(spy)
+
+    context = GuardContext(state=object(), agent_name="caller", session_id="s0")
+    await system.check_call("tool_call", _call(), context)
+
+    assert context.agent_name == "caller"
+    assert context.session_id == "s0"

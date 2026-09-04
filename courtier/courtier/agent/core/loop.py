@@ -1156,11 +1156,15 @@ async def agent_loop(
     _run_guards = [ExploreLoopGuard(), BusinessArtifactProgressGuard()]
     for _run_guard in _run_guards:
         guardrail_system.register(_run_guard)
+    prior_guardrail_context: dict[str, Any] = {}
     try:
         with tracer.agent_span(agent_name, session_id=session_id, task=_task):
-            # Provide session-level context to hook handlers.
-            if hooks:
-                hooks.set_context(agent_name=agent_name, session_id=session_id)
+            # Session identity for every dispatch (guards/observers read it
+            # via _enrich_context). Restored in the finally — sub-agent loops
+            # share this system and would otherwise leave their identity here.
+            prior_guardrail_context = guardrail_system.set_context(
+                agent_name=agent_name, session_id=session_id
+            )
             current_state = state
             recent_reasoning: list[str] = []
             # Accumulate token usage for the agent span
@@ -1323,3 +1327,6 @@ async def agent_loop(
     finally:
         for _run_guard in _run_guards:
             guardrail_system.unregister(_run_guard)
+        # Hand the shared session system its prior identity back — a nested
+        # sub-agent loop overwrote it, and the orchestrator resumes here.
+        guardrail_system.set_context(**prior_guardrail_context)
