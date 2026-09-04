@@ -16,12 +16,11 @@ docs/architecture/guardrails-unification-plan.md).
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-import logging
 
 from .base import CallGuardResult, GuardLayer
 

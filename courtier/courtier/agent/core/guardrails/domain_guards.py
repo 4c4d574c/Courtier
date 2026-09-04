@@ -1,56 +1,42 @@
-"""Domain-contributed guardrails: load declared guard classes by path.
+"""Domain-contributed guardrails: thin wrapper over the shared registry.
 
 A domain package may declare in-process guardrails in its domain.yaml
 (``guards: ["<module>.<Class>", ...]``). Guards are loaded at activation
 time and registered into the session GuardrailSystem; the owning domain is
-recorded in the registration log line only. Guards never touch the network
-or the filesystem at check time — guards participating in the ``tool_call``
-layer must be pure in-memory decisions (see guardrails/base module
-docstring).
+recorded in the registration log line only. The domain channel keeps the
+no-arg construction contract (a session context is not threaded through
+activation); see ``registry`` for the general mechanism.
+
+Guards never touch the network or the filesystem at check time — guards
+participating in the ``tool_call`` layer must be pure in-memory decisions
+(see guardrails/base module docstring).
 """
 
 from __future__ import annotations
 
-import importlib
 import logging
 from collections.abc import Sequence
 
-from .guardrail_system import SCOPES, GuardrailSystem
+from .guardrail_system import GuardrailSystem
+from .registry import (
+    REQUIRED_GUARD_ATTRIBUTES,
+    GuardLoadError,
+    instantiate_guard,
+)
 
 logger = logging.getLogger(__name__)
 
-#: Guard classes must expose these; ``check_call`` is optional (turn-level
-#: guards only implement ``check``).
-REQUIRED_GUARD_ATTRIBUTES = ("name", "layer")
-
-
-class GuardLoadError(Exception):
-    """A declared domain guard could not be loaded or is not a guard."""
+__all__ = [
+    "REQUIRED_GUARD_ATTRIBUTES",
+    "GuardLoadError",
+    "load_domain_guard",
+    "register_domain_guards",
+]
 
 
 def load_domain_guard(class_path: str):
-    """Import and instantiate a declared guard class (no-arg constructor)."""
-    module_path, _, class_name = class_path.rpartition(".")
-    if not module_path or not class_name:
-        raise GuardLoadError(f"Guard declaration must be '<module>.<Class>': {class_path!r}")
-    try:
-        module = importlib.import_module(module_path)
-        guard_class = getattr(module, class_name)
-    except (ImportError, AttributeError) as exc:
-        raise GuardLoadError(f"Guard {class_path!r} could not be imported: {exc}") from exc
-    try:
-        guard = guard_class()
-    except Exception as exc:
-        raise GuardLoadError(f"Guard {class_path!r} could not be instantiated: {exc}") from exc
-    for attr in REQUIRED_GUARD_ATTRIBUTES:
-        if not hasattr(guard, attr):
-            raise GuardLoadError(f"Guard {class_path!r} lacks required attribute {attr!r}")
-    if getattr(guard, "layer") not in SCOPES.values():
-        raise GuardLoadError(
-            f"Guard {class_path!r} declares illegal layer {getattr(guard, 'layer')!r}; "
-            f"expected one of {sorted(SCOPES.values())}"
-        )
-    return guard
+    """Import and instantiate a declared domain guard (no-arg constructor)."""
+    return instantiate_guard(class_path)
 
 
 def register_domain_guards(

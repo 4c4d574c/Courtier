@@ -65,8 +65,9 @@ def test_domain_config_accepts_guards():
 
 class TestActivatorSeam:
     def _activator_with_agent(self):
-        from courtier.agent.runtime.activation import DomainActivator
         from types import SimpleNamespace
+
+        from courtier.agent.runtime.activation import DomainActivator
 
         activator = object.__new__(DomainActivator)
         agent = SimpleNamespace(guardrail_system=None)
