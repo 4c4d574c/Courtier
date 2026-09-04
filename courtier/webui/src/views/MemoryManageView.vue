@@ -1,111 +1,101 @@
 <template>
-  <div class="memory-page">
-    <div class="memory-container">
-      <header class="memory-header">
-        <div>
-          <h1 class="memory-title">{{ isGlobal ? "全局记忆" : "我的记忆" }}</h1>
-          <p class="memory-subtitle">
-            {{
-              isGlobal
-                ? "全局共享层记忆：所有用户可读" + (isAdmin ? "，管理员可维护" : "")
-                : "你的用户层记忆：仅自己可见，Agent 也会在对话中召回这里的内容"
-            }}
-          </p>
-        </div>
-        <router-link to="/" class="memory-back"><AppIcon name="arrow-left" :size="14" />返回主页</router-link>
-      </header>
+  <div class="admin-page">
+    <header class="admin-header">
+      <h1 class="admin-heading">{{ isGlobal ? "全局记忆" : "我的记忆" }}</h1>
+      <p class="admin-subtitle">
+        {{
+          isGlobal
+            ? "全局共享层记忆：所有用户可读" + (isAdmin ? "，管理员可维护" : "")
+            : "你的用户层记忆：仅自己可见，Agent 也会在对话中召回这里的内容"
+        }}
+      </p>
+    </header>
 
-      <section class="memory-toolbar">
-        <div class="memory-tabs">
-          <button
-            v-for="d in domainOptions"
-            :key="d.value"
-            type="button"
-            class="memory-tab"
-            :class="{ 'memory-tab--active': domainFilter === d.value }"
-            @click="domainFilter = d.value"
-          >
-            {{ d.label }}
-          </button>
-        </div>
-        <div class="memory-toolbar-right">
-          <input
-            v-model="searchQuery"
-            type="search"
-            class="memory-search"
-            placeholder="搜索标题 / 内容"
-            @input="onSearchInput"
-          />
-          <button
-            v-if="canEdit"
-            type="button"
-            class="memory-btn memory-btn--primary"
-            @click="openCreate"
-          >
-            新建记忆
-          </button>
-          <button
-            v-if="canEdit && entries.length > 0"
-            type="button"
-            class="memory-btn memory-btn--danger-ghost"
-            @click="clearConfirm = true"
-          >
-            清空全部
-          </button>
-        </div>
-      </section>
+    <section class="memory-toolbar">
+      <div class="admin-tabs">
+        <button
+          v-for="d in domainOptions"
+          :key="d.value"
+          type="button"
+          class="admin-tab"
+          :class="{ 'admin-tab--active': domainFilter === d.value }"
+          @click="domainFilter = d.value"
+        >
+          {{ d.label }}
+        </button>
+      </div>
+      <div class="memory-toolbar-right">
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="admin-search"
+          placeholder="搜索标题 / 内容"
+          @input="onSearchInput"
+        />
+        <button v-if="canEdit" type="button" class="btn primary" @click="openCreate">
+          新建记忆
+        </button>
+        <button
+          v-if="canEdit && entries.length > 0"
+          type="button"
+          class="btn danger"
+          @click="clearConfirm = true"
+        >
+          清空全部
+        </button>
+      </div>
+    </section>
 
-      <p v-if="listMsg" class="memory-msg msg-err">{{ listMsg }}</p>
-      <div v-if="loading" class="memory-empty">加载中...</div>
-      <div v-else-if="entries.length === 0" class="memory-empty">暂无记忆条目</div>
-      <ul v-else class="memory-list">
-        <li v-for="item in entries" :key="item.id" class="memory-item">
-          <div class="memory-item-main">
-            <div class="memory-item-title">
-              <span class="memory-item-badge">{{ domainLabel(item.domain) }}</span>
-              {{ item.title }}
-            </div>
-            <div class="memory-item-content">{{ item.content }}</div>
-            <div class="memory-item-meta">
-              {{ item.updatedBy || item.createdBy || "—" }} · {{ formatDate(item.updatedAt) }}
-            </div>
+    <p v-if="listMsg" class="msg-err">{{ listMsg }}</p>
+    <div v-if="loading" class="admin-empty-state">加载中...</div>
+    <div v-else-if="entries.length === 0" class="admin-empty-state">暂无记忆条目</div>
+    <ul v-else class="memory-list">
+      <li v-for="item in entries" :key="item.id" class="memory-item">
+        <div class="memory-item-main">
+          <div class="memory-item-title">
+            <span class="badge badge-accent">{{ domainLabel(item.domain) }}</span>
+            {{ item.title }}
           </div>
-          <div v-if="canEdit" class="memory-item-actions">
-            <button type="button" class="memory-btn" @click="openEdit(item)">编辑</button>
-            <button
-              type="button"
-              class="memory-btn memory-btn--danger-ghost"
-              :disabled="deletingId === item.id"
-              @click="deleteConfirm = { open: true, item }"
-            >
-              删除
-            </button>
+          <div class="memory-item-content">{{ item.content }}</div>
+          <div class="memory-item-meta">
+            {{ item.updatedBy || item.createdBy || "—" }} · {{ formatDate(item.updatedAt) }}
           </div>
-        </li>
-      </ul>
-    </div>
+        </div>
+        <div v-if="canEdit" class="memory-item-actions">
+          <button type="button" class="btn" @click="openEdit(item)">编辑</button>
+          <button
+            type="button"
+            class="btn danger"
+            :disabled="deletingId === item.id"
+            @click="deleteConfirm = { open: true, item }"
+          >
+            删除
+          </button>
+        </div>
+      </li>
+    </ul>
 
     <!-- 新建 / 编辑 -->
     <div v-if="editor.open" class="modal-backdrop" @click.self="editor.open = false">
       <div class="modal" role="dialog" aria-modal="true">
         <h3 class="modal-title">{{ editor.id === null ? "新建记忆" : "编辑记忆" }}</h3>
         <div class="memory-form">
-          <div class="auth-field">
-            <label>标题</label>
+          <div class="admin-field">
+            <span>标题</span>
             <input v-model="editor.title" type="text" placeholder="稳定且具体，便于后续寻址" />
           </div>
-          <div class="auth-field">
-            <label>领域包</label>
+          <div class="admin-field">
+            <span>领域包</span>
             <select v-model="editor.domain">
               <option value="common">通用</option>
               <option v-for="d in knownDomains" :key="d" :value="d">{{ d }}</option>
             </select>
           </div>
-          <div class="auth-field">
-            <label>内容</label>
+          <div class="admin-field">
+            <span>内容</span>
             <textarea v-model="editor.content" rows="6" placeholder="记忆内容"></textarea>
           </div>
-          <p v-if="editor.msg" class="memory-msg" :class="editor.ok ? 'msg-ok' : 'msg-err'">
+          <p v-if="editor.msg" :class="editor.ok ? 'msg-ok' : 'msg-err'">
             {{ editor.msg }}
           </p>
         </div>
@@ -155,7 +145,6 @@
 </template>
 
 <script setup lang="ts">
-import AppIcon from "../components/AppIcon.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { api, type MemoryEntry } from "../api/client";
 import { useAuth } from "../composables/useAuth";
@@ -313,125 +302,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.memory-page {
-  height: 100%;
-  overflow-y: auto;
-  background: var(--chat-bg-body);
-  padding: 40px 16px 60px;
-}
-.memory-container {
-  max-width: 820px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.memory-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-.memory-title {
-  margin: 0 0 4px;
-  font-family: "Noto Sans SC", sans-serif;
-  font-size: 26px;
-  font-weight: 600;
-  color: var(--chat-text-primary);
-}
-.memory-subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--chat-text-tertiary);
-}
-.memory-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--chat-text-secondary);
-  font-size: 13px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.memory-back:hover {
-  color: var(--chat-text-primary);
-}
 .memory-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-.memory-tabs {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.memory-tab {
-  border: 1px solid var(--chat-border);
-  background: transparent;
-  color: var(--chat-text-secondary);
-  border-radius: 999px;
-  padding: 5px 14px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.memory-tab--active {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast, #fff);
+  margin-bottom: 14px;
 }
 .memory-toolbar-right {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-}
-.memory-search {
-  min-width: 200px;
-  padding: 6px 12px;
-  border-radius: var(--chat-radius-sm);
-  border: 1px solid var(--chat-border);
-  background: var(--chat-bg-card);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-}
-.memory-btn {
-  height: 30px;
-  border: 1px solid var(--chat-border);
-  background: var(--chat-bg-card);
-  color: var(--chat-text-primary);
-  border-radius: var(--chat-radius-sm);
-  padding: 0 14px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.memory-btn--primary {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast, #fff);
-}
-.memory-btn--danger-ghost {
-  color: var(--err);
-  border-color: color-mix(in srgb, var(--err) 45%, transparent);
-}
-.memory-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.memory-msg {
-  font-size: 13px;
-  margin: 0;
-  padding: 6px 10px;
-  border-radius: var(--chat-radius-sm);
-}
-.memory-empty {
-  text-align: center;
-  opacity: 0.55;
-  padding: 40px 0;
-  font-size: 14px;
-  color: var(--chat-text-tertiary);
 }
 .memory-list {
   list-style: none;
@@ -464,15 +347,6 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
 }
-.memory-item-badge {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--chat-accent-soft);
-  color: var(--chat-accent);
-  white-space: nowrap;
-}
 .memory-item-content {
   font-size: 13px;
   color: var(--chat-text-secondary);
@@ -499,67 +373,14 @@ onMounted(async () => {
   gap: 12px;
   margin-top: 12px;
 }
-.memory-form textarea {
+.memory-form .admin-field {
+  margin-bottom: 0;
+}
+/* Memory content is prose, not code — keep the editor textarea in the
+   UI font instead of the shared field's monospace. */
+.memory-form .admin-field textarea {
+  font-family: inherit;
   resize: vertical;
-  font: inherit;
-}
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 300;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  width: min(460px, calc(100vw - 48px));
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-  padding: 20px;
-}
-.modal-title {
-  margin: 0 0 12px;
-  font-size: 16px;
-  color: var(--chat-text-primary);
-}
-.modal-message {
   font-size: 13px;
-  color: var(--chat-text-secondary);
-  margin: 0;
-}
-.modal-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-.modal-btn {
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-.modal-btn:hover:not(:disabled) {
-  background: var(--chat-bg-hover);
-}
-.modal-btn--primary {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast, #fff);
-}
-.modal-btn--danger {
-  color: var(--err);
-  border-color: color-mix(in srgb, var(--err) 45%, transparent);
-}
-.modal-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>
