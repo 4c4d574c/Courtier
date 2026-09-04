@@ -32,6 +32,8 @@ from courtier.storage import (
     remove_object,
 )
 
+from .file_service import _read_bounded
+
 logger = logging.getLogger(__name__)
 
 resource_repo: CRUDRepository[ResourceTable, ResourceCreate, ResourceUpdate] = CRUDRepository(
@@ -229,9 +231,7 @@ async def ingest_resource(
             400, f"不支持的文件类型 {ext or '(无扩展名)'}，支持：pdf / docx / txt / md"
         )
 
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(400, "文件过大，请上传小于 50 MB 的文件")
+    content = await _read_bounded(file, MAX_FILE_SIZE)
     if not content:
         raise HTTPException(400, "文件内容为空")
 
@@ -318,7 +318,11 @@ async def ingest_resource(
         async with db.session() as session:
             await resource_repo.delete(session, resource.id)
             await session.commit()
-        raise HTTPException(502, f"Elasticsearch 索引写入失败：{exc}") from exc
+        # Details (hosts, index names, mapper errors) stay in the server
+        # log — the raw ES exception must not reach the client.
+        raise HTTPException(
+            502, "Elasticsearch 索引写入失败，请稍后重试或联系管理员"
+        ) from exc
 
     # Fresh chunks must be searchable immediately: ask live plugins to drop
     # their coarse-result caches (the search plugin's TTL is only the
@@ -631,13 +635,20 @@ async def delete_resource(
         if not is_admin:
             if resource.visibility != "personal" or resource.owner_id != owner_id:
                 raise HTTPException(403, "只能删除自己个人资源库中的条目")
+        # ES chunks are the searchable payload: delete them while the
+        # request can still fail.  A row that outlives its chunks is
+        # recoverable by retrying the delete; leftover chunks after the
+        # row is gone would keep the content searchable forever.
+        try:
+            await asyncio.to_thread(delete_by_resource_id, resource_id)
+        except Exception as exc:
+            logger.warning(
+                "ES chunk deletion failed for resource %s", resource_id, exc_info=True
+            )
+            raise HTTPException(502, "Elasticsearch 切片删除失败，请稍后重试") from exc
         await resource_repo.delete(session, resource_id)
         await session.commit()
 
-    try:
-        await asyncio.to_thread(delete_by_resource_id, resource_id)
-    except Exception:
-        logger.warning("ES chunk deletion failed for resource %s", resource_id, exc_info=True)
     if settings.minio_endpoint and resource.minio_path:
         try:
             await asyncio.to_thread(

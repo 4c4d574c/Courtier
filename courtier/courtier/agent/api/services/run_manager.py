@@ -499,8 +499,11 @@ class RunManager:
         if run is None or run.terminal:
             return False
         if run.status == "queued":
-            # Never executed — no side effects to clean, just dequeue.
-            self._waiting.remove(run)
+            # Never executed — no side effects to clean, just dequeue.  The
+            # admission pass mutates _waiting without the lock, so guard
+            # against losing the race (the run may already be executing).
+            if run in self._waiting:
+                self._waiting.remove(run)
             run.status = "stopped"
             run.finished_at = _time.time()
             seq = run.log.reserve()
