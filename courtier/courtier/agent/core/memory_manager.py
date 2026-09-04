@@ -180,6 +180,16 @@ class MemoryManager(ContextManager):
         if not segments:
             return messages
 
+        # A fresh hint replaces stale ones: the index barely changes between
+        # turns, and one-hint-per-turn accumulated tens of thousands of
+        # duplicated characters before compaction ever ran.
+        retained = tuple(
+            m for m in messages if getattr(m, "source", None) != "hint"
+        )
+        idx = _find_last_real_user_index(retained)
+        if idx is None:
+            return messages
+
         template = self._recall_hint_template or _FALLBACK_RECALL_HINT
         hint = Message(
             role="user",
@@ -187,7 +197,7 @@ class MemoryManager(ContextManager):
             source="hint",
         )
         self._last_recall_hint_id = id(hint)
-        return (*messages[: idx + 1], hint, *messages[idx + 1 :])
+        return (*retained[: idx + 1], hint, *retained[idx + 1 :])
 
     async def _collect_index_segments(self) -> list[str]:
         """Fetch the caller's index via the provider and shape it into
