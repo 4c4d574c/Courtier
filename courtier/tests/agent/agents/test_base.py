@@ -434,6 +434,26 @@ class TestProxyReplacementOnSync:
         assert agent.tool_registry.get("parse_layout") is proxy
 
 
+    @pytest.mark.asyncio
+    async def test_agent_registry_copies_param_injectors(self):
+        """Agent 私有 registry 必须继承共享 registry 的宿主注入器
+        （x-host-injected）：会话级身份注入（memory_caller）注册在
+        session clone 上，Agent 构造时拷贝工具却丢弃注入器的话，
+        identity 参数会在派发时静默缺席（真机冒烟抓到的缺陷）。"""
+        from courtier.agent.tools.param_injection import make_memory_caller_injector
+        from courtier.agent.tools.registry import ToolRegistry
+
+        shared = ToolRegistry()
+        shared.register(self._proxy("memory", "memory"))
+        shared.configure_param_injectors(
+            {"memory_caller": make_memory_caller_injector(7, "hu", False)}
+        )
+
+        agent = Agent(name="A", role="r", model=MagicMock(), tool_registry=shared)
+
+        assert agent.tool_registry._param_injectors.get("memory_caller") is not None
+
+
 class TestPluginGuidesInjection:
     """Plugin system_prompt (tool-usage guidance) injection channel."""
 

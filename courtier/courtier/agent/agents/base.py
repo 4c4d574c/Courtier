@@ -252,6 +252,14 @@ class Agent:
                     result_store=getattr(tool_registry, "_result_store", None),
                     summarizer=getattr(tool_registry, "_summarizer", None),
                 )
+            # Host-injected parameter injectors (x-host-injected) must ride
+            # along: session-scoped ones (e.g. the memory caller identity) are
+            # registered on the per-session clone BEFORE the agent copies it —
+            # dropping them here would silently strip identity/vector injection
+            # for every tool the agent dispatches.
+            shared_injectors = getattr(tool_registry, "_param_injectors", None)
+            if shared_injectors:
+                self.tool_registry.configure_param_injectors(dict(shared_injectors))
         else:
             self._shared_tool_registry = None
             self.tool_registry = ToolRegistry()

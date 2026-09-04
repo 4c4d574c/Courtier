@@ -56,6 +56,11 @@ class MemoryNotFoundError(Exception):
     """No entry with this id in the accessible scope."""
 
 
+#: catch-all for callers that map service rejections to their own surface
+#: (HTTP status codes / JSON-RPC structured errors).
+MEMORY_ERRORS = (MemoryAccessError, MemoryValidationError, MemoryNotFoundError)
+
+
 @dataclass(frozen=True)
 class Identity:
     """Who is acting.  ``actor`` lands in the audit trail — API routes pass
@@ -383,8 +388,100 @@ async def clear_layer(
     return count
 
 
-# ------------------------------------------------------- audit + injection + cascade
+# ------------------------------------------------------------- agent tool surface
 
+
+async def _search_by_title(
+    session: AsyncSession, *, identity: Identity, title: str, domain: str | None = None
+) -> dict | None:
+    """Find an entry by exact title in the caller's visible scope —
+    user layer first, then global (own entry wins over a same-titled
+    global one).  Domain filters only when explicitly given."""
+    for layer, owner in ((LAYER_USER, identity.owner_id), (LAYER_GLOBAL, OWNER_GLOBAL)):
+        conds = [
+            MemoryTable.layer == layer,
+            MemoryTable.owner_id == owner,
+            MemoryTable.title == title.strip(),
+        ]
+        if domain:
+            conds.append(MemoryTable.domain == domain)
+        row = (
+            await session.execute(select(MemoryTable).where(*conds).limit(1))
+        ).scalar_one_or_none()
+        if row is not None:
+            return _entry_dict(row)
+    return None
+
+
+async def tool_action(
+    session: AsyncSession,
+    *,
+    identity: Identity,
+    action: str,
+    entry_id: int | None = None,
+    title: str | None = None,
+    domain: str | None = None,
+    content: str | None = None,
+    layer: str | None = None,
+    known_domains: set[str] | None = None,
+) -> dict:
+    """The agent-facing ``memory`` tool surface (list/read/write/delete).
+
+    Same enforcement and audit as the UI routes — this is only an
+    argument-shape adapter, never a second permission path.
+    """
+    action = (action or "").strip().lower()
+
+    if action == "list":
+        return {
+            "user": await list_entries(
+                session, layer=LAYER_USER, identity=identity, domain=domain
+            ),
+            "global": await list_entries(
+                session, layer=LAYER_GLOBAL, identity=identity, domain=domain
+            ),
+        }
+
+    if action == "read":
+        if entry_id is not None:
+            return await get_entry(session, int(entry_id), identity=identity)
+        if not (title or "").strip():
+            raise MemoryValidationError("read 需要 entry_id 或 title")
+        row = await _search_by_title(session, identity=identity, title=title, domain=domain)
+        if row is None:
+            raise MemoryNotFoundError(f"找不到记忆条目：{title}")
+        return row
+
+    if action == "write":
+        eff_layer = (layer or LAYER_USER).strip().lower()
+        if eff_layer not in (LAYER_USER, LAYER_GLOBAL):
+            raise MemoryValidationError(f"未知层：{layer}")
+        return await upsert_entry(
+            session,
+            layer=eff_layer,
+            title=title or "",
+            content=content or "",
+            domain=domain or DOMAIN_COMMON,
+            identity=identity,
+            known_domains=known_domains,
+        )
+
+    if action == "delete":
+        if entry_id is not None:
+            await delete_entry(session, int(entry_id), identity=identity)
+            return {"deleted": int(entry_id)}
+        if not (title or "").strip():
+            raise MemoryValidationError("delete 需要 entry_id 或 title")
+        row = await _search_by_title(session, identity=identity, title=title, domain=domain)
+        if row is None:
+            raise MemoryNotFoundError(f"找不到记忆条目：{title}")
+        await delete_entry(session, int(row["id"]), identity=identity)
+        return {"deleted": int(row["id"])}
+
+    raise MemoryValidationError(f"未知 action：{action}（可用：list/read/write/delete）")
+
+
+# ------------------------------------------------------- audit + injection + cascade
 
 async def list_changes(
     session: AsyncSession,
