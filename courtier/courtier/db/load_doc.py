@@ -19,7 +19,7 @@ from docmodels import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from courtier.db import AsyncDatabase, CRUDRepository
+from courtier.db.db_manager import AsyncDatabase, CRUDRepository
 from courtier.db.tables import (
     DocumentCreate,
     DocumentTable,
