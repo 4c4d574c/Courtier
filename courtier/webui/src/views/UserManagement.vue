@@ -6,7 +6,7 @@
         <p class="admin-subtitle">管理账号、角色与登录状态</p>
       </div>
     </header>
-    <p v-if="actionMsg.text" class="action-msg" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
+    <p v-if="actionMsg.text" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
       {{ actionMsg.text }}
     </p>
     <div class="admin-toolbar">
@@ -91,7 +91,7 @@
             <button
               v-if="u.role !== 'admin'"
               @click="openDeleteModal(u)"
-              class="action-btn delete-btn"
+              class="action-btn action-btn--danger"
             >
               注销
             </button>
@@ -112,14 +112,16 @@
     <div v-if="pwModal.open" class="modal-backdrop" @click.self="pwModal.open = false">
       <div class="modal" role="dialog" aria-modal="true">
         <h3 class="modal-title">为 {{ pwModal.username }} 重置密码</h3>
-        <input
-          v-model="pwModal.password"
-          type="password"
-          class="modal-input"
-          placeholder="新密码（至少8位）"
-          @keydown.enter="confirmResetPassword"
-        />
-        <p v-if="pwModal.error" class="action-msg msg-err">{{ pwModal.error }}</p>
+        <label class="admin-field">
+          <span>新密码</span>
+          <input
+            v-model="pwModal.password"
+            type="password"
+            placeholder="至少 8 位"
+            @keydown.enter="confirmResetPassword"
+          />
+        </label>
+        <p v-if="pwModal.error" class="msg-err">{{ pwModal.error }}</p>
         <div class="modal-actions">
           <button class="modal-btn" @click="pwModal.open = false">取消</button>
           <button class="modal-btn modal-btn--primary" @click="confirmResetPassword" :disabled="pwModal.loading">
@@ -137,7 +139,7 @@
           聊天会话、上传文件、个人资源、审核记录、用户记忆。用户名将被释放，
           操作<strong>不可恢复</strong>。确定继续吗？
         </p>
-        <p v-if="deleteModal.error" class="action-msg msg-err">{{ deleteModal.error }}</p>
+        <p v-if="deleteModal.error" class="msg-err">{{ deleteModal.error }}</p>
         <div class="modal-actions">
           <button class="modal-btn" @click="deleteModal.open = false">取消</button>
           <button class="modal-btn modal-btn--danger" :disabled="deleteModal.loading" @click="confirmDelete">
@@ -317,111 +319,10 @@ onMounted(fetchUsers);
 </script>
 
 <style scoped>
-.admin-header {
-  margin-bottom: 16px;
-}
-.action-msg {
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border-radius: var(--chat-radius-sm);
-  font-size: 13px;
-}
-.msg-ok {
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
-  color: var(--ok-dim);
-}
-.msg-err {
-  background: color-mix(in srgb, var(--err) 10%, transparent);
-  color: var(--err);
-}
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 300;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal {
-  width: min(400px, calc(100vw - 48px));
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-  padding: 20px;
-}
-.modal-title {
-  margin: 0 0 12px;
-  font-size: 16px;
-  color: var(--chat-text-primary);
-}
-.modal-input {
-  width: 100%;
-  padding: 8px 10px;
-  margin-bottom: 12px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  box-sizing: border-box;
-  outline: none;
-  transition:
-    border-color 150ms,
-    box-shadow 150ms;
-}
-.modal-input:focus {
-  border-color: var(--chat-accent);
-  box-shadow: 0 0 0 2px var(--chat-accent-soft);
-}
-.delete-btn {
-  color: var(--err);
-  border-color: color-mix(in srgb, var(--err) 40%, transparent);
-}
-.delete-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--err) 12%, transparent);
-}
-.modal-btn--danger {
-  background: var(--err);
-  border-color: var(--err);
-  color: #fff;
-}
 .delete-warning {
   font-size: 13px;
   color: var(--chat-text-secondary);
   line-height: 1.6;
   margin: 0 0 12px;
-}
-.modal-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-}
-.modal-btn {
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 150ms;
-}
-.modal-btn:hover:not(:disabled) {
-  background: var(--chat-bg-hover);
-}
-.modal-btn--primary {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast);
-}
-.modal-btn--primary:hover:not(:disabled) {
-  background: var(--chat-accent-hover);
-}
-.modal-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

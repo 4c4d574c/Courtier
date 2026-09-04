@@ -3,19 +3,19 @@
     <header class="admin-header">
       <div>
         <h1 class="admin-heading">审批中心</h1>
-        <div class="approval-tabs">
+        <div class="admin-tabs">
           <button
             type="button"
-            class="approval-tab"
-            :class="{ 'approval-tab--active': activeTab === 'register' }"
+            class="admin-tab"
+            :class="{ 'admin-tab--active': activeTab === 'register' }"
             @click="activeTab = 'register'"
           >
             注册审批
           </button>
           <button
             type="button"
-            class="approval-tab"
-            :class="{ 'approval-tab--active': activeTab === 'deletion' }"
+            class="admin-tab"
+            :class="{ 'admin-tab--active': activeTab === 'deletion' }"
             @click="activeTab = 'deletion'"
           >
             注销申请
@@ -23,7 +23,7 @@
         </div>
       </div>
     </header>
-    <p v-if="actionMsg.text" class="action-msg" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
+    <p v-if="actionMsg.text" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
       {{ actionMsg.text }}
     </p>
     <div class="admin-card" v-if="activeTab === 'register' && items.length > 0">
@@ -44,14 +44,14 @@
           <td class="td-actions">
             <button
               @click="approve(item)"
-              class="action-btn approve-btn"
+              class="action-btn action-btn--ok"
               :disabled="item._loading"
             >
               批准
             </button>
             <button
               @click="reject(item)"
-              class="action-btn reject-btn"
+              class="action-btn action-btn--danger"
               :disabled="item._loading"
             >
               拒绝
@@ -79,14 +79,14 @@
           <td class="td-actions">
             <button
               @click="approveDeletion(item)"
-              class="action-btn approve-btn"
+              class="action-btn action-btn--ok"
               :disabled="item._loading"
             >
               批准注销
             </button>
             <button
               @click="rejectDeletion(item)"
-              class="action-btn reject-btn"
+              class="action-btn action-btn--danger"
               :disabled="item._loading"
             >
               拒绝
@@ -209,61 +209,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.approval-tabs {
-  display: flex;
-  gap: 6px;
+/* Tabs sit under the heading inside the header cluster. */
+.admin-tabs {
   margin-top: 10px;
-}
-.approval-tab {
-  border: 1px solid var(--chat-border);
-  background: transparent;
-  color: var(--chat-text-secondary);
-  border-radius: 999px;
-  padding: 5px 16px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.approval-tab--active {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast, #fff);
-}
-.admin-header {
-  margin-bottom: 16px;
-}
-.action-msg {
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border-radius: var(--chat-radius-sm);
-  font-size: 13px;
-}
-.msg-ok {
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
-  color: var(--ok-dim);
-}
-.msg-err {
-  background: color-mix(in srgb, var(--err) 10%, transparent);
-  color: var(--err);
-}
-.approve-btn {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-}
-.reject-btn {
-  color: var(--err);
-  border-color: color-mix(in srgb, var(--err) 40%, transparent);
-}
-.approve-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ok) 12%, transparent);
-}
-.reject-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--err) 12%, transparent);
-}
-
-.admin-empty-state {
-  text-align: center;
-  padding: 56px 0;
-  color: var(--chat-text-tertiary);
-  font-size: 13px;
 }
 </style>
