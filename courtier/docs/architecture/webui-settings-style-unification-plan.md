@@ -65,4 +65,15 @@ SystemSettings 文件内部去重（保持 scoped）：`.pool-box`≡`.field-inp
 
 ## 偏差记录
 
-（实施中与本方案的偏差在此追加）
+- 行内危险/肯定按钮命名：计划写 `.action-btn.danger-ghost`，实现为 `.action-btn--danger` / `.action-btn--ok`（与 `badge-*` 语义后缀风格一致）。
+- 新增 `.modal--lg`（640px）、`.modal-backdrop--top`（顶对齐 + 60px 顶距）并给 `.modal` 加 `max-height: 84vh; overflow-y: auto`——承接技能/插件市场原 `ext-modal` 的高表单/日志弹窗行为；确认类弹窗仍为居中 460px。
+- `.badge-auditor` 保留（角色语义），与新 `.badge-neutral` 合并为一条共享规则，避免重复声明。
+- 计划外顺带修复：`main.ts` 启动即调用 `useTheme().initTheme()`——原先主题只在登录/注册/主页初始化，管理页硬刷新后 `data-theme` 永远不会被设置。
+- extension.css 保留范围与计划一致（卡网格/域分组/chips/日志/`ext-btn`/`ext-error`/`ext-banner`/checklist），另新增 `.ext-domain-header .switch, .ext-card-header .switch { margin-left: auto }` 承接原 `ext-switch` 的推右布局。
+- SystemSettings scoped `.badge` 基类删除后统一为全局 `.badge`（padding 1px 8px → 2px 9px），徽章垂直 padding +1px，视觉几乎无差。
+- ProfileView：`.profile-msg` 一并删除（原计划倾向保留 16px 字号），状态消息完全走全局药丸。
+- 验证阶段发现 Vite 文件监视丢事件导致 ResourceLibraryView 的 scoped 样式模块陈旧（dev 服务返回旧 CSS、模板却是新的）；touch 文件强制失效后恢复，与既有 inotify 限额问题相符，非本次代码问题。
+
+## 实施记录（2026-09-04）
+
+T0–T9 全部完成，共 9 个提交：`57eb559`（计划）→ `67d2869`（T2 全局词汇）→ `d15b5e8`（T3）→ `40f0a96`（T4）→ `5d1a9d6`（T5）→ `cbe77cc`（T6）→ `0a95ce3`（T7）→ `7543ddd`（T8）→ 本文档。`npm run build` 与 `npm test` 全绿；改造前后 9 页 × 明暗截图存于 `.archdoc-build/style-audit/{before,after}/`（工作区本地产物，不入库）。
