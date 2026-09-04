@@ -1,6 +1,6 @@
 # 守卫声明化注册方案（Guardrails Declarative Registration）
 
-> 2026-09-04 · 状态：待批准
+> 2026-09-04 · 状态：已实施（T0-T8 落地，T9 冒烟部分完成，见文末实施记录）
 > 前置讨论：本轮对话完成需求对齐，全部决策点已由用户拍板（见 §1）。
 
 ## 0. 背景与目标
@@ -138,3 +138,32 @@
 - 坏声明运行时策略 = 记日志跳过；保存时校验拦截绝大多数，剩余（如运行环境缺依赖）不炸 build。
 - `loop.py` 处于 Pi 迁移关注区——本改动只替换注册来源，不触碰事件/SSE/状态机结构。
 - 并行会话同仓库互扰（本地已知坑）：改动涉及 `agent_service.py`/`loop.py`，提交时显式 add。
+
+## 6. 实施记录（2026-09-04）
+
+提交序列：bb6e211 (T0) → ada016e (T1) → 2d4df07 (T3) → b8efc8d (T2) →
+24b4c5f (T4) → 735e3c7 (T5) → 4a63ead (T7) → d164e53 (T6) → 31595a9 (T8)。
+全量测试 2302 passed / webui npm test 全绿。
+
+**与计划的偏差**：
+
+1. **T3 先于 T2**：T2 的保存校验需深校验种子条目，ConfirmationGuard 必须
+   先有 `build()`（否则必填参数在静态检查不过）。
+2. **播种双层化（设计增强）**：除启动播种外，`guardrail_guards` 的**字段
+   默认值**即五个内置（`config.default_guard_declarations()`）——env-only
+   模式（无 DB）与"admin 删除原始键"场景下基线仍然在场；DB 值（含清空
+   列表）总是覆盖默认。启动播种仍保留，供后台编辑真实行 + 审计起点。
+3. **装配逻辑抽为 `registry.wire_guard_declarations()`**：build_agent 内联
+   逻辑改为可单测函数（test_guard_wiring.py 直测等价契约）。
+4. **`_json_safe` 递归化**：settings_store 的 JSON 安全化原本只处理裸
+   BaseModel，列表/字典内的模型实例（GuardDeclaration）会炸 JSON 列——
+   已改为递归处理（batch 跑测试时暴露）。
+5. **前端「恢复默认」= 前端内置种子常量**（`DEFAULT_GUARD_ROWS`）：与服务
+   端种子重复一份；身份字段保存时服务端权威校正，漂移只影响初值展示。
+6. **T9 冒烟部分完成**：✅ 启动播种（audit id48 `system-guard-seed`）、
+   ✅ 坏声明 422 拦截（错误含具体导入失败原因）、✅ 5b 停用 path_policy +
+   借壳 class_path 被服务端强制回种子 + 审计留痕（id49/50）+ 恢复、
+   ✅ 自定义 session（工厂类）/run（有状态类）声明各一条保存持久化 +
+   清理。❌ 未做：真实 LLM 会话 run 验证（guard.triggered 事件、
+   tools_disabled 模型可见拒绝）——当时 LLM 端点不可达，待端点恢复后
+   按用户流程以真实会话日志补验。
