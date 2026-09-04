@@ -21,16 +21,11 @@ from collections.abc import Sequence
 from typing import Any
 
 from .guardrail_system import GuardrailSystem
-from .registry import (
-    REQUIRED_GUARD_ATTRIBUTES,
-    GuardLoadError,
-    instantiate_guard,
-)
+from .registry import GuardLoadError, instantiate_guard
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "REQUIRED_GUARD_ATTRIBUTES",
     "GuardLoadError",
     "load_domain_guard",
     "register_domain_guards",
