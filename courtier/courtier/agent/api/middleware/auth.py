@@ -72,25 +72,34 @@ def verify_token(token: str, secret: str, algorithm: str = "HS256") -> dict[str,
     return payload
 
 
+#: Paths where legacy ``?token=`` authentication still works: the SSE
+#: streams EventSource cannot attach headers to, plus /metrics scraping.
+QUERY_TOKEN_PATH_PREFIXES = ("/api/sessions/", "/api/events", "/metrics")
+
+
 def _resolve_token(
     settings: "Settings",
     credentials: HTTPAuthorizationCredentials | None,
     query_token: str | None,
     cookie_token: str | None = None,
+    path: str = "",
 ) -> dict[str, Any]:
     """Resolve and verify a JWT token from header, query param, or cookie.
 
     Supports three token transfer methods:
     1. Authorization: Bearer <token> header (standard HTTP)
-    2. ?token=<token> query param (legacy SSE clients)
-    3. access_token httpOnly cookie (EventSource / SSE cannot set headers;
-       this is the preferred SSE path — query tokens leak into logs)
+    2. access_token httpOnly cookie (EventSource / SSE cannot set headers;
+       this is the preferred SSE path)
+    3. ?token=<token> query param — SSE/metrics endpoints only (see
+       QUERY_TOKEN_PATH_PREFIXES): tokens in URLs leak into access logs,
+       browser history, and Referer headers, so they are not accepted
+       anywhere else.
     """
     secret = get_jwt_secret(settings)
     token: str | None = None
     if credentials is not None:
         token = credentials.credentials
-    elif query_token:
+    elif query_token and path.startswith(QUERY_TOKEN_PATH_PREFIXES):
         token = query_token
     elif cookie_token:
         token = cookie_token
@@ -99,7 +108,7 @@ def _resolve_token(
         raise HTTPException(
             401,
             "缺少认证信息，请在 Authorization header 中提供 Bearer token，"
-            "或通过 ?token= 查询参数传递",
+            "或通过 httpOnly cookie 携带会话凭证",
         )
 
     algorithm = getattr(settings, "jwt_algorithm", "HS256")
@@ -118,6 +127,7 @@ async def verify_jwt(
         credentials,
         request.query_params.get("token"),
         request.cookies.get("access_token"),
+        request.url.path,
     )
     sub = payload.get("sub")
     if not isinstance(sub, str):
@@ -203,6 +213,7 @@ async def get_current_user(
         credentials,
         request.query_params.get("token"),
         request.cookies.get("access_token"),
+        request.url.path,
     )
     # Stamped for the rate limiter's per-user bucket key (rate_limiter.py):
     # dependencies resolve before the endpoint's limiter decorator runs.

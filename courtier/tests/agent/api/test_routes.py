@@ -1,6 +1,7 @@
 """Tests for API routes using FastAPI TestClient."""
 
 import json
+from contextlib import contextmanager
 import os
 import tempfile
 from pathlib import Path
@@ -782,3 +783,32 @@ class TestModelSelection:
         resp = client.get("/api/models")
         assert resp.status_code == 200
         assert resp.json() == {"endpoints": [], "defaultModelId": ""}
+
+
+class TestQueryTokenScoping:
+    """?token= is accepted on SSE paths only — URLs leak into logs."""
+
+    @contextmanager
+    def _query_token_only_client(self, client):
+        """Strip header/cookie credentials so ?token= is the only channel."""
+        token = client.headers.get("authorization", "").removeprefix("Bearer ")
+        saved_headers = dict(client.headers)
+        saved_cookies = {k: v for k, v in client.cookies.items()}
+        client.headers.clear()
+        client.cookies.clear()
+        try:
+            yield client, token
+        finally:
+            client.headers.update(saved_headers)
+            client.cookies.update(saved_cookies)
+
+    def test_query_token_rejected_on_regular_api_path(self, client):
+        with self._query_token_only_client(client) as (c, token):
+            resp = c.get(f"/api/sessions?token={token}")
+            assert resp.status_code == 401
+
+    def test_query_token_accepted_on_sse_path(self, client):
+        with self._query_token_only_client(client) as (c, token):
+            # The stream never ends — read only the status via stream().
+            with c.stream("GET", f"/api/events?token={token}") as resp:
+                assert resp.status_code == 200
