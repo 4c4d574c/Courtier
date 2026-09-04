@@ -80,7 +80,6 @@ RESERVED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "errors.guard_repeated_calls",
         "errors.guard_consecutive_exploratory",
         "errors.guard_no_artifact_progress",
-        "errors.guard_tool_blocked",
         "errors.guard_call_failed",
         "errors.confirmation_denied",
         "errors.confirmation_unavailable",
@@ -269,7 +268,6 @@ FALLBACK_TEMPLATES: dict[str, str] = {
         "without business output"
     ),
     "errors.guard_no_artifact_progress": ("{{ turns }} turns without new business artifacts"),
-    "errors.guard_tool_blocked": ("Tool {{ tool_name }} is blocked by policy: {{ cause }}"),
     "errors.guard_call_failed": (
         "Call guard {{ guard_name }} failed — the call was denied as a precaution"
     ),

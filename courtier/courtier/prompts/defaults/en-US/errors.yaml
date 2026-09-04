@@ -35,7 +35,6 @@ errors:
   guard_repeated_calls: "{{ count }} repeated calls to tool {{ tool_name }} with identical arguments"
   guard_consecutive_exploratory: "{{ count }} consecutive exploratory tool calls (list_artifacts/get_artifact) without business output"
   guard_no_artifact_progress: "{{ turns }} turns without new business artifacts"
-  guard_tool_blocked: "Tool {{ tool_name }} is blocked by policy: {{ cause }}"
   guard_call_failed: "Call guard {{ guard_name }} failed — the call was denied as a precaution"
   confirmation_denied: "The user rejected the confirmation for tool {{ tool_name }}; the call was not executed. Adjust your approach or answer directly. (Note: {{ message }})"
   confirmation_unavailable: "Tool {{ tool_name }} requires user confirmation, but no confirmation channel is available here — the call was not executed."

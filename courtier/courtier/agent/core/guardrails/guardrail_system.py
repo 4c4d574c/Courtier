@@ -97,22 +97,15 @@ class GuardrailSystem:
         self,
         guardrail: Guardrail,
         *,
-        replace: bool = False,
         owner: str | None = None,
     ) -> None:
         """Add a guardrail to the system.
 
-        With ``replace=True`` an existing guard with the same ``(name,
-        layer)`` is swapped for the new instance — used when re-registering
-        stateful guards for a new run. ``owner`` tags the registration for
-        symmetric removal via :meth:`unregister_owner` (domain guards).
+        Stateful per-run guards are registered as fresh instances and
+        removed again via :meth:`unregister` (see ``agent_loop``).
+        ``owner`` tags the registration for symmetric removal via
+        :meth:`unregister_owner` (domain guards).
         """
-        if replace:
-            self.guardrails = [
-                g
-                for g in self.guardrails
-                if not (g.name == guardrail.name and g.layer == guardrail.layer)
-            ]
         self.guardrails.append(guardrail)
         if owner is not None:
             self._owners[id(guardrail)] = owner

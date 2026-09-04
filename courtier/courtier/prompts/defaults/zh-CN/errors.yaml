@@ -35,7 +35,6 @@ errors:
   guard_repeated_calls: "对工具 {{ tool_name }} 以相同参数重复调用 {{ count }} 次"
   guard_consecutive_exploratory: "连续 {{ count }} 次探索性工具调用（list_artifacts/get_artifact）而无业务产出"
   guard_no_artifact_progress: "连续 {{ turns }} 轮未产生新的业务工件"
-  guard_tool_blocked: "工具 {{ tool_name }} 已被安全策略拦截：{{ cause }}"
   guard_call_failed: "权限检查器 {{ guard_name }} 异常，该调用已按拒绝处理"
   confirmation_denied: "用户拒绝了对工具 {{ tool_name }} 的确认，调用未执行。请调整方式或直接向用户说明。（提示：{{ message }}）"
   confirmation_unavailable: "工具 {{ tool_name }} 需要用户确认，但当前环境没有确认通道，调用未执行。"

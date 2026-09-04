@@ -38,9 +38,9 @@ CallGuardAction = Literal["allow", "deny", "confirm"]
 class CallGuardResult:
     """Decision of a single per-call guard (``tool_call`` layer).
 
-    ``confirm`` is a vocabulary reservation for the confirmation interaction
-    chain (see docs/architecture/confirmation-interaction-plan.md) — no
-    dispatch-side consumer in this codebase yet.
+    ``confirm`` suspends the call for user approval via the confirmation
+    chain (ConfirmationGuard → RunManager → confirmations API); without a
+    confirmation handler it is denied (fail-closed).
     """
 
     action: CallGuardAction
@@ -135,19 +135,6 @@ class GuardContext:
     agent_name: str = ""
     session_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def with_field(self, **kwargs: Any) -> "GuardContext":
-        """Return a new context with updated fields."""
-        return GuardContext(
-            state=kwargs.get("state", self.state),
-            messages=kwargs.get("messages", self.messages),
-            tool_calls=kwargs.get("tool_calls", self.tool_calls),
-            tool_results=kwargs.get("tool_results", self.tool_results),
-            response_text=kwargs.get("response_text", self.response_text),
-            agent_name=kwargs.get("agent_name", self.agent_name),
-            session_id=kwargs.get("session_id", self.session_id),
-            metadata={**self.metadata, **kwargs.get("metadata", {})},
-        )
 
 
 class Guardrail(Protocol):

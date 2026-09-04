@@ -35,11 +35,6 @@ class ExploreLoopGuard:
         self._tool_history: list[tuple[str, str]] = []
         self._consecutive_exploratory: int = 0
 
-    @property
-    def consecutive_exploratory(self) -> int:
-        """Expose the current consecutive exploratory count for other loop logic."""
-        return self._consecutive_exploratory
-
     async def check(self, context: GuardContext) -> GuardResult:
         settings = get_settings()
         tool_calls = context.tool_calls or ()
