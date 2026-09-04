@@ -6,7 +6,6 @@ and W3C TraceContext propagation for cross-process (plugin) tracing.
 """
 
 from .context import extract_context, inject_context
-from .decorators import traced_agent, traced_llm, traced_tool
 from .metrics import (
     record_agent_latency,
     record_agent_request,
@@ -24,9 +23,6 @@ __all__ = [
     "get_tracer",
     "inject_context",
     "extract_context",
-    "traced_agent",
-    "traced_llm",
-    "traced_tool",
     "record_agent_request",
     "record_agent_latency",
     "record_llm_call",

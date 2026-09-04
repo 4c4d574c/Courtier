@@ -110,7 +110,8 @@ export function useRunEvents() {
     return () => listeners.delete(fn);
   }
 
-  /** Fired after a channel error, before re-opening — refetch the session list. */
+  /** Fired once after the channel is healthy again (first message after a
+   *  reconnect) — realign the session list from the authoritative source. */
   function onReconnect(fn: () => void): () => void {
     reconnectListeners.add(fn);
     return () => reconnectListeners.delete(fn);
