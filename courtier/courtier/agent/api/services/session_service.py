@@ -290,7 +290,8 @@ def compute_turn_truncation(session: SessionRecord, turn_index: int) -> dict[str
     else:
         step_cut = len(session.steps)
     kwargs["steps"] = session.steps[:step_cut]
-    kwargs["thoughts"] = [t for t in session.thoughts if t.turn_index < turn_index]
+    # turn_index is 1-based — keep thoughts of the surviving turns.
+    kwargs["thoughts"] = [t for t in session.thoughts if t.turn_index <= turn_index]
 
     # Session-level conclusion falls back to the last surviving turn's so the
     # legacy last-turn fallback in _build_turns keeps rendering it.

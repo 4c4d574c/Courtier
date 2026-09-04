@@ -39,10 +39,14 @@ function getAuthHeaders(): Record<string, string> {
 
 // Single-flight refresh: concurrent 401s share one refresh request, so a
 // rotated refresh token is never presented twice (which would trip the
-// backend's reuse detection and revoke the whole token family).
-let _refreshPromise: Promise<boolean> | null = null;
+// backend's reuse detection and revoke the whole token family).  Every
+// refresh path (authFetch 401s, useAuth timers, SSE onerror) goes through
+// here — never POST /auth/refresh directly.
+type RefreshDetail = { token: string; expires_in: number; user: ApiUser };
 
-function refreshAccessToken(): Promise<boolean> {
+let _refreshPromise: Promise<RefreshDetail | null> | null = null;
+
+function refreshAccessToken(): Promise<RefreshDetail | null> {
   if (!_refreshPromise) {
     _refreshPromise = (async () => {
       try {
@@ -50,18 +54,18 @@ function refreshAccessToken(): Promise<boolean> {
           method: "POST",
           credentials: "include",
         });
-        if (!refreshResp.ok) return false;
-        const data: { token: string } | null = await refreshResp
+        if (!refreshResp.ok) return null;
+        const data: RefreshDetail | null = await refreshResp
           .json()
           .catch(() => null);
         if (data?.token) {
           setApiToken(data.token);
-          return true;
+          return data;
         }
-        return false;
+        return null;
       } catch {
         // Refresh failed — caller handles 401
-        return false;
+        return null;
       }
     })().finally(() => {
       _refreshPromise = null;
@@ -243,13 +247,11 @@ export const api = {
     if (!res.ok) throw await parseErrorDetail(res, "Register failed");
   },
 
-  async refreshToken(): Promise<{ token: string; expires_in: number; user: ApiUser } | null> {
-    const res = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!res.ok) return null;
-    return res.json();
+  refreshToken(): Promise<{ token: string; expires_in: number; user: ApiUser } | null> {
+    // Single-flight: see refreshAccessToken — a raw second POST could
+    // present the rotated refresh cookie twice and trip the backend's
+    // reuse detection (revoking the whole token family).
+    return refreshAccessToken();
   },
 
   async logout(): Promise<void> {

@@ -192,8 +192,34 @@ export function useAgentSession() {
         es.close();
         return;
       }
-      // The access cookie may have expired during a long stream — try to
-      // rotate it so the browser's automatic reconnect can re-authenticate.
+      // CLOSED means the browser has given up (initial connect failure:
+      // expired cookie, 429, backend restart) — no native retry is coming,
+      // and without handling this the UI stays "running" forever.
+      if (es.readyState === EventSource.CLOSED) {
+        es.close();
+        if (currentSessionId.value) {
+          // The run may have started server-side: reload the authoritative
+          // snapshot (mirrors the attach path's CLOSED handling).
+          void api
+            .loadSession(currentSessionId.value)
+            .then((fresh) => {
+              if (!fresh) return;
+              restoreSession(fresh);
+            })
+            .catch(() => {
+              session.status = "error";
+              session.errorMessage = MESSAGES.CONNECTION_LOST;
+              finalizeRunningOperations(session, "error", "error", "连接中断");
+            });
+          return;
+        }
+        session.status = "error";
+        session.errorMessage = MESSAGES.CONNECTION_LOST;
+        finalizeRunningOperations(session, "error", "error", "连接中断");
+        return;
+      }
+      // Transient error: the browser retries natively — rotate the cookie
+      // so the automatic reconnect can re-authenticate.
       void api.refreshToken().catch(() => {});
       reconnectCount++;
       if (reconnectCount >= MAX_RECONNECTS) {
@@ -316,6 +342,16 @@ export function useAgentSession() {
     session.stats = { tokensIn: 0, tokensOut: 0, elapsed: 0 };
     session.modelName = "";
     session.createdAt = Date.now();
+    // Cross-session residue: these would otherwise leak from the session
+    // the user just left (refusal banner, confirm cards, queue badge,
+    // guard/hint events, error banner).
+    session.refusalNotice = undefined;
+    session.pendingConfirmations = [];
+    session.queuePosition = undefined;
+    session.errorMessage = undefined;
+    session.stopReason = undefined;
+    session.guardEvents = [];
+    session.hintEvents = [];
     state.thoughtIdCounter = 0;
     state.toolIdCounter = 0;
     state.subagentThoughtCounters = {};
@@ -347,6 +383,11 @@ export function useAgentSession() {
     session.contextCompacted = loaded.contextCompacted ?? false;
     session.compacting = false;
     session.pendingVerdict = "";
+    // Not persisted per session — stale values from the previous session
+    // must not bleed into this one.
+    session.refusalNotice = undefined;
+    session.guardEvents = [];
+    session.hintEvents = [];
     session.pendingVerdictAfterStepIndex = 0;
     session.errorMessage = loaded.errorMessage;
     session.stopReason = loaded.stopReason;
@@ -508,11 +549,18 @@ export function useAgentSession() {
   }
 
   async function stop() {
+    // The await below may outlast this session: switching sessions swaps
+    // `session` contents in place. Guard with the generation so a finished
+    // stop() cannot clobber the newly restored session or kill its stream.
+    const gen = connectGeneration;
+    const stoppedSessionId = session.id;
     try {
       await api.stop(session.id || undefined);
     } catch (_err) {
       console.warn("远端停止请求失败，会话可能仍在后端运行", _err);
+      return;
     }
+    if (gen !== connectGeneration || session.id !== stoppedSessionId) return;
     session.status = "completed";
     session.stopReason = "user";
     disconnect();
@@ -543,8 +591,10 @@ export function useAgentSession() {
     session.turns = session.turns.slice(0, turnIndex);
     // Rebuild turn-derived top-level state from the surviving turns.
     session.steps = session.turns.flatMap((t) => t.steps);
+    // thought.turnIndex is 1-based (connect increments before pushing), so
+    // keep everything at or below the surviving last turn.
     session.thoughts = session.thoughts.filter(
-      (t) => (t.turnIndex ?? 0) < turnIndex,
+      (t) => (t.turnIndex ?? 0) <= turnIndex,
     );
     const lastTurn = session.turns[session.turns.length - 1];
     session.conclusion = lastTurn?.conclusion;

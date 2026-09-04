@@ -119,7 +119,7 @@ watch(
   { deep: true },
 );
 
-runEvents.onRunStatus((event) => {
+const offRunStatus = runEvents.onRunStatus((event) => {
   // Update the sidebar entry even if it hasn't been listed yet. Refetches
   // are throttled — several background runs finishing together must not
   // burst the rate-limited list route.
@@ -151,7 +151,7 @@ runEvents.onRunStatus((event) => {
 
 // The channel has no replay — after a reconnect the sidebar realigns from
 // the authoritative list.
-runEvents.onReconnect(() => {
+const offReconnect = runEvents.onReconnect(() => {
   void fetchSessions();
 });
 
@@ -311,6 +311,10 @@ onUnmounted(() => {
   // Close the SSE stream — otherwise it keeps writing into this (now
   // orphaned) session state until the backend finishes.
   disconnect();
+  // Drop the global channel subscriptions: without this, every visit to
+  // Home stacked another listener set (N visits = N toasts per event).
+  offRunStatus();
+  offReconnect();
   clearUploadedFiles();
 });
 </script>
