@@ -31,8 +31,10 @@
 | 4 | 声明格式 | **对象列表**（name / class_path / scope / enabled 显式） |
 | 5a | 构造参数注入 | **会话上下文工厂协议** `build(session_ctx)`（需要会话依赖的守卫实现；自足守卫走无参构造，域通道现状不破） |
 | 5b | 基线锁定 | **可停用**。语义变更：admin 有权停用基线守卫（含 path_policy / confirmation），`settings_changes` 审计兜底；UI 提示明示后果。层模式（`tool_call_mode` 仅 block/log、守卫异常 fail-closed）**不变**——变的是单个守卫级开关 |
+| 6 | ToolDisabledGuard 名单来源 | **新 settings 键 `tools_disabled`**（字符串列表），`build(ctx)` 读取；admin 候选项复用现成 `GET /api/admin/settings/tool-names`（详见 §2.7） |
+| 7 | `unregister_owner` 处置 | **确认死代码，删除**。`active_domains` 只增不减、全库无 deactivate 路径、符号零消费者；与 cb20609（drop zero-consumer symbols）同一处置标准。`register_domain_guards` 的 `owner` 形参保留为纯日志用途 |
 
-记录在案的现状勘误（随本方案修正文档）：`guardrails.md` §4.1 引用"§8 坑 3"实为坑 2；`unregister_owner` 目前无任何调用点（域没有运行期停用路径，靠每 run 重建系统自然回放）。
+记录在案的现状勘误（随本方案修正文档）：`guardrails.md` §4.1 引用"§8 坑 3"实为坑 2。
 
 ## 2. 设计
 
@@ -67,14 +69,26 @@
 
 ### 2.3 两个组合根的一次性改造
 
-- **`agent_service.py`**：删三个硬编码 `register`；改为读 `guardrail_guards` → 过滤 `enabled && scope=="session"` → 按列表顺序注册（内置 owner=`builtin`，用户条目 owner=`declared`）。`GuardSessionContext` 就地构造。`declare_path_policy_tools`（capability 侧声明扫描）不动。
+- **`agent_service.py`**：删三个硬编码 `register`；改为读 `guardrail_guards` → 过滤 `enabled && scope=="session"` → 按列表顺序注册。`GuardSessionContext` 就地构造。`declare_path_policy_tools`（capability 侧声明扫描）不动。注册来源（内置/声明）只进日志行，不落 owner 存储（决策 7：owner 机制删除）。
 - **`loop.py`**：`GuardrailSystem` 增加字段 `run_descriptors: list[GuardDescriptor] = []`（默认空，所有现存构造点向后兼容）；`build_agent` 把 run 级已启用描述符附加到系统上；`loop.py:1134` 的硬编码列表换成遍历 `run_descriptors` 逐条实例化，finally 注销（`loop.py:1303`）逻辑不变。**有状态语义逐字节等价**：配方 → 每 `agent_loop`（编排器轮、每个子代理轮）新实例 → 用完丢弃，§8 坑 2 的跨代理历史污染防线原样保留。
 - `ExploreLoopGuard` 被 loop.py 消费的 metadata（`consecutive_exploratory`，`loop.py:827`）路径不动；被停用时 `.get` 缺省路径已安全（T4 加测试确认）。
 - `ConfirmationGuard` 行为等价性：现状是 `tool_confirmation` 非空才注册；迁移后常驻注册 + 空规则自然 inert（`check_call` 无规则命中返回 allow），T5 用测试确认两者等价。
 
 ### 2.4 域通道统一（收尾任务，可独立裁剪）
 
-`domain.yaml` 的 `guards:` 继续接受字符串（= session 级无参，现状语义），**新增接受对象形式**（含 `scope: run`）。run 级描述符落 `system.run_descriptors`（owner=`domain:<name>`），随每 run 重建自然回放。域通道暂不开放 `build(ctx)` 工厂（域守卫保持无参构造；需要会话上下文的域场景目前不存在，记录为边界）。此项关闭"域包声明有状态守卫会踩坑 2"的现存隐患。
+`domain.yaml` 的 `guards:` 继续接受字符串（= session 级无参，现状语义），**新增接受对象形式**（含 `scope: run`）。run 级描述符落 `system.run_descriptors`，随每 run 重建自然回放。域通道暂不开放 `build(ctx)` 工厂（域守卫保持无参构造；需要会话上下文的域场景目前不存在，记录为边界）。此项关闭"域包声明有状态守卫会踩坑 2"的现存隐患。
+
+### 2.7 ToolDisabledGuard 名单来源（决策 6）
+
+现状：`agent_service.py:505` 无参注册 → `_blocked` 为空集，守卫实际不拦任何调用，纯预留位。设计如下：
+
+- **新 settings 键 `tools_disabled: list[str]`**（guards 类「运行守卫与预算」），与 `tool_confirmation`（守卫读的配置）、`refusal_patterns` 同款模式：守卫类读 settings，配置与管理入口分离于守卫本身。
+- **`ToolDisabledGuard.build(ctx)`**：`return cls(blocked=ctx.settings.tools_disabled)`——成为 `build(ctx)` 工厂协议的第一个真实用户。
+- **保存校验**（config.py field_validator）：非空字符串列表、去重；**不做工具名存在性校验**——禁用名单是黑名单语义，拼错的项只是永不命中、无害（fail-open）；且工具名随域/插件激活而变，存在性校验会误伤"预先禁用未激活域的工具"这一合理用法。对比：`tool_path_policies` 走 registry 严校验，因为它管辖的必须是确切工具。
+- **admin UI**：工具名标签编辑器，候选项来自现成端点 `GET /api/admin/settings/tool-names`（admin_settings.py:202，含懒注册的 read/edit/write；路径白名单编辑器的同一数据源）。
+- **生效语义**：被禁工具仍在模型工具表中——模型知道它存在，调用时收到模型可见的"工具 X 已被禁用，请改用其它工具或直接给出文本回答"。这是它区别于"注册期过滤"的价值：教学性反馈、防幻觉重试（注册期过滤是另一种可选机制，本方案不做，两者不互斥）。
+- **会话一致性**：会话系统共享给子代理 → 同一名单全局生效，与权限基线语义一致。
+- **与 5b 的交互**：停用 `tool_disabled` 守卫条目 = 名单整体失效，走审计兜底。
 
 ### 2.5 settings 保存校验
 
@@ -97,17 +111,18 @@
 
 | # | 任务 | 主要触点 |
 |---|------|----------|
+| T0 | 删除零消费者 owner 机制（决策 7）：`GuardrailSystem.register(owner=)` 参数、`_owners`、`unregister_owner`；`register_domain_guards` 的 `owner` 形参保留为纯日志；域/activation 调用点同步 | `guardrail_system.py`、`domain_guards.py`、`activation.py` |
 | T1 | registry 统一加载器（Descriptor、GuardSessionContext、工厂协议、合法性校验）+ 单测 | `guardrails/registry.py`（新）、`domain_guards.py` 收敛 |
-| T2 | `guardrail_guards` settings 键 + 启动播种 + 保存校验 + 单测 | `config.py`、启动迁移、admin 校验错误 |
-| T3 | 五内置增加 `build()` 工厂 / 行为等价确认（ConfirmationGuard 空规则 inert、ToolDisabledGuard 空名单现状记录） | `permission_guards.py`、`confirmation.py`、`loop_guardrails.py` |
-| T4 | agent_service 会话根改造（删硬编码、遍历声明、ctx 构造、owner 标签）+ 等价测试（默认全开=现状；停用=不注册） | `agent_service.py` |
+| T2 | settings 键 `guardrail_guards` + `tools_disabled` + 启动播种 + 两者保存校验 + 单测 | `config.py`、启动迁移、admin 校验错误 |
+| T3 | 五内置增加 `build()` 工厂（ToolDisabledGuard 读 `tools_disabled`；ConfirmationGuard 空规则 inert 等价确认） | `permission_guards.py`、`confirmation.py`、`loop_guardrails.py` |
+| T4 | agent_service 会话根改造（删硬编码、遍历声明、ctx 构造）+ 等价测试（默认全开=现状；停用=不注册；tools_disabled 生效） | `agent_service.py` |
 | T5 | loop.py run 级改造（`run_descriptors` 字段、遍历实例化、finally 注销、metadata 缺省测试） | `guardrail_system.py`、`loop.py` |
-| T6 | 前端守卫编辑器 + 前端测试 | `SystemSettings.vue`、`settingsForm.ts`、`settingsLabels.ts`、`admin.css` |
+| T6 | 前端：守卫声明编辑器 + `tools_disabled` 工具名编辑器（候选来自 `/api/admin/settings/tool-names`）+ 前端测试 | `SystemSettings.vue`、`settingsForm.ts`、`settingsLabels.ts`、`admin.css` |
 | T7 | 域通道统一（对象形式、run 描述符落点）+ 域测试 | `domain/loader.py`、`activation.py`、`registry.py` |
-| T8 | 文档同步：guardrails.md（§4.1/§4.2/§4.4 注册故事重写、§5 接线地图、§8 坑 2 补域通道、坑编号勘误）、根 AGENTS.md §5.3、`docs/operations/settings-and-seeds.md`（若涉新键） | docs |
-| T9 | 真机冒烟（按用户流程）：后台新增自定义 session 级 + run 级声明各一条验证生效；停用 path_policy 验证 5b 可停用 + 审计落 `settings_changes`；「恢复默认」；真实会话日志核对 `guard.triggered` 事件与指标标签 | 运行环境 |
+| T8 | 文档同步：guardrails.md（§4.1/§4.2/§4.4 注册故事重写、§4.3 旁新增"禁用工具"场景、§5 接线地图、§8 坑 2 补域通道、坑编号勘误）、根 AGENTS.md §5.3、`docs/operations/settings-and-seeds.md`（新键） | docs |
+| T9 | 真机冒烟（按用户流程）：后台新增自定义 session 级 + run 级声明各一条验证生效；`tools_disabled` 禁用一个工具验证模型可见拒绝；停用 path_policy 验证 5b 可停用 + 审计落 `settings_changes`；「恢复默认」；真实会话日志核对 `guard.triggered` 事件与指标标签 | 运行环境 |
 
-依赖关系：T1 → T3 → (T4, T5) → T6/T7 → T8/T9。T4、T5 之间无依赖可并行推进。
+依赖关系：T0 独立可先行；T1 → T3 → (T4, T5) → T6/T7 → T8/T9。T4、T5 之间无依赖可并行推进。
 
 ## 4. 测试与验收
 
@@ -119,7 +134,7 @@
 ## 5. 风险与边界
 
 - **5b 是有意的语义放宽**：停用 `path_policy` = 关闭路径管辖；停用 `confirmation` = 关闭确认链。层模式 fail-closed 性质不变（enabled 守卫异常仍拒绝）。UI 后果提示 + 审计兜底，已由用户确认接受。
-- `ToolDisabledGuard` 今天注册为**空名单**（`agent_service.py:505` 无参构造 → `_blocked` 为空集，实际不拦任何调用）；迁移保行为（种子仍空名单），其真实名单来源是否需要接线记为计划外待办，不在本方案内擅自接。
+- `ToolDisabledGuard` 名单来源已设计（§2.7，决策 6）：迁移前为空名单预留位，迁移后由 `tools_disabled` 驱动，种子默认空列表（迁移本身零行为变化）。
 - 坏声明运行时策略 = 记日志跳过；保存时校验拦截绝大多数，剩余（如运行环境缺依赖）不炸 build。
 - `loop.py` 处于 Pi 迁移关注区——本改动只替换注册来源，不触碰事件/SSE/状态机结构。
 - 并行会话同仓库互扰（本地已知坑）：改动涉及 `agent_service.py`/`loop.py`，提交时显式 add。
