@@ -356,3 +356,20 @@ def test_spawn_assigns_distinct_scope_ids(runtime_with_skill_agent):
     assert h1.scope_id is not None
     assert h2.scope_id is not None
     assert h1.scope_id != h2.scope_id
+
+
+@pytest.mark.asyncio
+async def test_outer_cancellation_propagates_through_delegate(tmp_path):
+    """/api/stop cancels the runner task; the delegate must re-raise the
+    cancellation instead of converting it into an error result."""
+    runtime = _make_runtime(tmp_path, ["slow_agent"], model=_HangingModelClient())
+
+    handle = runtime.spawn(name="slow_agent", task="wait")
+    delegate_task = asyncio.create_task(runtime.delegate(handle))
+    await asyncio.sleep(0.05)
+    delegate_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await delegate_task
+    # The child must not outlive the cancelled delegate.
+    child = runtime._tasks.get(handle.handle_id)
+    assert child is None or child.done()

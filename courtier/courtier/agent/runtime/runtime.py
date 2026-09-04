@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -395,6 +396,19 @@ class AgentRuntime:
                 },
             )
         except asyncio.CancelledError:
+            if asyncio.current_task().cancelling() > 0:
+                # Outer cancellation (e.g. /api/stop) must propagate:
+                # swallowing it converted a stopped run into a normal
+                # "completed" run and let the orchestrator keep burning
+                # tokens.  Make sure the child task does not outlive this
+                # delegate, then re-raise.
+                if task is not None and not task.done():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
+                raise
+            # The child itself was cancelled (runtime.terminate) — report
+            # failure to the orchestrator and let it continue.
             return ExecutionResult.from_error(
                 actor_type=config.agent_type,
                 actor_name=handle.agent_name,

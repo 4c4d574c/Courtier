@@ -74,7 +74,9 @@ def _memory_identity(uid: Any, is_admin: Any, name: Any):
 
 # Presigned download URLs handed to plugins for stored outputs live this long
 # (S3 SigV4 presigned URLs are capped at 7 days).
-_STORAGE_URL_EXPIRES_SECONDS = 7 * 24 * 3600
+# The transfer bucket has a 24h lifecycle — a longer-signed URL would
+# outlive the object it points at.
+_STORAGE_URL_EXPIRES_SECONDS = 23 * 3600
 
 # Reconnect backoff: 1s doubling to this cap, forever — a remote plugin being
 # down is transient by definition, and tools re-register on reconnect.

@@ -182,6 +182,9 @@ class RunManager:
         self._notification_hub: Any | None = None
         # FIFO of runs waiting for a slot (global order, per-user admission).
         self._waiting: list[AgentRun] = []
+        # Terminal runs are only reclaimed lazily (per-session lookups); a
+        # session nobody revisits would pin its whole RunEventLog forever.
+        self._reaper_task: asyncio.Task | None = None
 
     def apply_settings(self, settings: Any) -> None:
         """Adopt a new settings snapshot (ConfigService change listener).
@@ -406,6 +409,40 @@ class RunManager:
     def active_session_ids(self) -> list[str]:
         return [sid for sid in list(self._runs) if self._active_run(sid) is not None]
 
+    def start_reaper(self, interval_seconds: float = 60.0) -> None:
+        """Periodically evict terminal runs past their grace period.
+
+        The lazy eviction in ``_active_run`` only fires for sessions someone
+        keeps asking about; this reaper covers the ones nobody revisits.
+        """
+        if self._reaper_task is not None and not self._reaper_task.done():
+            return
+        self._reaper_task = asyncio.create_task(
+            self._reap_expired_forever(interval_seconds), name="run-reaper"
+        )
+
+    async def _reap_expired_forever(self, interval_seconds: float) -> None:
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                self.reap_expired()
+            except Exception:
+                logger.exception("Run reaper pass failed")
+
+    def reap_expired(self) -> int:
+        """Drop terminal runs past their grace period; returns the count."""
+        now = _time.time()
+        expired = [
+            sid
+            for sid, run in list(self._runs.items())
+            if run.terminal
+            and run.finished_at is not None
+            and now - run.finished_at > self._grace_seconds
+        ]
+        for sid in expired:
+            self._runs.pop(sid, None)
+        return len(expired)
+
     # -- Lifecycle -------------------------------------------------------------
 
     async def start(self, spec: RunSpec) -> AgentRun:
@@ -442,6 +479,8 @@ class RunManager:
             self._runs[spec.session_id] = run
         if run.status == "running":
             run.task = asyncio.create_task(self._runner(run, spec), name=f"run:{spec.session_id}")
+            # Lazily bring up the terminal-run reaper (needs a running loop).
+            self.start_reaper()
         else:
             position = self._waiting.index(run)
             run.log.append({"type": "queued", "position": position})

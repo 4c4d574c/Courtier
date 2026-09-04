@@ -494,17 +494,32 @@ async def _run_think_phase(
             msgs = list(current_state.messages)
             if msgs and msgs[-1].role == "assistant":
                 msgs[-1] = _dc_replace(msgs[-1], tool_calls=(forced_first_tool_call,))
-                current_state = current_state.model_copy(
-                    update={
-                        "messages": tuple(msgs),
-                        "tool_calls": (forced_first_tool_call,),
-                    }
-                )
                 logger.info(
                     "Forced first tool call: %s (overrode %d model call(s))",
                     forced_first_tool_call.name,
                     len(existing_calls),
                 )
+            else:
+                # Empty model response (no content, no tool calls): add_thought
+                # appended no assistant message, so the in-place override above
+                # never fired and the mandatory first call was silently skipped.
+                msgs.append(
+                    Message(
+                        role="assistant",
+                        content=None,
+                        tool_calls=(forced_first_tool_call,),
+                    )
+                )
+                logger.info(
+                    "Forced first tool call: %s (injected for an empty model response)",
+                    forced_first_tool_call.name,
+                )
+            current_state = current_state.model_copy(
+                update={
+                    "messages": tuple(msgs),
+                    "tool_calls": (forced_first_tool_call,),
+                }
+            )
 
     # A failed first think must not waste the mandatory first call: the
     # forced call needs no model output, so run it anyway and let the model

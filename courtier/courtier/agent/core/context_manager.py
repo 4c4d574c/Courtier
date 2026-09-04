@@ -216,6 +216,9 @@ class ContextManager:
             compact_prompt_template=self._compact_prompt_template,
             compact_merge_prompt_template=self._compact_merge_prompt_template,
             artifact_store=self._cache,
+            media_image_tokens=self.media_image_tokens,
+            media_audio_tokens_per_second=self.media_audio_tokens_per_second,
+            media_video_tokens_per_second=self.media_video_tokens_per_second,
         )
 
     # -- Layer 2: Micro-compact old tool results ------------------------------
@@ -568,16 +571,23 @@ class ContextManager:
         except Exception as exc:
             logger.warning("Compaction summary failed: %s, using fallback", exc)
             record_context_compaction("fallback")
+            # Keep the original system prompt first — dropping it (identity,
+            # tool rules, workflow rules) silently degrades every later turn
+            # (the rebuild on the next turn only kicks in when messages[0]
+            # is a system message).
+            fallback_compacted: list[Message] = []
+            if head_start:
+                fallback_compacted.append(messages[0])
             # Keep the most recent messages instead of truncating to 800 chars,
             # which would lose almost all context.  8 recent messages preserve
             # enough conversational context to recover gracefully.
-            keep_recent = min(8, len(messages))
-            fallback_compacted = list(messages[-keep_recent:])
+            keep_recent = min(8, len(messages) - head_start)
+            recent = list(messages[-keep_recent:] if keep_recent else [])
             # Align to tool-call boundaries: an arbitrary slice can start mid
             # tool-call sequence (leading orphan tool messages) or contain an
             # assistant whose tool results fell outside the slice (dangling
             # tool_calls) — both are rejected by OpenAI-compatible APIs.
-            fallback_compacted = _align_tool_boundaries(fallback_compacted)
+            fallback_compacted.extend(_align_tool_boundaries(recent))
             # Truncate message content to avoid context overflow
             _MAX_FALLBACK_CONTENT = 4000
             for i, msg in enumerate(fallback_compacted):

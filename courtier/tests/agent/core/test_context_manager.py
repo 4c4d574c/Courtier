@@ -1086,8 +1086,13 @@ class TestLayer3FullCompaction:
         )
         result = await mgr.compact_if_needed(msgs)
         assert mgr.state.has_compacted is True
-        assert len(result) <= 8
-        assert result[0].role != "tool"
+        # System prompt (1) + the recent-8 slice.
+        assert len(result) <= 9
+        # The original system prompt survives the fallback — dropping it
+        # silently degraded every later turn.
+        assert result[0].role == "system"
+        assert result[0].content == "Sys"
+        assert result[1].role != "tool"
         assert any((m.content or "").endswith("...[truncated]") for m in result)
         assert all(len(m.content or "") <= 4100 for m in result)
 

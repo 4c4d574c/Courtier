@@ -63,7 +63,7 @@ def _production_gate(request: Request, body: CreateAdminRequest) -> None:
         # A configured key is authoritative and required regardless of the
         # request source: behind a reverse proxy every client appears as the
         # proxy's private IP, so a source check must never bypass the key.
-        if hmac.compare_digest(expected, body.setup_key or ""):
+        if hmac.compare_digest(expected.encode(), (body.setup_key or "").encode()):
             return
         raise HTTPException(
             403, "生产环境的首启向导需携带正确的 COURTIER_SETUP_KEY"

@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import time as _time
 from types import SimpleNamespace
 
 import pytest
 
 from courtier.agent.agents.base import Agent
 from courtier.agent.api.services.run_manager import (
+    AgentRun,
     RunConflictError,
     RunManager,
     RunSpec,
@@ -513,3 +515,22 @@ class TestContextStatePersistence:
         assert saved["has_compacted"] is True
         assert saved["compact_count"] == 1
         assert fresh_cm.state.has_compacted is True
+
+
+def test_reap_expired_drops_terminal_runs_past_grace(manager):
+    """The reaper must cover sessions nobody revisits (lazy eviction only
+    fires on per-session lookups)."""
+    from courtier.agent.api.services.run_event_log import RunEventLog
+
+    run = AgentRun("sess_dead0000001", "u", RunEventLog(), None)
+    run.status = "completed"
+    run.finished_at = _time.time() - 3600  # well past the 600s grace
+    manager._runs["sess_dead0000001"] = run
+
+    live = AgentRun("sess_live0000001", "u", RunEventLog(), None)
+    live.status = "running"
+    manager._runs["sess_live0000001"] = live
+
+    assert manager.reap_expired() == 1
+    assert "sess_dead0000001" not in manager._runs
+    assert "sess_live0000001" in manager._runs

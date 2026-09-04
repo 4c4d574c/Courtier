@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +52,8 @@ ALLOWED_EXTS = set(_limits.get("allowed_extensions", [
     ".mkv",
     ".avi",
 ]))
+logger = logging.getLogger(__name__)
+
 MAX_FILE_SIZE = int(_limits.get("max_file_size", 50 * 1024 * 1024))
 # Per-kind caps (≤ MAX_FILE_SIZE); documents keep the global default.
 KIND_LIMITS: dict[str, int] = {
@@ -284,8 +287,11 @@ async def transcode_video_file(
         raise HTTPException(400, "视频转码结果无效")
     try:
         return await asyncio.to_thread(storage_client.get_object, bucket, key)
-    except Exception as exc:
-        raise HTTPException(400, f"转码结果取回失败: {exc}") from exc
+    except Exception:
+        logger.warning(
+            "Transcoded object fetch failed for %s/%s", bucket, key, exc_info=True
+        )
+        raise HTTPException(400, "转码结果取回失败，请稍后重试") from None
 
 
 async def upload_file(
