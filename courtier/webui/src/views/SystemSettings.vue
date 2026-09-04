@@ -162,7 +162,7 @@
                           :disabled="!editable"
                           @click="removePoolEndpoint(i)"
                         >
-                          ×
+                          <AppIcon name="trash" :size="14" />
                         </button>
                       </div>
                     </div>
@@ -285,7 +285,7 @@
                           :disabled="!editable"
                           @click="removePoolModel(row, j)"
                         >
-                          ×
+                          <AppIcon name="trash" :size="14" />
                         </button>
                         <div v-if="isAdvancedOpen(m.id)" class="pool-adv">
                           <div class="pool-modality-row">
@@ -463,7 +463,7 @@
                       :disabled="!editable"
                       @click="removeEndpointRow(i)"
                     >
-                      ×
+                      <AppIcon name="trash" :size="14" />
                     </button>
                   </div>
                   <button class="tbl-add" type="button" :disabled="!editable" @click="addEndpointRow">
@@ -534,7 +534,7 @@
                           :disabled="!editable || row.exempt"
                           @click="removeToolPath(row, pi)"
                         >
-                          ×
+                          <AppIcon name="trash" :size="13" />
                         </button>
                       </div>
                       <button
@@ -2421,21 +2421,40 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 .tbl-input:disabled {
   color: var(--chat-text-tertiary);
 }
-.tbl-remove {
+/* Row-level delete buttons: a quiet trash icon that turns red on hover. */
+.tbl-remove,
+.tbl-path-remove,
+.pool-ep-remove {
+  flex-shrink: 0;
   width: 28px;
   height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
+  border-radius: var(--chat-radius-sm);
   background: transparent;
   color: var(--chat-text-tertiary);
   cursor: pointer;
+  transition:
+    color 150ms,
+    background 150ms;
 }
-.tbl-remove:hover:not(:disabled) {
-  color: var(--chat-accent);
+.tbl-remove:hover:not(:disabled),
+.tbl-path-remove:hover:not(:disabled),
+.pool-ep-remove:hover:not(:disabled) {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 10%, transparent);
 }
-.tbl-remove:disabled {
+.tbl-remove:focus-visible,
+.tbl-path-remove:focus-visible,
+.pool-ep-remove:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+.tbl-remove:disabled,
+.tbl-path-remove:disabled,
+.pool-ep-remove:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -2501,24 +2520,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.tbl-path-remove {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: var(--chat-text-tertiary);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-.tbl-path-remove:hover:not(:disabled) {
-  color: var(--chat-accent);
-}
-.tbl-path-remove:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 .tbl-path-add {
   align-self: flex-start;
@@ -2728,10 +2729,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 .pool-test-result.fail {
   color: var(--err);
 }
-.pool-ep-remove {
-  flex-shrink: 0;
-}
-
 /* Model table: light section, bordered compact inputs. */
 .pool-models {
   display: flex;
