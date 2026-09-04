@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from courtier.agent.api.app import create_app
+from courtier.agent.api.middleware.auth import create_access_token
 from courtier.agent.api.rate_limiter import limiter
 
 
@@ -807,8 +808,26 @@ class TestQueryTokenScoping:
             resp = c.get(f"/api/sessions?token={token}")
             assert resp.status_code == 401
 
-    def test_query_token_accepted_on_sse_path(self, client):
-        with self._query_token_only_client(client) as (c, token):
-            # The stream never ends — read only the status via stream().
-            with c.stream("GET", f"/api/events?token={token}") as resp:
-                assert resp.status_code == 200
+    def test_query_token_accepted_on_sse_path(self):
+        # Unit-level: _resolve_token honors the query token on SSE paths.
+        # (TestClient cannot stream the infinite /api/events generator
+        # deterministically.)
+        import asyncio
+        from types import SimpleNamespace
+
+        from courtier.agent.api.middleware.auth import _resolve_token
+
+        settings = SimpleNamespace(jwt_secret="s3cret", jwt_algorithm="HS256")
+        token = create_access_token("alice", 0, "admin", secret="s3cret")
+        payload = _resolve_token(
+            settings,
+            None,
+            token,
+            None,
+            "/api/events",
+        )
+        assert payload["sub"] == "alice"
+
+        with pytest.raises(Exception) as exc_info:
+            _resolve_token(settings, None, token, None, "/api/models")
+        assert "401" in str(exc_info.value.status_code)
