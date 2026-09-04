@@ -201,10 +201,15 @@ async def login(request: Request, body: LoginRequest, response: Response):
         verify_password(body.password, _DUMMY_HASH)
         raise HTTPException(401, "用户名或密码错误")
 
-    # Check account lockout before verifying password
+    # Check account lockout before verifying password.  The column is a
+    # naive DateTime and drivers return naive UTC — normalize before
+    # comparing against the aware clock (mirrors middleware/auth.py).
     now = datetime.now(timezone.utc)
-    if user.locked_until is not None and user.locked_until > now:
-        remaining = int((user.locked_until - now).total_seconds())
+    locked_until = user.locked_until
+    if locked_until is not None and locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    if locked_until is not None and locked_until > now:
+        remaining = int((locked_until - now).total_seconds())
         raise HTTPException(403, f"账号已被临时锁定，请在 {remaining} 秒后重试")
 
     _MAX_FAILED_ATTEMPTS = 10
@@ -216,7 +221,8 @@ async def login(request: Request, body: LoginRequest, response: Response):
             merged = await session.merge(user)
             merged.failed_login_attempts += 1
             if merged.failed_login_attempts >= _MAX_FAILED_ATTEMPTS:
-                merged.locked_until = now + _LOCKOUT_DURATION
+                # Naive UTC into the naive DateTime column (see read side).
+                merged.locked_until = (now + _LOCKOUT_DURATION).replace(tzinfo=None)
                 logger.warning(
                     "Account locked: %s (%d failed attempts)",
                     merged.username,
