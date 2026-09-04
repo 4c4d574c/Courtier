@@ -76,9 +76,6 @@ off/allow 旁路——该层承载工具禁用、路径白名单、执行确认�
 "关闭检查"不是它该有的选项；前端保存该层变更时还有一次二次确认。
 扩展者自建 `GuardrailSystem` 时仍可按层传模式参数。
 
-> 遗留的 `agent_runtime.guardrails` 嵌套配置（迁移计划附录 C）不接管线，
-> 分层模式的唯一入口是五个 `guardrail_*_layer` 设置键。
-
 ### metadata 怎么流动（容易踩的点）
 
 聚合结果的动作/署名取**最严格**的（allow < log < block），
