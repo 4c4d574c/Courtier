@@ -416,7 +416,9 @@
                   stacked:
                     field.name === ENDPOINTS_FIELD ||
                     field.name === TOOL_PATH_FIELD ||
-                    field.name === CONFIRM_FIELD,
+                    field.name === CONFIRM_FIELD ||
+                    field.name === GUARDS_DECL_FIELD ||
+                    field.name === TOOLS_DISABLED_FIELD,
                   dirty: isFieldDirty(field.name),
                   error: formErrors[field.name],
                 }"
