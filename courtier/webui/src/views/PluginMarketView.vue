@@ -183,6 +183,7 @@ function stateClass(p: PluginInfo): string {
     case "BLOCKED":
       return "badge-err";
     case "DISCONNECTED":
+      return "badge-err"; // settled failure — needs admin action
     case "CONNECTING":
     case "REGISTERING":
     case "STOPPING":
@@ -193,7 +194,10 @@ function stateClass(p: PluginInfo): string {
 }
 
 function isTransitional(state: string): boolean {
-  return ["CONNECTING", "REGISTERING", "DISCONNECTED", "STOPPING"].includes(state);
+  // DISCONNECTED is settled (crashed / refused): admins must be able to
+    // start or restart it — treating it as transitional left a permanently
+    // disabled button with no recovery path.
+    return ["CONNECTING", "REGISTERING", "STOPPING"].includes(state);
 }
 
 async function reload() {

@@ -78,7 +78,7 @@
           <td>{{ item.requestedBy === "self" ? "本人申请" : "管理员" }}</td>
           <td class="td-actions">
             <button
-              @click="approveDeletion(item)"
+              @click="deleteConfirm = item"
               class="action-btn action-btn--ok"
               :disabled="item._loading"
             >
@@ -99,6 +99,29 @@
     <div v-else-if="!loading" class="admin-card">
       <div class="admin-empty-state">
         <p>{{ activeTab === "register" ? "暂无待审批的注册申请" : "暂无待审批的注销申请" }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="deleteConfirm" class="modal-backdrop" @click.self="deleteConfirm = null">
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3 class="modal-title">确认批准注销</h3>
+      <p class="modal-message">
+        将不可逆地清除 {{ deleteConfirm.username ?? `用户#${deleteConfirm.userId}` }}
+        的会话、文件、记忆等全部数据并注销账号。此操作不可恢复。
+      </p>
+      <div class="modal-actions">
+        <button class="action-btn" @click="deleteConfirm = null">取消</button>
+        <button
+          class="action-btn action-btn--danger"
+          :disabled="deleteConfirm._loading"
+          @click="
+            approveDeletion(deleteConfirm);
+            deleteConfirm = null;
+          "
+        >
+          确认注销
+        </button>
       </div>
     </div>
   </div>
@@ -165,6 +188,10 @@ async function loadDeletionRequests() {
   }
 }
 
+const deleteConfirm = ref<
+  (DeletionRequestItem & { _loading?: boolean }) | null
+>(null);
+
 async function approveDeletion(item: DeletionRequestItem & { _loading?: boolean }) {
   item._loading = true;
   try {
@@ -199,16 +226,48 @@ onMounted(async () => {
   try {
     const res = await api.listApprovals();
     items.value = res.items.map((i) => ({ ...i, _loading: false }));
-    await loadDeletionRequests();
   } catch (e: unknown) {
     reportError(e, "获取审批列表失败");
   } finally {
     loading.value = false;
   }
+  // Independent API — a registrations failure must not hide deletion
+  // requests (and vice versa).
+  await loadDeletionRequests();
 });
 </script>
 
 <style scoped>
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+.modal {
+  background: var(--bg-elevated, #fff);
+  border-radius: 10px;
+  padding: 18px 20px;
+  max-width: 430px;
+  width: calc(100% - 40px);
+}
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.modal-message {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 /* Tabs sit under the heading inside the header cluster. */
 .admin-tabs {
   margin-top: 10px;

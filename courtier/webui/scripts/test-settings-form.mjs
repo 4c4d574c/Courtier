@@ -139,10 +139,22 @@ try {
   }
 
   {
-    // Explicit clear wins over any typed value.
+    // A typed replacement after "clear" means an edit — sending null would
+    // silently discard it.
     const { body } = buildUpdateBody(
       fields,
       { llm_model: "x", llm_temperature: "0", llm_api_key: "", max_total_runs: "20",
+        cors_origins: '["http://a"]', llm_extra_body: "" },
+      { llm_model: true },
+    );
+    assert.equal(body.llm_model, "x");
+  }
+
+  {
+    // "Clear" on a still-empty field sends null (revert to env/default).
+    const { body } = buildUpdateBody(
+      fields,
+      { llm_model: "", llm_temperature: "0", llm_api_key: "", max_total_runs: "20",
         cors_origins: '["http://a"]', llm_extra_body: "" },
       { llm_model: true },
     );

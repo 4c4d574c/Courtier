@@ -129,6 +129,14 @@ async function parseErrorDetail(res: Response, fallback: string): Promise<Error>
     // FastAPI/Pydantic 422: detail is a list of {loc, msg, type} objects.
     const first = detail[0] as { msg?: string } | undefined;
     message = first?.msg ?? `${fallback}: ${res.status}`;
+  } else if (detail && typeof detail === "object" && "message" in detail) {
+    // Structured app error: {message, errors:[{field,message}]} — surface
+    // the field-level details so the admin can act on them.
+    const obj = detail as { message?: string; errors?: Array<{ field?: string; message?: string }> };
+    const parts = (obj.errors ?? []).map(
+      (e2) => `${e2.field ?? "?"}: ${e2.message ?? ""}`,
+    );
+    message = [obj.message, ...parts].filter(Boolean).join("；") || `${fallback}: ${res.status}`;
   } else {
     message = `${fallback}: ${res.status}`;
   }
@@ -700,11 +708,17 @@ export const api = {
     category: string,
     body: Record<string, unknown>,
   ): Promise<SettingsUpdateResult> {
-    const res = await authFetch(`${API_BASE}/admin/settings/${category}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await authFetch(
+      `${API_BASE}/admin/settings/${category}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      // Saving probes live LLM/ES/MinIO connections — the default 10s
+      // aborts valid-but-slow configurations.
+      60_000,
+    );
     if (!res.ok) throw await parseErrorDetail(res, "PUT /admin/settings failed");
     return res.json();
   },
@@ -719,11 +733,17 @@ export const api = {
     reply?: string;
     errors?: Record<string, string>;
   }> {
-    const res = await authFetch(`${API_BASE}/admin/settings/test/${target}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await authFetch(
+      `${API_BASE}/admin/settings/test/${target}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      // The server really calls the LLM (expects a reply) and probes
+      // ES/MinIO — 60s instead of the default 10s.
+      60_000,
+    );
     if (!res.ok) throw await parseErrorDetail(res, "POST /admin/settings/test failed");
     return res.json();
   },

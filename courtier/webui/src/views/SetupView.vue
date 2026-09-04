@@ -6,7 +6,7 @@
         尚未创建管理员账户。请设置首个管理员；创建后本页将永久关闭，日常管理请使用「用户管理」。
       </p>
 
-      <form class="setup-form" @submit.prevent="submit">
+      <form v-if="!done" class="setup-form" @submit.prevent="submit">
         <label class="setup-field">
           <span>用户名</span>
           <input

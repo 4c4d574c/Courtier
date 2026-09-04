@@ -47,6 +47,10 @@
       </nav>
 
       <div class="settings-pane">
+        <div v-if="saveError" class="save-strip warn" role="alert">
+          <span>保存失败：{{ saveError }}</span>
+          <button class="strip-close" aria-label="关闭" @click="saveError = ''">×</button>
+        </div>
         <div v-if="saveBanner" class="save-strip" :class="{ warn: saveBanner.restart.length }">
           <span>
             已保存 {{ saveBanner.applied.length }} 项<template v-if="saveBanner.cleared.length"
@@ -1062,6 +1066,7 @@ const testResult = ref<
 >(null);
 const rotateResult = ref<{ ok: boolean; error?: string } | null>(null);
 const saveBanner = ref<{ applied: string[]; cleared: string[]; restart: string[] } | null>(null);
+const saveError = ref("");
 
 /** Per-category connectivity tests offered in the action bar. */
 const CATEGORY_TEST_TARGETS: Record<string, Array<"llm" | "es" | "minio" | "plugins">> = {
@@ -1728,6 +1733,7 @@ function abandon() {
   resetForms(view.value);
   for (const key of Object.keys(formErrors)) delete formErrors[key];
   saveBanner.value = null;
+  saveError.value = "";
 }
 
 async function load() {
@@ -1794,8 +1800,11 @@ async function save() {
       cleared: result.cleared,
       restart: result.restart_required,
     };
+    saveError.value = "";
     // Sources and masked secret tails change after saving — reload.
     await load();
+  } catch (e: unknown) {
+    saveError.value = e instanceof Error ? e.message : String(e);
   } finally {
     saving.value = false;
   }

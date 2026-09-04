@@ -83,11 +83,17 @@ export function buildUpdateBody(
   const errors: Record<string, string> = {};
 
   for (const field of fields) {
-    if (cleared[field.name]) {
-      body[field.name] = null;
-      continue;
-    }
     const raw = state[field.name];
+    if (cleared[field.name]) {
+      // "Clear" only sends null while the field actually sits empty — an
+      // admin who typed a replacement value after clearing means an edit,
+      // not a clear (the cleared flag used to silently swallow it).
+      const text = typeof raw === "string" ? raw.trim() : "";
+      if (text === "") {
+        body[field.name] = null;
+        continue;
+      }
+    }
 
     if (field.is_secret) {
       if (typeof raw === "string" && raw !== "") body[field.name] = raw;
