@@ -68,6 +68,7 @@ class PluginSystem:
         artifact_store_registry: Any = None,
         endpoints: dict[str, tuple[str, int]] | None = None,
         token: str | None = None,
+        domain_names_provider: Any = None,
     ) -> None:
         self._plugins_dir = Path(plugins_dir)
         self._scanner = PluginScanner()
@@ -83,6 +84,7 @@ class PluginSystem:
             endpoints=endpoints,
             token=token,
             scanner=self._scanner,
+            domain_names_provider=domain_names_provider,
         )
         self._started = False
 

@@ -49,10 +49,27 @@ from .protocol import (
     METHOD_RUNTIME_CONTEXT,
     METHOD_STORAGE_PRESIGN_GET,
     METHOD_STORAGE_PUT,
+    METHOD_MEMORY_STORE_CALL,
     METHOD_TEMPLATE_STORE_GET,
 )
 from .registry import ExtensionRegistry
 from .scanner import PluginScanner, PluginScanResult
+
+def _memory_identity(uid: Any, is_admin: Any, name: Any):
+    """Build the service Identity from dispatch-boundary injected params.
+
+    Absent caller params (legacy plugin, direct channel use) degrade to a
+    non-admin identity on owner 0 — every privileged path then rejects.
+    """
+    from courtier.agent.api.services.memory_service import Identity
+
+    try:
+        uid = int(uid) if uid is not None else 0
+    except (TypeError, ValueError):
+        uid = 0
+    actor = f"agent:{name}" if name else "agent"
+    return Identity(owner_id=uid, is_admin=bool(is_admin), actor=actor)
+
 
 # Presigned download URLs handed to plugins for stored outputs live this long
 # (S3 SigV4 presigned URLs are capped at 7 days).
@@ -212,6 +229,7 @@ class ProcessManager:
         endpoints: dict[str, tuple[str, int]] | None = None,
         token: str | None = None,
         scanner: PluginScanner | None = None,
+        domain_names_provider: Any = None,
     ) -> None:
         self._plugin_dir = plugin_dir
         self._extension_registry = extension_registry
@@ -221,6 +239,7 @@ class ProcessManager:
         self._endpoints = endpoints
         self._token = token
         self._scanner = scanner if scanner is not None else PluginScanner()
+        self._domain_names_provider = domain_names_provider
         self._processes: dict[str, PluginProcess] = {}
         self._scan_results: dict[str, PluginScanResult] = {}
 
@@ -647,6 +666,46 @@ class ProcessManager:
                 except Exception as exc:
                     logger.warning("template_store.get 查询失败: %s", exc, exc_info=True)
                     return _deny(INTERNAL_ERROR, f"模板查询失败: {exc}")
+
+            if method == METHOD_MEMORY_STORE_CALL:
+                if "memory_store" not in host_services:
+                    return _deny(INVALID_PARAMS, "Missing memory_store host service")
+                if "read:memory" not in perms and "write:memory" not in perms:
+                    return _deny(INVALID_PARAMS, "Missing read:memory / write:memory permission")
+                # 调用者身份由宿主在派发边界注入（x-host-injected），插件只透传。
+                # 信任层级与 template_store 相同：插件自身被攻破才可能伪造。
+                identity = _memory_identity(
+                    uid=params.get("_caller_uid"),
+                    is_admin=params.get("_caller_is_admin"),
+                    name=params.get("_caller_name"),
+                )
+                from courtier.agent.api.db import get_db
+                from courtier.agent.api.services import memory_service
+
+                try:
+                    known_domains = (
+                        set(self._domain_names_provider())
+                        if self._domain_names_provider is not None
+                        else None
+                    )
+                    async with get_db().session() as session:
+                        return await memory_service.tool_action(
+                            session,
+                            identity=identity,
+                            action=str(params.get("action") or ""),
+                            entry_id=params.get("entry_id"),
+                            title=params.get("title"),
+                            domain=params.get("domain"),
+                            content=params.get("content"),
+                            layer=params.get("layer"),
+                            known_domains=known_domains,
+                        )
+                except memory_service.MEMORY_ERRORS as exc:
+                    # 权限/校验错误对模型可见（结构化消息），而非 5xx。
+                    return {"ok": False, "error": str(exc)}
+                except Exception as exc:
+                    logger.warning("memory_store.call 失败: %s", exc, exc_info=True)
+                    return _deny(INTERNAL_ERROR, f"记忆操作失败: {exc}")
 
             return _deny(METHOD_NOT_FOUND, f"Unknown host service method: {method}")
 

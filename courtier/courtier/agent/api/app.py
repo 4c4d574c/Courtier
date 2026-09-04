@@ -307,6 +307,9 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         tool_registry=app.state.tool_registry,
         artifact_store=app.state.artifact_store,
         artifact_store_registry=app.state.artifact_store_registry,
+        # memory_store host service validates entries against the loaded
+        # domain packages (live read — domains can be added without restart).
+        domain_names_provider=lambda: {pkg.name for pkg in courtier_config.domains},
     )
 
     # Plugin names living under plugins/shared/ — chat-mode agents get these

@@ -779,6 +779,14 @@ class ToolRegistry:
         properties (see courtier.agent.tools.param_injection)."""
         self._param_injectors = dict(injectors)
 
+    def register_param_injectors(self, injectors: dict[str, Any]) -> None:
+        """Merge additional injectors into the existing set (session clones
+        extend the app-wide base — e.g. the per-session memory caller
+        identity — without replacing inherited injectors)."""
+        merged = dict(self._param_injectors)
+        merged.update(injectors)
+        self._param_injectors = merged
+
     def configure_result_post_processors(self, processors: list[ResultPostProcessor]) -> None:
         """Register result post-processors run between tool.execute and persistence."""
         self._result_post_processors = list(processors)
@@ -788,20 +796,24 @@ class ToolRegistry:
     ) -> Any:
         """Await all host-injected parameters the tool contract declares.
 
-        Returns the kwargs mapping to execute with (a new dict when
-        anything was injected, else the original).  A failing injector
-        only skips its own parameter.
+        Host-injected params are never model-fillable: a hallucinated (or
+        prompt-injected) value is stripped before injection so the host's
+        result is the only thing the tool ever sees.  Returns the kwargs
+        mapping to execute with (a new dict when anything was injected or
+        stripped, else the original).  A failing injector only skips its
+        own parameter.
         """
         if not self._param_injectors:
             return kwargs
         properties = tool.parameters.get("properties", {})
         updates: dict[str, Any] = {}
+        stripped: set[str] = set()
         for param_name, prop in properties.items():
             injector_name = prop.get(HOST_INJECTED_MARKER) if isinstance(prop, dict) else None
             if not injector_name:
                 continue
             if param_name in kwargs:
-                continue
+                stripped.add(param_name)
             injector = self._param_injectors.get(injector_name)
             if injector is None:
                 continue
@@ -820,9 +832,9 @@ class ToolRegistry:
                 continue
             if injected is not None:
                 updates[param_name] = injected
-        if not updates:
+        if not updates and not stripped:
             return kwargs
-        return {**kwargs, **updates}
+        return {**{k: v for k, v in kwargs.items() if k not in stripped}, **updates}
 
     def _get_producers(self) -> dict[str, list[str]]:
         """返回缓存的 producers 映射，延迟计算."""

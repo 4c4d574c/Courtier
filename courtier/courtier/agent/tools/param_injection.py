@@ -53,3 +53,30 @@ async def embedding_injector(
 def make_embedding_param_injector():
     """Return the ``embedding`` injector for ToolRegistry.configure_param_injectors."""
     return embedding_injector
+
+
+def make_memory_caller_injector(
+    owner_id: int | None, username: str = "", is_admin: bool = False
+):
+    """Return the ``memory_caller`` injector binding one session's identity.
+
+    Fills the memory tool's ``_caller_uid`` / ``_caller_name`` /
+    ``_caller_is_admin`` params at the dispatch boundary (the plugin only
+    relays them to the host service).  Built per build_agent call with the
+    session owner's identity captured in the closure — the model never
+    sees or fills these params (schema-stripped, and model-supplied values
+    are discarded by the registry before injection).
+    """
+
+    async def memory_caller_injector(
+        tool: Any, kwargs: dict[str, Any], param_name: str
+    ) -> int | str | bool | None:
+        if param_name == "_caller_uid":
+            return owner_id if owner_id is not None else 0
+        if param_name == "_caller_name":
+            return username
+        if param_name == "_caller_is_admin":
+            return is_admin
+        return None
+
+    return memory_caller_injector
