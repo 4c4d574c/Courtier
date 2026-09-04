@@ -14,20 +14,20 @@ class LoadTemplateTool:
     name: str = "load_template"
     display_name: str | None = "加载模板"
     description: str = (
-        "Load a format template from the database by document type and optional "
-        "template ID. Returns the template as a dict, or None if not found."
+        "按文种（可选指定模板 ID）从数据库加载格式模板。返回模板 dict，"
+        "未找到时返回 None。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "doc_type": {
                 "type": "string",
-                "description": "Document type to load template for (e.g. 通知).",
+                "description": "要加载模板的文种（如 通知）。",
             },
             "template_id": {
                 "type": "integer",
                 "description": (
-                    "Optional specific template ID. If omitted, loads the default " "template."
+                    "可选的指定模板 ID；省略时加载默认模板。"
                 ),
             },
         },

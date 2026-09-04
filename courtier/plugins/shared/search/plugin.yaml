@@ -1,7 +1,7 @@
 name: search
 version: "1.0.0"
 api: "2.0"
-description: "Elasticsearch document chunk search"
+description: "基于 Elasticsearch 的文档块检索"
 
 # Runtime tool registration happens in entry.py (register_tool); tool-
 # usage and citation guidance for the model lives in the core

@@ -14,31 +14,30 @@ class DetectPlagiarismTool:
     name: str = "detect_plagiarism"
     display_name: str | None = "抄袭检测"
     description: str = (
-        "Compare a document against a reference library to detect plagiarism. "
-        "Uses dynamic IQR thresholding. Returns {is_plagiarism, max_similarity, "
-        "dynamic_threshold, matched_doc_index, matched_substring_length, "
-        "matched_text, reason}."
+        "将文档与参考库比对进行抄袭检测，采用动态 IQR 阈值。返回 "
+        "{is_plagiarism, max_similarity, dynamic_threshold, matched_doc_index, "
+        "matched_substring_length, matched_text, reason}。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "new_doc": {
                 "type": "string",
-                "description": "Full text of the document to check.",
+                "description": "待检测文档的全文。",
             },
             "library_docs": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "List of reference library document texts.",
+                "description": "参考库文档文本列表。",
             },
             "k": {
                 "type": "number",
-                "description": "IQR multiplier for dynamic threshold.",
+                "description": "动态阈值的 IQR 系数。",
                 "default": 1.5,
             },
             "min_substring_length": {
                 "type": "integer",
-                "description": "Minimum substring length to consider a match.",
+                "description": "判定命中的最小子串长度。",
                 "default": 20,
             },
         },

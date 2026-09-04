@@ -1,7 +1,7 @@
 name: memory
 version: "1.0.0"
 api: "2.0"
-description: "Layered DB-backed memory (global shared layer + per-user layer) via the memory_store host service"
+description: "基于数据库的分层长期记忆（全局共享层 + 用户层），经 memory_store 宿主服务读写"
 
 # Tool declarations and usage guidance are runtime-registered from entry.py
 # (register_tool / register_capabilities) — no capabilities block here.

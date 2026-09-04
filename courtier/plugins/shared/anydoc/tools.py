@@ -34,17 +34,17 @@ class ConvertDocumentTool:
     name: str = "convert_document"
     display_name: str | None = "转换文档"
     description: str = (
-        "Convert an office document (Word, Excel, PowerPoint, OpenDocument, RTF, "
-        "EPUB, CSV, or text-based PDF) from disk into GitHub-Flavored Markdown. "
-        "Scanned PDFs and image files are OCR'd into Markdown when the OCR "
-        "endpoint is configured. Returns the Markdown text and detected format."
+        "将办公文档（Word、Excel、PowerPoint、OpenDocument、RTF、EPUB、CSV 或"
+        "文本型 PDF）从磁盘转换为 GitHub Flavored Markdown。配置了 OCR 服务时，"
+        "扫描版 PDF 与图片文件会经 OCR 转为 Markdown。返回 Markdown 文本与"
+        "检测到的格式。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "file_path": {
                 "type": "string",
-                "description": "Absolute path to the document file to convert.",
+                "description": "待转换文档文件的绝对路径。",
             }
         },
         "required": ["file_path"],
@@ -59,19 +59,19 @@ class ConvertDocumentTool:
         "properties": {
             "markdown": {
                 "type": "string",
-                "description": "GitHub-Flavored Markdown rendering of the document.",
+                "description": "文档的 GitHub Flavored Markdown 渲染结果。",
             },
             "format": {
                 "type": "string",
-                "description": "Detected source format (e.g. 'docx', 'pdf', 'csv').",
+                "description": "检测到的源格式（如 'docx'、'pdf'、'csv'）。",
             },
             "ocr": {
                 "type": "boolean",
-                "description": "True when the output came from the OCR fallback path.",
+                "description": "输出是否来自 OCR 兜底路径。",
             },
             "pages": {
                 "type": "integer",
-                "description": "Page count when the OCR fallback path was used.",
+                "description": "OCR 兜底路径下的文档页数。",
             },
         },
         "required": ["markdown", "format"],

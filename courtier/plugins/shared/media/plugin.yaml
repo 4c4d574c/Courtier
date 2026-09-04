@@ -1,7 +1,7 @@
 name: media
 version: "1.0.0"
 api: "2.0"
-description: "Media file probing (ffprobe metadata for uploaded audio/video)"
+description: "媒体文件探测（对上传的音频/视频做 ffprobe 元数据探测）"
 
 # Tool declarations and usage guidance are runtime-registered from entry.py
 # (register_tool / register_capabilities) — no capabilities block here.

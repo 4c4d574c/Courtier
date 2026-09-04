@@ -1,7 +1,7 @@
 name: check_format
 version: "1.0.0"
 api: "2.0"
-description: "Document format audit — validates formatting against GB/T 9704-2012 templates"
+description: "文档格式审核——按 GB/T 9704-2012 模板校验排版格式"
 timeout_ms: 180000
 
 # Tool declarations (incl. the model-visible input schema) and usage

@@ -1,7 +1,7 @@
 name: detect_plagiarism
 version: "1.0.0"
 api: "2.0"
-description: "Plagiarism detection using dynamic IQR thresholding"
+description: "抄袭检测——基于动态 IQR 阈值判定"
 # Calibrated 2026-08-27 against build_library_distribution's full pairwise
 # SequenceMatcher pass (measured: 120 docs x 10k chars = 27s; ~300 x 10k
 # extrapolates to ~170s).  Realistic retrieved-library sizes sit far below;

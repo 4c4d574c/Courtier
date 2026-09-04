@@ -1,7 +1,7 @@
 name: annotate
 version: "1.0.0"
 api: "2.0"
-description: "DOCX keyword-based annotation"
+description: "在 DOCX 文档中按关键词添加 Word 批注"
 
 # Tool declarations and usage guidance are runtime-registered from entry.py
 # (register_tool / register_capabilities) — no capabilities block here.

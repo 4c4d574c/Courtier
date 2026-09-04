@@ -1,7 +1,7 @@
 name: anydoc
 version: "1.0.0"
 api: "2.0"
-description: "Generic office document conversion to Markdown (Word/Excel/PowerPoint/OpenDocument/RTF/EPUB/CSV/PDF) with OCR fallback for scanned files"
+description: "通用办公文档转 Markdown（Word/Excel/PowerPoint/OpenDocument/RTF/EPUB/CSV/PDF），扫描件走 OCR 兜底"
 # Conversion is a single Rust call measured in milliseconds; the timeout is
 # generous headroom for very large files and multi-page OCR jobs.
 timeout_ms: 300000

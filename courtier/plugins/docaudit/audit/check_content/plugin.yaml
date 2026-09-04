@@ -1,7 +1,7 @@
 name: check_content
 version: "1.0.0"
 api: "2.0"
-description: "Document content compliance audit — validates document body text against content rules"
+description: "文档内容合规审核——按文种规则校验公文正文"
 timeout_ms: 120000
 
 # Tool declarations (incl. the model-visible input schema) and usage

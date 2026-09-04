@@ -88,9 +88,8 @@ class ProbeMediaTool:
     # Host-only service (upload-time validation) — hidden from agents.
     internal: bool = True
     description: str = (
-        "Probe an uploaded audio/video file with ffprobe. Returns real format "
-        "name, duration (seconds), dimensions and codecs. The host uses this "
-        "to validate media uploads and enforce duration limits."
+        "用 ffprobe 探测上传的音频/视频文件，返回真实格式名、时长（秒）、"
+        "分辨率与编码。宿主用此结果校验媒体上传并执行时长限制。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
@@ -98,7 +97,7 @@ class ProbeMediaTool:
             "file_path": {
                 "type": "string",
                 "format": "file-ref",
-                "description": "Path (or minio:// reference) of the media file to probe.",
+                "description": "待探测媒体文件的路径（或 minio:// 引用）。",
             },
         },
         "required": ["file_path"],
@@ -174,9 +173,9 @@ class TranscodeVideoTool:
     name: str = "transcode_video"
     display_name: str | None = "视频转码"
     description: str = (
-        "Transcode an uploaded video into mp4 (h264 + aac, capped long edge, "
-        "constant 30fps) via ffmpeg. Long-running: the host waits up to "
-        "call_timeout_seconds. Returns the minio:// reference of the output."
+        "用 ffmpeg 将上传视频转码为 mp4（h264 + aac，限制长边，恒定低帧率，"
+        "默认 2fps）。耗时较长：宿主最长等待 call_timeout_seconds。"
+        "返回输出的 minio:// 引用。"
     )
     internal: bool = True
     call_timeout_seconds: int = 600
@@ -186,7 +185,7 @@ class TranscodeVideoTool:
             "file_path": {
                 "type": "string",
                 "format": "file-ref",
-                "description": "Path (or minio:// reference) of the source video.",
+                "description": "源视频文件的路径（或 minio:// 引用）。",
             },
         },
         "required": ["file_path"],

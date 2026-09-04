@@ -41,16 +41,15 @@ class ParseTool:
     name: str = "parse_layout"
     display_name: str | None = "格式解析"
     description: str = (
-        "Parse the layout of a document file (PDF/DOCX/scanned image) into the "
-        "internal Document model: pages, header/body/footer blocks, fonts, and "
-        "spacing. Returns the parsed Document as a dict."
+        "将文档文件（PDF/DOCX/扫描图片）解析为内部 Document 模型：页、"
+        "页眉/正文/页脚块、字体与间距。返回解析后的 Document dict。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "file_path": {
                 "type": "string",
-                "description": "Absolute path to the document file to parse.",
+                "description": "待解析文档文件的绝对路径。",
             }
         },
         "required": ["file_path"],
@@ -65,20 +64,19 @@ class ParseTool:
         "properties": {
             "schema_version": {
                 "type": "string",
-                "description": 'Document model structure version (e.g. "1.0").',
+                "description": 'Document 模型结构版本（如 "1.0"）。',
             },
             "doc_id": {"type": "string"},
             "total_page_num": {"type": "integer"},
             "warnings": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Non-fatal parse warnings (e.g. OCR degradation), if any.",
+                "description": "非致命解析警告（如 OCR 降级），可能为空。",
             },
             "warnings_summary": {
                 "type": "string",
                 "description": (
-                    "Human-readable summary of parse warnings, present only "
-                    "when warnings is non-empty."
+                    "解析警告的人读摘要，仅在 warnings 非空时存在。"
                 ),
             },
             "pages": {

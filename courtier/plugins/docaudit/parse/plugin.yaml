@@ -1,7 +1,7 @@
 name: parse
 version: "1.0.0"
 api: "2.0"
-description: "Document layout parsing (PDF/DOCX/image)"
+description: "文档版面解析（PDF/DOCX/图片）"
 # Scanned files go through per-page OCR + rule engine and can take minutes.
 timeout_ms: 600000
 

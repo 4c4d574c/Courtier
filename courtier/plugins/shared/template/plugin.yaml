@@ -1,7 +1,7 @@
 name: template
 version: "1.0.0"
 api: "2.0"
-description: "Database-backed format template loading"
+description: "基于数据库的格式模板加载"
 
 # Tool declarations and usage guidance are runtime-registered from entry.py
 # (register_tool / register_capabilities) — no capabilities block here.

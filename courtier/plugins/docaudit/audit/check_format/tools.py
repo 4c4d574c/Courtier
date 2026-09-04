@@ -14,20 +14,19 @@ class FormatAuditTool:
     name: str = "check_format"
     display_name: str | None = "格式审查"
     description: str = (
-        "Check a parsed document's formatting against GB/T 9704-2012 rules. "
-        "Takes a parsed document dict (from parse_layout tool output) and returns "
-        "a list of format violations with block names, error types, details, and page numbers."
+        "按 GB/T 9704-2012 规则校验已解析文档的格式。传入 parse_layout 工具"
+        "输出的文档 dict，返回违规列表，含块名、错误类型、详情与页码。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "doc": {
                 "type": "object",
-                "description": "Parsed document dict (parse_layout tool output).",
+                "description": "已解析的文档 dict（parse_layout 工具输出）。",
             },
             "doc_type": {
                 "type": "string",
-                "description": "Document type (e.g. 通知, 函, 请示).",
+                "description": "文种（如 通知、函、请示）。",
                 "default": "通知",
             },
         },

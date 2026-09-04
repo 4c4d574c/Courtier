@@ -22,20 +22,18 @@ class AnnotateDocumentTool:
     name: str = "annotate_document"
     display_name: str | None = "文档批注"
     description: str = (
-        "Add Word comments to a DOCX document at every occurrence of specified "
-        "keywords. Takes source DOCX bytes (base64) or file path and a list of "
-        "{keyword, comment} rules. On success the annotated document is stored "
-        "in object storage and the result contains download_link (a ready-made "
-        "Markdown hyperlink) — present that link to the user as-is so they can "
-        "click to download; never paste the raw presigned URL as plain text. "
-        "Falls back to a local output_path when storage is unavailable."
+        "在 DOCX 文档的每个关键词出现处添加 Word 批注。传入源 DOCX（base64 字节或"
+        "文件路径）与 {keyword, comment} 规则列表。成功后批注文档存入对象存储，"
+        "结果含 download_link（现成的 Markdown 超链接）——请原样向用户展示该链接"
+        "供其点击下载，不要把预签名 URL 当纯文本粘贴。对象存储不可用时回退为"
+        "本地 output_path。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "source": {
                 "type": "string",
-                "description": "Raw DOCX bytes (base64) or file path.",
+                "description": "源 DOCX 内容（base64 字节）或文件路径。",
             },
             "rules": {
                 "type": "array",
@@ -47,11 +45,11 @@ class AnnotateDocumentTool:
                     },
                     "required": ["keyword", "comment"],
                 },
-                "description": "List of {keyword, comment} pairs for annotation.",
+                "description": "批注规则列表，每项为 {keyword, comment}。",
             },
             "keep_comments": {
                 "type": "boolean",
-                "description": "Preserve existing comments in the document.",
+                "description": "是否保留文档中已有批注，默认保留。",
                 "default": True,
             },
         },

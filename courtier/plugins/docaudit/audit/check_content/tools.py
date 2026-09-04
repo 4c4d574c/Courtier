@@ -14,24 +14,23 @@ class ContentAuditTool:
     name: str = "check_content"
     display_name: str | None = "内容审查"
     description: str = (
-        "Check document body text against content compliance rules for a given "
-        "document type. Returns a list of violations with rule IDs, messages, "
-        "severity, and positions."
+        "按文种校验公文正文内容合规性。返回违规列表，含规则 ID、提示信息、"
+        "严重级别与位置。"
     )
     parameters: dict[str, Any] = {
         "type": "object",
         "properties": {
             "text": {
                 "type": "string",
-                "description": "Document body text to audit.",
+                "description": "待审查的公文正文文本。",
             },
             "doc_type": {
                 "type": "string",
-                "description": "Document type (e.g. 通知, 请示, 报告).",
+                "description": "文种（如 通知、请示、报告）。",
             },
             "subtype": {
                 "type": "string",
-                "description": "Document subtype (e.g. 发布性通知).",
+                "description": "子文种（如 发布性通知）。",
             },
         },
         "required": ["text", "doc_type"],
