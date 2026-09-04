@@ -130,3 +130,27 @@ class TestPromptPipeline:
         assert "# 工具使用说明" in pp.build()
         pp.set_tool_usage_notes("")
         assert "# 工具使用说明" not in pp.build()
+
+
+class TestSetRulesOwners:
+    """set_rules accumulates per owner: multi-domain activation must not
+    drop earlier domains' rules (and same-owner re-set overrides)."""
+
+    def _pipeline(self):
+        return PromptPipeline()
+
+    def test_two_owners_both_render(self):
+        pp = self._pipeline()
+        pp.set_rules("Domain A rules", owner="domain:alpha")
+        pp.set_rules("Domain B rules", owner="domain:beta")
+        text = pp.build({})
+        assert "Domain A rules" in text
+        assert "Domain B rules" in text
+
+    def test_same_owner_overrides(self):
+        pp = self._pipeline()
+        pp.set_rules("old alpha", owner="domain:alpha")
+        pp.set_rules("new alpha", owner="domain:alpha")
+        text = pp.build({})
+        assert "new alpha" in text
+        assert "old alpha" not in text

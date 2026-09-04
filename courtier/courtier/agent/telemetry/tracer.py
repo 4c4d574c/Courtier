@@ -207,11 +207,9 @@ class AgentTracer:
                 )
             try:
                 yield span
-            except Exception:
+            except Exception as e:
                 span.set_attribute("gen_ai.tool.status", "error")
-                span.record_exception(
-                    Exception("tool execution failed")
-                )
+                span.record_exception(e)
                 span.set_status(Status(StatusCode.ERROR, "tool execution failed"))
                 raise
             finally:

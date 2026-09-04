@@ -98,6 +98,9 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         # datacenter environments an empty URL or missing settings key used
         # to produce a "healthy" server where every login 500s (fail-late):
         # refuse to start instead.
+        # Built once here and reused by the SettingsStore below (from_env
+        # re-reads the whole env file on every call).
+        codec = None
         if getattr(settings, "deployment_env", "development") in (
             "staging",
             "production",
@@ -109,7 +112,8 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
                 )
             from ..settings_store import FernetCodec
 
-            if FernetCodec.from_env() is None:
+            codec = FernetCodec.from_env()
+            if codec is None:
                 raise RuntimeError(
                     "COURTIER_SETTINGS_KEY is required when DEPLOYMENT_ENVIRONMENT "
                     "is staging/production (without it DB-stored secrets are "
@@ -136,12 +140,11 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         if settings.mysql_url:
             from courtier.config import get_config_service
             from courtier.settings_store import (
-                FernetCodec,
                 SettingsStore,
                 refresh_settings_snapshot,
             )
 
-            app.state.settings_store = SettingsStore(get_db(), FernetCodec.from_env())
+            app.state.settings_store = SettingsStore(get_db(), codec)
             info = await refresh_settings_snapshot(
                 get_config_service(), app.state.settings_store
             )

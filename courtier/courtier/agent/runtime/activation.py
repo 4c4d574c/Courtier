@@ -234,6 +234,11 @@ class DomainActivator:
                 # Already registered (e.g. a previous activation attempt
                 # partially succeeded): skip instead of raising on the
                 # duplicate — otherwise a retry can never converge.
+                logger.info(
+                    "Skill tool %s already registered; activation of %s reuses it",
+                    skill.name,
+                    domain,
+                )
                 continue
             tool = SkillTool(
                 skill=skill,

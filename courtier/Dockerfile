@@ -29,6 +29,10 @@ WORKDIR /app
 # Copy core, domain, libs, and plugin packages
 COPY pyproject.toml uv.lock ./
 COPY README.md ./
+# The entrypoint (main.py) runs Alembic migrations before serving — without
+# alembic.ini the container crash-loops instead of upgrading the schema.
+COPY alembic.ini ./
+COPY alembic/ alembic/
 COPY courtier/ courtier/
 COPY domains/ domains/
 COPY shared/ shared/

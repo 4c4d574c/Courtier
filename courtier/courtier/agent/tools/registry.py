@@ -818,12 +818,12 @@ class ToolRegistry:
             # host-injected params — passing them through would let the
             # model forge identity (_caller_uid/_caller_is_admin).
             properties = tool.parameters.get("properties", {})
-            forged = [
+            forged = {
                 name
                 for name, prop in properties.items()
                 if isinstance(prop, dict) and prop.get(HOST_INJECTED_MARKER)
-            ]
-            if forged and all(name in kwargs for name in forged):
+            }
+            if forged and forged & kwargs.keys():
                 return {k: v for k, v in kwargs.items() if k not in forged}
             return kwargs
         properties = tool.parameters.get("properties", {})

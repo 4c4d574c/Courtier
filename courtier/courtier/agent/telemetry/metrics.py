@@ -27,7 +27,8 @@ LLM_TOKEN_USAGE_TOTAL = Counter(
     "llm_token_usage_total",
     "Total tokens consumed by LLM calls",
     ["model", "direction"],  # direction: "input" or "output"
-    unit="tokens",
+    # no unit kwarg: prometheus_client would rename the series to
+    # llm_token_usage_tokens_total, breaking the documented name.
 )
 
 TOOL_EXECUTIONS_TOTAL = Counter(

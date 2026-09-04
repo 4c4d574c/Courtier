@@ -846,7 +846,7 @@ curl -s -H "$AUTH" $BASE/api/admin/extensions/skills
 
 | 变量/常量 | 默认 | 备注 |
 |---|---|---|
-| ACCESS_EXPIRE | 900s(15min) | JWT HS256；承载顺序 Bearer > ?token= > cookie access_token |
+| ACCESS_EXPIRE | 900s(15min) | JWT HS256；承载顺序 Bearer > cookie access_token；?token= 查询参数仅限 SSE 路径（/api/sessions/、/api/events）与 /metrics（其余路径不再接受）
 | refresh_token | 7 天 | path=/api/auth, SameSite=Strict, 轮换+重用检测 |
 | MAX_RUNS_PER_USER | 3 | 不在 .env.example，需手写；0=不限 |
 | MAX_TOTAL_RUNS | 20 | 全局兜底 |

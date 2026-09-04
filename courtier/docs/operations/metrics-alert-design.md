@@ -24,7 +24,7 @@ courtier_<component>_<metric>_<unit>
 
 | 指标 | 类型 | 标签 | 说明 |
 |---|---|---|---|
-| `courtier_event_bus_dropped_total` | Counter | `event_type`, `strategy` | 背压丢弃事件数 |
+| `event_bus_dropped_total` | Counter | `event_type`, `strategy` | 背压丢弃事件数 |
 
 **使用位置**：`courtier/agent/core/event_bus.py`
 
@@ -44,7 +44,7 @@ courtier_<component>_<metric>_<unit>
 | 指标 | 类型 | 标签 | 说明 |
 |---|---|---|---|
 | `courtier_capability_registry_size` | Gauge | `capability_type` | 各类型能力注册数 |
-| `courtier_plugin_lifecycle_restart_total` | Counter | `provider`, `outcome` | 插件重启/失败/致命事件 |
+| `plugin_lifecycle_restart_total` | Counter | `provider`, `outcome` | 插件重启/失败/致命事件 |
 
 **使用位置**：
 - `courtier/agent/core/capability.py`
@@ -54,7 +54,7 @@ courtier_<component>_<metric>_<unit>
 
 | 指标 | 类型 | 标签 | 说明 |
 |---|---|---|---|
-| `courtier_guardrail_blocked_total` | Counter | `layer`, `guard_name` | 护栏 block 动作 |
+| `guardrail_blocked_total` | Counter | `layer`, `guard_name` | 护栏 block 动作 |
 | `courtier_conversation_tree_branches` | Gauge | `session_id` | 会话树叶节点数 |
 
 **使用位置**：
@@ -91,7 +91,7 @@ courtier_<component>_<metric>_<unit>
     description: "{{ $value }} fallback/s，主模型可能不可用。"
 
 - alert: CourtierPluginFatal
-  expr: increase(courtier_plugin_lifecycle_restart_total{outcome="fatal"}[5m]) > 0
+  expr: increase(plugin_lifecycle_restart_total{outcome="fatal"}[5m]) > 0
   for: 0m
   labels:
     severity: critical
@@ -103,7 +103,7 @@ courtier_<component>_<metric>_<unit>
 
 ```yaml
 - alert: CourtierGuardrailBlockSpike
-  expr: rate(courtier_guardrail_blocked_total[5m]) > 0.3
+  expr: rate(guardrail_blocked_total[5m]) > 0.3
   for: 5m
   labels:
     severity: warning
@@ -112,7 +112,7 @@ courtier_<component>_<metric>_<unit>
     description: "层 {{ $labels.layer }} / {{ $labels.guard_name }} 可能误杀。"
 
 - alert: CourtierEventBusDrops
-  expr: rate(courtier_event_bus_dropped_total[5m]) > 0
+  expr: rate(event_bus_dropped_total[5m]) > 0
   for: 1m
   labels:
     severity: warning
@@ -149,7 +149,7 @@ courtier_<component>_<metric>_<unit>
 
 ## 5. 后续可补充指标
 
-- `courtier_event_bus_queue_size`：各订阅者队列长度（Gauge）；
+- `event_bus_queue_size`：各订阅者队列长度（Gauge）；
 - `courtier_memory_recall_latency_seconds`：MemoryManager retrieval 层延迟；
 - `courtier_subagent_event_scope_suppressed_total`：blackbox 模式下被抑制的事件数；
-- `courtier_tool_version_mismatch_total`：显式版本调用失败的次数。
+- `tool_version_mismatch_total`：显式版本调用失败的次数。
