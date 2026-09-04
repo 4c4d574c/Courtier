@@ -70,7 +70,8 @@ class SkillTool:
         self.display_name: str | None = skill.display_name or None
         self.output_artifact_type = output_artifact_type
         self.description = skill.description or f"执行 Skill: {skill.name}"
-        self.default_mode = getattr(skill, "default_mode", "subagent")
+        # SkillConfig semantics: empty means no default — the LLM must choose.
+        self.default_mode = getattr(skill, "default_mode", "")
         self.parameters = {
             "type": "object",
             "properties": {
@@ -87,18 +88,22 @@ class SkillTool:
                     "items": {"type": "string"},
                     "description": "可选的缓存引用 ID 列表",
                 },
-                "mode": {
-                    "type": "string",
-                    "enum": ["subagent", "inline"],
-                    "description": (
-                        "执行模式（必选，无默认值，你必须主动选择）："
-                        "subagent=启动独立子代理异步执行（适合复杂/耗时任务），"
-                        "inline=返回 Skill 指令由当前代理直接执行（适合简单/快速任务）"
-                    ),
-                },
             },
-            "required": ["task", "mode"],
+            "required": ["task"],
         }
+        # A configured default pins the mode: it stays out of the schema
+        # entirely so the model has no parameter to choose with.
+        if not self.default_mode:
+            self.parameters["properties"]["mode"] = {
+                "type": "string",
+                "enum": ["subagent", "inline"],
+                "description": (
+                    "执行模式（必选，无默认值，你必须主动选择）："
+                    "subagent=启动独立子代理异步执行（适合复杂/耗时任务），"
+                    "inline=返回 Skill 指令由当前代理直接执行（适合简单/快速任务）"
+                ),
+            }
+            self.parameters["required"].append("mode")
         self._runtime = runtime
         self._skill = skill
         self._input_model = skill.input_model
@@ -251,7 +256,7 @@ class SkillTool:
         task: str = kwargs.pop("task", "")
         file_path: str | None = kwargs.pop("file_path", None)
         ref_ids: list[str] | None = kwargs.pop("ref_ids", None)
-        mode: str = kwargs.pop("mode", "")
+        mode: str = kwargs.pop("mode", "") or self.default_mode
         if not mode:
             return ToolResult(
                 success=False,

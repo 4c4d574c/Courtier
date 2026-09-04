@@ -213,3 +213,60 @@ class TestOrchestratorSkillIntegration:
         assert set(mode_param["enum"]) == {"subagent", "inline"}
         assert "default" not in mode_param
         assert "mode" in tool.parameters["required"]
+
+    # ── pinned default_mode: schema side + execute-side fallback ─────────
+
+    def _make_pinned_skill_tool(self, tmp_path, default_mode: str) -> SkillTool:
+        skill_dir = tmp_path / f"skills_{default_mode}"
+        skill_dir.mkdir()
+        (skill_dir / "pinned.md").write_text(
+            "---\n"
+            "name: pinned\n"
+            "description: Pinned-mode skill\n"
+            "tools: []\n"
+            f"default_mode: {default_mode}\n"
+            "---\n\n"
+            "Do the pinned thing.",
+            encoding="utf-8",
+        )
+        registry = SkillRegistry(skill_dir)
+        registry.scan()
+        skill_config = registry.get("pinned")
+        assert skill_config is not None
+        assert skill_config.default_mode == default_mode
+        return SkillTool(skill=skill_config, runtime=_make_agent_runtime(registry))
+
+    @pytest.mark.parametrize("default_mode", ["subagent", "inline"])
+    def test_default_mode_pins_mode_out_of_schema(self, tmp_path, default_mode):
+        """A configured default_mode removes mode from properties and
+        required — the schema gives the model nothing to choose."""
+        tool = self._make_pinned_skill_tool(tmp_path, default_mode)
+        assert "mode" not in tool.parameters["properties"]
+        assert "mode" not in tool.parameters["required"]
+
+    @pytest.mark.asyncio
+    async def test_default_mode_applies_when_model_omits_mode(self, tmp_path):
+        """Without a model-supplied mode, execute falls back to the skill's
+        default_mode instead of erroring (inline pinned here)."""
+        from courtier.agent.tools.protocol import ToolResult
+
+        tool = self._make_pinned_skill_tool(tmp_path, "inline")
+
+        result = await tool.execute(on_progress=lambda m: None, task="test task")
+
+        assert isinstance(result, ToolResult)
+        assert result.success is True
+        assert result.metadata["mode"] == "inline"
+
+    @pytest.mark.asyncio
+    async def test_default_mode_subagent_spawns_when_model_omits_mode(self, tmp_path):
+        """An omitted mode on a subagent-pinned skill takes the subagent
+        dispatch path (sub-agent result metadata), not the error branch."""
+        tool = self._make_pinned_skill_tool(tmp_path, "subagent")
+
+        result = await tool.execute(on_progress=lambda m: None, task="test task")
+
+        assert getattr(result, "success", False) is True
+        assert result.metadata["skill"] == "pinned"
+        assert result.metadata["is_subagent_result"] is True
+        assert result.metadata["call_kind"] == "subagent_run"
