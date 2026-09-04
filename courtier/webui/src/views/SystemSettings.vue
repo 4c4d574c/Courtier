@@ -10,7 +10,7 @@
           {{ view.mode === "db" ? "数据库配置" : "env 降级 · 只读" }}
         </span>
         <span v-if="view.version !== null" class="status-chip">v{{ view.version }}</span>
-        <button class="refresh-btn" :disabled="loading" @click="load">↻ 刷新</button>
+        <button class="action-btn" :disabled="loading" @click="load">↻ 刷新</button>
       </div>
     </header>
 
@@ -82,9 +82,9 @@
               >
                 <div class="pool-topbar">
                   <div class="pool-topbar-status">
-                    <span v-if="isFieldDirty(POOL_FIELD)" class="badge badge-dirty">已修改</span>
-                    <span v-if="isFieldDirty(KEYS_FIELD)" class="badge badge-dirty">密钥有改动</span>
-                    <span v-if="field.source === 'db'" class="badge badge-db">数据库</span>
+                    <span v-if="isFieldDirty(POOL_FIELD)" class="badge badge-accent">已修改</span>
+                    <span v-if="isFieldDirty(KEYS_FIELD)" class="badge badge-accent">密钥有改动</span>
+                    <span v-if="field.source === 'db'" class="badge badge-accent">数据库</span>
                     <span class="pool-lede">
                       用户在对话输入区按次选用模型，默认模型兜底；保存后下一次运行生效。
                     </span>
@@ -144,7 +144,7 @@
                           <span class="switch-state">{{ row.enabled ? "启用" : "停用" }}</span>
                         </label>
                         <button
-                          class="pool-test"
+                          class="action-btn"
                           type="button"
                           :disabled="!editable || !canTestEndpoint(row) || testingPool !== ''"
                           :title="canTestEndpoint(row) ? '' : '保存后可测试'"
@@ -160,7 +160,7 @@
                           {{ poolTest[row.id].ok ? "连通" : `失败：${poolTest[row.id].error}` }}
                         </span>
                         <button
-                          class="endpoint-remove pool-ep-remove"
+                          class="pool-ep-remove"
                           type="button"
                           :aria-label="`删除接入点 ${row.name || row.id}`"
                           :disabled="!editable"
@@ -375,7 +375,7 @@
                 </div>
 
                 <button
-                  class="endpoint-add pool-ep-add"
+                  class="tbl-add"
                   type="button"
                   :disabled="!editable"
                   @click="addPoolEndpoint"
@@ -423,16 +423,16 @@
                   error: formErrors[field.name],
                 }"
               >
-                <div class="field-info">
+                <div>
                   <div class="field-title">
                     <span class="field-name">{{ fieldDisplayName(field) }}</span>
-                    <span v-if="isFieldDirty(field.name)" class="badge badge-dirty">已修改</span>
-                    <span v-else-if="field.effect === 'restart'" class="badge badge-restart">需重启</span>
-                    <span v-else-if="field.effect === 'rebuild'" class="badge badge-rebuild">保存后重建</span>
+                    <span v-if="isFieldDirty(field.name)" class="badge badge-accent">已修改</span>
+                    <span v-else-if="field.effect === 'restart'" class="badge badge-err">需重启</span>
+                    <span v-else-if="field.effect === 'rebuild'" class="badge badge-warn">保存后重建</span>
                   </div>
                   <div class="field-meta">
                     <code>{{ field.env_name }}</code>
-                    <span v-if="field.source === 'db'" class="badge badge-db">数据库</span>
+                    <span v-if="field.source === 'db'" class="badge badge-accent">数据库</span>
                   </div>
                   <p v-if="cleanedDesc(field)" class="field-desc">{{ cleanedDesc(field) }}</p>
                 </div>
@@ -921,7 +921,7 @@
 
           <div v-if="testResult" class="test-card" :class="testResult.ok ? 'ok' : 'fail'">
             <div class="test-card-head">
-              <span style="display:inline-flex;align-items:center;gap:4px;">
+              <span class="test-card-tag">
                 <AppIcon :name="testResult.ok ? 'check' : 'x'" :size="13" />
                 {{ testResult.ok ? "连接成功" : "连接失败" }}
               </span>
@@ -985,7 +985,7 @@
         <p class="modal-message">{{ confirmState.message }}</p>
         <div class="modal-actions">
           <button class="btn" @click="resolveConfirm(false)">取消</button>
-          <button class="btn confirm-btn" @click="resolveConfirm(true)">
+          <button class="btn primary" @click="resolveConfirm(true)">
             {{ confirmState.confirmLabel }}
           </button>
         </div>
@@ -1904,24 +1904,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   border-color: transparent;
   color: var(--warn);
 }
-.refresh-btn {
-  height: 28px;
-  padding: 0 12px;
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  color: var(--chat-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 150ms;
-}
-.refresh-btn:hover:not(:disabled) {
-  background: var(--chat-bg-hover);
-}
-.refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 /* ---- Alerts ---- */
 .alert {
@@ -2120,7 +2102,8 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   gap: 4px;
   align-self: center;
 }
-.field-input {
+.field-input,
+.pool-box {
   width: 100%;
   padding: 7px 10px;
   border-radius: var(--chat-radius-sm);
@@ -2133,16 +2116,22 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
     border-color 150ms,
     box-shadow 150ms;
 }
-.field-input:focus {
+.field-input:focus,
+.pool-box:focus {
   border-color: var(--chat-accent);
   box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
-.field-input:disabled {
+.field-input:disabled,
+.pool-box:disabled {
   opacity: 0.55;
+}
+.field-input::placeholder,
+.pool-box::placeholder {
+  color: var(--chat-text-tertiary);
 }
 .field-textarea {
   min-height: 64px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   line-height: 1.5;
 }
 /* Secret input with inline reveal toggle. */
@@ -2171,67 +2160,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 .secret-toggle:disabled {
   cursor: default;
-}
-
-/* Toggle switch for bool fields. */
-.switch-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 38px;
-  height: 21px;
-  flex-shrink: 0;
-}
-.switch input {
-  position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
-}
-.switch .track {
-  position: absolute;
-  inset: 0;
-  background: var(--chat-bg-hover);
-  border: 1px solid var(--chat-border);
-  border-radius: 999px;
-  transition:
-    background 150ms,
-    border-color 150ms;
-}
-.switch .track::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--chat-bg-card);
-  box-shadow: var(--chat-shadow);
-  transition: transform 150ms;
-}
-.switch input:checked + .track {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-}
-.switch input:checked + .track::before {
-  transform: translateX(17px);
-}
-.switch input:disabled + .track {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.switch input:focus-visible + .track {
-  box-shadow: 0 0 0 2px var(--chat-accent-soft);
-}
-.switch-state {
-  font-size: 13px;
-  color: var(--chat-text-secondary);
 }
 
 /* Clear-and-revert link (replaces the old clear checkbox). */
@@ -2277,28 +2205,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 
 /* ---- Badges (denoised: only noteworthy states) ---- */
-.badge {
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.badge-db {
-  background: var(--chat-accent-soft);
-  color: var(--chat-accent);
-}
-.badge-dirty {
-  background: var(--chat-accent-soft);
-  color: var(--chat-accent);
-}
-.badge-restart {
-  background: color-mix(in srgb, var(--err) 12%, transparent);
-  color: var(--err);
-}
-.badge-rebuild {
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
-  color: var(--warn);
-}
 .field-row.dirty .field-input {
   border-color: color-mix(in srgb, var(--chat-accent) 55%, transparent);
 }
@@ -2352,43 +2258,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-}
-.btn {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: var(--chat-radius-sm);
-  border: 1px solid var(--chat-border);
-  background: var(--chat-bg-card);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 150ms;
-}
-.btn:hover:not(:disabled) {
-  background: var(--chat-bg-hover);
-}
-.btn.primary {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast);
-}
-.btn.primary:hover:not(:disabled) {
-  background: var(--chat-accent-hover);
-}
-.btn.ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--chat-text-secondary);
-}
-.btn.danger {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--err) 40%, transparent);
-  color: var(--err);
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .llm-test {
   font-size: 12px;
@@ -2446,6 +2315,11 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   align-items: center;
   justify-content: space-between;
   font-weight: 600;
+}
+.test-card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .test-detail {
   margin: 6px 0 0;
@@ -2560,7 +2434,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   border-radius: 0;
   background: transparent;
   color: var(--chat-text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   outline: none;
 }
@@ -2628,7 +2502,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   border: none;
   background: transparent;
   color: var(--chat-text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   cursor: pointer;
 }
@@ -2853,32 +2727,8 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   white-space: nowrap;
 }
 
-/* Bordered box inputs — same idiom as .field-input elsewhere on the page. */
-.pool-box {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  outline: none;
-  transition:
-    border-color 150ms,
-    box-shadow 150ms;
-}
-.pool-box:focus {
-  border-color: var(--chat-accent);
-  box-shadow: 0 0 0 2px var(--chat-accent-soft);
-}
-.pool-box:disabled {
-  opacity: 0.55;
-}
-.pool-box::placeholder {
-  color: var(--chat-text-tertiary);
-}
 .pool-box--mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12.5px;
 }
 .pool-box--name {
@@ -2890,26 +2740,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 .pool-enable {
   flex-shrink: 0;
-}
-.pool-test {
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-card);
-  color: var(--chat-text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.pool-test:hover:not(:disabled) {
-  color: var(--chat-accent);
-  border-color: var(--chat-accent);
-}
-.pool-test:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .pool-test-result {
   font-size: 12px;
@@ -2923,14 +2753,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 .pool-ep-remove {
   flex-shrink: 0;
-}
-/* Reveal-on-hover for the pool's delete buttons (the generic rule targets
-   .endpoint-row, which the pool cards don't use). */
-.pool-endpoint-card:hover .pool-ep-remove,
-.pool-model-row:hover .endpoint-remove,
-.pool-ep-remove:focus-visible,
-.endpoint-remove:focus-visible {
-  opacity: 1;
 }
 
 /* Model table: light section, bordered compact inputs. */
@@ -3038,7 +2860,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 .pool-box--area {
   min-height: 44px;
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.5;
 }
@@ -3054,9 +2876,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 .pool-model-row .pool-box {
   padding: 5px 8px;
-}
-.pool-ep-add {
-  border-top: 1px dashed var(--chat-border);
 }
 .pool-foot {
   display: flex;
@@ -3086,49 +2905,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 
 /* ---- Confirm modal ---- */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-}
-.modal {
-  width: min(460px, calc(100vw - 48px));
-  padding: 20px;
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-}
-.modal-title {
-  margin: 0 0 8px;
-  font-size: 16px;
-  color: var(--chat-text-primary);
-}
-.modal-message {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--chat-text-secondary);
-  white-space: pre-wrap;
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
-}
-.confirm-btn {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-  color: var(--chat-accent-contrast);
-}
-.confirm-btn:hover:not(:disabled) {
-  background: var(--chat-accent-hover);
-}
 
 /* ---- Narrow screens: nav collapses to a horizontal scroller ---- */
 @media (max-width: 1080px) {
