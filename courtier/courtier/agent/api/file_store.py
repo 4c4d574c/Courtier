@@ -127,6 +127,29 @@ class FileStore:
             raise HTTPException(404, f"文件不存在: {file_id}")
         return path
 
+    async def delete_owned(self, owner: str, upload_dir: str) -> list[str]:
+        """Remove every registry entry uploaded by *owner* and unlink its
+        stored file (account-deletion cascade).  Returns the removed
+        file_ids.  Entries with an empty owner (legacy) are never touched.
+        """
+        removed: list[str] = []
+        upload_root = Path(upload_dir).resolve()
+        async with self._lock:
+            for fid, info in list(self._files.items()):
+                if info.owner != owner:
+                    continue
+                self._files.pop(fid, None)
+                removed.append(fid)
+                try:
+                    path = _safe_resolve(upload_dir, info.stored_path)
+                    if path is not None and path.is_file():
+                        await asyncio.to_thread(path.unlink)
+                except OSError:
+                    logger.warning("Failed to unlink uploaded file %s", info.stored_path, exc_info=True)
+            if removed:
+                await self._save_index()
+        return removed
+
     # -- internal -----------------------------------------------------------
 
     async def _save_index(self) -> None:

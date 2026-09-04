@@ -533,6 +533,16 @@ class RunManager:
         run.log.append(payload, seq=seq)
         run.log.seal()
 
+    async def stop_user(self, user: str) -> list[str]:
+        """Stop every active or queued run of *user* (account-deletion
+        preflight).  Returns the stopped session ids."""
+        stopped: list[str] = []
+        for sid, run in list(self._runs.items()):
+            if run.user == user and not run.terminal:
+                if await self.stop(sid):
+                    stopped.append(sid)
+        return stopped
+
     async def stop_all(self) -> list[str]:
         stopped: list[str] = []
         for sid in self.active_session_ids():

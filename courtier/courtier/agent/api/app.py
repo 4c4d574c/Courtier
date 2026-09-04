@@ -392,6 +392,18 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     app.include_router(memory_router)
     app.include_router(memory_admin_router)
 
+    # Account deletion — self-service requests (password + admin approval)
+    # and admin direct deletion with the cascading cleanup pipeline
+    from .routes.account_deletion import (
+        admin_router as deletion_admin_router,
+        admin_users_router as deletion_admin_users_router,
+        router as deletion_router,
+    )
+
+    app.include_router(deletion_router)
+    app.include_router(deletion_admin_router)
+    app.include_router(deletion_admin_users_router)
+
     # Admin extension management routes — admin-only
     from .routes.admin_extensions import router as admin_extensions_router
 

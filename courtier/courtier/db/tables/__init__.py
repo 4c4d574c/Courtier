@@ -6,6 +6,15 @@ from .audit_results import (
     WritingStyleAuditResultTable,
 )
 from .base import Base
+from .deletion import (
+    DeletionLogTable,
+    DeletionRequestTable,
+    REQUEST_APPROVED,
+    REQUEST_CANCELLED,
+    REQUEST_EXECUTED,
+    REQUEST_PENDING,
+    REQUEST_REJECTED,
+)
 from .document import DocumentCreate, DocumentTable, DocumentUpdate
 from .element import ElementCreate, ElementTable, ElementUpdate
 from .format_template import (
@@ -63,6 +72,13 @@ __all__ = [
     "Rule",
     "SettingsTable",
     "SettingsChangeTable",
+    "DeletionRequestTable",
+    "DeletionLogTable",
+    "REQUEST_PENDING",
+    "REQUEST_APPROVED",
+    "REQUEST_REJECTED",
+    "REQUEST_CANCELLED",
+    "REQUEST_EXECUTED",
     "MemoryTable",
     "MemoryChangeTable",
     "LAYER_GLOBAL",

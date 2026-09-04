@@ -88,6 +88,32 @@ RESULT_INDEX_MAPPING = {
 }
 
 
+def delete_results_by_sessions(session_ids, index_name: str | None = None) -> int:
+    """Bulk-delete one or more sessions' result docs from the ES index
+    (account-deletion cascade; best-effort — callers wrap in try/except).
+
+    Returns the number of deleted documents, or -1 when ES is unreachable
+    or the index does not exist.
+    """
+    ids = [sid for sid in session_ids if sid]
+    if not ids:
+        return 0
+    index = index_name or get_settings().es_index_results
+    client = get_es_client()
+    try:
+        resp = client.delete_by_query(
+            index=index,
+            body={"query": {"terms": {"session_id": ids}}},
+            refresh=True,
+        )
+        return int(resp.get("deleted", 0))
+    except Exception as exc:
+        if "index_not_found" in str(exc):
+            return 0
+        logger.warning("delete_results_by_sessions failed: %s", exc)
+        return -1
+
+
 class ElasticsearchResultBackend(ResultBackend):
     """ES-backed result store, isolated per session.
 
