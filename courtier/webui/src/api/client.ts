@@ -130,12 +130,19 @@ async function parseErrorDetail(res: Response, fallback: string): Promise<Error>
     const first = detail[0] as { msg?: string } | undefined;
     message = first?.msg ?? `${fallback}: ${res.status}`;
   } else if (detail && typeof detail === "object" && "message" in detail) {
-    // Structured app error: {message, errors:[{field,message}]} — surface
-    // the field-level details so the admin can act on them.
-    const obj = detail as { message?: string; errors?: Array<{ field?: string; message?: string }> };
-    const parts = (obj.errors ?? []).map(
-      (e2) => `${e2.field ?? "?"}: ${e2.message ?? ""}`,
-    );
+    // Structured app error — surface field/target-level details so the
+    // admin can act on them.  errors is either a validation array
+    // [{field,message}] or a probe-failure map {es: "...", minio: "..."}.
+    const obj = detail as {
+      message?: string;
+      errors?: Record<string, string> | Array<{ field?: string; message?: string }>;
+    };
+    let parts: string[] = [];
+    if (Array.isArray(obj.errors)) {
+      parts = obj.errors.map((e2) => `${e2.field ?? "?"}: ${e2.message ?? ""}`);
+    } else if (obj.errors && typeof obj.errors === "object") {
+      parts = Object.entries(obj.errors).map(([k, v]) => `${k}: ${v}`);
+    }
     message = [obj.message, ...parts].filter(Boolean).join("；") || `${fallback}: ${res.status}`;
   } else {
     message = `${fallback}: ${res.status}`;

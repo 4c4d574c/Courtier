@@ -830,6 +830,10 @@
                       v-model="formState[activeCategory][field.name]"
                       type="checkbox"
                       :disabled="!editable"
+                      @change="
+                        cleared[activeCategory] &&
+                          (cleared[activeCategory][field.name] = false)
+                      "
                     />
                     <span class="track" />
                   </span>
