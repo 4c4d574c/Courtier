@@ -1,11 +1,11 @@
 <template>
-  <div class="se-page">
+  <div class="admin-page">
     <div class="se-topbar">
-      <router-link to="/admin/skills" class="se-back"><AppIcon name="arrow-left" :size="14" />技能列表</router-link>
+      <router-link to="/admin/skills" class="admin-back-link"><AppIcon name="arrow-left" :size="14" />技能列表</router-link>
       <div class="se-actions">
-        <button class="ext-btn" type="button" :disabled="saving" @click="cancel">取消</button>
+        <button class="btn" type="button" :disabled="saving" @click="cancel">取消</button>
         <button
-          class="ext-btn ext-btn--primary"
+          class="btn primary"
           type="button"
           :disabled="loading || saving"
           @click="submit"
@@ -20,18 +20,18 @@
 
     <template v-else>
       <header class="se-head">
-        <h1 class="se-title">{{ form.display_name || name }}</h1>
+        <h1 class="admin-heading se-title">{{ form.display_name || name }}</h1>
         <div class="se-head-meta">
           <code class="se-handle">{{ name }}</code>
-          <span class="ext-badge ext-badge--source">{{ domain }}</span>
-          <span class="ext-badge ext-badge--dim">{{ form.mode || "auto" }}</span>
-          <span v-if="form.default_mode" class="ext-badge ext-badge--dim">
+          <span class="badge badge-neutral">{{ domain }}</span>
+          <span class="badge badge-dim">{{ form.mode || "auto" }}</span>
+          <span v-if="form.default_mode" class="badge badge-dim">
             默认 {{ form.default_mode }}
           </span>
           <span
             v-for="tag in tagsPreview"
             :key="tag"
-            class="ext-badge ext-badge--tag-like"
+            class="badge badge-tag-like"
             >#{{ tag }}</span
           >
         </div>
@@ -40,7 +40,7 @@
 
       <div class="se-layout">
         <!-- Workflow prompt: the main event, fills the viewport height. -->
-        <section class="se-card se-editor-card">
+        <section class="admin-card se-card se-editor-card">
           <div class="se-card-head">
             <h2 class="se-card-title">工作流指令</h2>
             <span class="se-card-hint">
@@ -57,18 +57,18 @@
         </section>
 
         <aside class="se-side">
-          <section class="se-card">
+          <section class="admin-card se-card">
             <h2 class="se-card-title">基本信息</h2>
-            <label class="se-field">
+            <label class="admin-field">
               <span>中文名</span>
               <input v-model.trim="form.display_name" placeholder="如：周报生成" />
             </label>
-            <label class="se-field">
+            <label class="admin-field">
               <span>描述</span>
               <input v-model.trim="form.description" placeholder="这个技能做什么" />
             </label>
             <div class="se-field-row">
-              <label class="se-field">
+              <label class="admin-field">
                 <span>执行策略</span>
                 <select v-model="form.mode">
                   <option value="">未指定</option>
@@ -77,7 +77,7 @@
                   <option value="parallel">parallel</option>
                 </select>
               </label>
-              <label class="se-field">
+              <label class="admin-field">
                 <span>默认模式</span>
                 <select v-model="form.default_mode">
                   <option value="">由模型选择</option>
@@ -86,13 +86,13 @@
                 </select>
               </label>
             </div>
-            <label class="se-field">
+            <label class="admin-field">
               <span>标签（逗号分隔）</span>
               <input v-model.trim="form.tagsText" placeholder="如：报告,周报" />
             </label>
           </section>
 
-          <section class="se-card">
+          <section class="admin-card se-card">
             <div class="se-card-head">
               <h2 class="se-card-title">可用工具</h2>
               <span class="se-card-hint">{{ form.tools.length }}/{{ availableTools.length }}</span>
@@ -112,7 +112,7 @@
             </div>
           </section>
 
-          <section class="se-card">
+          <section class="admin-card se-card">
             <div class="se-card-head">
               <h2 class="se-card-title">子技能</h2>
               <span class="se-card-hint">{{ form.skills.length }}/{{ skillChoices.length }}</span>
@@ -278,29 +278,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.se-page {
-  max-width: 1240px;
-}
-
 .se-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
-}
-
-.se-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 13px;
-  color: var(--chat-text-tertiary);
-  text-decoration: none;
-  transition: color 150ms;
-}
-
-.se-back:hover {
-  color: var(--chat-text-primary);
 }
 
 .se-actions {
@@ -318,11 +300,7 @@ onUnmounted(() => {
   margin-bottom: 18px;
 }
 
-.se-title {
-  font-family: "Noto Sans SC", sans-serif;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--chat-text-primary);
+.se-head .admin-heading {
   margin: 0 0 8px;
 }
 
@@ -334,7 +312,7 @@ onUnmounted(() => {
 }
 
 .se-handle {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--chat-text-secondary);
   background: var(--chat-bg-hover);
@@ -342,7 +320,7 @@ onUnmounted(() => {
   padding: 2px 8px;
 }
 
-.ext-badge--tag-like {
+.badge-tag-like {
   background: transparent;
   color: var(--chat-text-tertiary);
 }
@@ -367,11 +345,8 @@ onUnmounted(() => {
   }
 }
 
+/* admin-card provides the chrome; the editor cards carry their own padding. */
 .se-card {
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  box-shadow: var(--chat-shadow);
   padding: 14px 16px;
 }
 
@@ -414,7 +389,7 @@ onUnmounted(() => {
   border-radius: var(--chat-radius-sm);
   background: var(--chat-bg-body);
   color: var(--chat-text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.7;
   resize: vertical;
@@ -433,43 +408,8 @@ onUnmounted(() => {
   margin: 8px 0 0;
 }
 
-.se-field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 12px;
-}
-
-.se-field:last-child {
+.se-card .admin-field:last-child {
   margin-bottom: 0;
-}
-
-.se-field > span {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--chat-text-secondary);
-}
-
-.se-field input,
-.se-field select {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  color: var(--chat-text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition:
-    border-color 150ms,
-    box-shadow 150ms;
-}
-
-.se-field input:focus,
-.se-field select:focus {
-  border-color: var(--chat-accent);
-  box-shadow: 0 0 0 2px var(--chat-accent-soft);
 }
 
 .se-field-row {

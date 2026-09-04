@@ -492,6 +492,18 @@
   border: 1px solid var(--chat-border);
   border-radius: var(--chat-radius-md);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  max-height: 84vh;
+  overflow-y: auto;
+}
+
+/* Top-anchored backdrop for tall form/log dialogs. */
+.modal-backdrop--top {
+  align-items: flex-start;
+  padding-top: 60px;
+}
+
+.modal--lg {
+  width: min(640px, calc(100vw - 48px));
 }
 
 .modal--wide {

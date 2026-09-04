@@ -1,11 +1,11 @@
 <template>
-  <div class="ext-page">
+  <div class="admin-page">
     <div class="ext-header">
       <div>
-        <h1 class="ext-title">插件市场</h1>
-        <p class="ext-subtitle">浏览已注册的插件进程，启停与查看日志</p>
+        <h1 class="admin-heading">插件市场</h1>
+        <p class="admin-subtitle">浏览已注册的插件进程，启停与查看日志</p>
       </div>
-      <button class="ext-refresh" type="button" :disabled="loading" @click="reload">
+      <button class="action-btn" type="button" :disabled="loading" @click="reload">
         {{ loading ? "刷新中..." : "↻ 刷新" }}
       </button>
     </div>
@@ -15,13 +15,13 @@
     <div v-for="g in pluginGroups" :key="g.key" class="ext-domain">
       <div class="ext-domain-header">
         <h2 class="ext-domain-title">{{ g.title }}</h2>
-        <span class="ext-badge ext-badge--source">{{ g.items.length }} 个插件</span>
+        <span class="badge badge-neutral">{{ g.items.length }} 个插件</span>
       </div>
       <div class="ext-grid">
         <div v-for="p in g.items" :key="p.name" class="ext-card">
           <div class="ext-card-header">
             <span class="ext-card-name">{{ p.name }}</span>
-            <span class="ext-badge" :class="stateClass(p)">{{ stateLabel(p) }}</span>
+            <span class="badge" :class="stateClass(p)">{{ stateLabel(p) }}</span>
           </div>
           <p class="ext-card-desc">{{ p.description || "（无描述）" }}</p>
           <div class="ext-card-meta">
@@ -73,9 +73,9 @@
     </p>
 
     <!-- ── 插件日志对话框 ────────────────────────────────────── -->
-    <div v-if="logView.open" class="ext-modal-mask" @click.self="closeLog">
-      <div class="ext-modal ext-modal--wide">
-        <h2 class="ext-modal-title">插件日志：{{ logView.name }}</h2>
+    <div v-if="logView.open" class="modal-backdrop modal-backdrop--top" @click.self="closeLog">
+      <div class="modal modal--wide">
+        <h2 class="modal-title">插件日志：{{ logView.name }}</h2>
         <div class="ext-log-toolbar">
           <select v-model.number="logTail" class="ext-log-select" @change="refreshLogs">
             <option :value="100">最近 100 行</option>
@@ -96,7 +96,7 @@
         <p v-if="logView.error" class="ext-error">{{ logView.error }}</p>
         <pre v-if="logView.lines.length" class="ext-log-view">{{ logView.lines.join("\n") }}</pre>
         <p v-else class="ext-dim ext-log-empty">暂无日志（插件启动后，其 stderr 输出会记录在这里）</p>
-        <div class="ext-modal-actions">
+        <div class="modal-actions">
           <button class="ext-btn" type="button" @click="closeLog">关闭</button>
         </div>
       </div>
@@ -176,19 +176,19 @@ function stateLabel(p: PluginInfo): string {
 }
 
 function stateClass(p: PluginInfo): string {
-  if (p.scanStatus === "BLOCKED") return "ext-badge--err";
+  if (p.scanStatus === "BLOCKED") return "badge-err";
   switch (p.state) {
     case "ACTIVE":
-      return "ext-badge--ok";
+      return "badge-ok";
     case "BLOCKED":
-      return "ext-badge--err";
+      return "badge-err";
     case "DISCONNECTED":
     case "CONNECTING":
     case "REGISTERING":
     case "STOPPING":
-      return "ext-badge--warn";
+      return "badge-warn";
     default:
-      return "ext-badge--dim";
+      return "badge-dim";
   }
 }
 

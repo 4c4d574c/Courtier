@@ -1,49 +1,12 @@
-/* Shared styles for the admin plugin-market and skills views (split from
-   the former ExtensionManagement page). Class names keep the ext- prefix. */
-.ext-page {
-  max-width: 1160px;
-}
-
+/* Shared styles for the admin plugin-market and skills views. Page shell,
+   title, badges, switches, form fields and modals come from the shared
+   admin.css vocabulary; this file keeps only the card-grid vocabulary
+   (ext- prefix) those two views render. */
 .ext-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
   margin-bottom: 16px;
-}
-
-.ext-title {
-  font-family: "Noto Sans SC", sans-serif;
-  font-size: 26px;
-  font-weight: 600;
-  color: var(--chat-text-primary);
-  margin: 0;
-}
-
-.ext-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--chat-text-tertiary);
-}
-
-.ext-refresh {
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-card);
-  color: var(--chat-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 150ms;
-}
-
-.ext-refresh:hover:not(:disabled) {
-  background: var(--chat-bg-hover);
-}
-
-.ext-refresh:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .ext-error {
@@ -83,38 +46,6 @@
   font-size: 15px;
   font-weight: 600;
   color: var(--chat-text-primary);
-}
-
-.ext-badge {
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.ext-badge--source {
-  background: var(--chat-bg-hover);
-  color: var(--chat-text-secondary);
-}
-
-.ext-badge--ok {
-  background: color-mix(in srgb, var(--ok) 13%, transparent);
-  color: var(--ok);
-}
-
-.ext-badge--warn {
-  background: color-mix(in srgb, var(--warn) 14%, transparent);
-  color: var(--warn);
-}
-
-.ext-badge--err {
-  background: color-mix(in srgb, var(--err) 12%, transparent);
-  color: var(--err);
-}
-
-.ext-badge--dim {
-  background: var(--chat-bg-hover);
-  color: var(--chat-text-tertiary);
 }
 
 .ext-card-desc {
@@ -246,99 +177,6 @@
   color: var(--warn);
 }
 
-.ext-switch {
-  margin-left: auto;
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  flex: none;
-}
-
-.ext-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.ext-switch-track {
-  position: relative;
-  display: block;
-  width: 38px;
-  height: 21px;
-  border-radius: 999px;
-  background: var(--chat-bg-hover);
-  border: 1px solid var(--chat-border);
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.ext-switch-track::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--chat-bg-card);
-  box-shadow: var(--chat-shadow);
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease;
-}
-
-.ext-switch input:checked + .ext-switch-track {
-  background: var(--chat-accent);
-  border-color: var(--chat-accent);
-}
-
-.ext-switch input:checked + .ext-switch-track::after {
-  transform: translateX(17px);
-}
-
-.ext-switch input:focus-visible + .ext-switch-track {
-  box-shadow: 0 0 0 2px var(--chat-accent-soft);
-}
-
-.ext-switch input:disabled + .ext-switch-track {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ext-modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 60px;
-  z-index: 200;
-}
-
-.ext-modal {
-  background: var(--chat-bg-card);
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-md);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-  width: 640px;
-  max-width: 92vw;
-  max-height: 84vh;
-  overflow-y: auto;
-  padding: 20px 24px;
-}
-
-.ext-modal--narrow {
-  width: 480px;
-}
-
-.ext-modal--wide {
-  width: 860px;
-}
-
 .ext-log-toolbar {
   display: flex;
   align-items: center;
@@ -391,54 +229,10 @@
   text-align: center;
 }
 
-.ext-modal-title {
-  font-family: "Noto Sans SC", sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--chat-text-primary);
-  margin: 0 0 16px;
-}
-
-.ext-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.ext-field > span {
-  font-size: 13px;
-  color: var(--chat-text-secondary);
-  font-weight: 500;
-}
-
-.ext-field input,
-.ext-field select,
-.ext-field textarea {
-  padding: 8px 10px;
-  border: 1px solid var(--chat-border);
-  border-radius: var(--chat-radius-sm);
-  background: var(--chat-bg-body);
-  font-size: 13px;
-  color: var(--chat-text-primary);
-  font-family: inherit;
-  outline: none;
-  transition:
-    border-color 150ms,
-    box-shadow 150ms;
-}
-
-.ext-field input:focus,
-.ext-field select:focus,
-.ext-field textarea:focus {
-  border-color: var(--chat-accent);
-  box-shadow: 0 0 0 2px var(--chat-accent-soft);
-}
-
-.ext-field textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  resize: vertical;
+/* Switches sit at the far edge of card/domain headers. */
+.ext-domain-header .switch,
+.ext-card-header .switch {
+  margin-left: auto;
 }
 
 .ext-checklist {
@@ -466,9 +260,7 @@
   margin: 0;
 }
 
-.ext-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+/* Skill create/edit dialogs keep their action row close to the form. */
+.modal-backdrop--top .modal-actions {
   margin-top: 8px;
 }
