@@ -6,10 +6,6 @@
         <p class="settings-subtitle">管理模型、检索、插件等运行时配置，按生效方式即时或延迟应用</p>
       </div>
       <div class="settings-status">
-        <span class="status-chip" :class="view.mode === 'db' ? 'ok' : 'warn'">
-          {{ view.mode === "db" ? "数据库配置" : "env 降级 · 只读" }}
-        </span>
-        <span v-if="view.version !== null" class="status-chip">v{{ view.version }}</span>
         <button class="action-btn" :disabled="loading" @click="load">↻ 刷新</button>
       </div>
     </header>
@@ -1884,25 +1880,6 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.status-chip {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--chat-bg-hover);
-  border: 1px solid var(--chat-border);
-  color: var(--chat-text-secondary);
-  white-space: nowrap;
-}
-.status-chip.ok {
-  background: color-mix(in srgb, var(--ok) 13%, transparent);
-  border-color: transparent;
-  color: var(--ok);
-}
-.status-chip.warn {
-  background: color-mix(in srgb, var(--warn) 13%, transparent);
-  border-color: transparent;
-  color: var(--warn);
 }
 
 /* ---- Alerts ---- */
