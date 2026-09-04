@@ -816,6 +816,14 @@ class Settings(BaseSettings):
     )
     cors_allow_credentials: bool = Field(default=False, description="是否允许携带凭证的跨域请求")
 
+    trusted_proxies: str = Field(
+        default="",
+        description=(
+            "可信反向代理的 IP/CIDR 列表（逗号分隔）。仅当请求的直接对端命中此列表时，"
+            "未认证限速才采信 X-Forwarded-For 的最右条目作为真实客户端 IP；为空时始终按直连地址限速。"
+        ),
+    )
+
     jwt_secret: str = Field(default="", description="JWT 签名密钥，生产环境必须设置为强随机字符串")
     jwt_algorithm: str = Field(default="HS256", description="JWT 签名算法")
     jwt_expire_seconds: int = Field(
