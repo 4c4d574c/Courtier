@@ -196,7 +196,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "courtier-plugin-sdk", editable = "../../../libs/shared/plugin_sdk" },
-    { name = "elasticsearch", specifier = ">=8.0.0" },
+    { name = "elasticsearch", specifier = ">=8.17,<9" },
     { name = "httpx", specifier = ">=0.27" },
 ]
 
