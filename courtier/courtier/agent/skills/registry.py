@@ -61,7 +61,15 @@ class SkillRegistry:
 
     def _scan_one(self, path: Path) -> None:
         name = path.stem
-        raw = path.read_text(encoding="utf-8")
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            # The admin UI rewrites skill files in place — a read racing a
+            # rewrite (truncated/deleted file) must skip the file, not fail
+            # the whole scan and with it every agent build.
+            logger.warning("Skill file unreadable during scan: %s", path, exc_info=True)
+            self._errors.append(f"Skill '{name}' unreadable during scan: {path}")
+            return
         meta, body = _split_frontmatter(raw)
 
         if meta is None:
