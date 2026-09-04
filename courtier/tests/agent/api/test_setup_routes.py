@@ -142,3 +142,41 @@ class TestCreateAdmin:
         assert user.role == UserRole.admin
         assert user.password_hash != "super-secret-1"
         assert len(user.password_hash) >= 20
+
+    def test_production_configured_key_required_even_from_private_source(
+        self, db, monkeypatch
+    ):
+        """A configured COURTIER_SETUP_KEY is authoritative: behind a reverse
+        proxy every client appears as a private-network source, so the source
+        check must never bypass the key."""
+        from courtier.agent.api.routes import setup as setup_routes
+
+        app = _app(db, deployment="production", monkeypatch=monkeypatch)
+        monkeypatch.setattr(setup_routes, "_from_private_network", lambda request: True)
+        monkeypatch.setenv("COURTIER_SETUP_KEY", "one-time-key")
+        with TestClient(app) as client:
+            no_key = client.post(
+                "/api/setup/admin",
+                json={"username": "admin", "password": "super-secret-1"},
+            )
+            assert no_key.status_code == 403
+
+            wrong_key = client.post(
+                "/api/setup/admin",
+                json={
+                    "username": "admin",
+                    "password": "super-secret-1",
+                    "setup_key": "wrong",
+                },
+            )
+            assert wrong_key.status_code == 403
+
+            good = client.post(
+                "/api/setup/admin",
+                json={
+                    "username": "admin",
+                    "password": "super-secret-1",
+                    "setup_key": "one-time-key",
+                },
+            )
+            assert good.status_code == 200

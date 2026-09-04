@@ -58,14 +58,21 @@ def _production_gate(request: Request, body: CreateAdminRequest) -> None:
     settings = request.app.state.settings
     if settings.deployment_env not in ("staging", "production"):
         return
-    if _from_private_network(request):
-        return
     expected = os.getenv("COURTIER_SETUP_KEY", "")
-    if expected and hmac.compare_digest(expected, body.setup_key or ""):
+    if expected:
+        # A configured key is authoritative and required regardless of the
+        # request source: behind a reverse proxy every client appears as the
+        # proxy's private IP, so a source check must never bypass the key.
+        if hmac.compare_digest(expected, body.setup_key or ""):
+            return
+        raise HTTPException(
+            403, "生产环境的首启向导需携带正确的 COURTIER_SETUP_KEY"
+        )
+    if _from_private_network(request):
         return
     raise HTTPException(
         403,
-        "生产环境的首启向导仅允许内网来源，或携带正确的 COURTIER_SETUP_KEY",
+        "生产环境的首启向导仅允许内网来源，或配置并携带 COURTIER_SETUP_KEY",
     )
 
 
