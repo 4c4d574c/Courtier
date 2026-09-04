@@ -674,6 +674,21 @@
                     formState[activeCategory][field.name] ? "已启用" : "已停用"
                   }}</span>
                 </label>
+                <select
+                  v-else-if="field.type === 'enum'"
+                  :value="stringValue(field.name)"
+                  class="field-input"
+                  :disabled="!editable"
+                  @change="setFieldValue(field.name, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option
+                    v-for="choice in field.choices ?? []"
+                    :key="choice"
+                    :value="choice"
+                  >
+                    {{ choice }}
+                  </option>
+                </select>
                 <textarea
                   v-else-if="field.type === 'list' || field.type === 'json'"
                   :value="stringValue(field.name)"
@@ -1312,6 +1327,12 @@ const CONFIRM_RULES: Array<{
     fields: ["cors_origins", "cors_allow_credentials"],
     message:
       "CORS 配置需重启后生效；配置错误可能导致前端无法访问（可用环境变量 CORS_ORIGINS 救援覆盖）。",
+  },
+  {
+    fields: ["guardrail_tool_call_layer"],
+    message:
+      "逐调用层（tool_call）承载工具禁用、路径白名单、执行确认三道权限拦截；" +
+      "改为 log 后只记录不拦截——越界路径照样执行、确认不再挂起。确认保存更改？",
   },
 ];
 

@@ -67,6 +67,12 @@ export const FIELD_DISPLAY_NAMES: Record<string, string> = {
   // plugins
   courtier_plugin_endpoints: "插件端点映射",
   courtier_plugin_token: "插件共享鉴权 Token",
+  // guards — 分层模式（管线各层模式；tool_call 仅限 block/log）
+  guardrail_input_layer: "思考前层模式（input）",
+  guardrail_output_layer: "输出后层模式（output）",
+  guardrail_tool_layer: "工具批前层模式（tool）",
+  guardrail_tool_call_layer: "逐调用层模式（tool_call）",
+  guardrail_post_tool_layer: "观察后层模式（post_tool）",
   // guards — 主循环
   loop_max_turns_without_business_artifacts: "连续无业务产出轮次上限",
   loop_max_consecutive_exploratory: "连续探索性工具调用上限",
@@ -183,6 +189,7 @@ const CATEGORY_GROUPS: Record<string, GroupSpec[]> = {
   ],
   plugins: [{ key: "conn", label: "插件连接", prefixes: ["courtier_plugin_"] }],
   guards: [
+    { key: "layers", label: "分层模式", prefixes: ["guardrail_"] },
     { key: "loop", label: "主循环守卫", prefixes: ["loop_"] },
     { key: "subagent", label: "子代理", prefixes: ["subagent_"] },
     {

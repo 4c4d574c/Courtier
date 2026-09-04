@@ -13,7 +13,9 @@ export interface SettingsField {
   effect: "hot" | "rebuild" | "restart";
   source: "db" | "env" | "default";
   value: unknown;
-  type: "string" | "int" | "float" | "bool" | "list" | "json";
+  type: "string" | "int" | "float" | "bool" | "list" | "json" | "enum";
+  /** Allowed values for type === "enum" (Literal fields); absent otherwise. */
+  choices?: string[];
   env_name: string;
   description: string;
 }
