@@ -158,6 +158,13 @@ async def resolve_file(value: str) -> str:
     if not isinstance(value, str) or not value.startswith(MINIO_SCHEME):
         return value
     bucket, key = parse_minio_ref(value)
+    # Defense in depth: the restricted plugin account only has the transfer
+    # bucket anyway, but refuse early so a misconfigured IAM policy cannot
+    # silently widen what plugins may read.
+    if bucket != _bucket():
+        raise ValueError(
+            f"minio reference bucket {bucket!r} is not the transfer bucket"
+        )
     client = _minio_client()
 
     download_dir = _current_download_dir()

@@ -166,3 +166,15 @@ class TestFileRefRewrite:
         result = await proxy.execute(on_progress=lambda *_: None, text="正文")
         assert result.success is True
         assert client.calls[0]["params"]["args"] == {"text": "正文"}
+
+
+def test_resolve_file_rejects_foreign_bucket(monkeypatch, tmp_path):
+    """Defense in depth: resolve_file refuses references outside the
+    transfer bucket even if IAM were misconfigured."""
+    import asyncio
+
+    from courtier_plugin_sdk import files as sdk_files
+
+    monkeypatch.setattr(sdk_files, "_base_dir", lambda: tmp_path)
+    with pytest.raises(ValueError, match="not the transfer bucket"):
+        asyncio.run(sdk_files.resolve_file("minio://courtier-docs/some/obj.bin"))

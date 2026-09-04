@@ -32,7 +32,7 @@ from courtier.storage import (
     remove_object,
 )
 
-from .file_service import _read_bounded
+from .file_service import _content_matches_extension, _read_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +234,13 @@ async def ingest_resource(
     content = await _read_bounded(file, MAX_FILE_SIZE)
     if not content:
         raise HTTPException(400, "文件内容为空")
+
+    # Same magic-byte gate as the chat upload channel: binary formats must
+    # be what they claim, so crafted bytes never reach the parsers
+    # (PyMuPDF / python-docx / LibreOffice) unvalidated.  txt/md have no
+    # magic bytes and are exempt.
+    if ext in (".pdf", ".docx") and not _content_matches_extension(ext, content):
+        raise HTTPException(400, f"文件内容与扩展名 {ext} 不匹配")
 
     md5_hex = hashlib.md5(content).hexdigest()
     object_key = f"{md5_hex}/{filename}"

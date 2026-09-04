@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from courtier.agent.api.services.resource_service import (
     _extract_text,
     _split_chunks,
@@ -135,3 +137,65 @@ class TestExtractText:
         doc.save(str(p))
         doc.close()
         assert "PDF" in _extract_text(p)
+
+
+class TestUploadMagicByteGate:
+    """Binary resource uploads must survive the magic-byte gate before
+    reaching the parsers (PyMuPDF / python-docx / LibreOffice)."""
+
+    class _FakeFile:
+        def __init__(self, filename: str, payload: bytes):
+            self.filename = filename
+            self.payload = payload
+
+        async def read(self, n: int = -1) -> bytes:
+            chunk, self.payload = self.payload[:n], self.payload[n:]
+            return chunk
+
+    def _ingest(self, filename: str, payload: bytes):
+        import asyncio
+        from types import SimpleNamespace
+
+        from fastapi import HTTPException
+
+        from courtier.agent.api.services.resource_service import ingest_resource
+
+        settings = SimpleNamespace(
+            es_hosts="es:9200",
+            minio_endpoint="",
+            es_index_chunks="chunks",
+            upload_dir="/tmp",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(
+                ingest_resource(
+                    self._FakeFile(filename, payload),
+                    title="t",
+                    author="",
+                    source="",
+                    tags="",
+                    publish_date=None,
+                    owner_name="u",
+                    owner_id=1,
+                    is_admin=False,
+                    settings=settings,
+                    db=None,
+                )
+            )
+        return exc_info.value
+
+    def test_fake_pdf_rejected(self):
+        assert self._ingest("evil.pdf", b"not-a-pdf-at-all").status_code == 400
+
+    def test_fake_docx_rejected(self):
+        assert self._ingest("evil.docx", b"\x00" * 64).status_code == 400
+
+    def test_magic_byte_matcher(self):
+        from courtier.agent.api.services.file_service import (
+            _content_matches_extension,
+        )
+
+        assert _content_matches_extension(".pdf", b"%PDF-1.7 rest")
+        assert not _content_matches_extension(".pdf", b"junk-bytes")
+        assert _content_matches_extension(".docx", b"PK\x03\x04rest")
+        assert not _content_matches_extension(".docx", b"junk-bytes")
