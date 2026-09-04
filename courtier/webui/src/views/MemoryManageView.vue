@@ -36,7 +36,7 @@
           新建记忆
         </button>
         <button
-          v-if="canEdit && entries.length > 0"
+          v-if="canEdit"
           type="button"
           class="btn danger"
           @click="clearConfirm = true"
