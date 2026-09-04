@@ -334,6 +334,27 @@ class TestVideoTranscode:
         registry = _Registry()
         return registry, tool
 
+    def test_transcode_ref_foreign_bucket_rejected(self, tmp_path):
+        """A compromised plugin must not point the host client at any other
+        bucket — only the transfer bucket passes the allowlist."""
+        import asyncio
+
+        store = FileStore(str(tmp_path / "files"))
+        registry, _tool = self._stub_registry(
+            ToolResult(success=True, data={"success": True, "minio_ref": "minio://courtier-docs/x/y.mp4"})
+        )
+        with pytest.raises(Exception) as exc_info:
+            asyncio.run(
+                upload_file(
+                    _upload_file(_wav_bytes(0.1), "recording.webm", "video/webm"),
+                    SimpleNamespace(upload_dir=str(tmp_path / "uploads")),
+                    store,
+                    owner="u",
+                    tool_registry=registry,
+                )
+            )
+        assert "不允许的存储位置" in str(exc_info.value)
+
     def test_needs_transcode_decision(self):
         from courtier.agent.api.services.file_service import _needs_video_transcode
 
@@ -346,14 +367,20 @@ class TestVideoTranscode:
         import asyncio
         from pathlib import Path
 
+        from courtier.config import get_settings
+
+        transfer_bucket = get_settings().minio_bucket_plugin_io
         store = FileStore(str(tmp_path / "files"))
         registry, transcode_tool = self._stub_registry(
-            ToolResult(success=True, data={"success": True, "minio_ref": "minio://bkt/out/rec.mp4"})
+            ToolResult(
+                success=True,
+                data={"success": True, "minio_ref": f"minio://{transfer_bucket}/out/rec.mp4"},
+            )
         )
         mp4_bytes = b"\x00\x00\x00\x18ftypisom" + b"x" * 64
 
         def fake_get_object(bucket, key):
-            assert bucket == "bkt" and key == "out/rec.mp4"
+            assert bucket == transfer_bucket and key == "out/rec.mp4"
             return mp4_bytes
 
         import courtier.storage.client as storage_client

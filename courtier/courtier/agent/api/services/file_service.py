@@ -108,6 +108,28 @@ def kind_size_limit(kind: str) -> int:
     return KIND_LIMITS.get(kind, MAX_FILE_SIZE)
 
 
+_READ_CHUNK = 1024 * 1024
+
+
+async def _read_bounded(file: Any, limit: int) -> bytes:
+    """Read an upload in chunks and abort as soon as the body exceeds
+    *limit* — a multi-GB request must never be buffered into memory just
+    to learn it is too large."""
+    from fastapi import HTTPException
+
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = await file.read(_READ_CHUNK)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, "文件过大")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 # 每条消息各媒体 kind 的数量上限（图片可多张，音视频各一份）。
 def _kind_counts(settings: Any) -> dict[str, int]:
     return {
@@ -251,6 +273,15 @@ async def transcode_video_file(
     if len(parts) != 2:
         raise HTTPException(400, "视频转码结果无效")
     bucket, key = parts
+    # The plugin only has transfer-bucket credentials; honor the same
+    # allowlist here so a compromised plugin cannot point the host's
+    # full-privilege client at any other bucket.
+    from courtier.config import get_settings
+
+    if bucket != get_settings().minio_bucket_plugin_io:
+        raise HTTPException(400, "视频转码结果指向了不允许的存储位置")
+    if not key or key.startswith("/") or ".." in key.split("/"):
+        raise HTTPException(400, "视频转码结果无效")
     try:
         return await asyncio.to_thread(storage_client.get_object, bucket, key)
     except Exception as exc:
@@ -280,13 +311,11 @@ async def upload_file(
         raise HTTPException(400, f"不支持的文件格式: {ext}")
     kind = infer_kind(filename)
 
-    contents = await file.read()
+    contents = await _read_bounded(file, MAX_FILE_SIZE)
     if not contents:
         raise HTTPException(400, "文件内容为空")
 
     kind_cap = kind_size_limit(kind)
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(413, "文件过大")
     if len(contents) > kind_cap:
         raise HTTPException(413, "文件过大（{}类型上限 {} MB）".format(kind, kind_cap // (1024 * 1024)))
 
