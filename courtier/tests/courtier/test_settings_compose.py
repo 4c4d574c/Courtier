@@ -65,6 +65,16 @@ class TestComposeSnapshot:
         merged = compose_snapshot(base, {"logger_level": "DEBUG"})
         assert merged.agent_runtime.events.enabled is True
 
+    def test_guardrail_layer_modes_compose(self):
+        merged = compose_snapshot(Settings(), {"guardrail_output_layer": "block"})
+        assert merged.guardrail_output_layer == "block"
+
+    def test_guardrail_tool_call_layer_rejects_release_modes(self):
+        """tool_call 权限层只允许 block/log——off/allow 等旁路档位直接拒绝。"""
+        for value in ("off", "allow"):
+            with pytest.raises(Exception):
+                compose_snapshot(Settings(), {"guardrail_tool_call_layer": value})
+
 
 class TestSeedFromEnv:
     async def test_seeds_only_non_default_values(self, db, monkeypatch):

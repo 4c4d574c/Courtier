@@ -492,7 +492,16 @@ async def build_agent(
             session_registry.list_tools(),
             overrides=getattr(settings, "tool_path_policies", None) or {},
         )
-    session_guardrails = GuardrailSystem(tool_mode="block", tool_call_mode="block")
+    # Layer modes come from settings (hot: applied at the next session
+    # build); tool_call is restricted to block/log by the Settings type —
+    # the permission layer never gets an "off" switch.
+    session_guardrails = GuardrailSystem(
+        input_mode=settings.guardrail_input_layer,
+        output_mode=settings.guardrail_output_layer,
+        tool_mode=settings.guardrail_tool_layer,
+        tool_call_mode=settings.guardrail_tool_call_layer,
+        post_tool_mode=settings.guardrail_post_tool_layer,
+    )
     session_guardrails.register(ToolDisabledGuard())
     session_guardrails.register(
         PathPolicyGuard(

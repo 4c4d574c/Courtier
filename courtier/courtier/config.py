@@ -199,15 +199,6 @@ class MemoryConfig(BaseModel):
     long_term_summarize_after_turns: int = 10
 
 
-class GuardrailsConfig(BaseModel):
-    """Layered guardrail mode configuration."""
-
-    input_layer: Literal["allow", "log", "block", "off"] = "log"
-    output_layer: Literal["allow", "log", "block", "off"] = "log"
-    tool_layer: Literal["allow", "log", "block", "off"] = "block"
-    post_tool_layer: Literal["allow", "log", "block", "off"] = "log"
-
-
 class ConversationTreeConfig(BaseModel):
     """Conversation tree branching configuration."""
 
@@ -222,7 +213,6 @@ class AgentRuntimeConfig(BaseModel):
     events: EventBusConfig = Field(default_factory=EventBusConfig)
     model: ModelRoutingConfig = Field(default_factory=ModelRoutingConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    guardrails: GuardrailsConfig = Field(default_factory=GuardrailsConfig)
     conversation_tree: ConversationTreeConfig = Field(default_factory=ConversationTreeConfig)
 
 
@@ -369,6 +359,50 @@ class Settings(BaseSettings):
             "工具路径白名单（JSON）：{工具名: [允许的路径, ...] 或 false}。"
             "列出的工具恰好只能读写这些路径（支持 ~）；false = 显式豁免；"
             "未列出的工具按代码内声明或基线。设置项优先于工具类内的代码声明。"
+        ),
+    )
+
+    # -- Guardrail 分层模式（guards 类；构造会话 GuardrailSystem 时读取，
+    #    热生效于下一次会话构建；默认值 = 历史装配行为） --------------------
+    guardrail_input_layer: Literal["allow", "log", "block", "off"] = Field(
+        default="block",
+        alias="guardrail_input_layer",
+        description=(
+            "思考前（input）层模式：block=拦截生效；log=影子只记录；"
+            "allow/off=跳过检查。当前该层无内置守卫。"
+        ),
+    )
+    guardrail_output_layer: Literal["allow", "log", "block", "off"] = Field(
+        default="log",
+        alias="guardrail_output_layer",
+        description=(
+            "输出后（output）层模式：block=拦截生效；log=影子只记录不拦截；"
+            "allow/off=跳过检查。"
+        ),
+    )
+    guardrail_tool_layer: Literal["allow", "log", "block", "off"] = Field(
+        default="block",
+        alias="guardrail_tool_layer",
+        description=(
+            "工具批前（tool）层模式：block=拦截生效；log=影子只记录不拦截；"
+            "allow/off=跳过检查。"
+        ),
+    )
+    guardrail_tool_call_layer: Literal["block", "log"] = Field(
+        default="block",
+        alias="guardrail_tool_call_layer",
+        description=(
+            "逐调用（tool_call）层模式，仅限 block/log：该层承载工具禁用、"
+            "路径白名单、执行确认三道权限拦截。log=影子只记录、调用照常执行"
+            "（权限拦截全部失效），因此不提供放开档位。"
+        ),
+    )
+    guardrail_post_tool_layer: Literal["allow", "log", "block", "off"] = Field(
+        default="block",
+        alias="guardrail_post_tool_layer",
+        description=(
+            "观察后（post_tool）层模式：block=强制收尾等拦截生效；"
+            "log=影子只记录不拦截；allow/off=跳过检查。"
         ),
     )
 
@@ -1102,7 +1136,7 @@ def _setting_category(field: str) -> str:
         return "retrieval"
     if field.startswith("courtier_plugin_"):
         return "plugins"
-    if field.startswith(("loop_", "subagent_", "run_", "refusal_")) or field in (
+    if field.startswith(("loop_", "subagent_", "run_", "refusal_", "guardrail_")) or field in (
         "max_runs_per_user",
         "max_total_runs",
         "tool_confirmation",

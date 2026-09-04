@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal, get_args
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -70,6 +70,8 @@ router = APIRouter(prefix="/api/admin/settings", tags=["admin-settings"])
 def _field_type(name: str) -> str:
     annotation = Settings.model_fields[name].annotation
     origin = getattr(annotation, "__origin__", None)
+    if origin is Literal:
+        return "enum"
     if annotation is bool:
         return "bool"
     if annotation is int:
@@ -81,6 +83,15 @@ def _field_type(name: str) -> str:
     if origin is list or name == "cors_origins":
         return "list"
     return "json"
+
+
+def _field_choices(name: str) -> list[str]:
+    """Allowed values of a Literal enum field (empty for other types)."""
+    return [
+        arg
+        for arg in get_args(Settings.model_fields[name].annotation)
+        if isinstance(arg, str)
+    ]
 
 
 def _env_name(name: str) -> str:
@@ -152,6 +163,7 @@ async def get_settings_view(request: Request, user: dict = Depends(require_admin
                     "type": _field_type(name),
                     "env_name": _env_name(name),
                     "description": Settings.model_fields[name].description or "",
+                    **({"choices": _field_choices(name)} if _field_choices(name) else {}),
                 }
             )
         if fields:

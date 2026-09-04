@@ -33,6 +33,11 @@ class _DummySettings:
     subagent_max_turns = 20
     subagent_max_depth = 5
     subagent_max_total_spawns = 20
+    guardrail_input_layer = "block"
+    guardrail_output_layer = "log"
+    guardrail_tool_layer = "block"
+    guardrail_tool_call_layer = "block"
+    guardrail_post_tool_layer = "block"
 
 
 def _fake_plugin_tool(name: str, plugin_name: str):
@@ -186,6 +191,20 @@ async def test_agents_built_back_to_back_do_not_share_artifact_store():
     agent1, _, _ = await build_agent(settings=_DummySettings(), tool_registry=ToolRegistry())
     agent2, _, _ = await build_agent(settings=_DummySettings(), tool_registry=ToolRegistry())
     assert agent1._agent_runtime.artifact_store is not agent2._agent_runtime.artifact_store
+
+
+@pytest.mark.asyncio
+async def test_build_agent_wires_guardrail_layer_modes_from_settings():
+    """会话系统的五层模式逐一来自设置（热生效于下一次构建）。"""
+    settings = _DummySettings()
+    settings.guardrail_output_layer = "block"
+    settings.guardrail_tool_call_layer = "log"
+    agent, _, _ = await build_agent(settings=settings, tool_registry=ToolRegistry())
+
+    system = agent.guardrail_system
+    assert system.output_mode == "block"
+    assert system.tool_call_mode == "log"
+    assert system.tool_mode == "block"
 
 
 def test_build_model_client_wraps_openai_backend():

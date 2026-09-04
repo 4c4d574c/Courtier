@@ -62,6 +62,41 @@ class TestGetSettingsView:
         assert by_name["cors_origins"]["effect"] == "restart"
         assert by_name["es_hosts"]["env_name"] == "ES_HOSTS"
 
+    def test_guardrail_layer_modes_enum_surface(self, client):
+        """五层模式以 enum 形式暴露；tool_call 只给 block/log 两档。"""
+        resp = client.get("/api/admin/settings")
+        assert resp.status_code == 200
+        by_name = {
+            f["name"]: f for c in resp.json()["categories"] for f in c["fields"]
+        }
+        for name in (
+            "guardrail_input_layer",
+            "guardrail_output_layer",
+            "guardrail_tool_layer",
+            "guardrail_tool_call_layer",
+            "guardrail_post_tool_layer",
+        ):
+            assert by_name[name]["type"] == "enum", name
+        assert by_name["guardrail_tool_call_layer"]["choices"] == ["block", "log"]
+        assert by_name["guardrail_output_layer"]["choices"] == [
+            "allow",
+            "log",
+            "block",
+            "off",
+        ]
+
+    def test_tool_call_layer_off_rejected_log_accepted(self, client):
+        rejected = client.put(
+            "/api/admin/settings/guards",
+            json={"guardrail_tool_call_layer": "off"},
+        )
+        assert rejected.status_code == 422
+        accepted = client.put(
+            "/api/admin/settings/guards",
+            json={"guardrail_tool_call_layer": "log"},
+        )
+        assert accepted.status_code == 200
+
     def test_source_becomes_db_after_save(self, client):
         client.put("/api/admin/settings/model", json={"llm_model": "db-model"})
         body = client.get("/api/admin/settings").json()
