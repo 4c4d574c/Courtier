@@ -370,17 +370,18 @@ async def _run_think_phase(
                 completion_tokens=0,
             )
 
-    # Guardrail: input layer
+    # Guardrail pipeline: pre_think scope (input layer) — adapt → enforce → record.
     if guardrail_system is not None:
-        guard_result = await guardrail_system.check(
-            "input",
+        outcome = await guardrail_system.run_scope(
+            "pre_think",
             GuardContext(
                 state=current_state,
                 messages=current_state.messages,
             ),
         )
-        if guard_result.action == "block":
-            reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
+        current_state = outcome.state
+        if outcome.blocked is not None:
+            reason = f"guardrail:{outcome.blocked.guard_name}:{outcome.blocked.reason}"
             current_state = await state_machine.transition_async(current_state, "blocked", reason)
             return _ThinkPhaseOutcome(
                 state=current_state,
@@ -672,9 +673,9 @@ async def _run_tool_phase(
     ``citation_offset`` carries the cross-phase citation numbering across
     think-act iterations of one run (mutated in place by the annotation).
     """
-    # Guardrail: output layer
+    # Guardrail pipeline: output scope — adapt → enforce → record.
     if guardrail_system is not None:
-        guard_result = await guardrail_system.check(
+        outcome = await guardrail_system.run_scope(
             "output",
             GuardContext(
                 state=current_state,
@@ -682,8 +683,9 @@ async def _run_tool_phase(
                 tool_calls=current_state.tool_calls,
             ),
         )
-        if guard_result.action == "block":
-            reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
+        current_state = outcome.state
+        if outcome.blocked is not None:
+            reason = f"guardrail:{outcome.blocked.guard_name}:{outcome.blocked.reason}"
             current_state = await state_machine.transition_async(current_state, "blocked", reason)
             return _ToolPhaseOutcome(
                 state=current_state,
@@ -703,17 +705,18 @@ async def _run_tool_phase(
             consecutive_exploratory=consecutive_exploratory,
         )
 
-    # Guardrail: tool layer
+    # Guardrail pipeline: tool scope (turn-level batch check).
     if guardrail_system is not None and current_state.tool_calls:
-        guard_result = await guardrail_system.check(
+        outcome = await guardrail_system.run_scope(
             "tool",
             GuardContext(
                 state=current_state,
                 tool_calls=current_state.tool_calls,
             ),
         )
-        if guard_result.action == "block":
-            reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
+        current_state = outcome.state
+        if outcome.blocked is not None:
+            reason = f"guardrail:{outcome.blocked.guard_name}:{outcome.blocked.reason}"
             current_state = await state_machine.transition_async(current_state, "blocked", reason)
             return _ToolPhaseOutcome(
                 state=current_state,
@@ -804,10 +807,10 @@ async def _run_tool_phase(
             seconds=record.duration_ms / 1000.0,
         )
 
-    # Guardrail: post_tool layer — detect futile exploration patterns
+    # Guardrail pipeline: post_tool scope — detect futile exploration patterns
     # and lack of business artifact progress after tools have run.
     if guardrail_system is not None:
-        guard_result = await guardrail_system.check(
+        outcome = await guardrail_system.run_scope(
             "post_tool",
             GuardContext(
                 state=current_state,
@@ -816,8 +819,9 @@ async def _run_tool_phase(
                 metadata={"artifact_store": artifact_store},
             ),
         )
-        if guard_result.action == "block":
-            reason = f"guardrail:{guard_result.guard_name}:{guard_result.reason}"
+        current_state = outcome.state
+        if outcome.blocked is not None:
+            reason = f"guardrail:{outcome.blocked.guard_name}:{outcome.blocked.reason}"
             current_state = await state_machine.transition_async(current_state, "completed", reason)
             await _terminate_loop_step(
                 reason=reason,
@@ -837,7 +841,7 @@ async def _run_tool_phase(
 
         # Mirror the ExploreLoopGuard's consecutive exploratory count so
         # hint injection and terminal-tool detection stay consistent.
-        consecutive_exploratory = guard_result.metadata.get(
+        consecutive_exploratory = outcome.guard_result.metadata.get(
             "consecutive_exploratory", consecutive_exploratory
         )
 

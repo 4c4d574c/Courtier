@@ -321,6 +321,59 @@ class TestAgentLoop:
         # Loop guards were registered for the run and released afterwards.
         assert [g.name for g in system.guardrails] == names_before
 
+    @pytest.mark.asyncio
+    async def test_post_tool_observer_dispatched_in_real_loop(self, registry_with_echo):
+        """run_scope 接线：注册在 post_tool 的观察者随真实循环派发。
+
+        循环曾直连 check() 绕过 run_scope，观察者注册后静默无效——本测试
+        锁定派发路径（guardrails-wiring-cleanup-plan T1）。
+        """
+        from courtier.agent.core.guardrails import GuardrailSystem
+
+        seen: list = []
+
+        async def observer(context):
+            seen.append(context)
+
+        tc = ToolCall(id="call_1", name="echo", arguments={"text": "hi"})
+        system = GuardrailSystem()
+        system.register_observer("post_tool", observer)
+
+        state = AgentState.initial(task="echo hi")
+        final = await agent_loop(
+            state=state,
+            model=MockModelClient(tool_calls=[tc]),
+            tool_registry=registry_with_echo,
+            guardrail_system=system,
+        )
+
+        assert final.status == "completed"
+        assert seen, "post_tool observer never dispatched — run_scope not wired"
+        assert seen[0].tool_calls
+
+    @pytest.mark.asyncio
+    async def test_pre_think_interceptor_state_swap_propagates(self):
+        """run_scope 接线：pre_think 拦截器返回的新状态被循环采用。"""
+        from courtier.agent.core.guardrails import GuardrailSystem
+
+        async def inject(context):
+            state = context.state
+            marker = Message(role="user", content="【拦截器注入】")
+            return state.model_copy(update={"messages": (*state.messages, marker)})
+
+        system = GuardrailSystem()
+        system.register_interceptor("pre_think", inject)
+
+        state = AgentState.initial(task="t")
+        final = await agent_loop(
+            state=state,
+            model=MockModelClient(tool_calls=[]),
+            guardrail_system=system,
+        )
+
+        assert final.status == "completed"
+        assert any(m.content == "【拦截器注入】" for m in final.messages)
+
     async def test_tool_execution_error(self):
         """When a tool raises, the result is success=False."""
 
