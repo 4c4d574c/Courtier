@@ -194,12 +194,31 @@ def index_chunk(doc_id: str, body: dict) -> None:
 
 
 def bulk_index_chunks(actions: list[dict]) -> None:
-    """批量索引切片。"""
+    """批量索引切片。
+
+    ES reports per-item failures with HTTP 200 and ``errors: true`` —
+    those must surface as an exception, otherwise a resource is marked
+    ready while none (or only part) of its chunks were actually indexed.
+    """
     if not actions:
         return
     client = get_es_client()
     _rewrite_bulk_indices(actions, resolve_write_index())
-    client.bulk(body=actions)
+    resp = client.bulk(body=actions)
+    if resp.get("errors"):
+        failed = [
+            {
+                "index": item.get("index", {}).get("_index"),
+                "id": item.get("index", {}).get("_id"),
+                "reason": (item.get("index", {}).get("error") or {}).get("reason"),
+            }
+            for item in resp.get("items", [])
+            if (item.get("index") or {}).get("error")
+        ]
+        raise RuntimeError(
+            f"Elasticsearch bulk indexing had {len(failed)} failed item(s): "
+            f"{failed[:3]}"
+        )
 
 
 _es_index_name_cache: str | None = None
@@ -224,12 +243,22 @@ def update_chunk(doc_id: str, body: dict) -> None:
 
 
 def _delete_by_field(field: str, value: int) -> None:
-    """按指定字段值删除所有相关切片。"""
+    """按指定字段值删除所有相关切片。
+
+    ``delete_by_query`` reports partial failures with HTTP 200 in the
+    ``failures`` array — leftover chunks would stay searchable after the
+    resource row is gone, so surface them as an error.
+    """
     client = get_es_client()
-    client.delete_by_query(
+    resp = client.delete_by_query(
         index=resolve_write_index(),
         body={"query": {"term": {field: value}}},
     )
+    if resp.get("failures"):
+        raise RuntimeError(
+            f"Elasticsearch delete_by_query had {len(resp['failures'])} "
+            f"failure(s) for {field}={value}: {resp['failures'][:3]}"
+        )
 
 
 def delete_by_resource_id(resource_id: int) -> None:
