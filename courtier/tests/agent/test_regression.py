@@ -17,8 +17,6 @@ from courtier.agent.runtime import AgentRuntime
 from courtier.agent.testing import MockModelClient
 from courtier.agent.tools.registry import ToolRegistry
 
-pytestmark = pytest.mark.integration
-
 ASSETS = [
     (
         "ceshi(1).docx",

@@ -48,7 +48,11 @@ async def db_client(monkeypatch):
         await db.create_all()
         monkeypatch.setattr(db_module, "_db", db)
         app = create_app(sessions_dir=d, start_plugins=False)
-        app.state.settings.mysql_url = f"sqlite+aiosqlite:///{d}/auth.db"
+        # Copy, never mutate: app.state.settings is the process-wide Settings
+        # singleton and other test files would inherit the sqlite URL.
+        app.state.settings = app.state.settings.model_copy(
+            update={"mysql_url": f"sqlite+aiosqlite:///{d}/auth.db"}
+        )
         with TestClient(app) as client:
             yield client, db
         await db.drop_all(testing=True)
