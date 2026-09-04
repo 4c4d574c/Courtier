@@ -765,7 +765,9 @@ class RunManager:
                         event_seq=seq,
                     )
                     await store.finalize_turn_conclusion(session_id, conclusion, event_seq=seq)
-                    await recorder.emit_terminal("error", detail="模型调用失败，请稍后重试", seq=seq)
+                    await recorder.emit_terminal(
+                        "error", detail="模型调用失败，请稍后重试", seq=seq
+                    )
                     run.status = "error"
                 else:
                     seq = run.log.reserve()
