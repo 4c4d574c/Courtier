@@ -128,6 +128,12 @@ class _DummySettings:
     subagent_max_turns = 20
     subagent_max_depth = 5
     subagent_max_total_spawns = 20
+    # guardrail 层模式设置（60c80ad 起 build_agent 直读；与 config 默认一致）
+    guardrail_input_layer = "block"
+    guardrail_output_layer = "log"
+    guardrail_tool_layer = "block"
+    guardrail_tool_call_layer = "block"
+    guardrail_post_tool_layer = "block"
 
 
 class TestBuildAgentSessionRegistry:
