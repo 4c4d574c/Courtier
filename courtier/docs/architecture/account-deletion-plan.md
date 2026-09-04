@@ -132,3 +132,14 @@ DELETE /api/admin/users/{id}                        管理员直删(admin 目标
 - 不删共享 documents 与公共资源;不做文档引用计数。
 - 不做 Langfuse/插件桶清理(见范围外)。
 - 用户名/邮箱释放,不建占用表;依赖"匿名化按 ID"保证历史引用不串。
+
+## 实施记录(2026-09-04,9c561d7..)
+
+T0-T5 全部落地。实施中的补充决定:
+
+- ES 会话产物清理以 `delete_results_by_sessions`(delete_by_query 按 session_id
+  terms)实现,随管线在删除会话记录前执行,失败进回执。
+- `TRIGGER` 是 MySQL 保留字——deletion_log 的 ORM 层自动转义,裸 SQL 需注意。
+- 真机冒烟(双账号)通过:错误密码 401、重复申请 409、批准执行回执 counts 齐全、
+  被注销者登录 401、**同名重注册成功(用户名释放)**、第二轮 admin 直删同样通过;
+  memory_changes 历史行 actor 匿名为 deleted-user:<id>,钩子的删除审计 actor=system。
