@@ -1292,7 +1292,7 @@ _REBUILD_SETTING_FIELDS: frozenset[str] = frozenset(
 
 
 def _setting_category(field: str) -> str:
-    if field.startswith(("llm_", "context_", "media_")):
+    if field.startswith(("llm_", "context_", "media_", "memory_")):
         return "model"
     if field.startswith(("es_", "minio_", "search_rerank_")):
         return "retrieval"
@@ -1308,8 +1308,13 @@ def _setting_category(field: str) -> str:
         return "guards"
     if field.startswith(("otel_", "audit_log_")) or field == "logger_level":
         return "observability"
-    if field.startswith(("cors_", "jwt_")) or field == "bcrypt_rounds":
+    if field.startswith(("cors_", "jwt_")) or field in (
+        "bcrypt_rounds",
+        "trusted_proxies",
+    ):
         return "web"
+    if field == "tool_timeout_seconds":
+        return "guards"
     return "advanced"
 
 

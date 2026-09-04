@@ -13,7 +13,12 @@ from sqlalchemy import select
 from courtier.db.tables.user import UserTable
 
 from ..db import get_db, user_repo
-from ..middleware.auth import get_current_user, hash_password, verify_password
+from ..middleware.auth import (
+    get_current_user,
+    hash_password,
+    revoke_all_refresh_tokens,
+    verify_password,
+)
 from ..rate_limiter import limiter
 
 logger = logging.getLogger(__name__)
@@ -91,6 +96,8 @@ async def update_profile(
             if not verify_password(body.current_password, user.password_hash):
                 raise HTTPException(400, "当前密码错误")
             update_data["password_hash"] = hash_password(body.new_password)
+            # A stolen refresh cookie must not survive a password change.
+            await revoke_all_refresh_tokens(user.id, session)
 
         if not update_data:
             raise HTTPException(400, "没有提供需要更新的字段")

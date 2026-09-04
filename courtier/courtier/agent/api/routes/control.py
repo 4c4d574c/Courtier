@@ -59,17 +59,18 @@ async def stop_session(
     is_admin = _is_admin(current_user_payload)
     current_user = current_user_payload["sub"]
 
-    # Cancel in-flight plugin requests before cancelling the agent task.
-    # This sends request.cancel notifications so plugins stop processing.
-    plugin_system = getattr(request.app.state, "plugin_system", None)
-    if plugin_system is not None:
-        await plugin_system.cancel_pending()
-
     if sessionId:
         session_store = request.app.state.session_store
         owned = await session_store.get_owned(sessionId, current_user, is_admin)
         if owned is None:
             raise HTTPException(404, f"会话 {sessionId} 未找到或无权限")
+
+        # Cancel in-flight plugin requests before cancelling the agent task.
+        # This sends request.cancel notifications so plugins stop processing.
+        # Permission is verified first: this cancels plugin-wide work.
+        plugin_system = getattr(request.app.state, "plugin_system", None)
+        if plugin_system is not None:
+            await plugin_system.cancel_pending()
 
         stopped = await run_manager.stop(sessionId)
         if not stopped:
@@ -79,6 +80,11 @@ async def stop_session(
     # Stop all active sessions (admin only)
     if not is_admin:
         raise HTTPException(403, "仅管理员可停止全部会话")
+
+    # Cancel in-flight plugin requests before cancelling the agent tasks.
+    plugin_system = getattr(request.app.state, "plugin_system", None)
+    if plugin_system is not None:
+        await plugin_system.cancel_pending()
 
     stopped = await run_manager.stop_all()
     if not stopped:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
 from collections.abc import Callable
@@ -86,7 +87,10 @@ class AnnotateDocumentTool:
             if source_path is not None and source_path.is_file():
                 allowed_dirs = [source_path.resolve().parent]
 
-            result_bytes = annotate(
+            # Full-document DOCX processing — off the event loop so the
+            # plugin stays responsive (health checks, cancellation).
+            result_bytes = await asyncio.to_thread(
+                annotate,
                 source,
                 rules,
                 keep_comments=keep,

@@ -73,7 +73,17 @@ class AsyncDatabase:
     """数据库连接与会话管理器"""
 
     def __init__(self, db_url: str, echo: bool = False):
-        self.engine: AsyncEngine = create_async_engine(db_url, echo=echo)
+        self.engine: AsyncEngine = create_async_engine(
+            db_url,
+            echo=echo,
+            # Long-lived container + MySQL wait_timeout: idle connections die
+            # server-side; without pre-ping the first request after an idle
+            # night fails with "server has gone away".
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            pool_size=10,
+            max_overflow=20,
+        )
         self.session_factory = async_sessionmaker(
             bind=self.engine,
             class_=AsyncSession,

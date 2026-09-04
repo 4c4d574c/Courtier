@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from core import detect_plagiarism
@@ -55,7 +56,10 @@ class DetectPlagiarismTool:
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
-            result = detect_plagiarism(
+            # Heavy O(N^2) comparison — off the event loop so health
+            # checks and request.cancel keep working during long runs.
+            result = await asyncio.to_thread(
+                detect_plagiarism,
                 new_doc=kwargs["new_doc"],
                 library_docs=kwargs["library_docs"],
                 k=kwargs.get("k", 1.5),

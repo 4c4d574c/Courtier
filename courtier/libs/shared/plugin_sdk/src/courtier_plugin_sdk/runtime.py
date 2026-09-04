@@ -437,6 +437,15 @@ class _Connection:
         """Handle incoming notifications (e.g., shutdown, request.cancel)."""
         method = msg.get("method", "")
         params = msg.get("params", {})
+        # Auth gate: an unauthenticated peer must not be able to shut the
+        # plugin down, cancel in-flight requests, or hijack the global
+        # host-services client.  Only the handshake-carrying register
+        # notification is processed before authentication.
+        if not self.authed and method != METHOD_REGISTER:
+            logger.warning(
+                "Dropping pre-auth notification %r (peer=%s)", method, self.peer
+            )
+            return
         # Custom handlers first; built-in methods keep their semantics.
         handler = self.runtime._notification_handlers.get(method)
         if handler is not None:

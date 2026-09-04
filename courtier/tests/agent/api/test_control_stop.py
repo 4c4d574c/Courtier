@@ -16,14 +16,12 @@ def reset_rate_limiter():
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
         app = create_app(sessions_dir=d, start_plugins=False)
-        import os
-
-        os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password-for-pytest")
+        monkeypatch.setenv("ADMIN_PASSWORD", "test-admin-password-for-pytest")
         from fastapi.testclient import TestClient
 
         with TestClient(app) as c:
@@ -31,7 +29,7 @@ def client():
                 "/api/auth/login",
                 json={
                     "username": "admin",
-                    "password": os.environ["ADMIN_PASSWORD"],
+                    "password": "test-admin-password-for-pytest",
                 },
             )
             assert login.status_code == 200

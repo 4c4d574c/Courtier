@@ -9,6 +9,7 @@ the file index.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,22 @@ def _probe_success(data: dict[str, Any]) -> bool:
     return data.get("success") is True
 
 
+async def _communicate_and_reap(
+    proc: asyncio.subprocess.Process, timeout: float
+) -> tuple[bytes, bytes]:
+    """Communicate with *proc* under *timeout*; on timeout or cancellation
+    kill the child so no orphan ffmpeg keeps burning CPU after the caller
+    has gone away."""
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        raise
+
+
 async def _run_ffprobe(path: Path) -> dict[str, Any]:
     """Run ffprobe and return its parsed JSON (raises on failure)."""
     proc = await asyncio.create_subprocess_exec(
@@ -39,7 +56,7 @@ async def _run_ffprobe(path: Path) -> dict[str, Any]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+    stdout, stderr = await _communicate_and_reap(proc, timeout=30.0)
     if proc.returncode != 0:
         raise RuntimeError(
             f"ffprobe exit {proc.returncode}: {stderr.decode(errors='replace')[:300]}"
@@ -215,7 +232,7 @@ class TranscodeVideoTool:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=_transcode_timeout())
+            _, stderr = await _communicate_and_reap(proc, timeout=_transcode_timeout())
             if proc.returncode != 0:
                 return ToolResult(
                     success=False,

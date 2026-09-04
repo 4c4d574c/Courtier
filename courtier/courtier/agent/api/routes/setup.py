@@ -46,7 +46,12 @@ async def _no_admin_exists(request: Request) -> bool:
 
 
 def _from_private_network(request: Request) -> bool:
-    host = request.client.host if request.client else ""
+    # client_ip applies the trusted_proxies setting: behind a reverse proxy
+    # the direct peer is the proxy's private IP for every caller, so the
+    # real client address comes from X-Forwarded-For when configured.
+    from ..rate_limiter import client_ip
+
+    host = client_ip(request)
     try:
         addr = ipaddress.ip_address(host)
     except ValueError:

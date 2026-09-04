@@ -169,6 +169,23 @@ def generate_refresh_token() -> tuple[str, str, datetime]:
     return raw, token_hash, expires_at
 
 
+async def revoke_all_refresh_tokens(user_id: int, session) -> None:
+    """Revoke every live refresh token of *user_id*.
+
+    Called when a password is reset (self-service or admin): a stolen
+    refresh cookie must not survive a credential change.
+    """
+    from sqlalchemy import update
+
+    from courtier.db.tables.refresh_token import RefreshTokenTable
+
+    await session.execute(
+        update(RefreshTokenTable)
+        .where(RefreshTokenTable.user_id == user_id, RefreshTokenTable.revoked.is_(False))
+        .values(revoked=True)
+    )
+
+
 async def rotate_refresh_token(old_hash: str, session) -> tuple[str, datetime, int] | None:
     from sqlalchemy import select, update
 

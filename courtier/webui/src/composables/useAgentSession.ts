@@ -199,11 +199,14 @@ export function useAgentSession() {
         es.close();
         if (currentSessionId.value) {
           // The run may have started server-side: reload the authoritative
-          // snapshot (mirrors the attach path's CLOSED handling).
+          // snapshot (mirrors the attach path's CLOSED handling). The
+          // generation guard keeps a late snapshot from clobbering a
+          // session the user switched to meanwhile.
+          const generation = connectGeneration;
           void api
             .loadSession(currentSessionId.value)
             .then((fresh) => {
-              if (!fresh) return;
+              if (!fresh || generation !== connectGeneration) return;
               restoreSession(fresh);
             })
             .catch(() => {

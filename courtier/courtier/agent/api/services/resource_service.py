@@ -322,6 +322,15 @@ async def ingest_resource(
         await asyncio.to_thread(bulk_index_chunks, actions)
     except Exception as exc:
         logger.exception("ES bulk index failed for resource %s", resource.id)
+        # A partial bulk failure may have landed some chunks — clean them
+        # up before dropping the row, otherwise they become unsearchable-
+        # but-undeletable orphans (delete_by_resource_id needs the row).
+        try:
+            await asyncio.to_thread(delete_by_resource_id, resource.id)
+        except Exception:
+            logger.warning(
+                "Orphan chunk cleanup failed for resource %s", resource.id, exc_info=True
+            )
         async with db.session() as session:
             await resource_repo.delete(session, resource.id)
             await session.commit()

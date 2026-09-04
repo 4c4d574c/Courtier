@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from courtier.db.tables.refresh_token import RefreshTokenTable
 from courtier.db.tables.user import UserRole, UserStatus, UserTable
@@ -256,6 +256,15 @@ async def login(request: Request, body: LoginRequest, response: Response):
         session.add(
             RefreshTokenTable(
                 user_id=user.id, token_hash=token_hash, expires_at=expires_at
+            )
+        )
+        # Opportunistic hygiene: refresh rows are never read past expiry,
+        # and without cleanup the table grows forever.  Sweep expired rows
+        # older than a week while we are already in a transaction.
+        await session.execute(
+            delete(RefreshTokenTable).where(
+                RefreshTokenTable.expires_at
+                < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
             )
         )
     _set_refresh_cookie(request, response, raw_refresh, expires_at)
