@@ -31,6 +31,16 @@ from .protocol import (
 
 logger = logging.getLogger(__name__)
 
+
+def _log_progress_task_exception(task: "asyncio.Task[None]") -> None:
+    """Done-callback for fire-and-forget progress coroutines: surface the
+    exception instead of silently discarding it."""
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning(
+            "tool on_progress callback failed",
+            exc_info=task.exception(),
+        )
+
 #: Result post-processor signature: async (tool_name, kwargs, tool_result)
 #: -> tool_result | None.  Runs after tool.execute and BEFORE persistence
 #: so the stored artifact, the summarizer view, and the model observation
@@ -404,7 +414,7 @@ class ToolRegistry:
                 result = on_tool_progress(name, progress)
                 if asyncio.iscoroutine(result):
                     task = asyncio.create_task(result)
-                    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                    task.add_done_callback(_log_progress_task_exception)
 
         try:
             raw_result = await self._execute_with_timeout(

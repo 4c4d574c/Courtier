@@ -610,7 +610,7 @@ class ProcessManager:
                     )
                 except Exception as exc:
                     logger.warning("storage.put 上传失败: %s", object_key, exc_info=True)
-                    return _deny(INTERNAL_ERROR, f"文件存储失败: {exc}")
+                    return _deny(INTERNAL_ERROR, "文件存储失败（详情见宿主日志）")
                 return {
                     "bucket": bucket,
                     "object_key": object_key,
@@ -647,7 +647,7 @@ class ProcessManager:
                     logger.warning(
                         "storage.presign_get 签名失败: %s/%s", bucket, key, exc_info=True
                     )
-                    return _deny(INTERNAL_ERROR, f"签名下载链接失败: {exc}")
+                    return _deny(INTERNAL_ERROR, "签名下载链接失败（详情见宿主日志）")
                 return {
                     "bucket": bucket,
                     "object_key": key,
@@ -676,7 +676,7 @@ class ProcessManager:
                         return rows[0].content if rows else None
                 except Exception as exc:
                     logger.warning("template_store.get 查询失败: %s", exc, exc_info=True)
-                    return _deny(INTERNAL_ERROR, f"模板查询失败: {exc}")
+                    return _deny(INTERNAL_ERROR, "模板查询失败（详情见宿主日志）")
 
             if method == METHOD_MEMORY_STORE_CALL:
                 if "memory_store" not in host_services:
@@ -716,7 +716,7 @@ class ProcessManager:
                     return {"ok": False, "error": str(exc)}
                 except Exception as exc:
                     logger.warning("memory_store.call 失败: %s", exc, exc_info=True)
-                    return _deny(INTERNAL_ERROR, f"记忆操作失败: {exc}")
+                    return _deny(INTERNAL_ERROR, "记忆操作失败（详情见宿主日志）")
 
             return _deny(METHOD_NOT_FOUND, f"Unknown host service method: {method}")
 
