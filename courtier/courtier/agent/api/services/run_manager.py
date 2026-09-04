@@ -746,47 +746,65 @@ class RunManager:
             # error/stopped turns keep the turn_conclusions index alignment
             # (a gap would shift the NEXT turn's conclusion into this turn's
             # slot) and preserve whatever partial text already streamed.
-            if result.final_state is not None and result.final_state.status == "error":
-                logger.warning(
-                    "Agent run ended in error state for session %s: %s",
-                    session_id,
-                    result.final_state.termination_reason,
-                )
-                seq = run.log.reserve()
-                await store.update(
-                    session_id,
-                    status="error",
-                    finished_at=_time.time(),
-                    error_detail="模型调用失败，请稍后重试",
-                    event_seq=seq,
-                )
-                await store.finalize_turn_conclusion(session_id, conclusion, event_seq=seq)
-                await recorder.emit_terminal("error", detail="模型调用失败，请稍后重试", seq=seq)
-                run.status = "error"
-            else:
-                seq = run.log.reserve()
-                await store.update(
-                    session_id,
-                    status="completed",
-                    finished_at=_time.time(),
-                    conclusion=conclusion,
-                    event_seq=seq,
-                )
-                await store.finalize_turn_conclusion(session_id, conclusion, event_seq=seq)
-                await recorder.emit_terminal("complete", conclusion=conclusion, seq=seq)
-                run.status = "completed"
+            # Hold the dispatch lock across reserve→persist→emit so no bus
+            # event can be appended between the reserved seq and the terminal
+            # frame — readers drop out-of-order frames silently.
+            async with recorder.hold_dispatch():
+                if result.final_state is not None and result.final_state.status == "error":
+                    logger.warning(
+                        "Agent run ended in error state for session %s: %s",
+                        session_id,
+                        result.final_state.termination_reason,
+                    )
+                    seq = run.log.reserve()
+                    await store.update(
+                        session_id,
+                        status="error",
+                        finished_at=_time.time(),
+                        error_detail="模型调用失败，请稍后重试",
+                        event_seq=seq,
+                    )
+                    await store.finalize_turn_conclusion(session_id, conclusion, event_seq=seq)
+                    await recorder.emit_terminal("error", detail="模型调用失败，请稍后重试", seq=seq)
+                    run.status = "error"
+                else:
+                    seq = run.log.reserve()
+                    await store.update(
+                        session_id,
+                        status="completed",
+                        finished_at=_time.time(),
+                        conclusion=conclusion,
+                        event_seq=seq,
+                    )
+                    await store.finalize_turn_conclusion(session_id, conclusion, event_seq=seq)
+                    await recorder.emit_terminal("complete", conclusion=conclusion, seq=seq)
+                    run.status = "completed"
         except asyncio.CancelledError:
             logger.info("Agent run cancelled for session %s", session_id)
             try:
-                seq = run.log.reserve()
-                await store.update(
-                    session_id, status="stopped", finished_at=_time.time(), event_seq=seq
-                )
-                partial = run.recorder.flush_verdict() if run.recorder is not None else ""
-                await store.finalize_turn_conclusion(session_id, partial, event_seq=seq)
                 if run.recorder is not None:
-                    await run.recorder.emit_terminal("stopped", seq=seq)
+                    async with run.recorder.hold_dispatch():
+                        seq = run.log.reserve()
+                        await store.update(
+                            session_id,
+                            status="stopped",
+                            finished_at=_time.time(),
+                            event_seq=seq,
+                        )
+                        partial = run.recorder.flush_verdict()
+                        await store.finalize_turn_conclusion(
+                            session_id, partial, event_seq=seq
+                        )
+                        await run.recorder.emit_terminal("stopped", seq=seq)
                 else:
+                    seq = run.log.reserve()
+                    await store.update(
+                        session_id,
+                        status="stopped",
+                        finished_at=_time.time(),
+                        event_seq=seq,
+                    )
+                    await store.finalize_turn_conclusion(session_id, "", event_seq=seq)
                     run.log.seal()
             except Exception:
                 logger.exception("Failed to persist stopped state for session %s", session_id)
@@ -797,21 +815,33 @@ class RunManager:
             logger.exception("Agent run failed for session %s (trace_id=%s)", session_id, trace_id)
             try:
                 detail = "服务器内部错误，请稍后重试"
-                seq = run.log.reserve()
-                await store.update(
-                    session_id,
-                    status="error",
-                    finished_at=_time.time(),
-                    error_detail=detail,
-                    event_seq=seq,
-                )
-                partial = run.recorder.flush_verdict() if run.recorder is not None else ""
-                await store.finalize_turn_conclusion(session_id, partial, event_seq=seq)
                 if run.recorder is not None:
-                    await run.recorder.emit_terminal(
-                        "error", detail=detail, trace_id=trace_id, seq=seq
-                    )
+                    async with run.recorder.hold_dispatch():
+                        seq = run.log.reserve()
+                        await store.update(
+                            session_id,
+                            status="error",
+                            finished_at=_time.time(),
+                            error_detail=detail,
+                            event_seq=seq,
+                        )
+                        partial = run.recorder.flush_verdict()
+                        await store.finalize_turn_conclusion(
+                            session_id, partial, event_seq=seq
+                        )
+                        await run.recorder.emit_terminal(
+                            "error", detail=detail, trace_id=trace_id, seq=seq
+                        )
                 else:
+                    seq = run.log.reserve()
+                    await store.update(
+                        session_id,
+                        status="error",
+                        finished_at=_time.time(),
+                        error_detail=detail,
+                        event_seq=seq,
+                    )
+                    await store.finalize_turn_conclusion(session_id, "", event_seq=seq)
                     run.log.seal()
             except Exception:
                 logger.exception("Failed to persist error state for session %s", session_id)

@@ -16,6 +16,7 @@ callback can never interleave a reserve/append pair.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time as _time
@@ -246,6 +247,27 @@ class RunRecorder:
             if loop.time() >= deadline:
                 return
             await asyncio.sleep(0.01)
+        # The queue can be empty while the listener is mid-dispatch (it
+        # holds _dispatch_lock through awaits).  Briefly taking the lock
+        # waits out that in-flight event; callers acquire hold_dispatch()
+        # afterwards, so this must never run while already holding it.
+        await self._dispatch_lock.acquire()
+        self._dispatch_lock.release()
+
+    @contextlib.asynccontextmanager
+    async def hold_dispatch(self):
+        """Serialize terminal emission against the bus listener.
+
+        reserve(seq) → awaits → append(terminal) must be atomic with respect
+        to listener dispatches: a listener event appended during the persist
+        awaits gets seq > terminal-seq but reaches readers first, and they
+        silently drop the out-of-order terminal frame.
+        """
+        await self._dispatch_lock.acquire()
+        try:
+            yield
+        finally:
+            self._dispatch_lock.release()
 
     async def _event_bus_listener(self, subscription: EventSubscription) -> None:
         """Background task: read AgentEvents and dispatch to handlers."""
