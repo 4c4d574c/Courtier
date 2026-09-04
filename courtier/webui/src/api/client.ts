@@ -466,6 +466,15 @@ export const api = {
     // EventSource cannot set an Authorization header, and a ?token= query
     // param would leak the JWT into browser history and server access logs.
     // Run-start has its own route/budget (/sessions stays the list read).
+    // The task rides in the URL (EventSource is GET-only): guard against
+    // proxy URL-length limits (~8KB typical) failing later with an opaque
+    // connection error.
+    const taskLength = (params.task ?? "").length + (params.fileIds ?? "").length;
+    if (taskLength > 4000) {
+      throw new Error(
+        "任务文本过长（约 4000 字符上限），请拆分后再发送",
+      );
+    }
     const url = `${API_BASE}/sessions/run${qs({
       task: params.task,
       fileId: params.fileId,
