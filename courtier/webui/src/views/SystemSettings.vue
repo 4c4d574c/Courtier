@@ -2234,7 +2234,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 /* ---- Sticky action bar ---- */
 .action-bar {
   position: sticky;
-  bottom: 20px;
+  bottom: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
