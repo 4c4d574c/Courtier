@@ -229,6 +229,12 @@ class DomainActivator:
         for skill in registry.list_enabled():
             from courtier.agent.tools.builtin.skill import SkillTool
 
+            existing = self._agent.tool_registry._tools.get(skill.name)
+            if existing is not None:
+                # Already registered (e.g. a previous activation attempt
+                # partially succeeded): skip instead of raising on the
+                # duplicate — otherwise a retry can never converge.
+                continue
             tool = SkillTool(
                 skill=skill,
                 runtime=self._agent_runtime,
@@ -244,16 +250,27 @@ class DomainActivator:
                 on_subagent_event=getattr(self._agent, "_subagent_event_callback", None)
             )
             tool.set_parent_handle(getattr(self._agent, "_subagent_root_handle", None))
-            self._agent.tool_registry.register(tool)
+            try:
+                self._agent.tool_registry.register(tool)
+            except ValueError:
+                logger.warning(
+                    "Skill tool %s already registered during activation of %s",
+                    skill.name,
+                    domain,
+                )
+                continue
             new_skills.append(skill.name)
 
         # Overlay the domain's activation payload (workflow rules) onto the
-        # rules section.  Rendered from the domain's own bundle so a missing
-        # key falls back to core defaults / FALLBACK_TEMPLATES.
-        rules_engine = PromptEngine(pkg.prompt_bundle)
-        overlay = rules_engine.render("orchestrator.workflow_rules")
-        if overlay:
-            self._agent._prompt_pipeline.set_rules(overlay)
+        # rules section.  Rendered from the domain's own bundle; domains
+        # without the template must stay silent — PromptEngine.render would
+        # otherwise fall back to the English FALLBACK_TEMPLATES and inject
+        # boilerplate rules into the system prompt.
+        if "orchestrator.workflow_rules" in (pkg.prompt_bundle.templates or {}):
+            rules_engine = PromptEngine(pkg.prompt_bundle)
+            overlay = rules_engine.render("orchestrator.workflow_rules")
+            if overlay:
+                self._agent._prompt_pipeline.set_rules(overlay, owner=f"domain:{domain}")
             # The run's system message is materialized once per run(); flag
             # the mutation so the loop refreshes messages[0] on the next
             # turn — otherwise mid-run activations stay invisible until the

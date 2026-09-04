@@ -251,8 +251,9 @@ async function loadList(reset = false) {
     );
     total.value = data.total;
     items.value = reset ? data.items : [...items.value, ...data.items];
-  } catch {
-    if (reset) items.value = [];
+  } catch (e: unknown) {
+    listMsg.value = e instanceof Error ? e.message : "加载失败，请稍后重试";
+    if (!reset) items.value = [];
   } finally {
     loading.value = false;
   }

@@ -237,6 +237,9 @@ async function changeRole(u: AdminUser, role: AdminUser["role"]) {
     actionMsg.text = `已将 ${u.username} 的角色改为${role === "admin" ? "管理员" : "普通用户"}`;
     actionMsg.ok = true;
   } catch (e: unknown) {
+    // The select already shows the optimistic value; refetch so the list
+    // reflects the real server state instead of silently disagreeing.
+    void fetchUsers();
     reportError(e, "修改角色失败");
   }
 }
@@ -248,6 +251,7 @@ async function changeStatus(u: AdminUser, status: AdminUser["status"]) {
     actionMsg.text = `已将 ${u.username} 的状态改为${statusLabel(status)}`;
     actionMsg.ok = true;
   } catch (e: unknown) {
+    void fetchUsers();
     reportError(e, "修改状态失败");
   }
 }

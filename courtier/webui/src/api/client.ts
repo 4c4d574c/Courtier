@@ -63,8 +63,11 @@ function refreshAccessToken(): Promise<RefreshDetail | null> {
           return data;
         }
         return null;
-      } catch {
-        // Refresh failed — caller handles 401
+      } catch (err) {
+        // Network-level failure: rethrow so callers can distinguish
+        // "definitely not logged in" (null) from "try again later".
+        // HTTP non-2xx above already returns null.
+        if (err instanceof TypeError) throw err;
         return null;
       }
     })().finally(() => {
@@ -92,15 +95,19 @@ async function authFetch(
 
     // Auto-refresh on 401
     if (res.status === 401 && !url.includes("/auth/refresh")) {
-      if (await refreshAccessToken()) {
-        // Retry original request
-        const newHeaders = getAuthHeaders();
-        res = await fetch(url, {
-          ...init,
-          headers: { ...init.headers, ...newHeaders },
-          credentials: "include",
-          signal: controller.signal,
-        });
+      try {
+        if (await refreshAccessToken()) {
+          // Retry original request
+          const newHeaders = getAuthHeaders();
+          res = await fetch(url, {
+            ...init,
+            headers: { ...init.headers, ...newHeaders },
+            credentials: "include",
+            signal: controller.signal,
+          });
+        }
+      } catch {
+        // Refresh itself hit the network wall — surface the original 401.
       }
     }
     return res;

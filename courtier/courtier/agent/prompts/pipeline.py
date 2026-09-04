@@ -153,9 +153,23 @@ class PromptPipeline:
             lines.append(f"- 模型: {env['model']}")
         self._environment_block = "\n".join(lines)
 
-    def set_rules(self, rules: str) -> None:
-        """Section 3: Additional rules / strategy appended after context instructions."""
-        self._rules_block = self._validate_section_length(f"# 规则与策略\n{rules}", "rules")
+    def set_rules(self, rules: str, *, owner: str = "core") -> None:
+        """Section 3: Additional rules / strategy appended after context
+        instructions.
+
+        Rules accumulate per *owner* (one section per activating domain):
+        a wholesale replacement made multi-domain activation silently drop
+        every earlier domain's rules.
+        """
+        if not hasattr(self, "_rule_owners"):
+            self._rule_owners: dict[str, str] = {}
+        self._rule_owners[owner] = rules
+        combined = "\n\n".join(
+            self._validate_section_length(f"# 规则与策略\n{text}", "rules")
+            for text in self._rule_owners.values()
+            if text
+        )
+        self._rules_block = combined
 
     # -- Build ----------------------------------------------------------------
 

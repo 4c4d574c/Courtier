@@ -14,11 +14,28 @@ import {
  *  continues the live run's id counter so replayed events mint ids that cannot
  *  collide with the tools the snapshot restored. */
 function maxSnapshotToolId(steps: Step[]): number {
+  // The id counter is global across top-level tools AND nested subagent
+  // trees — a late subagent tool result can mint an id greater than every
+  // top-level tool's, so scanning only step.tools lets replayed events
+  // collide with restored nodes.
   let max = 0;
+  const scanTool = (tool: { id?: string }) => {
+    const n = Number(/^tool-(\d+)$/.exec(tool.id ?? "")?.[1] ?? 0);
+    if (n > max) max = n;
+  };
+  const scanNode = (node: {
+    id?: string;
+    tools?: Array<{ id?: string }>;
+    children?: unknown[];
+  }) => {
+    scanTool(node);
+    for (const child of node.children ?? []) scanNode(child as never);
+  };
   for (const step of steps) {
     for (const tool of step.tools ?? []) {
-      const n = Number(/^tool-(\d+)$/.exec(tool.id ?? "")?.[1] ?? 0);
-      if (n > max) max = n;
+      scanTool(tool);
+      const node = tool as { subagents?: unknown[] };
+      for (const sub of node.subagents ?? []) scanNode(sub as never);
     }
   }
   return max;
@@ -278,6 +295,7 @@ export function useAgentSession() {
     state.currentTurnIndex++;
     state.currentStepIndex = 0;
     state.observedSinceLastStep = false;
+    session.refusalNotice = undefined;
     state.currentThoughtTurn = 0;
     state.segmentIndex = 0;
     state.currentSegmentType = "observe";
@@ -539,7 +557,7 @@ export function useAgentSession() {
   ) {
     const sid = session.id;
     if (!sid) return;
-    const backup = session.pendingConfirmations;
+    const backup = session.pendingConfirmations ?? [];
     session.pendingConfirmations = (session.pendingConfirmations ?? []).filter(
       (c) => c.confirmationId !== confirmationId,
     );
@@ -551,7 +569,14 @@ export function useAgentSession() {
       // "already resolved" answer means the card is correctly gone.
       const msg = err instanceof Error ? err.message : String(err);
       if (session.id === sid && !/already/i.test(msg)) {
-        session.pendingConfirmations = backup;
+        // Merge instead of overwrite: cards that arrived while the request
+        // was in flight must survive the rollback of this one card.
+        const current = session.pendingConfirmations ?? [];
+        const currentIds = new Set(current.map((c) => c.confirmationId));
+        session.pendingConfirmations = [
+          ...current,
+          ...backup.filter((c) => !currentIds.has(c.confirmationId)),
+        ];
         session.errorMessage = msg;
       }
     }
@@ -572,6 +597,9 @@ export function useAgentSession() {
     if (gen !== connectGeneration || session.id !== stoppedSessionId) return;
     session.status = "completed";
     session.stopReason = "user";
+    // The SSE `stopped` frame races this POST and disconnect() may swallow
+    // it — settle running tool cards locally (idempotent if it did arrive).
+    finalizeRunningOperations(session, "cancelled", "error", "用户已停止");
     disconnect();
   }
 

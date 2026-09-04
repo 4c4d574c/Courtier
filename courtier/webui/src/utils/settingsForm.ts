@@ -101,6 +101,10 @@ export function buildUpdateBody(
         break;
       }
       case "int": {
+        if (String(raw ?? "").trim() === "") {
+          errors[field.name] = "不能为空";
+          break;
+        }
         const parsed = Number(raw);
         if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
           errors[field.name] = "必须是整数";
@@ -110,6 +114,10 @@ export function buildUpdateBody(
         break;
       }
       case "float": {
+        if (String(raw ?? "").trim() === "") {
+          errors[field.name] = "不能为空";
+          break;
+        }
         const parsed = Number(raw);
         if (!Number.isFinite(parsed)) {
           errors[field.name] = "必须是数字";

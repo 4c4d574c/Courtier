@@ -48,16 +48,22 @@ export function useAuth() {
 
   async function initAuth(): Promise<void> {
     if (state.initialized) return;
-    state.initialized = true;
     try {
       const resp = await api.refreshToken();
+      // A definitive "not logged in" (refresh rejected) settles the state;
+      // a network-level failure must not permanently log the tab out.
+      state.initialized = true;
       if (resp) {
         setApiToken(resp.token);
         state.user = resp.user;
         scheduleRefresh(resp.expires_in);
+      } else {
+        setApiToken(null);
+        state.user = null;
       }
     } catch (err) {
-      // Not logged in or network error — stay on guest page.
+      // Transient failure: leave initialized=false so the next navigation
+      // retries instead of bouncing the user to /login all session.
       console.warn("initAuth failed:", err);
     }
   }
