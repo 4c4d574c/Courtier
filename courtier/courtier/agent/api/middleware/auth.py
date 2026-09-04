@@ -194,6 +194,11 @@ async def rotate_refresh_token(old_hash: str, session) -> tuple[str, datetime, i
             .where(RefreshTokenTable.user_id == stored.user_id)
             .values(revoked=True)
         )
+        # The route answers 401 (an HTTPException), which rolls this
+        # session back — commit the family revocation first or the
+        # reuse-detection write is silently lost and the stolen token
+        # stays usable.
+        await session.commit()
         return None
 
     stored.revoked = True
