@@ -1,4 +1,4 @@
-"""Domain-contributed guardrails: declaration, loading, owner registration."""
+"""Domain-contributed guardrails: declaration, loading, registration."""
 
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ class TestLoadDomainGuard:
             load_domain_guard("courtier.agent.testing.BadLayerDomainGuard")
 
 
-class TestOwnerRegistration:
-    def test_register_and_unregister_by_owner(self):
+class TestDomainGuardRegistration:
+    def test_register_reports_names_and_populates_system(self):
         system = GuardrailSystem()
         registered = register_domain_guards(
             system,
@@ -46,8 +46,6 @@ class TestOwnerRegistration:
         )
         assert registered == ["dummy_domain_guard"]
         assert [g.name for g in system.guardrails] == ["dummy_domain_guard"]
-        assert system.unregister_owner("domain:dummy") == ["dummy_domain_guard"]
-        assert system.guardrails == []
 
     def test_failing_declaration_skipped_not_fatal(self):
         system = GuardrailSystem()
@@ -57,23 +55,6 @@ class TestOwnerRegistration:
             owner="domain:dummy",
         )
         assert registered == ["dummy_domain_guard"]
-
-    def test_unregister_owner_keeps_other_guards(self):
-        class _Other:
-            name = "other"
-            layer = "post_tool"
-
-            async def check(self, context):
-                from courtier.agent.core.guardrails import GuardResult
-
-                return GuardResult.allow(self.name)
-
-        system = GuardrailSystem()
-        other = _Other()
-        system.register(other)
-        register_domain_guards(system, ["courtier.agent.testing.DummyDomainGuard"], owner="domain:x")
-        system.unregister_owner("domain:x")
-        assert system.guardrails == [other]
 
 
 def test_domain_config_accepts_guards():

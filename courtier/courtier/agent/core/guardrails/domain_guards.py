@@ -2,10 +2,11 @@
 
 A domain package may declare in-process guardrails in its domain.yaml
 (``guards: ["<module>.<Class>", ...]``). Guards are loaded at activation
-time, registered into the session GuardrailSystem under the owner tag
-``domain:<name>``, and never touch the network or the filesystem at check
-time — guards participating in the ``tool_call`` layer must be pure
-in-memory decisions (see guardrails/base module docstring).
+time and registered into the session GuardrailSystem; the owning domain is
+recorded in the registration log line only. Guards never touch the network
+or the filesystem at check time — guards participating in the ``tool_call``
+layer must be pure in-memory decisions (see guardrails/base module
+docstring).
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ def register_domain_guards(
     *,
     owner: str,
 ) -> list[str]:
-    """Load and register each declared guard under *owner*.
+    """Load and register each declared guard; *owner* names the domain in logs.
 
     A failing declaration is logged and skipped — a broken domain guard
     must not fail the domain's activation. Returns registered guard names.
@@ -70,7 +71,7 @@ def register_domain_guards(
         except GuardLoadError:
             logger.warning("Skipping domain guard: %s", class_path, exc_info=True)
             continue
-        system.register(guard, owner=owner)
+        system.register(guard)
         registered.append(getattr(guard, "name"))
     if registered:
         logger.info("Registered domain guards %s (owner=%s)", registered, owner)

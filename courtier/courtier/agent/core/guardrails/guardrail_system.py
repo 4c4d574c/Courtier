@@ -90,43 +90,18 @@ class GuardrailSystem:
     _agent_name: str = ""
     _session_id: str = ""
     _context_metadata: dict[str, Any] = field(default_factory=dict)
-    #: id(guard) -> owner tag (domain:<name> for domain-contributed guards).
-    _owners: dict[int, str] = field(default_factory=dict)
 
-    def register(
-        self,
-        guardrail: Guardrail,
-        *,
-        owner: str | None = None,
-    ) -> None:
+    def register(self, guardrail: Guardrail) -> None:
         """Add a guardrail to the system.
 
         Stateful per-run guards are registered as fresh instances and
         removed again via :meth:`unregister` (see ``agent_loop``).
-        ``owner`` tags the registration for symmetric removal via
-        :meth:`unregister_owner` (domain guards).
         """
         self.guardrails.append(guardrail)
-        if owner is not None:
-            self._owners[id(guardrail)] = owner
 
     def unregister(self, guardrail: Guardrail) -> None:
         """Remove a previously registered guardrail (idempotent)."""
         self.guardrails = [g for g in self.guardrails if g is not guardrail]
-        self._owners.pop(id(guardrail), None)
-
-    def unregister_owner(self, owner: str) -> list[str]:
-        """Remove every guard registered under *owner*; returns removed names."""
-        removed: list[str] = []
-        kept: list[Guardrail] = []
-        for guard in self.guardrails:
-            if self._owners.get(id(guard)) == owner:
-                removed.append(getattr(guard, "name", "?"))
-                self._owners.pop(id(guard), None)
-            else:
-                kept.append(guard)
-        self.guardrails = kept
-        return removed
 
     # ------------------------------------------------------------------
     # Pipeline: interceptors / observers / session context
