@@ -69,6 +69,22 @@ const routes: RouteRecordRaw[] = [
         component: () => import("../views/ResourceLibraryView.vue"),
         meta: { requiresAdmin: false },
       },
+      {
+        // Layered memory: global shared layer (read-only for non-admins)
+        // and the per-user layer — same shell, every signed-in user.
+        path: "memory",
+        name: "AdminMemory",
+        component: () => import("../views/MemoryManageView.vue"),
+        props: { scope: "global" },
+        meta: { requiresAdmin: false },
+      },
+      {
+        path: "my-memory",
+        name: "AdminMyMemory",
+        component: () => import("../views/MemoryManageView.vue"),
+        props: { scope: "mine" },
+        meta: { requiresAdmin: false },
+      },
       { path: "", redirect: "/admin/users" },
     ],
   },

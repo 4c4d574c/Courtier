@@ -568,6 +568,63 @@ export const api = {
     await request("DELETE", `/resources/${id}`);
   },
 
+  // ---- Memory (layered DB-backed memory) ----
+  async listMemory(scope: "global" | "mine", domain = "", query = ""): Promise<MemoryEntry[]> {
+    const res = await authFetch(
+      `${API_BASE}/memory/${scope}${qs({ domain: domain || undefined, query: query || undefined })}`,
+    );
+    if (!res.ok) throw await parseErrorDetail(res, "GET /memory failed");
+    return res.json();
+  },
+
+  async upsertMemory(
+    scope: "global" | "mine",
+    body: { title: string; content: string; domain?: string },
+  ): Promise<MemoryEntry> {
+    const res = await authFetch(`${API_BASE}/memory/${scope}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /memory failed");
+    return res.json();
+  },
+
+  async updateMemory(
+    scope: "global" | "mine",
+    id: number,
+    body: { title?: string; content?: string; domain?: string },
+  ): Promise<MemoryEntry> {
+    const res = await authFetch(`${API_BASE}/memory/${scope}/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "PATCH /memory failed");
+    return res.json();
+  },
+
+  async deleteMemory(scope: "global" | "mine", id: number): Promise<void> {
+    await request("DELETE", `/memory/${scope}/${id}`);
+  },
+
+  async clearMemory(scope: "global" | "mine"): Promise<{ cleared: number }> {
+    const res = await request("DELETE", `/memory/${scope}`);
+    return res.json();
+  },
+
+  async listMemoryDomains(): Promise<{ domains: string[] }> {
+    const res = await authFetch(`${API_BASE}/memory/domains`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /memory/domains failed");
+    return res.json();
+  },
+
+  async listMemoryChanges(): Promise<MemoryChange[]> {
+    const res = await authFetch(`${API_BASE}/admin/memory/changes`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/memory/changes failed");
+    return res.json();
+  },
+
   // ---- Admin: extension management (plugins & skills) ----
   async getSettings(): Promise<SettingsView> {
     const res = await authFetch(`${API_BASE}/admin/settings`);
@@ -771,6 +828,33 @@ export interface SkillInfo {
 
 export interface SkillDetail extends SkillInfo {
   systemPrompt: string;
+}
+
+export interface MemoryEntry {
+  id: number;
+  layer: "global" | "user";
+  ownerId: number;
+  domain: string;
+  title: string;
+  content: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryChange {
+  id: number;
+  entryId: number;
+  action: "create" | "update" | "delete";
+  layer: "global" | "user";
+  ownerId: number;
+  domain: string;
+  title: string;
+  oldHash: string | null;
+  newHash: string | null;
+  actor: string;
+  createdAt: string;
 }
 
 export interface ResourceSummary {
