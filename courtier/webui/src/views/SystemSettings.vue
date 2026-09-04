@@ -1486,6 +1486,9 @@ function syncPoolRows() {
 function writePool() {
   const state = formState["model"];
   if (state) state[POOL_FIELD] = serializePool(poolRows.value, poolDefault.value);
+  // Test results describe the row as it was tested — an edit invalidates
+  // them (a stale "连通" badge next to a changed URL is worse than none).
+  for (const key of Object.keys(poolTest)) delete poolTest[key];
 }
 
 /** Key edits don't touch the pool JSON — mirror them into formState so
