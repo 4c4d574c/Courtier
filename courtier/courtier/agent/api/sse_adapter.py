@@ -273,6 +273,11 @@ class RunRecorder:
         """Background task: read AgentEvents and dispatch to handlers."""
         try:
             async for event in subscription:
+                # Pause waits happen OUTSIDE the dispatch lock: the lock is
+                # also what terminal emission needs, and a self-spin while
+                # holding it would block complete/stopped forever until
+                # /api/resume.
+                await self._check_pause()
                 # Per-event isolation: a single poisoned event (e.g. a
                 # handler crashing on malformed payload) must not kill the
                 # listener — that would silently drop every remaining event
@@ -307,7 +312,6 @@ class RunRecorder:
             elif to == "act":
                 # Act events carry a structured tools list alongside the
                 # legacy "executing: ..." reason string.
-                await self._check_pause()
                 act_payload: dict[str, Any] = {"type": "act", "detail": reason}
                 if payload.get("tools"):
                     act_payload["tools"] = payload["tools"]
@@ -455,15 +459,10 @@ class RunRecorder:
                     "totalSteps": payload.get("total_steps"),
                 }
             )
-        elif event_type == "subagent.event":
-            sub_event = payload.get("event")
-            if sub_event is not None:
-                await self.on_subagent_event(sub_event)
 
     # -- Callbacks ------------------------------------------------------------
 
     async def on_step(self, event: str, detail: str) -> None:
-        await self._check_pause()
 
         if event == "think":
             await self._handle_think(detail)
@@ -480,7 +479,6 @@ class RunRecorder:
         # "stream" / "parse" events are internal, not sent to frontend
 
     async def on_token(self, token: str) -> None:
-        await self._check_pause()
 
         self._thought_counter += 1
         turn_index = await self._resolve_turn_index()
@@ -513,13 +511,11 @@ class RunRecorder:
         await self._emit_sse({"type": "token", "text": token}, seq=seq)
 
     async def on_content_token(self, token: str) -> None:
-        await self._check_pause()
         self._verdict_parts.append(token)
         self._final_verdict_parts.append(token)
         await self._emit_sse({"type": "conclusion_token", "text": token})
 
     async def on_tool_start(self, tool_name: str, tool_call_id: str | None = None) -> None:
-        await self._check_pause()
         # Key durations by call id when available — parallel same-name
         # calls would otherwise overwrite each other's start time.
         self._tool_start_times[tool_call_id or tool_name] = _time.time()
@@ -529,7 +525,6 @@ class RunRecorder:
         await self._emit_sse(sse)
 
     async def on_tool_progress(self, tool_name: str, progress: ToolProgress) -> None:
-        await self._check_pause()
         await self._emit_sse(
             {
                 "type": "tool_progress",
@@ -545,7 +540,6 @@ class RunRecorder:
         summary: str,
         tool_call_id: str | None = None,
     ) -> None:
-        await self._check_pause()
 
         self._segment_index += 1
         self._segment_type = "tool_result"
@@ -657,13 +651,14 @@ class RunRecorder:
         finalized with its segment boundary at observe).
 
         Runs under the dispatch lock — sub-agent events arrive via a direct
-        callback that may interleave with the bus listener.
+        callback that may interleave with the bus listener.  The pause wait
+        happens before the lock (same reason as the bus listener loop).
         """
+        await self._check_pause()
         async with self._dispatch_lock:
             await self._on_subagent_event_locked(event)
 
     async def _on_subagent_event_locked(self, event: Any) -> None:
-        await self._check_pause()
 
         # Import here to avoid circular dependency
         from ..agents.subagent.events import SubAgentStreamEvent

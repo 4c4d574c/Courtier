@@ -593,27 +593,46 @@ class TestRunRecorder:
         assert session.tokens_out == 80
 
     @pytest.mark.asyncio
-    async def test_pause_resume(self, store):
+    async def test_pause_resume_gates_the_listener(self, store):
+        """Pause gates event dispatch at the listener boundary — and crucially
+        does NOT self-spin while holding the dispatch lock (that lock is what
+        terminal emission needs; a lock-held spin would deadlock completion
+        until /api/resume)."""
+        from courtier.agent.core.event_bus import EventBus
+        from courtier.agent.core.events import AgentEvent
+
         await store.create("sess_7e57e57e57e5", "task", "file_test1234")
         log_q = RunEventLog()
         pause = asyncio.Event()
         pause.set()  # start paused
         adapter = RunRecorder(log_q, store, "sess_7e57e57e57e5", pause_event=pause)
 
-        # Start on_step in background (will block on pause)
-        task = asyncio.create_task(adapter.on_step("think", "text_response"))
+        bus = EventBus()
+        adapter.start_listening(bus)
+        try:
+            await bus.publish(
+                AgentEvent(
+                    type="think.text_response",
+                    session_id="sess_7e57e57e57e5",
+                    agent_name="agent",
+                    turn_index=0,
+                    payload={},
+                )
+            )
+            await asyncio.sleep(0.1)
+            # While paused: the event is not dispatched (no SSE output yet).
+            assert log_q.replay_after(-1) == []
 
-        # Give it time to hit the pause check
-        # NOTE: This sleep-based synchronization may be fragile on slow CI runners.
-        # A proper event-based wait (e.g. wait until the task has entered the pause
-        # block via an internal sentinel) would be more robust.
-        await asyncio.sleep(0.1)
-        assert not task.done()  # should still be waiting
-
-        # Resume
-        pause.clear()
-        await asyncio.sleep(0.1)
-        assert task.done()  # should have completed
+            # Resume: the queued event flows through (the listener already
+            # holds it, so poll the log rather than drain_pending — the
+            # queue is empty while the event waits out the pause).
+            pause.clear()
+            deadline = asyncio.get_running_loop().time() + 2.0
+            while not log_q.replay_after(-1) and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.02)
+            assert log_q.replay_after(-1), "event must dispatch after resume"
+        finally:
+            adapter.stop_listening()
 
     @pytest.mark.asyncio
     async def test_build_detail_data_string(self):
