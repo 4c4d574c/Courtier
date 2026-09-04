@@ -26,6 +26,7 @@ from .base import CallGuardResult, GuardLayer
 
 if TYPE_CHECKING:
     from ..tool_call import ToolCall
+    from .registry import GuardSessionContext
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def declare_path_policy_tools(
         if not name:
             continue
         if name in overrides:
-            value = overrides[name]        # 管理后台逐工具覆盖
+            value = overrides[name]  # 管理后台逐工具覆盖
             if value is False:
                 # 显式豁免名片：遮蔽类内声明与老名单基线
                 registry.register(
@@ -72,9 +73,9 @@ def declare_path_policy_tools(
                 declared.append(name)
                 continue
             if isinstance(value, (list, tuple)):
-                value = {"path": list(value)}   # 列表形式归一
+                value = {"path": list(value)}  # 列表形式归一
         else:
-            value = getattr(tool, "path_policy", None)   # 代码内声明
+            value = getattr(tool, "path_policy", None)  # 代码内声明
         if value is None or value is False:
             continue
         if isinstance(value, dict) and "path" not in value:
@@ -83,8 +84,7 @@ def declare_path_policy_tools(
             value = {"path": []}
         if not (isinstance(value, dict) and "path" in value):
             raise ValueError(
-                f"工具 {name} 的 path_policy 声明必须是 "
-                f'{{"path": [路径, ...]}}: {value!r}'
+                f"工具 {name} 的 path_policy 声明必须是 " f'{{"path": [路径, ...]}}: {value!r}'
             )
         paths = [os.path.expanduser(str(p)) for p in value["path"]]
         registry.register(
@@ -106,6 +106,11 @@ class ToolDisabledGuard:
 
     def __init__(self, blocked: Sequence[str] = ()) -> None:
         self._blocked = frozenset(blocked)
+
+    @classmethod
+    def build(cls, ctx: "GuardSessionContext") -> "ToolDisabledGuard":
+        """Declarative entry: deny list comes from settings.tools_disabled."""
+        return cls(blocked=getattr(ctx.settings, "tools_disabled", None) or ())
 
     async def check_call(self, call: "ToolCall", context: Any) -> CallGuardResult:
         if call.name in self._blocked:
@@ -143,9 +148,16 @@ class PathPolicyGuard:
         self._path_tools = frozenset(path_policy_tools)
         self._capabilities = capability_registry
         self._roots = (
-            [Path(root).expanduser().resolve() for root in allowed_roots]
-            if allowed_roots
-            else []
+            [Path(root).expanduser().resolve() for root in allowed_roots] if allowed_roots else []
+        )
+
+    @classmethod
+    def build(cls, ctx: "GuardSessionContext") -> "PathPolicyGuard":
+        """Declarative entry: the session workspace is the sole managed root;
+        the capability registry carries the per-tool self-declarations."""
+        return cls(
+            allowed_roots=[ctx.session_workspace],
+            capability_registry=ctx.capability_registry,
         )
 
     def _managed_roots(self, tool_name: str) -> list[str] | None:
@@ -157,13 +169,10 @@ class PathPolicyGuard:
                 if isinstance(permission, dict):
                     declaration = permission.get("path_policy")
                     if declaration is False:
-                        return None                 # 显式豁免 → 不受管
+                        return None  # 显式豁免 → 不受管
                     if isinstance(declaration, dict) and "path" in declaration:
-                        return [
-                            os.path.expanduser(str(p))
-                            for p in declaration["path"]
-                        ]
-                    return []                       # 声明不完整 → fail-closed
+                        return [os.path.expanduser(str(p)) for p in declaration["path"]]
+                    return []  # 声明不完整 → fail-closed
         if tool_name in self._path_tools:
             return [str(root) for root in self._roots]
         return None
@@ -173,16 +182,12 @@ class PathPolicyGuard:
         # roots is None = 未受管 → 放行；roots == [] = fail-closed → 全拒。
         if not self._roots or roots is None:
             return CallGuardResult.allow(self.name)
-        denial = self._check_path(
-            call.name, (call.arguments or {}).get("path"), roots
-        )
+        denial = self._check_path(call.name, (call.arguments or {}).get("path"), roots)
         if denial is None:
             return CallGuardResult.allow(self.name)
         return CallGuardResult.deny(self.name, denial)
 
-    def _check_path(
-        self, tool_name: str, path: object, roots: list[str]
-    ) -> str | None:
+    def _check_path(self, tool_name: str, path: object, roots: list[str]) -> str | None:
         if path is None:
             # Absent path → the tool's own "必须提供 path" error is clearer.
             return None

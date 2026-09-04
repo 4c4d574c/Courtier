@@ -78,6 +78,37 @@ class TestConfirmationGuard:
         after = await guard.check_call(ToolCall(id="1", name="deploy", arguments={}), None)
         assert after.action == "allow"
 
+    def test_build_wires_rules_and_live_approved_set(self, tmp_path):
+        from types import SimpleNamespace
+
+        from courtier.agent.core.guardrails.registry import GuardSessionContext
+
+        approved: set[str] = set()
+        settings = SimpleNamespace(tool_confirmation=[_rule("deploy", "确认部署？")])
+        ctx = GuardSessionContext(
+            session_workspace=tmp_path, approved_tools=approved, settings=settings
+        )
+        guard = CG.build(ctx)
+        assert guard._rules == {"deploy": "确认部署？"}
+        assert guard.approved_tools is approved  # live set, not a copy
+
+    @pytest.mark.asyncio
+    async def test_empty_rules_inert_equivalent_to_unregistered(self, tmp_path):
+        """Declarative wiring registers the guard unconditionally; with no
+        rules it must behave exactly like the old conditional (no-op)."""
+        from types import SimpleNamespace
+
+        from courtier.agent.core.guardrails.registry import GuardSessionContext
+
+        ctx = GuardSessionContext(
+            session_workspace=tmp_path,
+            approved_tools=set(),
+            settings=SimpleNamespace(tool_confirmation=[]),
+        )
+        guard = CG.build(ctx)
+        result = await guard.check_call(ToolCall(id="1", name="deploy", arguments={}), None)
+        assert result.action == "allow"
+
 
 def _call() -> ToolCall:
     return ToolCall(id="c1", name="deploy", arguments={})
@@ -138,9 +169,9 @@ class TestToolPhaseConfirmBranch:
 
 class TestRunManagerBridge:
     def _manager_with_run(self):
+        from courtier.agent.api.services.run_event_log import RunEventLog
         from courtier.agent.api.services.run_manager import AgentRun, RunManager
         from courtier.agent.core.event_bus import EventBus
-        from courtier.agent.api.services.run_event_log import RunEventLog
 
         store = SimpleNamespace()
         settings = SimpleNamespace(

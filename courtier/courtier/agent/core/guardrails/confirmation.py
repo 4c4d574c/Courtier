@@ -17,6 +17,7 @@ from .base import CallGuardResult, GuardLayer
 
 if TYPE_CHECKING:
     from ..tool_call import ToolCall
+    from .registry import GuardSessionContext
 
 
 class ConfirmationGuard:
@@ -31,10 +32,18 @@ class ConfirmationGuard:
         approved_tools: set[str] | None = None,
     ) -> None:
         # rules: objects with .tool / .message (Settings.tool_confirmation).
-        self._rules: dict[str, str] = {
-            rule.tool: (rule.message or "") for rule in rules or []
-        }
+        self._rules: dict[str, str] = {rule.tool: (rule.message or "") for rule in rules or []}
         self.approved_tools = approved_tools if approved_tools is not None else set()
+
+    @classmethod
+    def build(cls, ctx: "GuardSessionContext") -> "ConfirmationGuard":
+        """Declarative entry: rules come from settings.tool_confirmation;
+        ``approved_tools`` must be the live session set so mid-run approvals
+        land here without a rebuild."""
+        return cls(
+            rules=getattr(ctx.settings, "tool_confirmation", None) or (),
+            approved_tools=ctx.approved_tools,
+        )
 
     def rule_for(self, tool_name: str) -> str | None:
         """Return the confirmation message for *tool_name*, if listed."""

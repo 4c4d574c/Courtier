@@ -7,6 +7,7 @@ regression contract and asserted verbatim here.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -53,13 +54,62 @@ class TestToolDisabledGuard:
         assert (await guard.check_call(_call("echo"), _ctx())).action == "allow"
 
 
+class TestGuardFactories:
+    """Declarative build() entries — session dependencies wired from ctx."""
+
+    @staticmethod
+    def _session_ctx(tmp_path, settings=None, **kwargs):
+        from courtier.agent.core.guardrails.registry import GuardSessionContext
+
+        return GuardSessionContext(session_workspace=tmp_path / "sess", settings=settings, **kwargs)
+
+    def test_tool_disabled_build_reads_settings_list(self, tmp_path):
+        settings = SimpleNamespace(tools_disabled=["deploy", "drop_table"])
+        guard = ToolDisabledGuard.build(self._session_ctx(tmp_path, settings))
+        assert guard._blocked == frozenset({"deploy", "drop_table"})
+
+    def test_tool_disabled_build_defaults_to_empty(self, tmp_path):
+        guard = ToolDisabledGuard.build(self._session_ctx(tmp_path, None))
+        assert guard._blocked == frozenset()
+
+    def test_path_policy_build_wires_workspace_and_capabilities(self, tmp_path):
+        registry = SimpleNamespace()
+        guard = PathPolicyGuard.build(
+            self._session_ctx(tmp_path, None, capability_registry=registry)
+        )
+        assert guard._roots == [(tmp_path / "sess").resolve()]
+        assert guard._capabilities is registry
+
+    def test_factories_pass_declaration_check(self):
+        from courtier.agent.core.guardrails.registry import check_guard_declaration
+
+        assert (
+            check_guard_declaration(
+                "courtier.agent.core.guardrails.permission_guards.ToolDisabledGuard"
+            )
+            == "tool_disabled"
+        )
+        assert (
+            check_guard_declaration(
+                "courtier.agent.core.guardrails.permission_guards.PathPolicyGuard"
+            )
+            == "path_policy"
+        )
+        assert (
+            check_guard_declaration("courtier.agent.core.guardrails.confirmation.ConfirmationGuard")
+            == "tool_confirmation"
+        )
+
+
 class TestPathPolicy:
     @pytest.mark.asyncio
     async def test_policy_inactive_without_roots(self, tmp_path):
         """默认门（无根）参数级不激活——保持既有 allow-all 行为。"""
         guard = PathPolicyGuard()
         outside = str(tmp_path.parent / "elsewhere" / "x.md")
-        assert (await guard.check_call(_call("write", path=outside, content="x"), _ctx())).action == "allow"
+        assert (
+            await guard.check_call(_call("write", path=outside, content="x"), _ctx())
+        ).action == "allow"
 
     @pytest.mark.asyncio
     async def test_path_inside_root_allowed(self, roots):
@@ -179,26 +229,18 @@ class TestCapabilityDeclaredPolicy:
     @pytest.mark.asyncio
     async def test_declared_paths_are_the_whole_truth(self, roots):
         allowlist, _, _ = roots
-        guard = PathPolicyGuard(
-            allowed_roots=allowlist, capability_registry=self._registry()
-        )
+        guard = PathPolicyGuard(allowed_roots=allowlist, capability_registry=self._registry())
         # 声明根内放行（即使不在会话根内——声明即全部）
-        allowed = await guard.check_call(
-            _call("archive_dump", path="/srv/dumps/out.txt"), _ctx()
-        )
+        allowed = await guard.check_call(_call("archive_dump", path="/srv/dumps/out.txt"), _ctx())
         assert allowed.action == "allow"
         # 声明根外拒绝（包括会话根——不再有隐式默认）
-        elsewhere = await guard.check_call(
-            _call("archive_dump", path="/etc/passwd"), _ctx()
-        )
+        elsewhere = await guard.check_call(_call("archive_dump", path="/etc/passwd"), _ctx())
         assert elsewhere.action == "deny"
 
     @pytest.mark.asyncio
     async def test_declared_opt_out_overrides_default_list(self, roots):
         allowlist, _, _ = roots
-        guard = PathPolicyGuard(
-            allowed_roots=allowlist, capability_registry=self._registry()
-        )
+        guard = PathPolicyGuard(allowed_roots=allowlist, capability_registry=self._registry())
         # read 显式豁免 → 即使在白名单根内也不再受路径检查管（放行）
         result = await guard.check_call(_call("read", path="/etc/passwd"), _ctx())
         assert result.action == "allow"
@@ -216,12 +258,11 @@ class TestCapabilityDeclaredPolicy:
             )
         )
         allowlist, _, _ = roots
-        guard = PathPolicyGuard(
-            allowed_roots=allowlist, capability_registry=registry
-        )
+        guard = PathPolicyGuard(allowed_roots=allowlist, capability_registry=registry)
         result = await guard.check_call(_call("weird", path="/tmp/x"), _ctx())
         # 看不懂/不完整的声明 fail-closed：空根清单拒绝一切
         assert result.action == "deny"
+
 
 class TestPerToolRoots:
     """自定义工具以 {"path": [...]} 声明自己的管辖根；未声明走老名单基线。"""
@@ -265,7 +306,7 @@ class TestPerToolRoots:
     async def test_false_declaration_exempts(self):
         registry = self._registry(False)
         result = await self._check(registry, "export_report", "/etc/passwd")
-        assert result.action == "allow"   # 不受管
+        assert result.action == "allow"  # 不受管
 
     @pytest.mark.asyncio
     async def test_undeclared_tool_uses_legacy_baseline(self):
@@ -309,9 +350,7 @@ class TestSettingsOverrides:
 
     def test_settings_override_wins_over_class_declaration(self):
         tools = [self._tool("export_report", {"path": ["/code/default"]})]
-        registry = self._registry(
-            tools, {"export_report": ["/srv/reports"]}
-        )
+        registry = self._registry(tools, {"export_report": ["/srv/reports"]})
         guard = self._guard(registry)
         assert guard._managed_roots("export_report") == ["/srv/reports"]
 
