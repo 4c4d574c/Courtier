@@ -1737,10 +1737,24 @@ function deployValue(item: DeploymentField): string {
 
 /** Discard unsaved edits of the active category. */
 function abandon() {
-  resetForms(view.value);
+  // Reset only the category being viewed: formState is shared across
+  // categories and switching tabs does not persist edits, so a wholesale
+  // reset silently discarded unsaved changes made in other tabs.
+  const cat = view.value.categories.find((c) => c.key === activeCategory.value);
+  if (cat) {
+    formState[cat.key] = initFormState(cat.fields);
+    cleared[cat.key] = {};
+  }
   for (const key of Object.keys(formErrors)) delete formErrors[key];
   saveBanner.value = null;
   saveError.value = "";
+  // Re-sync structured editors from (just-reset or other-tab) form state.
+  syncEndpointRows();
+  syncToolPathRows();
+  syncConfirmRows();
+  syncGuardRows();
+  syncToolsDisabledRows();
+  syncPoolRows();
 }
 
 async function load() {
