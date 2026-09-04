@@ -59,21 +59,21 @@ CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路
 
 ### 每层模式（off / log / block / allow）
 
-每个层级有一个整体模式，在**构造 `GuardrailSystem` 时定死**——当前装配没有
-运行时开关：
+每个层级有一个整体模式，随会话构建从设置读入（管理后台 → 运行守卫与预算 →
+**分层模式**，热生效于下一次会话构建）：
 
-- `block`：裁决生效。会话系统的 `tool` / `tool_call` 固定用它（权限层必须 fail-closed）；
+- `block`：裁决生效；
 - `log`：**影子模式**——照常跑检查、只发事件不拦截。新规则先影子观察一段时间
   再切 block，是推荐的上线方式；
 - `off` / `allow`：整层跳过。
 
-装配现状：`build_agent` 的会话系统传 `tool`/`tool_call` = `block`，其余层用
-构造默认（`input`/`post_tool` = `block`，`output` = `log`）；扩展者自建
-`GuardrailSystem` 时可按层传模式参数。
+`tool_call` 权限层是个刻意的不对称：设置类型只允许 `block`/`log` 两档，没有
+off/allow 旁路——该层承载工具禁用、路径白名单、执行确认三道权限拦截，
+"关闭检查"不是它该有的选项；前端保存该层变更时还有一次二次确认。
+扩展者自建 `GuardrailSystem` 时仍可按层传模式参数。
 
-> **别找管理后台开关**：`Settings.guardrails`（`GuardrailsConfig` 的四层模式
-> 字段）目前没有任何消费者——统一管线落地前的遗留平行定义，改它不生效。
-> 要调模式只能改构造处传参（`agent_service.py` / `loop.py`）。
+> 遗留的 `agent_runtime.guardrails` 嵌套配置（迁移计划附录 C）不接管线，
+> 分层模式的唯一入口是五个 `guardrail_*_layer` 设置键。
 
 ### metadata 怎么流动（容易踩的点）
 
@@ -411,6 +411,7 @@ system.set_context(agent_name=..., session_id=...)   # 循环自动调用
 
 | 键 | 作用 |
 |----|------|
+| `guardrail_*_layer`（5 键） | 管线分层模式（§2），「分层模式」组；`tool_call` 仅限 block/log |
 | `tool_confirmation` | 确认名单（JSON `[{tool, message}]`），见 §3 与 confirmation-interaction-plan |
 | `tool_path_policies` | 按工具覆盖路径白名单（§4.5 管理后台覆盖层） |
 | `loop_*` / `subagent_*` / `run_*` / `max_runs_per_user` / `max_total_runs` | 行为护栏与运行预算阈值 |
