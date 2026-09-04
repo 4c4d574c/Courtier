@@ -48,16 +48,21 @@ function dispatch(sessionId: string, entry: RunStatusEntry) {
 function open() {
   if (es || stopped) return;
   es = api.createGlobalEventsChannel();
+  // onopen fires when the connection is established — the reliable
+  // "healthy again" signal (server heartbeats are SSE comment lines, which
+  // the browser never dispatches to onmessage, so a quiet-but-healthy
+  // channel would otherwise keep the 30s backoff forever).
+  es.onopen = () => {
+    if (reconnectDelay !== 3000) {
+      reconnectDelay = 3000;
+      // The channel has no replay — realign from the authoritative list.
+      for (const fn of reconnectListeners) fn();
+    }
+  };
   es.onmessage = (e) => {
     try {
       const payload = JSON.parse(e.data);
       if (payload?.type !== "run_status" || !payload.sessionId) return;
-      if (reconnectDelay !== 3000) {
-        // Connection is healthy again; restore fast reconnects and realign
-        // the sidebar once (the channel has no replay).
-        reconnectDelay = 3000;
-        for (const fn of reconnectListeners) fn();
-      }
       dispatch(payload.sessionId, {
         status: payload.status,
         queuePosition: payload.queuePosition,

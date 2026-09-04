@@ -827,6 +827,27 @@ class TestQueryTokenScoping:
         )
         assert payload["sub"] == "alice"
 
+        # The attach-stream route of a live session is allowed too.
+        payload = _resolve_token(
+            settings,
+            None,
+            token,
+            None,
+            "/api/sessions/sess_abc123/events",
+        )
+        assert payload["sub"] == "alice"
+
+        # But sibling non-SSE subroutes stay off the query-token path.
+        with pytest.raises(Exception) as exc_info:
+            _resolve_token(
+                settings,
+                None,
+                token,
+                None,
+                "/api/sessions/sess_abc123/confirmations/cid",
+            )
+        assert exc_info.value.status_code == 401
+
         with pytest.raises(Exception) as exc_info:
             _resolve_token(settings, None, token, None, "/api/models")
         assert "401" in str(exc_info.value.status_code)

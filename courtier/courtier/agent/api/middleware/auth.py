@@ -74,7 +74,16 @@ def verify_token(token: str, secret: str, algorithm: str = "HS256") -> dict[str,
 
 #: Paths where legacy ``?token=`` authentication still works: the SSE
 #: streams EventSource cannot attach headers to, plus /metrics scraping.
-QUERY_TOKEN_PATH_PREFIXES = ("/api/sessions/", "/api/events", "/metrics")
+#: A precise match (not the whole /api/sessions/ prefix) keeps non-SSE
+#: session subroutes (confirmations, stop, ...) off the URL-token path.
+QUERY_TOKEN_PATH_PREFIXES = ("/api/sessions/run", "/api/events", "/metrics")
+_QUERY_TOKEN_SSE_RE = __import__("re").compile(r"^/api/sessions/[^/]+/events$")
+
+
+def _query_token_path_allowed(path: str) -> bool:
+    return path.startswith(QUERY_TOKEN_PATH_PREFIXES) or (
+        _QUERY_TOKEN_SSE_RE.match(path) is not None
+    )
 
 
 def _resolve_token(
@@ -99,7 +108,7 @@ def _resolve_token(
     token: str | None = None
     if credentials is not None:
         token = credentials.credentials
-    elif query_token and path.startswith(QUERY_TOKEN_PATH_PREFIXES):
+    elif query_token and _query_token_path_allowed(path):
         token = query_token
     elif cookie_token:
         token = cookie_token

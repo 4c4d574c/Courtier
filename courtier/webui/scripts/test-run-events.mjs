@@ -22,6 +22,9 @@ class FakeEventSource {
   close() {
     this.closed = true;
   }
+  open() {
+    this.onopen?.(new Event("open"));
+  }
   emit(data) {
     this.onmessage?.({ data: JSON.stringify(data) });
   }
@@ -108,18 +111,15 @@ try {
     // Timer-based re-open: wait past the 3s backoff.
     await new Promise((r) => setTimeout(r, 3200));
     assert.equal(esInstances.length, 2);
-    // First healthy message realigns once.
+    // Reconnect success (onopen) realigns once...
+    esInstances[1].open();
+    await tick();
+    assert.equal(refetched, 1);
+    // ...and subsequent messages do not re-fire it.
     esInstances[1].emit({
       type: "run_status",
       sessionId: "s1",
       status: "completed",
-    });
-    await tick();
-    assert.equal(refetched, 1);
-    esInstances[1].emit({
-      type: "run_status",
-      sessionId: "s2",
-      status: "running",
     });
     await tick();
     assert.equal(refetched, 1);
