@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import logging
+import re
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, Generic, Type, TypeVar, cast, overload
@@ -52,6 +53,10 @@ async def ensure_database_exists(db_url: str) -> None:
     # the password with '***' in SQLAlchemy 2.0, causing authentication
     # failures when the URL is passed back to create_async_engine.
     server_url = url.set(database="")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", url.database or ""):
+        raise ValueError(
+            f"MYSQL_URL database name must be [A-Za-z0-9_]+, got {url.database!r}"
+        )
     engine = create_async_engine(
         server_url.render_as_string(hide_password=False),
         isolation_level="AUTOCOMMIT",
@@ -160,7 +165,12 @@ class CRUDRepository(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                 field_name, op = attr, "eq"
 
             if not hasattr(self.model, field_name):
-                continue
+                # A silently dropped filter would return unfiltered rows —
+                # for visibility-scoped callers that is a leak shape.  Fail
+                # loudly instead (typos are programming errors).
+                raise ValueError(
+                    f"Unknown filter field {field_name!r} for {self.model.__name__}"
+                )
 
             column = getattr(self.model, field_name)
 

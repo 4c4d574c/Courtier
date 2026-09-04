@@ -181,7 +181,12 @@ class JSONRPCClient:
             if future is None or future.done():
                 if future is None:
                     # No future in _pending — buffer for next stream iteration.
-                    self._response_buffer.setdefault(msg_id, []).append(data)
+                    bucket = self._response_buffer.setdefault(msg_id, [])
+                    # Late responses for timed-out ids are never consumed
+                    # (request ids are strictly increasing) — cap each so a
+                    # few oversized stale payloads cannot balloon memory.
+                    if len(bucket) < 4:
+                        bucket.append(data)
                 else:
                     # Future exists but already resolved (done=True).
                     # This is the end-chunk race: chunk2 arrived after chunk1

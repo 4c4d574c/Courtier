@@ -152,12 +152,14 @@ class SessionStore:
         async with self._lock:
             sessions = list(self._sessions.values())
 
-        # Also load any sessions not currently in memory
-        for path in sorted(self._dir.glob("*.json"), reverse=True):
-            sid = path.stem
-            if sid in self._sessions:
-                continue
-            loaded = self._load(sid)
+        # Also load any sessions not currently in memory.  Parsing large
+        # detail JSON is blocking I/O — keep it off the event loop.
+        paths = sorted(self._dir.glob("*.json"), reverse=True)
+        stale = [p for p in paths if p.stem not in self._sessions]
+        loaded_list = await asyncio.gather(
+            *(asyncio.to_thread(self._load, p.stem) for p in stale)
+        )
+        for loaded in loaded_list:
             if loaded:
                 sessions.append(loaded)
 

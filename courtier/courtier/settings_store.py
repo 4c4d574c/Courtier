@@ -643,7 +643,10 @@ async def probe_connections(settings: Any, targets: set[str]) -> dict[str, str]:
                 secret_key=settings.minio_secret_key,
                 secure=settings.minio_secure,
             )
-            await asyncio.to_thread(minio_client.list_buckets)
+            # A bad endpoint must not hang the settings PUT for minutes.
+            await asyncio.wait_for(
+                asyncio.to_thread(minio_client.list_buckets), timeout=5.0
+            )
         except Exception as exc:
             errors["minio"] = str(exc)[:200]
 
