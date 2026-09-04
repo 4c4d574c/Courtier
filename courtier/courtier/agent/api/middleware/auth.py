@@ -81,8 +81,9 @@ _QUERY_TOKEN_SSE_RE = __import__("re").compile(r"^/api/sessions/[^/]+/events$")
 
 
 def _query_token_path_allowed(path: str) -> bool:
-    return path.startswith(QUERY_TOKEN_PATH_PREFIXES) or (
-        _QUERY_TOKEN_SSE_RE.match(path) is not None
+    return (
+        path in QUERY_TOKEN_PATH_PREFIXES
+        or _QUERY_TOKEN_SSE_RE.match(path) is not None
     )
 
 
