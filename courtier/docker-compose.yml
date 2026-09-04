@@ -176,6 +176,14 @@ services:
     networks:
       - courtier
 
+  plugin-memory:
+    build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-memory }
+    container_name: courtier-plugin-memory
+    restart: unless-stopped
+    environment: *plugin-common-env
+    networks:
+      - courtier
+
   plugin-check_format:
     build: { context: ., dockerfile: Dockerfile.plugins, target: plugin-check_format }
     container_name: courtier-plugin-check-format

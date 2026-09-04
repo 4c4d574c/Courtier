@@ -105,3 +105,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 EXPOSE 9109
 CMD ["/opt/courtier/plugins/shared/media/.venv/bin/python", "entry.py"]
+
+FROM plugin-base AS plugin-memory
+COPY plugins/shared/memory/ plugins/shared/memory/
+WORKDIR /opt/courtier/plugins/shared/memory
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
+EXPOSE 9110
+CMD ["/opt/courtier/plugins/shared/memory/.venv/bin/python", "entry.py"]
