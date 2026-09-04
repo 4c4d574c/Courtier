@@ -121,6 +121,10 @@
   font-size: 13px;
   color: var(--chat-text-secondary);
   margin: 0 0 8px;
+  /* Slash-joined Latin runs (e.g. "Word/Excel/PDF") are one unbreakable
+     token for CSS line breaking — let them wrap anywhere instead of
+     painting past the card border. */
+  overflow-wrap: anywhere;
 }
 
 .ext-card-meta {
