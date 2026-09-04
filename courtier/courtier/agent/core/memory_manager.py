@@ -1,12 +1,13 @@
-"""MemoryManager — file-based memory with per-turn recall injection.
+"""MemoryManager — DB-backed layered memory with per-turn recall injection.
 
-Memory is a convention over universal file tools (read/edit/write):
-plain files under the memory workspace plus MEMORY.md indexes that the
-model maintains (docs/architecture/memory-file-tools-plan.md).  What
-remains here is the working-memory engine inherited from ContextManager
-plus the recall injection: once per real user turn, think_phase calls
-``inject_memory_recall`` (duck-typed) to prepend the relevant index
-files as a hint message.
+Memory entries live in the host database (global shared layer + per-user
+layers, both split into ``common`` and per-domain groups) and are reached
+through the ``memory`` plugin tool.  What remains here is the
+working-memory engine inherited from ContextManager plus the recall
+injection: once per real user turn, think_phase calls
+``inject_memory_recall`` (duck-typed) to prepend the caller's memory
+index — fetched through a host-injected async provider — as a hint
+message.
 """
 
 from __future__ import annotations
@@ -37,19 +38,22 @@ MemoryTier = str  # kept for annotation compatibility with older callers
 # context.memory_recall_hint (bare test environments — same pattern as the
 # compact prompt fallbacks in context_manager.py).
 _FALLBACK_RECALL_HINT = (
-    "[Recalled memory] The notes below are the current memory indexes:\n"
-    "{memories}\nUse the read / write / edit tools to work with memory files."
+    "[Recalled memory] Below is your memory index (user layer first):\n"
+    "{memories}\n"
+    "Use the memory tool to list / read / write / delete entries."
 )
 
 
 class MemoryManager(ContextManager):
-    """ContextManager + recall injection over file-based memory.
+    """ContextManager + recall injection over DB-backed layered memory.
 
-    The memory workspace root is ``<cache_dir>/../.agent_memory`` with
-    ``common/MEMORY.md`` for domain-agnostic notes and
-    ``<domain>/MEMORY.md`` per active domain.  Active domains are seeded
-    by the host (build_agent) and extended by the DomainActivator via
-    :meth:`note_domain_active`.
+    The host (build_agent) injects an async ``memory_index_provider`` —
+    ``domains: list[str] -> {"user": [entry], "global": [entry]}`` —
+    resolving the caller's user layer and the global shared layer.
+    Injection covers ``common`` entries plus the entries of the session's
+    active domains (seeded by the host, extended by the DomainActivator
+    via :meth:`note_domain_active`).  No provider (anonymous session or
+    memory plugin absent) means no injection at all.
     """
 
     def __init__(
@@ -73,6 +77,7 @@ class MemoryManager(ContextManager):
         memory_auto_inject_max_chars: int = 400,
         memory_auto_inject_total_chars: int = 1500,
         memory_recall_hint_template: str | None = None,
+        memory_index_provider: Any | None = None,
     ) -> None:
         super().__init__(
             model=model,
@@ -95,6 +100,7 @@ class MemoryManager(ContextManager):
         self._auto_inject_max_chars = max(1, memory_auto_inject_max_chars)
         self._auto_inject_total_chars = max(1, memory_auto_inject_total_chars)
         self._recall_hint_template = memory_recall_hint_template
+        self._memory_index_provider = memory_index_provider
         self._active_domains: set[str] = set()
         # id() of the hint message this manager injected for the current
         # turn — structural dedup, no content matching.
@@ -103,27 +109,21 @@ class MemoryManager(ContextManager):
     # -- Memory workspace ------------------------------------------------------
 
     @property
-    def memory_home(self) -> Path:
-        """Root of the global file-based memory workspace."""
-        return Path(self._cache_dir).parent / ".agent_memory"
-
-    @property
     def session_workspace(self) -> Path:
         """This session's scratch workspace (a permission-gate root too)."""
         return Path(self._cache_dir).parent / ".agent_sessions" / self.session_id
 
     def note_domain_active(self, domain: str) -> None:
-        """Register an active domain; its index joins the recall injection."""
+        """Register an active domain; its memory entries join the recall injection."""
         self._active_domains.add(domain)
 
     # -- Forking ---------------------------------------------------------------
 
     def fork(self) -> "MemoryManager":
-        """Fork for sub-agents, keeping the file-based memory injection.
+        """Fork for sub-agents, keeping the memory recall injection.
 
-        Shares the parent's memory workspace (sub-agent findings land in
-        files the orchestrator can read) and its active-domain snapshot;
-        the CompactState starts fresh as with ContextManager.fork().
+        Shares the parent's provider and active-domain snapshot; the
+        CompactState starts fresh as with ContextManager.fork().
         """
         child = MemoryManager(
             model=self._model,
@@ -142,6 +142,7 @@ class MemoryManager(ContextManager):
             memory_auto_inject_max_chars=self._auto_inject_max_chars,
             memory_auto_inject_total_chars=self._auto_inject_total_chars,
             memory_recall_hint_template=self._recall_hint_template,
+            memory_index_provider=self._memory_index_provider,
         )
         child._active_domains = set(self._active_domains)
         return child
@@ -151,18 +152,20 @@ class MemoryManager(ContextManager):
     async def inject_memory_recall(
         self, messages: tuple["Any", ...]
     ) -> tuple["Any", ...]:
-        """Prepend the relevant memory indexes as a hint after the turn's
+        """Prepend the caller's memory index as a hint after the turn's
         genuine user message.
 
         Runs once per real user turn: the hint (source="hint") is inserted
         right after the last genuine user message and this message's id
-        suppresses re-injection for the rest of the turn.  Sources are the
-        common index plus the indexes of active domains, each capped and
-        the total capped.  No-ops when disabled, when there is no genuine
-        user message, when this turn already carries the hint, or when no
-        index has content (zero cost).
+        suppresses re-injection for the rest of the turn.  The index is
+        fetched through the host-injected provider (user layer first, then
+        global; ``common`` entries plus the active domains'), each entry
+        capped and the total capped.  No-ops when disabled, when no
+        provider is wired (anonymous / plugin absent), when there is no
+        genuine user message, when this turn already carries the hint, or
+        when the index comes back empty (zero cost).
         """
-        if not self._auto_inject_enabled:
+        if not self._auto_inject_enabled or self._memory_index_provider is None:
             return messages
         from .context_manager import _find_last_real_user_index
 
@@ -173,18 +176,9 @@ class MemoryManager(ContextManager):
         if hint_id is not None and any(id(m) == hint_id for m in messages[idx + 1 :]):
             return messages
 
-        # The workspace paths are dynamic per deployment — without this
-        # segment the model has to guess them and lose a call to the gate
-        # (observed live).  Always present when injection is on.
-        segments = [
-            (
-                f"【记忆工作区】\n- 全局记忆根: {self.memory_home}\n"
-                f"- 本会话工作区: {self.session_workspace}\n"
-                "- 约定：common/ 存通用记忆，<领域>/ 存领域记忆；"
-                "每个目录的 MEMORY.md 是索引，写入或修改记忆后同步更新"
-            )
-        ]
-        segments += self._collect_index_segments()
+        segments = await self._collect_index_segments()
+        if not segments:
+            return messages
 
         template = self._recall_hint_template or _FALLBACK_RECALL_HINT
         hint = Message(
@@ -195,28 +189,38 @@ class MemoryManager(ContextManager):
         self._last_recall_hint_id = id(hint)
         return (*messages[: idx + 1], hint, *messages[idx + 1 :])
 
-    def _collect_index_segments(self) -> list[str]:
-        """Read common + active-domain indexes, capped per index and in total."""
-        home = self.memory_home
-        sources: list[tuple[str, Path]] = [("common", home / "common")]
-        sources += [(domain, home / domain) for domain in sorted(self._active_domains)]
+    async def _collect_index_segments(self) -> list[str]:
+        """Fetch the caller's index via the provider and shape it into
+        labeled segments, capped per entry and in total."""
+        try:
+            grouped = self._memory_index_provider(sorted(self._active_domains))
+            if hasattr(grouped, "__await__"):
+                grouped = await grouped
+        except Exception:
+            # fail-open: an index hiccup must never break the turn.
+            logger.warning("memory index provider failed", exc_info=True)
+            return []
 
         segments: list[str] = []
         total = 0
-        for name, root in sources:
-            index = root / "MEMORY.md"
-            try:
-                if not index.is_file():
-                    continue
-                text = index.read_text(encoding="utf-8").strip()
-            except OSError:
-                logger.warning("Failed to read memory index %s", index, exc_info=True)
+        for label, entries in (
+            ("用户记忆", grouped.get("user")),
+            ("全局共享记忆", grouped.get("global")),
+        ):
+            if not entries:
                 continue
-            if not text:
+            lines = []
+            for entry in entries:
+                title = str(entry.get("title") or "").strip()
+                domain = str(entry.get("domain") or "common").strip() or "common"
+                preview = str(entry.get("content") or "").strip()
+                if len(preview) > self._auto_inject_max_chars:
+                    preview = preview[: self._auto_inject_max_chars] + "…"
+                suffix = f"（{domain}）" if domain != "common" else ""
+                lines.append(f"- {title}{suffix}：{preview}" if title else f"- {preview}")
+            if not lines:
                 continue
-            if len(text) > self._auto_inject_max_chars:
-                text = text[: self._auto_inject_max_chars] + "…"
-            segment = f"【{name} 记忆索引】\n{text}"
+            segment = f"【{label}】\n" + "\n".join(lines)
             if total + len(segment) > self._auto_inject_total_chars:
                 break
             segments.append(segment)

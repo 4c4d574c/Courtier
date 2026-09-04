@@ -218,9 +218,15 @@ class TestMemoryRecallInjection:
         from courtier.agent.core.memory_manager import MemoryManager
 
         mgr = MemoryManager(cache_dir=str(tmp_path / "cache"), session_id="s1")
-        common = tmp_path / ".agent_memory" / "common"
-        common.mkdir(parents=True)
-        (common / "MEMORY.md").write_text("- 季度报告结论是收入增长", encoding="utf-8")
+
+        async def provider(domains):
+            return {
+                "user": [{"title": "上季度结论", "domain": "common",
+                          "content": "季度报告结论是收入增长"}],
+                "global": [],
+            }
+
+        mgr._memory_index_provider = provider
         state = AgentState.initial(task="季度报告审核", system_prompt="sys")
 
         result = await think_phase(
@@ -243,9 +249,15 @@ class TestMemoryRecallInjection:
         from courtier.agent.core.memory_manager import MemoryManager
 
         mgr = MemoryManager(cache_dir=str(tmp_path / "cache"), session_id="s1")
-        common = tmp_path / ".agent_memory" / "common"
-        common.mkdir(parents=True)
-        (common / "MEMORY.md").write_text("- 季度报告结论是收入增长", encoding="utf-8")
+
+        async def provider(domains):
+            return {
+                "user": [{"title": "上季度结论", "domain": "common",
+                          "content": "季度报告结论是收入增长"}],
+                "global": [],
+            }
+
+        mgr._memory_index_provider = provider
         state = AgentState.initial(task="季度报告审核", system_prompt="sys")
 
         first = await think_phase(

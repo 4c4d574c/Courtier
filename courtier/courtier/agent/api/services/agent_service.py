@@ -364,6 +364,7 @@ async def build_agent(
     approved_tools: set[str] | None = None,
     model_profile: ModelProfile | None = None,
     file_store: Any = None,
+    owner_payload: dict | None = None,
 ) -> tuple[Any, Any, str]:
     """Create the unified domain-gated orchestrator agent + MemoryManager.
 
@@ -379,6 +380,11 @@ async def build_agent(
     client instance is shared by the orchestrator, subagents, and memory
     manager (the "chat chain follows the pick" invariant), and the
     profile's context window overrides the global one.
+
+    ``owner_payload`` (optional JWT claims dict with ``uid``/``sub``/``role``)
+    drives the memory layer: anonymous sessions (no owner) get no memory
+    tool and no recall injection, authenticated sessions get the caller
+    identity injected into the memory tool at the dispatch boundary.
 
     Returns (agent, context_manager, model_name).
     """
@@ -422,6 +428,37 @@ async def build_agent(
             if getattr(_t, "internal", False):
                 session_registry.unregister(_t.name)
 
+    # Caller identity for the memory layer.  ``owner_payload`` (JWT claims)
+    # refines the bare owner_id; anonymous sessions (no owner at all) get
+    # no memory tool and no recall injection — the model never sees a
+    # memory surface it cannot use.
+    owner_uid = owner_id
+    owner_name = ""
+    owner_is_admin = False
+    if owner_payload:
+        owner_uid = owner_payload.get("uid", owner_id)
+        owner_name = str(owner_payload.get("sub") or "")
+        owner_is_admin = owner_payload.get("role") == "admin"
+
+    if session_registry is not None:
+        if owner_uid is None:
+            try:
+                session_registry.unregister("memory")
+            except KeyError:
+                pass
+        else:
+            from ...tools.param_injection import make_memory_caller_injector
+
+            session_registry.register_param_injectors(
+                {
+                    "memory_caller": make_memory_caller_injector(
+                        owner_id=owner_uid,
+                        username=owner_name,
+                        is_admin=owner_is_admin,
+                    )
+                }
+            )
+
     # Build unified ArtifactStore (which now subsumes CacheStore).
     # Session-scoped: disk cache subdir and ES documents are keyed by
     # session_id, so ref numbering starts at 1 per session and sessions
@@ -437,7 +474,6 @@ async def build_agent(
     )
     # Full runtime over the session registry; skills are registered
     # per-domain by the activator (no upfront skill_registry).
-    memory_home = Path(settings.cache_dir).parent / ".agent_memory"
     session_workspace = (
         Path(settings.cache_dir).parent / ".agent_sessions" / (session_id or "default")
     )
@@ -460,7 +496,9 @@ async def build_agent(
     session_guardrails.register(ToolDisabledGuard())
     session_guardrails.register(
         PathPolicyGuard(
-            allowed_roots=[memory_home, session_workspace],
+            # 文件工具基线根只剩会话工作区（便签/中间产物）——记忆已 DB 化，
+            # 走 memory 插件工具，不再受路径管辖。
+            allowed_roots=[session_workspace],
             capability_registry=capability_registry,
         )
     )
@@ -523,6 +561,15 @@ async def build_agent(
     for domain in active_domains or ():
         await activator.activate(domain)
 
+    memory_index_provider = None
+    if owner_uid is not None and session_registry is not None:
+        try:
+            session_registry.get("memory")
+        except KeyError:
+            pass  # memory 插件未连接/未启用 → 无注入（模型没有可用面）
+        else:
+            memory_index_provider = _make_memory_index_provider(owner_uid)
+
     context_manager = MemoryManager(
         model=model,
         cache_dir=settings.cache_dir,
@@ -536,6 +583,7 @@ async def build_agent(
             getattr(settings, "memory_auto_inject_total_chars", 1500)
         ),
         memory_recall_hint_template=_memory_recall_hint_template(prompt_engine),
+        memory_index_provider=memory_index_provider,
     )
     # Seed the replayed activation set and keep future activations (the
     # activate_domain tool) feeding the recall injection.
@@ -626,6 +674,31 @@ def _compact_prompt_kwargs(prompt_engine: PromptEngine | None) -> _CompactPrompt
         "compact_merge_prompt_template": prompt_engine.render("context.compact_merge_prompt")
         or None,
     }
+
+
+def _make_memory_index_provider(owner_uid: int):
+    """Build the MemoryManager recall provider bound to one session owner.
+
+    ``domains: list[str] -> {"user": [entry], "global": [entry]}`` — the
+    common entries plus the given active domains' entries of the caller's
+    user layer and the global shared layer.  Any failure degrades to an
+    empty index (fail-open), matching the previous file-read semantics.
+    """
+
+    async def provider(domains: list[str]) -> dict[str, list[dict]]:
+        from ..db import get_db
+        from .memory_service import collect_for_injection
+
+        try:
+            async with get_db().session() as session:
+                return await collect_for_injection(
+                    session, owner_id=owner_uid, domains=list(domains)
+                )
+        except Exception:
+            logger.warning("memory index provider failed", exc_info=True)
+            return {"user": [], "global": []}
+
+    return provider
 
 
 def _memory_recall_hint_template(prompt_engine: PromptEngine | None) -> str | None:

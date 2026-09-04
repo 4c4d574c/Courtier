@@ -1395,6 +1395,7 @@ class TestStateAndFork:
         parent = make_memory_manager(session_id="sess_x")
         child = parent.fork()
         assert isinstance(child, MemoryManager)
-        assert child.memory_home == parent.memory_home
+        assert child._memory_index_provider is parent._memory_index_provider
+        assert child.session_workspace == parent.session_workspace
         assert child.state.has_compacted is False
         assert child.state.compact_count == 0

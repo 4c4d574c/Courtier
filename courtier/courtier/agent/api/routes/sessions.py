@@ -359,6 +359,7 @@ async def handle_session_stream(
             courtier_config=request.app.state.courtier_config,
             prompt_engine=request.app.state.prompt_engine,
             owner_id=current_user_payload.get("uid"),
+            owner_payload=current_user_payload,
             session_id=session_id,
             shared_plugin_names=request.app.state.shared_plugin_names,
             active_domains=active_domains,

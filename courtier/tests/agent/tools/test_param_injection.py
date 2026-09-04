@@ -102,13 +102,24 @@ class TestParamInjection:
         await registry.execute("search_documents", query="q")
         assert "query_embedding" not in tool.executed_kwargs
 
-    async def test_explicit_kwarg_not_overwritten(self):
+    async def test_model_supplied_injected_param_is_stripped(self):
+        """宿主注入参数永不接受模型值（身份/向量都不可伪造）：
+        模型 hallucinate 出同名字段时被剥离，以注入结果为准。"""
         registry = ToolRegistry()
         tool = _FakeTool()
         registry.register(tool)
         registry.configure_param_injectors({"embedding": lambda *a: [9.9]})
         await registry.execute("search_documents", query="q", query_embedding=[1.0])
-        assert tool.executed_kwargs["query_embedding"] == [1.0]
+        assert tool.executed_kwargs["query_embedding"] == [9.9]
+
+    async def test_model_supplied_param_dropped_when_injector_returns_none(self):
+        """注入器返回 None 时该参数保持未设——模型带来的值也不复活。"""
+        registry = ToolRegistry()
+        tool = _FakeTool()
+        registry.register(tool)
+        registry.configure_param_injectors({"embedding": lambda *a: None})
+        await registry.execute("search_documents", query="q", query_embedding=[1.0])
+        assert "query_embedding" not in tool.executed_kwargs
 
     async def test_marker_params_hidden_from_model_schemas(self):
         registry = ToolRegistry()

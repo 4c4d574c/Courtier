@@ -20,7 +20,7 @@ def test_delete_removes_session_workspace(tmp_path):
         store = _make_store(tmp_path)
         await store.create(SESSION_ID, "task", "")
         # cache_dir 形如 uploads/.cache，根 = parent/.agent_sessions（与
-        # agent_service 的 memory_home/workspace 计算一致）
+        # agent_service 的 session_workspace 计算一致）
         workspace = tmp_path / ".agent_sessions" / SESSION_ID
         (workspace / "sub").mkdir(parents=True)
         (workspace / "greeting.txt").write_text("hi", encoding="utf-8")

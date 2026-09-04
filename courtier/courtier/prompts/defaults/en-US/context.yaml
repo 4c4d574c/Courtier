@@ -31,6 +31,6 @@ context:
     ---
     Merge and output the updated summary.
   memory_recall_hint: |
-    [Recalled memory] Below are your memory workspace and current indexes:
+    [Recalled memory] Below is your current memory index (user layer first; the parenthesized tag after each title is its domain package):
     {memories}
-    Memories are plain files in the memory workspace: use the read / write / edit tools; after writing or changing a memory, update its MEMORY.md index.
+    Memories live in the database: use the memory tool to list / read full entries and write / delete them (write defaults to your user layer; layer=global is the admin-only shared layer; omit domain for generic entries or name a domain package).
