@@ -45,7 +45,6 @@ from .state_machine import AgentStateMachine
 from .tool_call import ToolCall
 
 if TYPE_CHECKING:
-    from ..hooks.chain import HookChain
     from ..tools.registry import ToolRegistry
     from .context_manager import ContextManager
     from .model import ModelClient
@@ -328,7 +327,6 @@ class _ToolPhaseOutcome:
 async def _run_think_phase(
     *,
     current_state: AgentState,
-    hooks: Any | None,
     guardrail_system: Any | None,
     confirmation_handler: Any | None = None,
     state_machine: AgentStateMachine,
@@ -355,20 +353,6 @@ async def _run_think_phase(
     timestamp = time.time()
     prompt_tokens = 0
     completion_tokens = 0
-
-    # Hook: pre_think
-    if hooks:
-        current_state = await hooks.run("pre_think", current_state)
-        if current_state.is_terminal():
-            return _ThinkPhaseOutcome(
-                state=current_state,
-                think=None,
-                turn_index=turn_index,
-                timestamp=timestamp,
-                break_loop=True,
-                prompt_tokens=0,
-                completion_tokens=0,
-            )
 
     # Guardrail pipeline: pre_think scope (input layer) — adapt → enforce → record.
     if guardrail_system is not None:
@@ -663,11 +647,10 @@ async def _run_tool_phase(
     timestamp: float,
     consecutive_exploratory: int,
     event_bus: EventBus | None,
-    hooks: Any | None,
     periodic_reminder: str = "",
     citation_offset: list[int] | None = None,
 ) -> _ToolPhaseOutcome:
-    """Run a single tool phase: guards, per-call permission guards, execute, observe, hooks.
+    """Run a single tool phase: guards, per-call permission guards, execute, observe.
 
     Returns the updated state and the latest consecutive exploratory count.
     ``citation_offset`` carries the cross-phase citation numbering across
@@ -912,10 +895,6 @@ async def _run_tool_phase(
 
     await on_step("observe", "results_collected")
 
-    # Hook: post_observe
-    if hooks:
-        current_state = await hooks.run("post_observe", current_state)
-
     return _ToolPhaseOutcome(
         state=current_state,
         think=think,
@@ -949,7 +928,6 @@ async def agent_loop(
     state: AgentState,
     model: ModelClient,
     tool_registry: ToolRegistry | None = None,
-    hooks: HookChain | None = None,
     on_step: Callable[[str, str], Awaitable[None]] | None = None,
     on_token: Callable[[str], Awaitable[None]] | None = None,
     on_content_token: Callable[[str], Awaitable[None]] | None = None,
@@ -1220,7 +1198,6 @@ async def agent_loop(
                             )
                     think_outcome = await _run_think_phase(
                         current_state=current_state,
-                        hooks=hooks,
                         guardrail_system=guardrail_system,
                         confirmation_handler=confirmation_handler,
                         state_machine=state_machine,
@@ -1268,7 +1245,6 @@ async def agent_loop(
                         timestamp=think_outcome.timestamp,
                         consecutive_exploratory=consecutive_exploratory,
                         event_bus=event_bus,
-                        hooks=hooks,
                         periodic_reminder=periodic_reminder,
                         citation_offset=citation_offset,
                     )
