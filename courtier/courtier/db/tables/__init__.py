@@ -7,13 +7,13 @@ from .audit_results import (
 )
 from .base import Base
 from .deletion import (
-    DeletionLogTable,
-    DeletionRequestTable,
     REQUEST_APPROVED,
     REQUEST_CANCELLED,
     REQUEST_EXECUTED,
     REQUEST_PENDING,
     REQUEST_REJECTED,
+    DeletionLogTable,
+    DeletionRequestTable,
 )
 from .document import DocumentCreate, DocumentTable, DocumentUpdate
 from .element import ElementCreate, ElementTable, ElementUpdate

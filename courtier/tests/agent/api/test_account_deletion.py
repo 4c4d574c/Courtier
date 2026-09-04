@@ -10,23 +10,26 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from sqlalchemy import func, select
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 import courtier.agent.api.db as db_module
 from courtier.agent.api.file_store import FileStore
+from courtier.agent.api.middleware.auth import hash_password
 from courtier.agent.api.routes.account_deletion import (
     admin_router,
     admin_users_router,
+)
+from courtier.agent.api.routes.account_deletion import (
     router as deletion_router,
 )
 from courtier.agent.api.services.account_deletion_service import (
     execute_account_deletion,
 )
 from courtier.agent.api.session_store import SessionStore
+from courtier.db.db_manager import AsyncDatabase
 from courtier.db.tables import (
     MemoryChangeTable,
     MemoryTable,
@@ -36,13 +39,11 @@ from courtier.db.tables import (
     UserTable,
 )
 from courtier.db.tables.deletion import (
+    REQUEST_PENDING,
     DeletionLogTable,
     DeletionRequestTable,
-    REQUEST_PENDING,
 )
 from courtier.db.tables.user import UserRole, UserStatus
-from courtier.agent.api.middleware.auth import hash_password
-from courtier.db.db_manager import AsyncDatabase
 
 TARGET = "wanda"
 OTHER = "nobody"
@@ -75,13 +76,16 @@ async def env(tmp_path):
     settings.cache_dir and (tmp_path / ".cache").mkdir(exist_ok=True)
     session_store = SessionStore(str(tmp_path / ".cache" / "sessions"))
     file_store = FileStore(str(upload_dir / ".file_registry"))
-    yield SimpleNamespace(db=db, settings=settings, sessions=session_store, files=file_store, tmp=tmp_path)
+    yield SimpleNamespace(
+        db=db, settings=settings, sessions=session_store, files=file_store, tmp=tmp_path
+    )
     await db.drop_all(testing=True)
     await db.engine.dispose()
 
 
 async def _seed_user_data(ns) -> None:
-    """One full data footprint for TARGET: session, upload, resources, audit results, memory, settings refs."""
+    """One full data footprint for TARGET: session, upload, resources,
+    audit results, memory, settings refs."""
     uid = await _seed_user(ns.db, TARGET)
     other_uid = await _seed_user(ns.db, OTHER)
     await ns.sessions.create("sess_" + "a" * 12, "任务", "", owner=TARGET)
@@ -133,7 +137,9 @@ async def _seed_user_data(ns) -> None:
         session.add_all(
             [
                 SettingsTable(key="llm_model", value="{}", updated_by=TARGET),
-                SettingsChangeTable(key_name="llm_model", old_hash=None, new_hash="c" * 64, actor=TARGET),
+                SettingsChangeTable(
+                    key_name="llm_model", old_hash=None, new_hash="c" * 64, actor=TARGET
+                ),
             ]
         )
         await session.commit()
@@ -187,7 +193,7 @@ async def test_pipeline_cascades_and_writes_receipt(env, monkeypatch):
         session_results_cleaner=fake_es_cleaner,
     )
 
-    
+
     # ES 清理只收到本人会话
     assert es_calls and sorted(es_calls[0]) == ["sess_" + "a" * 12]
     assert result.counts["es_results"] == 7
@@ -217,7 +223,9 @@ async def test_pipeline_cascades_and_writes_receipt(env, monkeypatch):
         ).scalar_one()
         assert others.owner_id is not None  # 他人资源不动
 
-        assert (await session.execute(select(func.count()).select_from(MemoryTable))).scalar_one() == 0
+        assert (
+            await session.execute(select(func.count()).select_from(MemoryTable))
+        ).scalar_one() == 0
         changes = (await session.execute(select(MemoryChangeTable.actor))).scalars().all()
         # 两条历史审计（用户名 / agent:用户名）匿名化 + delete_user_memory 的 system 删除审计
         assert sorted(changes) == sorted([f"deleted-user:{uid}", f"deleted-user:{uid}", "system"])
@@ -280,8 +288,6 @@ async def test_pipeline_external_failure_recorded_not_fatal(env, monkeypatch):
 
 
 def _app(ns, monkeypatch):
-    from courtier.agent.api.middleware.auth import get_current_user
-    from courtier.agent.api.routes.admin_users import require_admin
 
     app = FastAPI()
     app.include_router(deletion_router)

@@ -231,7 +231,9 @@ class TestCoreDefaults:
         """无领域包时，领域无关 key 由 Core 默认（本地化）提供。"""
         engine = PromptEngine.from_domain_directories([], locale="zh-CN")
 
-        assert "未注册" in engine.render("errors.tool_not_found", tool_name="t", available_tools="a")
+        assert "未注册" in engine.render(
+            "errors.tool_not_found", tool_name="t", available_tools="a"
+        )
         assert "# 行为准则" in engine.render("behavioral.rules")
         assert "上下文压缩助手" in engine.render("context.compact_prompt", history="h")
         assert "工具调用规则" in engine.render("tools.invocation_rules")
@@ -271,7 +273,9 @@ class TestCoreDefaults:
     def test_core_defaults_locale_fallback_to_en(self):
         """请求的 locale 无 Core 默认时回退 en-US。"""
         engine = PromptEngine.from_domain_directories([], locale="ja-JP")
-        assert "not registered" in engine.render("errors.tool_not_found", tool_name="t", available_tools="a")
+        assert "not registered" in engine.render(
+            "errors.tool_not_found", tool_name="t", available_tools="a"
+        )
         # locale 属性仍报告请求的 locale（与历史行为一致）
         assert engine.locale == "ja-JP"
 

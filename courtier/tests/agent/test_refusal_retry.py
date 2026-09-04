@@ -158,7 +158,12 @@ async def test_usage_accumulates_across_attempts(refusal_settings):
 @pytest.mark.asyncio
 async def test_tool_call_responses_never_detected(refusal_settings):
     model = _SequentialModel(
-        [ModelResponse(content="我无法完成。", tool_calls=[ToolCall(id="1", name="echo", arguments={})])]
+        [
+            ModelResponse(
+                content="我无法完成。",
+                tool_calls=[ToolCall(id="1", name="echo", arguments={})],
+            )
+        ]
     )
 
     async def on_step(event, detail):

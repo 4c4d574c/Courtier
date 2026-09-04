@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from .execution_result import ExecutionResult
 from .content_parts import MessageContent, ensure_parts_allowed
+from .execution_result import ExecutionResult
 from .model import ModelResponse, ToolCall
 
 if TYPE_CHECKING:

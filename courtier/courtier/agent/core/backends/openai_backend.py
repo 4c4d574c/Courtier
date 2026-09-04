@@ -87,7 +87,9 @@ class OpenAIModelBackend:
     async def close(self) -> None:
         await self._client.close()
 
-    async def _materialize_messages(self, messages: tuple[ChatMessage, ...]) -> list[dict[str, Any]]:
+    async def _materialize_messages(
+        self, messages: tuple[ChatMessage, ...]
+    ) -> list[dict[str, Any]]:
         """Convert messages to wire dicts, materializing media parts.
 
         Media parts become provider content parts (base64 data URIs /
@@ -179,7 +181,9 @@ class OpenAIModelBackend:
         params: dict[str, Any] = {
             "model": request.model or self._model,
             "messages": (
-                messages if messages is not None else [_message_to_openai(m) for m in request.messages]
+                messages
+                if messages is not None
+                else [_message_to_openai(m) for m in request.messages]
             ),
             "temperature": request.temperature,
         }

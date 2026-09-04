@@ -339,7 +339,9 @@ class TestStructuredRead:
     @pytest.mark.asyncio
     async def test_outline_returns_sections(self, tmp_path):
         store = ArtifactStore(cache_dir=str(tmp_path))
-        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        await store.persist(
+            {"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True
+        )
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
@@ -354,7 +356,9 @@ class TestStructuredRead:
     @pytest.mark.asyncio
     async def test_section_by_title_contains_subsections(self, tmp_path):
         store = ArtifactStore(cache_dir=str(tmp_path))
-        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        await store.persist(
+            {"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True
+        )
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
@@ -370,7 +374,9 @@ class TestStructuredRead:
     @pytest.mark.asyncio
     async def test_section_by_index(self, tmp_path):
         store = ArtifactStore(cache_dir=str(tmp_path))
-        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        await store.persist(
+            {"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True
+        )
         for selector in ("3", "三", "第三节"):
             result = await GetArtifactTool().execute(
                 on_progress=_noop_progress,
@@ -384,7 +390,9 @@ class TestStructuredRead:
     @pytest.mark.asyncio
     async def test_section_miss_lists_candidates(self, tmp_path):
         store = ArtifactStore(cache_dir=str(tmp_path))
-        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        await store.persist(
+            {"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True
+        )
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
@@ -439,7 +447,9 @@ class TestStructuredRead:
     async def test_plain_read_unchanged(self, tmp_path):
         """Without outline/section, behavior is byte-identical to before."""
         store = ArtifactStore(cache_dir=str(tmp_path))
-        await store.persist({"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True)
+        await store.persist(
+            {"markdown": self.LONG_MD, "format": "docx"}, "convert_document", force=True
+        )
         result = await GetArtifactTool().execute(
             on_progress=_noop_progress,
             artifact_store=store,
@@ -523,7 +533,9 @@ class TestGetArtifactRefAutoProjection:
         assert result.success, result.error
         value = result.data["value"]
         assert isinstance(value, str)
-        title = PARSED_DOC_DATA["pages"][0]["page_content"]["body"]["title"]["elements"][0]["font"]["text"]
+        title = PARSED_DOC_DATA["pages"][0]["page_content"]["body"]["title"]["elements"][0][
+            "font"
+        ]["text"]
         assert title in value
         assert "现将项目有关情况请示如下。" in value
 

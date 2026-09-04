@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, UploadFile
 from fastapi.responses import FileResponse
-from fastapi import UploadFile
 
 from ..middleware.auth import get_current_user
 from ..rate_limiter import limiter

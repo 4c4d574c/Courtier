@@ -8,15 +8,14 @@ locale coverage, registry/loop wiring, and the never-empty guarantee.
 
 from __future__ import annotations
 
-
 import asyncio
 
 import pytest
 
+from courtier.agent.artifacts.models import RuntimePolicy
 from courtier.agent.core.loop_phases import execute_tools_phase
 from courtier.agent.core.model import ToolCall
 from courtier.agent.core.state import AgentState
-from courtier.agent.artifacts.models import RuntimePolicy
 from courtier.agent.tools.protocol import ToolResult
 from courtier.agent.tools.registry import ToolRegistry
 from courtier.prompts.engine import PromptEngine

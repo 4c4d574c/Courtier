@@ -5,8 +5,8 @@ import pytest
 from courtier.agent.core.guardrails import (
     CallGuardResult,
     GuardContext,
-    GuardResult,
     GuardrailSystem,
+    GuardResult,
 )
 from courtier.agent.core.tool_call import ToolCall
 

@@ -14,7 +14,6 @@ from courtier.agent.api.services.agent_service import (
 )
 from courtier.config import (
     AgentRuntimeConfig,
-    ModelPoolConfig,
     ModelRoutingConfig,
     PoolModelConfig,
     Settings,

@@ -9,7 +9,7 @@ from courtier.agent.core.guardrails import (
     GuardrailSystem,
     GuardResult,
 )
-from courtier.agent.core.state import AgentState, Message
+from courtier.agent.core.state import AgentState
 from courtier.agent.core.tool_call import ToolCall
 from courtier.agent.testing import MockModelClient
 from courtier.agent.tools.builtin.echo import EchoTool

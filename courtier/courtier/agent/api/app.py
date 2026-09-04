@@ -396,7 +396,11 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
     # and admin direct deletion with the cascading cleanup pipeline
     from .routes.account_deletion import (
         admin_router as deletion_admin_router,
+    )
+    from .routes.account_deletion import (
         admin_users_router as deletion_admin_users_router,
+    )
+    from .routes.account_deletion import (
         router as deletion_router,
     )
 

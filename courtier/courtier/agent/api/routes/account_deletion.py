@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from courtier.db.tables import (
     REQUEST_CANCELLED,
-    REQUEST_EXECUTED,
     REQUEST_PENDING,
     REQUEST_REJECTED,
     DeletionRequestTable,

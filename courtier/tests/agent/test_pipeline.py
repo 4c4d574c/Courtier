@@ -8,8 +8,8 @@ import pytest
 
 from courtier.agent.core.guardrails import (
     GuardContext,
-    GuardResult,
     GuardrailSystem,
+    GuardResult,
 )
 from courtier.agent.core.guardrails.guardrail_system import SCOPES
 

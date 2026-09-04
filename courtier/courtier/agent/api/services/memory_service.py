@@ -104,8 +104,12 @@ def _entry_dict(row: MemoryTable) -> dict:
         "content": row.content,
         "createdBy": row.created_by,
         "updatedBy": row.updated_by,
-        "createdAt": row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
-        "updatedAt": row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at,
+        "createdAt": (
+            row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at
+        ),
+        "updatedAt": (
+            row.updated_at.isoformat() if isinstance(row.updated_at, datetime) else row.updated_at
+        ),
     }
 
 
@@ -121,7 +125,9 @@ def _change_dict(row: MemoryChangeTable) -> dict:
         "oldHash": row.old_hash,
         "newHash": row.new_hash,
         "actor": row.actor,
-        "createdAt": row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at,
+        "createdAt": (
+            row.created_at.isoformat() if isinstance(row.created_at, datetime) else row.created_at
+        ),
     }
 
 
@@ -168,7 +174,9 @@ async def _get_accessible(
     session: AsyncSession, entry_id: int, identity: Identity
 ) -> MemoryTable:
     """Fetch an entry the identity may see, else raise."""
-    row = (await session.execute(select(MemoryTable).where(MemoryTable.id == entry_id))).scalar_one_or_none()
+    row = (
+        await session.execute(select(MemoryTable).where(MemoryTable.id == entry_id))
+    ).scalar_one_or_none()
     if row is None:
         raise MemoryNotFoundError(f"记忆条目不存在：{entry_id}")
     if row.layer == LAYER_USER and row.owner_id != identity.owner_id:
@@ -365,7 +373,11 @@ async def clear_layer(
     if layer == LAYER_GLOBAL:
         _require_layer_write(LAYER_GLOBAL, identity)
     rows = (
-        (await session.execute(select(MemoryTable).where(*_layer_filters(layer, identity.owner_id, None, ""))))
+        (
+            await session.execute(
+                select(MemoryTable).where(*_layer_filters(layer, identity.owner_id, None, ""))
+            )
+        )
         .scalars()
         .all()
     )
@@ -523,7 +535,9 @@ async def collect_for_injection(
             MemoryTable.owner_id == (OWNER_GLOBAL if layer == LAYER_GLOBAL else owner_id)
         )
         conds.append(
-            MemoryTable.domain.in_([DOMAIN_COMMON, *domains]) if domains else MemoryTable.domain == DOMAIN_COMMON
+            MemoryTable.domain.in_([DOMAIN_COMMON, *domains])
+            if domains
+            else MemoryTable.domain == DOMAIN_COMMON
         )
         rows = await session.execute(
             select(MemoryTable)
@@ -543,7 +557,13 @@ async def delete_user_memory(session: AsyncSession, owner_id: int) -> int:
     stays unrecoverable by design.
     """
     rows = (
-        (await session.execute(select(MemoryTable).where(MemoryTable.layer == LAYER_USER, MemoryTable.owner_id == owner_id)))
+        (
+            await session.execute(
+                select(MemoryTable).where(
+                    MemoryTable.layer == LAYER_USER, MemoryTable.owner_id == owner_id
+                )
+            )
+        )
         .scalars()
         .all()
     )
@@ -560,7 +580,9 @@ async def delete_user_memory(session: AsyncSession, owner_id: int) -> int:
     count = len(rows)
     if count:
         await session.execute(
-            delete(MemoryTable).where(MemoryTable.layer == LAYER_USER, MemoryTable.owner_id == owner_id)
+            delete(MemoryTable).where(
+                MemoryTable.layer == LAYER_USER, MemoryTable.owner_id == owner_id
+            )
         )
         await session.commit()
     return count

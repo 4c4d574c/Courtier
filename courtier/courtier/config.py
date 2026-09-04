@@ -820,7 +820,8 @@ class Settings(BaseSettings):
         default="",
         description=(
             "可信反向代理的 IP/CIDR 列表（逗号分隔）。仅当请求的直接对端命中此列表时，"
-            "未认证限速才采信 X-Forwarded-For 的最右条目作为真实客户端 IP；为空时始终按直连地址限速。"
+            "未认证限速才采信 X-Forwarded-For 的最右条目作为真实客户端 IP；"
+            "为空时始终按直连地址限速。"
         ),
     )
 

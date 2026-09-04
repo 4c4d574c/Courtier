@@ -63,9 +63,18 @@ class MemoryTable(Base):
     )
     title: Mapped[str] = mapped_column(String(190), nullable=False, comment="条目标题（寻址键）")
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="条目内容")
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="", comment="创建人（用户名）")
-    updated_by: Mapped[str] = mapped_column(String(64), nullable=False, default="", comment="最后修改人（用户名）")
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow, comment="创建时间")
+    created_by: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="",
+        comment="创建人（用户名）",
+    )
+    updated_by: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="",
+        comment="最后修改人（用户名）",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=utcnow,
+        comment="创建时间",
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=utcnow, onupdate=utcnow, comment="最后修改时间"
     )

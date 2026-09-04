@@ -158,7 +158,9 @@ class TestToolAction:
 
     async def test_read_prefers_own_user_layer(self, db):
         async with db.session() as session:
-            await upsert_entry(session, layer="global", title="口径", content="全局", identity=ADMIN)
+            await upsert_entry(
+                session, layer="global", title="口径", content="全局", identity=ADMIN
+            )
             mine = await upsert_entry(
                 session, layer="user", title="口径", content="个人", identity=USER_A
             )
@@ -199,14 +201,21 @@ class TestInjectionCollection:
                 session, layer="user", title="A通用", content="a", identity=USER_A
             )
             await upsert_entry(
-                session, layer="user", title="A领域", content="b", domain="docaudit", identity=USER_A
+                session,
+                layer="user",
+                title="A领域",
+                content="b",
+                domain="docaudit",
+                identity=USER_A,
             )
             await upsert_entry(
                 session, layer="user", title="B通用", content="c", identity=USER_B
             )
             await upsert_entry(session, layer="global", title="规范", content="d", identity=ADMIN)
 
-            grouped = await collect_for_injection(session, owner_id=USER_A.owner_id, domains=["docaudit"])
+            grouped = await collect_for_injection(
+                session, owner_id=USER_A.owner_id, domains=["docaudit"]
+            )
             user_titles = [e["title"] for e in grouped["user"]]
             assert user_titles == ["A通用", "A领域"]  # common 在前；不含 B 的
             assert [e["title"] for e in grouped["global"]] == ["规范"]

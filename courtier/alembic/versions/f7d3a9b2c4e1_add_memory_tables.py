@@ -30,7 +30,10 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True, comment="条目ID"),
         sa.Column("layer", sa.String(16), nullable=False, comment='层："global" | "user"'),
         sa.Column("owner_id", sa.Integer(), nullable=False, comment="所属用户ID；0=全局层"),
-        sa.Column("domain", sa.String(64), nullable=False, comment='领域包归类；"common"=通用（保留字）'),
+        sa.Column(
+            "domain", sa.String(64), nullable=False,
+            comment='领域包归类；"common"=通用（保留字）',
+        ),
         sa.Column("title", sa.String(190), nullable=False, comment="条目标题（寻址键）"),
         sa.Column("content", sa.Text(), nullable=False, comment="条目内容"),
         sa.Column("created_by", sa.String(64), nullable=False, comment="创建人（用户名）"),
@@ -46,14 +49,21 @@ def upgrade() -> None:
         "memory_changes",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True, comment="变更ID"),
         sa.Column("entry_id", sa.BigInteger(), nullable=False, comment="条目ID"),
-        sa.Column("action", sa.String(16), nullable=False, comment='动作："create" | "update" | "delete"'),
+        sa.Column(
+            "action", sa.String(16), nullable=False, comment='动作："create" | "update" | "delete"'
+        ),
         sa.Column("layer", sa.String(16), nullable=False, comment="层"),
         sa.Column("owner_id", sa.Integer(), nullable=False, comment="所属用户ID；0=全局层"),
         sa.Column("domain", sa.String(64), nullable=False, comment="领域包归类"),
-        sa.Column("title", sa.String(190), nullable=False, comment="条目标题"),
+        sa.Column(
+            "title", sa.String(190), nullable=False,
+            comment="条目标题",
+        ),
         sa.Column("old_hash", sa.String(64), nullable=True, comment="旧内容 sha256"),
         sa.Column("new_hash", sa.String(64), nullable=True, comment="新内容 sha256"),
-        sa.Column("actor", sa.String(64), nullable=False, comment="操作人（用户名或 agent:<用户名>）"),
+        sa.Column(
+            "actor", sa.String(64), nullable=False, comment="操作人（用户名或 agent:<用户名>）"
+        ),
         sa.Column("created_at", sa.DateTime(), nullable=False, comment="变更时间"),
     )
     op.create_index("ix_memory_changes_entry_id", "memory_changes", ["entry_id"])

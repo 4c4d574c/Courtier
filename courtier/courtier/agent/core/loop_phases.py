@@ -139,8 +139,8 @@ async def think_phase(
     # same model re-asked unchanged, up to ``refusal_retry_max`` times.
     from courtier.config import get_settings
 
-    from .refusal import RefusalDetector
     from ..telemetry.metrics import record_refusal
+    from .refusal import RefusalDetector
 
     _settings = get_settings()
     detector = (
@@ -185,7 +185,9 @@ async def think_phase(
                 finish_reason="error",
                 duration_ms=llm_duration_ms,
             )
-            state = state.errored(render_error("errors.model_error", error=str(exc)), set_status=False)
+            state = state.errored(
+                render_error("errors.model_error", error=str(exc)), set_status=False
+            )
             return ThinkResult(
                 state=state,
                 llm_request=llm_request,

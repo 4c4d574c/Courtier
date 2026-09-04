@@ -217,7 +217,6 @@ class TestMediaUpload:
 
     def test_probe_failure_removes_stored_bytes(self, tmp_path):
         import asyncio
-        from pathlib import Path
 
         uploads = tmp_path / "uploads"
         probe = _StubProbeTool(ToolResult(success=False, error="bad"))
@@ -365,7 +364,6 @@ class TestVideoTranscode:
 
     def test_webm_upload_transcoded_and_stored_as_mp4(self, tmp_path):
         import asyncio
-        from pathlib import Path
 
         from courtier.config import get_settings
 

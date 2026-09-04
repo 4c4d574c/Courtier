@@ -7,8 +7,8 @@ from docmodels import Document, Page, Paragraph
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from courtier.db.db_manager import AsyncDatabase, CRUDRepository
 from courtier.db._utils import _DEFAULT_DB_URL, _ensure_db_url, iter_section_paragraphs
+from courtier.db.db_manager import AsyncDatabase, CRUDRepository
 from courtier.db.tables import (
     DocumentCreate,
     DocumentTable,

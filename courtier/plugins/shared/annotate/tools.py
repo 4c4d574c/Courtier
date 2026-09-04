@@ -167,7 +167,9 @@ class AnnotateDocumentTool:
             # MinIO env missing — legacy base64 path below.
             pass
         except Exception:
-            logger.warning("Direct transfer-bucket upload failed; trying storage.put", exc_info=True)
+            logger.warning(
+                "Direct transfer-bucket upload failed; trying storage.put", exc_info=True
+            )
 
         if self._host_client_getter is None:
             return None

@@ -78,8 +78,7 @@ def main() -> int:
         print("error: COURTIER_PLUGIN_MINIO_SECRET required (choose a strong secret)")
         return 1
 
-    from minio import Minio
-    from minio import MinioAdmin
+    from minio import Minio, MinioAdmin
     from minio.commonconfig import Filter
     from minio.credentials import StaticProvider
     from minio.lifecycleconfig import Expiration, LifecycleConfig, Rule

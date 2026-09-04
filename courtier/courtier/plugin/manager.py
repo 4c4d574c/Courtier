@@ -44,16 +44,17 @@ from .protocol import (
     METHOD_CACHE_PERSIST,
     METHOD_CACHE_RESOLVE,
     METHOD_HOST_SERVICES,
+    METHOD_MEMORY_STORE_CALL,
     METHOD_NOT_FOUND,
     METHOD_PLUGIN_AUTH,
     METHOD_RUNTIME_CONTEXT,
     METHOD_STORAGE_PRESIGN_GET,
     METHOD_STORAGE_PUT,
-    METHOD_MEMORY_STORE_CALL,
     METHOD_TEMPLATE_STORE_GET,
 )
 from .registry import ExtensionRegistry
 from .scanner import PluginScanner, PluginScanResult
+
 
 def _memory_identity(uid: Any, is_admin: Any, name: Any):
     """Build the service Identity from dispatch-boundary injected params.
@@ -608,7 +609,7 @@ class ProcessManager:
                         object_key,
                         _STORAGE_URL_EXPIRES_SECONDS,
                     )
-                except Exception as exc:
+                except Exception:
                     logger.warning("storage.put 上传失败: %s", object_key, exc_info=True)
                     return _deny(INTERNAL_ERROR, "文件存储失败（详情见宿主日志）")
                 return {
@@ -643,7 +644,7 @@ class ProcessManager:
                     url = await asyncio.to_thread(
                         storage_client.get_presigned_url, bucket, key, expires
                     )
-                except Exception as exc:
+                except Exception:
                     logger.warning(
                         "storage.presign_get 签名失败: %s/%s", bucket, key, exc_info=True
                     )

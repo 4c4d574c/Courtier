@@ -1,8 +1,8 @@
 """Rate limiter: per-user bucket key and the split /sessions budgets."""
 
-import pytest
 from types import SimpleNamespace
 
+import pytest
 from starlette.requests import Request
 
 from courtier.agent.api.rate_limiter import limiter, user_or_ip_key
@@ -35,7 +35,6 @@ def _request(
 class TestClientIpTrustedProxy:
     @pytest.fixture(autouse=True)
     def _configure(self, monkeypatch):
-        from types import SimpleNamespace
 
         self.settings = SimpleNamespace(
             trusted_proxies="10.0.0.0/8, 172.16.5.9"

@@ -133,7 +133,6 @@ class FileStore:
         file_ids.  Entries with an empty owner (legacy) are never touched.
         """
         removed: list[str] = []
-        upload_root = Path(upload_dir).expanduser().resolve()
         async with self._lock:
             for fid, info in list(self._files.items()):
                 if info.owner != owner:
@@ -145,7 +144,9 @@ class FileStore:
                     if path is not None and path.is_file():
                         await asyncio.to_thread(path.unlink)
                 except OSError:
-                    logger.warning("Failed to unlink uploaded file %s", info.stored_path, exc_info=True)
+                    logger.warning(
+                        "Failed to unlink uploaded file %s", info.stored_path, exc_info=True
+                    )
             if removed:
                 await self._save_index()
         return removed

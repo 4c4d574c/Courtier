@@ -62,11 +62,16 @@ class DeletionLogTable(Base):
     id: Mapped[int] = mapped_column(
         _BigIntId, primary_key=True, autoincrement=True, comment="回执ID"
     )
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True, comment="被注销用户ID")
+    user_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True, comment="被注销用户ID"
+    )
     trigger: Mapped[str] = mapped_column(
         String(16), nullable=False, comment='触发方式："self_approved" | "admin"'
     )
-    executed_by: Mapped[str] = mapped_column(String(64), nullable=False, default="", comment="执行人（管理员用户名）")
+    executed_by: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="",
+        comment="执行人（管理员用户名）",
+    )
     counts: Mapped[dict] = mapped_column(JSON, nullable=False, comment="各类数据清除条数")
     failures: Mapped[dict] = mapped_column(JSON, nullable=False, comment="外部清理失败步骤")
     created_at: Mapped[datetime] = mapped_column(

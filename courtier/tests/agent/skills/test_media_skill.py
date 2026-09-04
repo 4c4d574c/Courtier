@@ -184,8 +184,8 @@ class TestSpawnWiring:
 
 class TestRuntimeHandleMedia:
     def test_agent_handle_carries_media_parts(self):
-        from courtier.agent.runtime.handle import AgentHandle
         from courtier.agent.runtime.budget import AgentRuntimeBudget
+        from courtier.agent.runtime.handle import AgentHandle
 
         budget = AgentRuntimeBudget(
             max_runtime_seconds=10,
@@ -209,7 +209,7 @@ class TestOptionalMediaFields:
 
     @staticmethod
     def _model():
-        from pydantic import BaseModel, Field
+        from pydantic import BaseModel
 
         from courtier.agent.core.content_parts import VideoRef
 

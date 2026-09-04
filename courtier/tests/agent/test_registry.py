@@ -640,7 +640,6 @@ class TestToolRegistryVersioning:
 async def test_inline_outputs_get_distinct_content_addressed_ids(tmp_path):
     """Unpersisted outputs must not share a single :latest slot — two
     different small results register as separate artifacts."""
-    from courtier.agent.core.cache_store import CacheStore
     from courtier.agent.artifacts.store import ArtifactStore
 
     store = ArtifactStore(cache_dir=str(tmp_path / "c"))

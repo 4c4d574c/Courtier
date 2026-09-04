@@ -336,8 +336,8 @@ async def test_ref_string_param_adapts_to_text_through_view(store, tmp_path):
 async def test_ref_hidden_from_view_stays_unresolved(store):
     """A ref owned by a sibling scope must NOT resolve through the view
     (visibility boundary unchanged by the text adaptation)."""
-    from courtier.agent.artifacts.scoped_store import ScopedArtifactView
     from courtier.agent.artifacts.models import Artifact, ArtifactMetadata
+    from courtier.agent.artifacts.scoped_store import ScopedArtifactView
 
     data = {"markdown": "机密正文", "format": "docx"}
     persisted = await store.persist(data, "convert_document", force=True)

@@ -72,15 +72,18 @@ class TestMultimodalRoundTrip:
     """T6: 媒体 part 消息的持久化往返（引用形态，无字节）。"""
 
     def test_serialize_part_message_persists_refs(self):
-        from courtier.agent.core.content_parts import MediaPart, TextPart
-        from courtier.agent.core.state import Message
         from courtier.agent.api.services.stream_service import (
             deserialize_messages,
             serialize_messages,
         )
+        from courtier.agent.core.content_parts import MediaPart, TextPart
+        from courtier.agent.core.state import Message
 
         msgs = (
-            Message(role="user", content=[TextPart("看这张图"), MediaPart("image", "file_1", "a.png")]),
+            Message(
+                role="user",
+                content=[TextPart("看这张图"), MediaPart("image", "file_1", "a.png")],
+            ),
             Message(role="assistant", content="好的"),
         )
         raw = serialize_messages(msgs)
@@ -104,17 +107,20 @@ class TestMultimodalRoundTrip:
 
     def test_edit_truncation_with_media_turn(self):
         """compute_turn_truncation 对含媒体轮次的历史可正常裁剪。"""
-        from courtier.agent.core.content_parts import MediaPart, TextPart
-        from courtier.agent.core.state import Message
         from courtier.agent.api.models import SessionRecord
         from courtier.agent.api.services.session_service import compute_turn_truncation
         from courtier.agent.api.services.stream_service import (
             deserialize_messages,
             serialize_messages,
         )
+        from courtier.agent.core.content_parts import MediaPart, TextPart
+        from courtier.agent.core.state import Message
 
         msgs = (
-            Message(role="user", content=[TextPart("turn-1"), MediaPart("image", "file_1", "a.png")]),
+            Message(
+                role="user",
+                content=[TextPart("turn-1"), MediaPart("image", "file_1", "a.png")],
+            ),
             Message(role="assistant", content="r1"),
             Message(role="user", content="turn-2"),
             Message(role="assistant", content="r2"),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import BaseModel, Field
@@ -12,12 +13,14 @@ from courtier.agent.agents.subagent.base import (
     SubAgentInput,
     data_field_names,
 )
+from courtier.agent.runtime.result import ExecutionResult
 from courtier.agent.skills.config import SkillConfig
 from courtier.agent.skills.registry import SkillRegistry
 from courtier.agent.tools.builtin.skill import SkillTool
+from courtier.agent.tools.protocol import ToolResult
 from courtier.prompts.engine import PromptBundle, PromptEngine
 
-from .fixtures.schemas_for_tests import ConflictingInput, DocAuditInput
+from .fixtures.schemas_for_tests import ConflictingInput, DocAuditInput, OptionalFieldsInput
 
 
 def _make_config(input_model: type[BaseModel] | None) -> SkillConfig:
@@ -150,13 +153,6 @@ class TestValidationErrorMessageTemplate:
 
 
 # --- T2: dispatch-time validation + data section assembly -------------------
-
-from types import SimpleNamespace
-
-from courtier.agent.runtime.result import ExecutionResult
-from courtier.agent.tools.protocol import ToolResult
-
-from .fixtures.schemas_for_tests import OptionalFieldsInput
 
 
 class _FakeRuntime:

@@ -72,7 +72,11 @@ class TestMaterializeImage:
         params = backend._build_params(
             _media_request(TextPart("看"), MediaPart("image", "f1", "a.png")),
             await backend._materialize_messages(
-                (ChatMessage(role="user", content=[TextPart("看"), MediaPart("image", "f1", "a.png")]),)
+                (
+                    ChatMessage(
+                        role="user", content=[TextPart("看"), MediaPart("image", "f1", "a.png")]
+                    ),
+                )
             ),
         )
         parts = params["messages"][0]["content"]
@@ -134,7 +138,10 @@ class TestDegradation:
         wire = await backend._materialize_messages(
             (ChatMessage(role="user", content=[MediaPart("image", "f1", "old.png")]),)
         )
-        assert wire[0]["content"] == [{"type": "text", "text": "[附件: old.png（图片，file_id=f1）已省略]"}]
+        expected = [
+            {"type": "text", "text": "[附件: old.png（图片，file_id=f1）已省略]"}
+        ]
+        assert wire[0]["content"] == expected
 
     async def test_no_resolver_degrades(self):
         backend = _backend(None)
@@ -151,7 +158,10 @@ class TestDegradation:
         wire = await backend._materialize_messages(
             (ChatMessage(role="user", content=[MediaPart("audio", "f2", "gone.wav")]),)
         )
-        assert wire[0]["content"] == [{"type": "text", "text": "[附件: gone.wav（音频，file_id=f2）已省略]"}]
+        expected = [
+            {"type": "text", "text": "[附件: gone.wav（音频，file_id=f2）已省略]"}
+        ]
+        assert wire[0]["content"] == expected
 
     async def test_plain_messages_untouched(self):
         backend = _backend(None)

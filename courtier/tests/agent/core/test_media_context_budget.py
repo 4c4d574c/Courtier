@@ -35,8 +35,12 @@ class TestMediaTokenEstimation:
 
     def test_audio_video_uses_duration(self):
         mgr = _mgr()
-        audio = Message(role="user", content=[MediaPart("audio", "f2", "a.wav", duration_seconds=10.0)])
-        video = Message(role="user", content=[MediaPart("video", "f3", "b.mp4", duration_seconds=30.0)])
+        audio = Message(
+            role="user", content=[MediaPart("audio", "f2", "a.wav", duration_seconds=10.0)]
+        )
+        video = Message(
+            role="user", content=[MediaPart("video", "f3", "b.mp4", duration_seconds=30.0)]
+        )
         assert mgr._compute_message_tokens(audio) == 500
         assert mgr._compute_message_tokens(video) == 3000
 
@@ -71,7 +75,9 @@ class TestStripStaleMedia:
         assert out[0] == msg
 
     def test_stripped_text_is_plain_string(self):
-        old = Message(role="user", content=[MediaPart("video", "f1", "v.mp4", duration_seconds=5.0)])
+        old = Message(
+            role="user", content=[MediaPart("video", "f1", "v.mp4", duration_seconds=5.0)]
+        )
         newest = Message(role="user", content=[MediaPart("video", "f2")])
         stripped, kept = _strip_stale_media((old, newest))
         assert isinstance(stripped.content, str)

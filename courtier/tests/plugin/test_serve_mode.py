@@ -59,7 +59,8 @@ async def _connect(port: int) -> tuple[asyncio.StreamReader, asyncio.StreamWrite
 
 
 async def _call(writer, reader, req_id: int, method: str, params: dict | None = None) -> dict:
-    writer.write((json.dumps({"id": req_id, "method": method, "params": params or {}}) + "\n").encode())
+    payload = json.dumps({"id": req_id, "method": method, "params": params or {}})
+    writer.write((payload + "\n").encode())
     await writer.drain()
     return json.loads(await asyncio.wait_for(reader.readline(), 5))
 

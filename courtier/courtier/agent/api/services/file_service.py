@@ -317,7 +317,10 @@ async def upload_file(
 
     kind_cap = kind_size_limit(kind)
     if len(contents) > kind_cap:
-        raise HTTPException(413, "文件过大（{}类型上限 {} MB）".format(kind, kind_cap // (1024 * 1024)))
+        raise HTTPException(
+            413,
+            "文件过大（{}类型上限 {} MB）".format(kind, kind_cap // (1024 * 1024)),
+        )
 
     # Validate MIME type. Browsers and proxies may send the generic
     # application/octet-stream; in that case fall back to magic-byte validation.

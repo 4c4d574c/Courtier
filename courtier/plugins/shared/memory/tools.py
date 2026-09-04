@@ -53,7 +53,9 @@ class MemoryTool:
             "layer": {
                 "type": "string",
                 "enum": ["user", "global"],
-                "description": "write 目标层：user=你的用户层（默认）；global=全局共享层（仅管理员）。",
+                "description": (
+                    "write 目标层：user=你的用户层（默认）；global=全局共享层（仅管理员）。"
+                ),
             },
             "entry_id": {
                 "type": "integer",

@@ -245,7 +245,9 @@ class TestReconnectSemantics:
             while app.state.run_manager.active_status(sid) is None:
                 assert asyncio.get_running_loop().time() < deadline, "run never started"
                 await asyncio.sleep(0.02)
-            resp = await client.get("/api/sessions/run", params={"task": "different", "sessionId": sid})
+            resp = await client.get(
+                "/api/sessions/run", params={"task": "different", "sessionId": sid}
+            )
             assert resp.status_code == 409
             await stream
 

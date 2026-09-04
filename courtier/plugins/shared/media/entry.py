@@ -8,7 +8,11 @@ class MediaPlugin(PluginRuntime):
     def register_capabilities(self):
         return {
             "capabilities": [],
-            "system_prompt": "# 媒体探测\n\n## 能力\n对上传的音频/视频文件做 ffprobe 元数据探测（格式/时长/分辨率/编码），并提供非 mp4 视频的 mp4 转码服务。\n",
+            "system_prompt": (
+                "# 媒体探测\n\n## 能力\n"
+                "对上传的音频/视频文件做 ffprobe 元数据探测（格式/时长/分辨率/编码），"
+                "并提供非 mp4 视频的 mp4 转码服务。\n"
+            ),
         }
 
     def _setup_handlers(self):

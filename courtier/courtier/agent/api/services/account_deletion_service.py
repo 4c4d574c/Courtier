@@ -29,7 +29,6 @@ from typing import Any
 
 from sqlalchemy import delete, select, update
 
-from courtier.db.tables.base import utcnow
 from courtier.db.tables import (
     REQUEST_EXECUTED,
     REQUEST_PENDING,
@@ -46,6 +45,7 @@ from courtier.db.tables import (
     UserTable,
     WritingStyleAuditResultTable,
 )
+from courtier.db.tables.base import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,9 @@ async def execute_account_deletion(
         try:
             from .session_service import delete_session
 
-            if await delete_session(session_store, sid, username, cache_dir=str(settings.cache_dir)):
+            if await delete_session(
+                session_store, sid, username, cache_dir=str(settings.cache_dir)
+            ):
                 result.counts["sessions"] = result.counts.get("sessions", 0) + 1
         except Exception as exc:
             logger.warning("Session deletion failed for %s", sid, exc_info=True)
@@ -236,12 +238,14 @@ async def _delete_user_memory(session: Any, user_id: int) -> int:
 
     try:
         return await delete_user_memory(session, user_id)
-    except Exception as exc:
+    except Exception:
         logger.warning("memory cleanup failed for user %s", user_id, exc_info=True)
         return 0
 
 
-async def _anonymize_actor(session: Any, table: Any, actor_values: list[str], anonymized_as: str) -> int:
+async def _anonymize_actor(
+    session: Any, table: Any, actor_values: list[str], anonymized_as: str
+) -> int:
     res = await session.execute(
         update(table).where(table.actor.in_(actor_values)).values(actor=anonymized_as)
     )
