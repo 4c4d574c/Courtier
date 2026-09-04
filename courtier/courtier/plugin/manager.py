@@ -79,6 +79,7 @@ _STORAGE_URL_EXPIRES_SECONDS = 7 * 24 * 3600
 # down is transient by definition, and tools re-register on reconnect.
 _RECONNECT_MAX_DELAY = 30.0
 _RECONNECT_INITIAL_DELAY = 1.0
+_CONNECT_TIMEOUT_SECONDS = 5.0
 
 logger = logging.getLogger(__name__)
 
@@ -318,10 +319,16 @@ class ProcessManager:
             proc.state = PluginState.CONNECTING
             PLUGIN_STATE.labels(plugin_name=proc.name, state=PluginState.CONNECTING.value).set(1)
             try:
-                reader, writer = await asyncio.open_connection(
-                    proc.endpoint[0], proc.endpoint[1], limit=STREAM_LIMIT_BYTES
+                # Bounded connect: a firewall DROP must not park the
+                # reconnect loop (and plugin state feedback) for the OS
+                # default TCP timeout (~2 minutes).
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(
+                        proc.endpoint[0], proc.endpoint[1], limit=STREAM_LIMIT_BYTES
+                    ),
+                    timeout=_CONNECT_TIMEOUT_SECONDS,
                 )
-            except OSError as exc:
+            except (OSError, TimeoutError) as exc:
                 proc._reconnect_count += 1
                 proc.state = PluginState.DISCONNECTED
                 PLUGIN_STATE.labels(
@@ -586,7 +593,11 @@ class ProcessManager:
                     return _deny(INVALID_PARAMS, "文件内容为空")
                 content_type = str(params.get("content_type") or "application/octet-stream")
                 object_key = f"plugin-outputs/{uuid.uuid4().hex}/{filename}"
-                bucket = settings.minio_bucket_docs
+                # Plugin outputs belong in the transfer bucket: it is the
+                # only bucket the presign channel allows (below), it is what
+                # the restricted plugin account can reach, and its 24h
+                # lifecycle keeps one-off outputs from piling up forever.
+                bucket = settings.minio_bucket_plugin_io
                 try:
                     await asyncio.to_thread(
                         storage_client.put_object, bucket, object_key, data, content_type

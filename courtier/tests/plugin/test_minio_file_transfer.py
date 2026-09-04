@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import socket
 import tempfile
 from pathlib import Path
@@ -138,6 +139,34 @@ dependencies:
     return d.parent
 
 
+# Host-side MinIO credentials live in the DB-backed settings snapshot, so a
+# bare test process cannot know them.  Integration runs that want the full
+# transfer e2e export them; without them the tests skip (TCP reachability
+# alone proves nothing about credentials).
+_HOST_MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "")
+_HOST_MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
+_HOST_MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
+
+
+def _host_minio_env_ready() -> bool:
+    return bool(
+        _HOST_MINIO_ENDPOINT and _HOST_MINIO_ACCESS_KEY and _HOST_MINIO_SECRET_KEY
+    )
+
+
+def _fake_settings(upload_dir: str) -> SimpleNamespace:
+    """Minimal settings stand-in covering every attribute the host side of
+    the transfer channel reads (upload rewrite, storage.put, presign)."""
+    return SimpleNamespace(
+        upload_dir=upload_dir,
+        minio_endpoint=_HOST_MINIO_ENDPOINT,
+        minio_access_key=_HOST_MINIO_ACCESS_KEY,
+        minio_secret_key=_HOST_MINIO_SECRET_KEY,
+        minio_secure=False,
+        minio_bucket_plugin_io="courtier-plugin-io",
+    )
+
+
 async def _wait_active(ps: PluginSystem, name: str, timeout: float = 10.0):
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
@@ -156,6 +185,11 @@ class TestMinioFileTransfer:
     ):
         if not _minio_up():
             pytest.skip("compose MinIO not reachable")
+        if not _host_minio_env_ready():
+            pytest.skip(
+                "host MinIO credentials not exported (MINIO_ENDPOINT/"
+                "MINIO_ACCESS_KEY/MINIO_SECRET_KEY)"
+            )
         upload_dir = tmp_path / "uploads"
         doc = upload_dir / "sess-e2e" / "样例.docx"
         doc.parent.mkdir(parents=True)
@@ -164,9 +198,7 @@ class TestMinioFileTransfer:
 
         monkeypatch.setattr(
             "courtier.config.get_settings",
-            lambda: SimpleNamespace(
-                upload_dir=str(upload_dir), minio_bucket_plugin_io="courtier-plugin-io"
-            ),
+            lambda: _fake_settings(upload_dir=str(upload_dir)),
         )
 
         ps = PluginSystem(
@@ -193,11 +225,14 @@ class TestMinioFileTransfer:
     ):
         if not _minio_up():
             pytest.skip("compose MinIO not reachable")
+        if not _host_minio_env_ready():
+            pytest.skip(
+                "host MinIO credentials not exported (MINIO_ENDPOINT/"
+                "MINIO_ACCESS_KEY/MINIO_SECRET_KEY)"
+            )
         monkeypatch.setattr(
             "courtier.config.get_settings",
-            lambda: SimpleNamespace(
-                upload_dir=str(tmp_path), minio_bucket_plugin_io="courtier-plugin-io"
-            ),
+            lambda: _fake_settings(upload_dir=str(tmp_path)),
         )
 
         ps = PluginSystem(

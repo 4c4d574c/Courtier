@@ -173,7 +173,9 @@ class TestStoragePutHostService:
         uploaded: dict = {}
         monkeypatch.setattr(
             "courtier.plugin.manager.get_settings",
-            lambda: SimpleNamespace(minio_endpoint="minio:9000", minio_bucket_docs="courtier-docs"),
+            lambda: SimpleNamespace(
+                minio_endpoint="minio:9000", minio_bucket_plugin_io="courtier-plugin-io"
+            ),
         )
 
         def _fake_put(bucket, key, data, content_type="application/octet-stream"):
@@ -202,14 +204,14 @@ class TestStoragePutHostService:
             }
         )
 
-        assert result["bucket"] == "courtier-docs"
+        assert result["bucket"] == "courtier-plugin-io"
         assert result["object_key"].startswith("plugin-outputs/")
         assert result["object_key"].endswith("/报告_annotated.docx")
-        assert result["download_url"].startswith("http://minio/courtier-docs/")
+        assert result["download_url"].startswith("http://minio/courtier-plugin-io/")
         assert result["size_bytes"] == len(b"docx-bytes")
         assert result["expires_in"] > 0
         assert uploaded["data"] == b"docx-bytes"
-        assert uploaded["bucket"] == "courtier-docs"
+        assert uploaded["bucket"] == "courtier-plugin-io"
 
     async def test_storage_put_denied_without_permission(self, tmp_path: Path):
         proc = _make_process(permissions=[], host_services=["storage"])

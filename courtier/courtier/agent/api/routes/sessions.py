@@ -194,8 +194,10 @@ async def handle_session_stream(
             # Native EventSource reconnects replay the exact same URL — a
             # browser re-attach, not a new turn. Serve it from the live run's
             # transcript instead of registering a duplicate turn (the old
-            # implementation re-ran the turn on every reconnect).
-            if task == existing.task and task == existing.turn_messages[-1]["text"]:
+            # implementation re-ran the turn on every reconnect).  Tolerate
+            # empty/malformed persisted turn data rather than 500-ing.
+            last_text = (existing.turn_messages or [{}])[-1].get("text")
+            if task == existing.task and task == last_text:
                 return await _attach_stream_or_404(
                     request, run_manager, sessionId, existing.event_seq
                 )
