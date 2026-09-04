@@ -312,16 +312,12 @@ function handleFileChange(event: Event) {
 }
 
 function removeAttachment(idx: number) {
-  const removed = attachments.value.splice(idx, 1)[0]?.file;
+  attachments.value.splice(idx, 1);
   validateModalities();
-  // Only clear the error when the removed attachment was plausibly its
-  // cause — an unrelated size/type error must survive the removal.
-  if (
-    !unsupportedKinds.value.length &&
-    removed &&
-    fileError.value &&
-    fileError.value.includes(removed.name)
-  ) {
+  // Only clear the modality error once its cause is actually gone; other
+  // errors (type/size — set before the file ever became an attachment)
+  // must survive the removal.
+  if (!unsupportedKinds.value.length && fileError.value.startsWith("当前模型不支持")) {
     fileError.value = "";
   }
 }

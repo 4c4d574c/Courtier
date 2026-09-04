@@ -91,16 +91,20 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
            the env→DB migration of COURTIER_PLUGIN_ENDPOINTS.
         3. Plugins, telemetry, stale-session sweep, ES index init.
         """
-        from .db import get_db
-
         # DB-less mode (empty MYSQL_URL) is a supported configuration for
         # tests and local dev — skip engine creation in that mode.  In the
         # datacenter environments an empty URL or missing settings key used
         # to produce a "healthy" server where every login 500s (fail-late):
         # refuse to start instead.
         # Built once here and reused by the SettingsStore below (from_env
-        # re-reads the whole env file on every call).
-        codec = None
+        # re-reads the whole env file on every call).  Dev keeps the old
+        # semantics: encryption active when COURTIER_SETTINGS_KEY is set,
+        # secrets fall back to env when it is not.
+        from courtier.settings_store import FernetCodec
+
+        from .db import get_db
+
+        codec = FernetCodec.from_env()
         if getattr(settings, "deployment_env", "development") in (
             "staging",
             "production",
@@ -110,9 +114,6 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
                     "MYSQL_URL is required when DEPLOYMENT_ENVIRONMENT is "
                     "staging/production"
                 )
-            from ..settings_store import FernetCodec
-
-            codec = FernetCodec.from_env()
             if codec is None:
                 raise RuntimeError(
                     "COURTIER_SETTINGS_KEY is required when DEPLOYMENT_ENVIRONMENT "
