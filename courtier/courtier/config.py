@@ -377,7 +377,7 @@ class Settings(BaseSettings):
         alias="guardrail_output_layer",
         description=(
             "输出后（output）层模式：block=拦截生效；log=影子只记录不拦截；"
-            "allow/off=跳过检查。"
+            "allow/off=跳过检查。当前该层无内置守卫，模式暂无效果（扩展预留）。"
         ),
     )
     guardrail_tool_layer: Literal["allow", "log", "block", "off"] = Field(
@@ -385,7 +385,7 @@ class Settings(BaseSettings):
         alias="guardrail_tool_layer",
         description=(
             "工具批前（tool）层模式：block=拦截生效；log=影子只记录不拦截；"
-            "allow/off=跳过检查。"
+            "allow/off=跳过检查。当前该层无内置守卫，模式暂无效果（扩展预留）。"
         ),
     )
     guardrail_tool_call_layer: Literal["block", "log"] = Field(

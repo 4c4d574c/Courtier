@@ -67,6 +67,10 @@ CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路
   再切 block，是推荐的上线方式；
 - `off` / `allow`：整层跳过。
 
+当前内置守卫只挂在 `tool_call`（禁用名单/路径白名单/确认）与 `post_tool`
+（防空转/无产出强制收尾）；`input`/`output`/`tool` 三层是扩展预留位，
+暂无内置守卫，改它们的模式暂时没有可见效果。
+
 `tool_call` 权限层是个刻意的不对称：设置类型只允许 `block`/`log` 两档，没有
 off/allow 旁路——该层承载工具禁用、路径白名单、执行确认三道权限拦截，
 "关闭检查"不是它该有的选项；前端保存该层变更时还有一次二次确认。
@@ -268,7 +272,8 @@ guards:
 - `courtier validate-domain domains/<name>/` 会校验：类可导入、有 `name`、
   `layer` 合法——写完先跑一遍；
 - 域激活时（包括会话重开后的自动重放）由 `DomainActivator` 注册进会话系统，
-  归属 `domain:<名字>`；`unregister_owner` 可对称注销；
+  归属 `domain:<名字>`；`unregister_owner` 可对称注销（当前无注销调用方——
+  每次会话构建都是新系统，该机制为未来"域停用"预留）；
 - 加载失败**只告警跳过**，不会阻断域激活——但 validate-domain 会提前拦住。
 
 **注意什么**：
@@ -365,6 +370,11 @@ system.register_observer("post_tool", my_observer)
 system.register_interceptor("pre_think", my_interceptor, priority=10, timeout=2.0)
 ```
 
+**注册即生效**：循环每轮经 `run_scope` 派发（pre_think / output / tool /
+post_tool 四个轮级 scope），观察者与拦截器随之执行；每个工具调用前的
+`check_call` 同样注入会话身份（`context.agent_name/session_id` 由循环入口
+的 `set_context` 提供并随运行结束恢复）。
+
 **注意什么**：
 
 - 拦截器**恒 fail-open**（异常跳过）、按 priority 降序执行；
@@ -426,9 +436,12 @@ system.set_context(agent_name=..., session_id=...)   # 循环自动调用
   `confirmation_requested/resolved`；挂起时 `/api/stop` 仍可终止。
 - **单测落点**：聚合语义 `tests/agent/core/test_guardrails.py`；每调用词汇
   （CallGuardResult/CallGuardrail）`test_call_guards.py`；每调用派发与
-  fail-closed `test_guardrail_call_dispatch.py`；路径策略（文案逐字节）
-  `test_permission_guards.py`；域机制 `test_domain_guards.py`；确认链路
-  `test_confirmation.py`。跑法：`uv run pytest tests/agent -q`。
+  fail-closed `test_guardrail_call_dispatch.py`（含 check_call 会话身份
+  注入）；管线派发（拦截器/观察者/set_context 恢复）`test_pipeline.py`；
+  循环接线（run_scope 派发、观察者随真实循环执行）`test_loop.py`；
+  路径策略（文案逐字节）`test_permission_guards.py`；域机制
+  `test_domain_guards.py`；确认链路 `test_confirmation.py`。跑法：
+  `uv run pytest tests/agent -q`。
 - **真机验证**：配 `tool_confirmation` 触发一次确认；用 `read` 读
   `/etc/hostname` 触发一次路径拒绝——两者都有稳定可断言的用户可见结果。
 

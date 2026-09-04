@@ -207,4 +207,10 @@ test_permission_guards.py、test_confirmation.py、tests/agent/api/。
 
 ## 8. 偏离记录
 
-（实施时补充）
+- T1/T2 无方案偏离。T1 的观察者循环测试在 T2 顺手补了 `agent_name` 全链断言
+  （循环 set_context → run_scope 富化 → 观察者读到身份），属测试增强。
+- T5 文档同步比方案清单多一处：§2 每层模式补"input/output/tool 三层为扩展
+  预留位、暂无内置守卫"的说明（与 config 字段描述同信息）。
+- 环境备注（非本方案改动）：`tests/courtier/test_es_backend_integration.py`
+  与并行会话并发跑时出现过一次 ES 索引竞争失败，单独复跑即绿。
+- 实施提交：T1 842fdc7、T2 b52421d、T3 aa05de6、T4 cb20609、T5 本次。
