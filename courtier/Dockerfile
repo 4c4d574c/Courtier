@@ -30,7 +30,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY README.md ./
 # The entrypoint (main.py) runs Alembic migrations before serving — without
-# alembic.ini the container crash-loops instead of upgrading the schema.
+# main.py / alembic.ini / alembic/ the container crash-loops instead of
+# upgrading the schema.
+COPY main.py ./
 COPY alembic.ini ./
 COPY alembic/ alembic/
 COPY courtier/ courtier/

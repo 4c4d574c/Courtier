@@ -11,9 +11,7 @@ Create Date: 2026-09-05 05:30:00.000000
 
 """
 
-from typing import Sequence, Union
-
-import sqlalchemy as sa
+from typing import Sequence
 
 from alembic import op
 
