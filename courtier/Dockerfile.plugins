@@ -22,6 +22,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /opt/courtier
 
+# Plugins parse untrusted documents — never run them as root.
+RUN groupadd --gid 1000 courtier \
+    && useradd --uid 1000 --gid courtier --create-home courtier
+
 # Shared by every plugin's [tool.uv.sources] relative paths.
 COPY libs/ libs/
 
@@ -33,6 +37,8 @@ COPY plugins/docaudit/parse/ plugins/docaudit/parse/
 WORKDIR /opt/courtier/plugins/docaudit/parse
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9101
 CMD ["/opt/courtier/plugins/docaudit/parse/.venv/bin/python", "entry.py"]
 
@@ -41,6 +47,8 @@ COPY plugins/docaudit/audit/check_format/ plugins/docaudit/audit/check_format/
 WORKDIR /opt/courtier/plugins/docaudit/audit/check_format
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9106
 CMD ["/opt/courtier/plugins/docaudit/audit/check_format/.venv/bin/python", "entry.py"]
 
@@ -49,6 +57,8 @@ COPY plugins/docaudit/audit/check_content/ plugins/docaudit/audit/check_content/
 WORKDIR /opt/courtier/plugins/docaudit/audit/check_content
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9107
 CMD ["/opt/courtier/plugins/docaudit/audit/check_content/.venv/bin/python", "entry.py"]
 
@@ -57,6 +67,8 @@ COPY plugins/docaudit/audit/detect_plagiarism/ plugins/docaudit/audit/detect_pla
 WORKDIR /opt/courtier/plugins/docaudit/audit/detect_plagiarism
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9108
 CMD ["/opt/courtier/plugins/docaudit/audit/detect_plagiarism/.venv/bin/python", "entry.py"]
 
@@ -68,6 +80,8 @@ COPY plugins/shared/anydoc/ plugins/shared/anydoc/
 WORKDIR /opt/courtier/plugins/shared/anydoc
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9102
 CMD ["/opt/courtier/plugins/shared/anydoc/.venv/bin/python", "entry.py"]
 
@@ -76,6 +90,8 @@ COPY plugins/shared/annotate/ plugins/shared/annotate/
 WORKDIR /opt/courtier/plugins/shared/annotate
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9103
 CMD ["/opt/courtier/plugins/shared/annotate/.venv/bin/python", "entry.py"]
 
@@ -84,6 +100,8 @@ COPY plugins/shared/template/ plugins/shared/template/
 WORKDIR /opt/courtier/plugins/shared/template
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9104
 CMD ["/opt/courtier/plugins/shared/template/.venv/bin/python", "entry.py"]
 
@@ -92,6 +110,8 @@ COPY plugins/shared/search/ plugins/shared/search/
 WORKDIR /opt/courtier/plugins/shared/search
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9105
 CMD ["/opt/courtier/plugins/shared/search/.venv/bin/python", "entry.py"]
 
@@ -104,6 +124,8 @@ COPY plugins/shared/media/ plugins/shared/media/
 WORKDIR /opt/courtier/plugins/shared/media
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9109
 CMD ["/opt/courtier/plugins/shared/media/.venv/bin/python", "entry.py"]
 
@@ -112,5 +134,7 @@ COPY plugins/shared/memory/ plugins/shared/memory/
 WORKDIR /opt/courtier/plugins/shared/memory
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
+RUN chown -R courtier:courtier /opt/courtier
+USER courtier
 EXPOSE 9110
 CMD ["/opt/courtier/plugins/shared/memory/.venv/bin/python", "entry.py"]
