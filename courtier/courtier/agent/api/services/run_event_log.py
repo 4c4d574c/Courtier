@@ -39,8 +39,10 @@ RESYNC_SEQ = -1
 
 def render_sse_line(seq: int, payload: dict[str, Any]) -> str:
     """Render one SSE frame with an explicit id so EventSource reconnects
-    can resume via ``Last-Event-ID``."""
-    data = json.dumps(payload, ensure_ascii=False)
+    can resume via ``Last-Event-ID``.  ``default=str`` keeps a stray
+    non-JSON-serializable value (e.g. plugin metadata) from raising and
+    killing the event stream."""
+    data = json.dumps(payload, ensure_ascii=False, default=str)
     return f"id: {seq}\ndata: {data}\n\n"
 
 

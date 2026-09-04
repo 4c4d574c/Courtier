@@ -1741,3 +1741,56 @@ class TestRunRecorderWatermark:
         assert terminal.payload["type"] == "error"
         assert terminal.payload["detail"] == "服务器内部错误，请稍后重试"
         assert terminal.payload["trace_id"] == "ab12"
+
+
+class TestListenerIsolation:
+    """A poisoned event must skip that event only, never kill the listener."""
+
+    @pytest.mark.asyncio
+    async def test_listener_survives_handler_exception(self, store):
+        from courtier.agent.core.event_bus import EventBus
+        from courtier.agent.core.events import AgentEvent
+
+        session_id = "sess_iso00000001"
+        await store.create(session_id, "task", "file_test1234")
+        bus = EventBus()
+        log = RunEventLog()
+        recorder = RunRecorder(log, store, session_id)
+        original_on_token = recorder.on_token
+
+        async def flaky_on_token(text):
+            if text == "poison":
+                raise RuntimeError("handler boom")
+            await original_on_token(text)
+
+        recorder.on_token = flaky_on_token
+        recorder.start_listening(bus)
+        try:
+            for text in ("hello ", "poison", "world"):
+                await bus.publish(
+                    AgentEvent(
+                        type="llm.token",
+                        session_id=session_id,
+                        agent_name="agent",
+                        turn_index=0,
+                        payload={"text": text},
+                    )
+                )
+            await recorder.drain_pending(timeout=2.0)
+        finally:
+            recorder.stop_listening()
+
+        rendered = "".join(e.line for e in log.replay_after(-1))
+        assert "hello " in rendered
+        assert "world" in rendered
+        assert "poison" not in rendered
+
+    def test_render_sse_line_sanitizes_unserializable_payload(self):
+        from courtier.agent.api.services.run_event_log import render_sse_line
+
+        class _Opaque:
+            def __str__(self):
+                return "opaque"
+
+        line = render_sse_line(3, {"type": "observe", "meta": {"obj": _Opaque()}})
+        assert '"obj": "opaque"' in line

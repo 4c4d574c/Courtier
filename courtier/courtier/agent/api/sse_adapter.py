@@ -251,8 +251,20 @@ class RunRecorder:
         """Background task: read AgentEvents and dispatch to handlers."""
         try:
             async for event in subscription:
+                # Per-event isolation: a single poisoned event (e.g. a
+                # handler crashing on malformed payload) must not kill the
+                # listener — that would silently drop every remaining event
+                # of the run from both the SSE log and persistence.
                 async with self._dispatch_lock:
-                    await self._dispatch_event(event)
+                    try:
+                        await self._dispatch_event(event)
+                    except Exception:
+                        logger.exception(
+                            "Event dispatch failed for session %s "
+                            "(type=%s); event skipped",
+                            self._session_id,
+                            event.type,
+                        )
         except asyncio.CancelledError:
             raise
         except Exception:
