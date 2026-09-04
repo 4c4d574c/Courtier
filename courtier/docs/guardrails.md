@@ -59,12 +59,21 @@ CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路
 
 ### 每层模式（off / log / block / allow）
 
-每个层级可以整体设模式（管理后台「运行守卫与预算」里部分可调）：
+每个层级有一个整体模式，在**构造 `GuardrailSystem` 时定死**——当前装配没有
+运行时开关：
 
-- `block`（默认）：裁决生效；
+- `block`：裁决生效。会话系统的 `tool` / `tool_call` 固定用它（权限层必须 fail-closed）；
 - `log`：**影子模式**——照常跑检查、只发事件不拦截。新规则先影子观察一段时间
   再切 block，是推荐的上线方式；
 - `off` / `allow`：整层跳过。
+
+装配现状：`build_agent` 的会话系统传 `tool`/`tool_call` = `block`，其余层用
+构造默认（`input`/`post_tool` = `block`，`output` = `log`）；扩展者自建
+`GuardrailSystem` 时可按层传模式参数。
+
+> **别找管理后台开关**：`Settings.guardrails`（`GuardrailsConfig` 的四层模式
+> 字段）目前没有任何消费者——统一管线落地前的遗留平行定义，改它不生效。
+> 要调模式只能改构造处传参（`agent_service.py` / `loop.py`）。
 
 ### metadata 怎么流动（容易踩的点）
 
@@ -414,7 +423,8 @@ system.set_context(agent_name=..., session_id=...)   # 循环自动调用
   会进会话时间线；服务端指标 `guardrail_blocked_total{layer, guard_name}`。
 - **确认链路排查**：会话详情 `pendingConfirmations` 字段 + SSE
   `confirmation_requested/resolved`；挂起时 `/api/stop` 仍可终止。
-- **单测落点**：聚合语义 `tests/agent/core/test_guardrails.py`；每调用派发与
+- **单测落点**：聚合语义 `tests/agent/core/test_guardrails.py`；每调用词汇
+  （CallGuardResult/CallGuardrail）`test_call_guards.py`；每调用派发与
   fail-closed `test_guardrail_call_dispatch.py`；路径策略（文案逐字节）
   `test_permission_guards.py`；域机制 `test_domain_guards.py`；确认链路
   `test_confirmation.py`。跑法：`uv run pytest tests/agent -q`。
