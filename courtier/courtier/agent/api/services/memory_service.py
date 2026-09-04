@@ -418,8 +418,12 @@ async def clear_layer(
         )
     count = len(rows)
     if count:
+        # Delete exactly the audited ids: re-evaluating the filter could
+        # swallow rows inserted between the audit pass and the delete.
         await session.execute(
-            delete(MemoryTable).where(*_layer_filters(layer, identity.owner_id, None, ""))
+            delete(MemoryTable).where(
+                MemoryTable.id.in_([row.id for row in rows])
+            )
         )
         await session.commit()
     return count
