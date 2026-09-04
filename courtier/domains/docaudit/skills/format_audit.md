@@ -9,7 +9,7 @@ mode: sequential
 timeout_seconds: 600
 retry_policy: on_error
 input_model: skills.schemas.format_audit.FormatAuditorInput
-default_mode: subagent
+default_mode: inline
 ---
 
 # 目标

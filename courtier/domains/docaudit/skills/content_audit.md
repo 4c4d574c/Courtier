@@ -12,7 +12,7 @@ enabled: true
 tools:
 - convert_document
 input_model: skills.schemas.content_audit.ContentAuditInput
-default_mode: subagent
+default_mode: inline
 ---
 
 # 目标

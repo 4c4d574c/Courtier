@@ -10,7 +10,7 @@ tools:
 - search_documents
 input_model: skills.schemas.secret_analysis.SecretAnalysisInput
 mode: auto
-default_mode: subagent
+default_mode: inline
 ---
 
 # 目标

@@ -4,11 +4,10 @@ type: skill
 version: '1.1'
 enabled: true
 display_name: 视觉检查
-description: 对用户上传的图片或视频进行视觉内容检查与描述
-tools: []
+description: 当需要对用户上传的图片或视频进行视觉内容检查时调用该技能
 input_model: skills.schemas.visual_inspection.VisualInspectionInput
 mode: auto
-default_mode: subagent
+default_mode: inline
 ---
 
 # 目标

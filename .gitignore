@@ -1,3 +1,4 @@
 .env_bak*
 .worktrees/
 .zcode/
+.archdoc-build/
