@@ -131,7 +131,7 @@
       <div class="modal" role="dialog" aria-modal="true">
         <h3 class="modal-title">确认清空</h3>
         <p class="modal-message">
-          确定清空{{ isGlobal ? "全局共享层" : "你的用户层" }}的全部 {{ entries.length }} 条记忆？删除后不可恢复。
+          确定清空{{ isGlobal ? "全局共享层" : "你的用户层" }}的全部记忆？删除后不可恢复。
         </p>
         <div class="modal-actions">
           <button class="modal-btn" @click="clearConfirm = false">取消</button>

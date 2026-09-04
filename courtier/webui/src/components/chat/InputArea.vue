@@ -312,9 +312,18 @@ function handleFileChange(event: Event) {
 }
 
 function removeAttachment(idx: number) {
-  attachments.value.splice(idx, 1);
+  const removed = attachments.value.splice(idx, 1)[0]?.file;
   validateModalities();
-  if (!unsupportedKinds.value.length) fileError.value = "";
+  // Only clear the error when the removed attachment was plausibly its
+  // cause — an unrelated size/type error must survive the removal.
+  if (
+    !unsupportedKinds.value.length &&
+    removed &&
+    fileError.value &&
+    fileError.value.includes(removed.name)
+  ) {
+    fileError.value = "";
+  }
 }
 
 function clearAttachments() {
