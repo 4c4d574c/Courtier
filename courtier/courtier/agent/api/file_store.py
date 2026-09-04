@@ -86,7 +86,7 @@ class FileStore:
         p = Path(stored_path)
         if p.is_absolute():
             return None
-        base = upload_dir.resolve()
+        base = Path(upload_dir).resolve()
         target = (base / p).resolve()
         try:
             target.relative_to(base)
@@ -133,7 +133,7 @@ class FileStore:
         file_ids.  Entries with an empty owner (legacy) are never touched.
         """
         removed: list[str] = []
-        upload_root = Path(upload_dir).resolve()
+        upload_root = Path(upload_dir).expanduser().resolve()
         async with self._lock:
             for fid, info in list(self._files.items()):
                 if info.owner != owner:
@@ -141,7 +141,7 @@ class FileStore:
                 self._files.pop(fid, None)
                 removed.append(fid)
                 try:
-                    path = _safe_resolve(upload_dir, info.stored_path)
+                    path = self._safe_resolve(upload_dir, info.stored_path)
                     if path is not None and path.is_file():
                         await asyncio.to_thread(path.unlink)
                 except OSError:

@@ -84,10 +84,10 @@ async def submit_deletion_request(
     user = await session.get(UserTable, uid)
     if user is None or user.username != username:
         raise HTTPException(404, "用户不存在")
-    if not verify_password(body.password, user.password_hash):
-        raise HTTPException(401, "密码错误")
     if _is_admin(current_user_payload) or user.role.value == "admin":
         raise HTTPException(403, "管理员账号不可注销；如需删除请先由其他管理员降级")
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "密码错误")
     existing = (
         await session.execute(
             select(DeletionRequestTable).where(
