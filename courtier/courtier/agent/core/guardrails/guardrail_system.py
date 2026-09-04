@@ -83,9 +83,7 @@ class GuardrailSystem:
     _interceptors: dict[str, list[tuple[int, int, InterceptorHandler, float | None]]] = field(
         default_factory=lambda: defaultdict(list)
     )
-    _observers: dict[str, list[ObserverHandler]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
+    _observers: dict[str, list[ObserverHandler]] = field(default_factory=lambda: defaultdict(list))
     _registration_counter: int = 0
     _agent_name: str = ""
     _session_id: str = ""
@@ -124,14 +122,10 @@ class GuardrailSystem:
         rewrite or inject calls, so registering raises.
         """
         if scope == "tool_call":
-            raise ValueError(
-                "tool_call scope is decision-only: interceptors are not allowed"
-            )
+            raise ValueError("tool_call scope is decision-only: interceptors are not allowed")
         if scope not in SCOPES:
             raise ValueError(f"unknown pipeline scope: {scope!r}")
-        self._interceptors[scope].append(
-            (priority, self._registration_counter, handler, timeout)
-        )
+        self._interceptors[scope].append((priority, self._registration_counter, handler, timeout))
         self._registration_counter += 1
 
     def register_observer(self, scope: str, handler: ObserverHandler) -> None:
@@ -185,9 +179,7 @@ class GuardrailSystem:
         state = context.state
         self._enrich_context(context)
 
-        entries = sorted(
-            self._interceptors.get(scope, []), key=lambda e: (-e[0], e[1])
-        )
+        entries = sorted(self._interceptors.get(scope, []), key=lambda e: (-e[0], e[1]))
         for _priority, _order, handler, per_timeout in entries:
             timeout = per_timeout if per_timeout is not None else self.interceptor_timeout
             try:
@@ -196,9 +188,7 @@ class GuardrailSystem:
                 else:
                     result = await handler(context)
             except Exception:
-                logger.exception(
-                    "Interceptor failed (fail-open): scope=%s", scope
-                )
+                logger.exception("Interceptor failed (fail-open): scope=%s", scope)
                 continue
             if result is not None:
                 state = result
@@ -338,13 +328,9 @@ class GuardrailSystem:
                 result = await check_call(call, context)
             except Exception:
                 if mode == "log":
-                    logger.exception(
-                        "Call guardrail %s failed (shadow mode)", guard.name
-                    )
+                    logger.exception("Call guardrail %s failed (shadow mode)", guard.name)
                     continue
-                logger.exception(
-                    "Call guardrail %s failed — failing closed", guard.name
-                )
+                logger.exception("Call guardrail %s failed — failing closed", guard.name)
                 denied = CallGuardResult.deny(
                     guard.name,
                     render_error("errors.guard_call_failed", guard_name=guard.name),
@@ -383,9 +369,11 @@ class GuardrailSystem:
             reason=result.reason,
             layer=layer,
             guard_name=result.guard_name,
-            metadata=dict(result.metadata, error_code=result.error_code)
-            if result.error_code
-            else dict(result.metadata),
+            metadata=(
+                dict(result.metadata, error_code=result.error_code)
+                if result.error_code
+                else dict(result.metadata)
+            ),
         )
         try:
             await self.on_event(mirrored)
