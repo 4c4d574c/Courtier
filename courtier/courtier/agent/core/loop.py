@@ -31,12 +31,15 @@ from .audit_logger import AuditLogger
 from .event_bus import EventBus
 from .events import AgentEvent, EventType
 from .guardrails import (
-    BusinessArtifactProgressGuard,
-    ExploreLoopGuard,
     GuardContext,
     GuardrailSystem,
 )
 from .guardrails.base import GuardResult
+from .guardrails.registry import (
+    DEFAULT_GUARD_DECLARATIONS,
+    GuardLoadError,
+    load_guard_descriptor,
+)
 from .loop_audit import write_audit_turn
 from .loop_hints import _get_ready_terminal_tools, check_and_inject_hints
 from .loop_phases import execute_tools_phase, think_phase
@@ -1125,13 +1128,29 @@ async def agent_loop(
     # permission guards; loop guards are registered per-run below either way.
     if guardrail_system is None:
         guardrail_system = GuardrailSystem(tool_mode="block")
+        # Ad-hoc loop (no session system): run the baseline run-scoped
+        # declarations — the declarative default is the five built-ins.
+        guardrail_system.run_descriptors = [
+            _d for _d in DEFAULT_GUARD_DECLARATIONS if _d.scope == "run"
+        ]
     guardrail_system.on_event = _on_guardrail_event
 
-    # Loop guards are stateful per run: fresh instances registered for the
-    # duration of this loop and unregistered afterwards, so a shared
-    # session system (built by build_agent) never mixes guard history
-    # across agents or nested sub-agent loops.
-    _run_guards = [ExploreLoopGuard(), BusinessArtifactProgressGuard()]
+    # Run guards are stateful per run: fresh instances are materialized from
+    # the system's run-scoped descriptors (settings ``guardrail_guards``,
+    # scope "run") for the duration of this loop and unregistered afterwards,
+    # so a shared session system (built by build_agent) never mixes guard
+    # history across agents or nested sub-agent loops.
+    _run_guards = []
+    for _descriptor in guardrail_system.run_descriptors:
+        try:
+            _run_guards.append(load_guard_descriptor(_descriptor))
+        except GuardLoadError:
+            logger.warning(
+                "Skipping run-scoped guard %s (%s)",
+                _descriptor.name,
+                _descriptor.class_path,
+                exc_info=True,
+            )
     for _run_guard in _run_guards:
         guardrail_system.register(_run_guard)
     prior_guardrail_context: dict[str, Any] = {}

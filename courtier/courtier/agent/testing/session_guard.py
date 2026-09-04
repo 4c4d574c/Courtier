@@ -37,3 +37,24 @@ class RequiresArgsGuard:
 
     def __init__(self, threshold: int) -> None:  # noqa: ARG002 — shape-test fixture
         self._threshold = threshold
+
+
+class StatefulRunGuard:
+    """Run-scoped stateful guard fixture for the per-run lifecycle contract.
+
+    Records the ``id()`` of every instance ever built in ``instances`` so
+    tests can assert that each ``agent_loop`` materializes a fresh guard and
+    that state never survives across runs."""
+
+    name = "stateful_run"
+    layer = "post_tool"
+
+    instances: list[int] = []
+
+    def __init__(self) -> None:
+        self.checks = 0
+        type(self).instances.append(id(self))
+
+    async def check(self, context) -> GuardResult:
+        self.checks += 1
+        return GuardResult.allow(self.name, metadata={"checks": self.checks})
