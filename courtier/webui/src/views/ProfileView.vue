@@ -90,6 +90,54 @@
         </form>
       </div>
 
+      <div v-if="user?.role !== 'admin'" class="profile-section profile-deletion">
+        <h2 class="profile-section-title">注销账号</h2>
+        <template v-if="deletion.request">
+          <p class="profile-deletion-note">
+            注销申请审核中，账号期间可正常使用。批准后将清除你的全部个人数据
+            （会话、上传文件、个人资源、审核记录、记忆等），且用户名将被释放，操作不可恢复。
+          </p>
+          <button
+            type="button"
+            class="auth-submit profile-danger-btn"
+            style="width: auto; padding: 0 24px"
+            :disabled="deletion.loading"
+            @click="cancelDeletion"
+          >
+            {{ deletion.loading ? "处理中..." : "撤回注销申请" }}
+          </button>
+        </template>
+        <template v-else>
+          <p class="profile-deletion-note">
+            提交后需管理员审核，批准前账号可正常使用。批准后将清除你的全部个人数据，
+            用户名将被释放，操作不可恢复。
+          </p>
+          <form @submit.prevent="submitDeletion" class="profile-form">
+            <div class="auth-field">
+              <label for="deletionPassword">登录密码确认</label>
+              <input
+                id="deletionPassword"
+                v-model="deletion.password"
+                type="password"
+                required
+                autocomplete="current-password"
+              />
+            </div>
+            <p v-if="deletion.msg" class="profile-msg" :class="deletion.ok ? 'msg-ok' : 'msg-err'">
+              {{ deletion.msg }}
+            </p>
+            <button
+              type="submit"
+              class="auth-submit profile-danger-btn"
+              style="width: auto; padding: 0 24px"
+              :disabled="deletion.loading || !deletion.password"
+            >
+              {{ deletion.loading ? "提交中..." : "申请注销账号" }}
+            </button>
+          </form>
+        </template>
+      </div>
+
       <div class="profile-footer">
         <router-link to="/" class="profile-back"><AppIcon name="arrow-left" :size="14" />返回主页</router-link>
       </div>
@@ -99,9 +147,9 @@
 
 <script setup lang="ts">
 import AppIcon from "../components/AppIcon.vue";
-import { reactive } from "vue";
+import { onMounted, reactive } from "vue";
 import { useAuth } from "../composables/useAuth";
-import { api } from "../api/client";
+import { api, type DeletionRequest } from "../api/client";
 
 const { user } = useAuth();
 
@@ -134,6 +182,56 @@ async function updateEmail() {
     emailForm.loading = false;
   }
 }
+
+const deletion = reactive({
+  password: "",
+  loading: false,
+  msg: "",
+  ok: false,
+  request: null as DeletionRequest | null,
+});
+
+async function loadDeletionRequest() {
+  try {
+    deletion.request = (await api.getMyDeletionRequest()).request;
+  } catch {
+    deletion.request = null;
+  }
+}
+
+async function submitDeletion() {
+  deletion.msg = "";
+  deletion.loading = true;
+  try {
+    await api.submitDeletionRequest(deletion.password);
+    deletion.password = "";
+    deletion.ok = true;
+    deletion.msg = "注销申请已提交，等待管理员审核";
+    await loadDeletionRequest();
+  } catch (e: unknown) {
+    deletion.ok = false;
+    deletion.msg = e instanceof Error ? e.message : "提交失败";
+  } finally {
+    deletion.loading = false;
+  }
+}
+
+async function cancelDeletion() {
+  deletion.loading = true;
+  try {
+    await api.cancelDeletionRequest();
+    deletion.request = null;
+    deletion.ok = true;
+    deletion.msg = "已撤回注销申请";
+  } catch (e: unknown) {
+    deletion.ok = false;
+    deletion.msg = e instanceof Error ? e.message : "撤回失败";
+  } finally {
+    deletion.loading = false;
+  }
+}
+
+onMounted(loadDeletionRequest);
 
 async function updatePassword() {
   pwForm.msg = "";
@@ -263,6 +361,19 @@ async function updatePassword() {
   color: var(--chat-text-secondary);
   text-decoration: none;
   font-size: 13px;
+}
+
+.profile-deletion-note {
+  font-size: 16px;
+  color: var(--chat-text-tertiary);
+  margin: 0 0 14px;
+  line-height: 1.6;
+}
+
+.profile-danger-btn {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
 }
 
 .profile-back:hover {

@@ -2,14 +2,31 @@
   <div class="admin-page">
     <header class="admin-header">
       <div>
-        <h1 class="admin-heading">注册审批</h1>
-        <p class="admin-subtitle">审批新用户的注册申请</p>
+        <h1 class="admin-heading">审批中心</h1>
+        <div class="approval-tabs">
+          <button
+            type="button"
+            class="approval-tab"
+            :class="{ 'approval-tab--active': activeTab === 'register' }"
+            @click="activeTab = 'register'"
+          >
+            注册审批
+          </button>
+          <button
+            type="button"
+            class="approval-tab"
+            :class="{ 'approval-tab--active': activeTab === 'deletion' }"
+            @click="activeTab = 'deletion'"
+          >
+            注销申请
+          </button>
+        </div>
       </div>
     </header>
     <p v-if="actionMsg.text" class="action-msg" :class="actionMsg.ok ? 'msg-ok' : 'msg-err'">
       {{ actionMsg.text }}
     </p>
-    <div class="admin-card" v-if="items.length > 0">
+    <div class="admin-card" v-if="activeTab === 'register' && items.length > 0">
       <table class="admin-table">
       <thead>
         <tr>
@@ -44,9 +61,44 @@
       </tbody>
     </table>
     </div>
+    <div class="admin-card" v-else-if="activeTab === 'deletion' && deletionItems.length > 0">
+      <table class="admin-table">
+      <thead>
+        <tr>
+          <th>用户名</th>
+          <th>申请时间</th>
+          <th>发起方</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="item in deletionItems" :key="item.id">
+          <td class="td-username">{{ item.username ?? `用户#${item.userId}` }}</td>
+          <td class="td-date">{{ formatDate(item.createdAt || "") }}</td>
+          <td>{{ item.requestedBy === "self" ? "本人申请" : "管理员" }}</td>
+          <td class="td-actions">
+            <button
+              @click="approveDeletion(item)"
+              class="action-btn approve-btn"
+              :disabled="item._loading"
+            >
+              批准注销
+            </button>
+            <button
+              @click="rejectDeletion(item)"
+              class="action-btn reject-btn"
+              :disabled="item._loading"
+            >
+              拒绝
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
     <div v-else-if="!loading" class="admin-card">
       <div class="admin-empty-state">
-        <p>暂无待审批的注册申请</p>
+        <p>{{ activeTab === "register" ? "暂无待审批的注册申请" : "暂无待审批的注销申请" }}</p>
       </div>
     </div>
   </div>
@@ -54,7 +106,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from "vue";
-import { api } from "../api/client";
+import { api, type DeletionRequestItem } from "../api/client";
 import { formatDate } from "../utils/date";
 
 interface ApprovalItem {
@@ -66,6 +118,8 @@ interface ApprovalItem {
 }
 
 const items = ref<(ApprovalItem & { _loading?: boolean })[]>([]);
+const activeTab = ref<"register" | "deletion">("register");
+const deletionItems = ref<(DeletionRequestItem & { _loading?: boolean })[]>([]);
 const loading = ref(false);
 const actionMsg = reactive({ text: "", ok: false });
 
@@ -102,11 +156,50 @@ async function reject(item: ApprovalItem & { _loading?: boolean }) {
   }
 }
 
+async function loadDeletionRequests() {
+  try {
+    const res = await api.listDeletionRequests();
+    deletionItems.value = res.items.map((i) => ({ ...i, _loading: false }));
+  } catch (e: unknown) {
+    reportError(e, "获取注销申请失败");
+  }
+}
+
+async function approveDeletion(item: DeletionRequestItem & { _loading?: boolean }) {
+  item._loading = true;
+  try {
+    const { receipt } = await api.approveDeletionRequest(item.id);
+    deletionItems.value = deletionItems.value.filter((i) => i.id !== item.id);
+    const failures = Object.keys(receipt.failures || {}).length;
+    actionMsg.text = `已注销 ${item.username ?? `用户#${item.userId}`}（清除 ${Object.values(receipt.counts || {}).reduce((a, b) => a + b, 0)} 项${failures ? `，${failures} 项外部清理失败已记录` : ""}）`;
+    actionMsg.ok = true;
+  } catch (e: unknown) {
+    reportError(e, "批准注销失败");
+  } finally {
+    item._loading = false;
+  }
+}
+
+async function rejectDeletion(item: DeletionRequestItem & { _loading?: boolean }) {
+  item._loading = true;
+  try {
+    await api.rejectDeletionRequest(item.id);
+    deletionItems.value = deletionItems.value.filter((i) => i.id !== item.id);
+    actionMsg.text = `已拒绝 ${item.username ?? `用户#${item.userId}`} 的注销申请`;
+    actionMsg.ok = true;
+  } catch (e: unknown) {
+    reportError(e, "拒绝失败");
+  } finally {
+    item._loading = false;
+  }
+}
+
 onMounted(async () => {
   loading.value = true;
   try {
     const res = await api.listApprovals();
     items.value = res.items.map((i) => ({ ...i, _loading: false }));
+    await loadDeletionRequests();
   } catch (e: unknown) {
     reportError(e, "获取审批列表失败");
   } finally {
@@ -116,6 +209,25 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.approval-tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.approval-tab {
+  border: 1px solid var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: 999px;
+  padding: 5px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.approval-tab--active {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast, #fff);
+}
 .admin-header {
   margin-bottom: 16px;
 }

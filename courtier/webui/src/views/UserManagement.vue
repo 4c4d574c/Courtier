@@ -88,6 +88,13 @@
             <button @click="openResetModal(u)" class="action-btn">
               重置密码
             </button>
+            <button
+              v-if="u.role !== 'admin'"
+              @click="openDeleteModal(u)"
+              class="action-btn delete-btn"
+            >
+              注销
+            </button>
           </td>
         </tr>
       </tbody>
@@ -117,6 +124,24 @@
           <button class="modal-btn" @click="pwModal.open = false">取消</button>
           <button class="modal-btn modal-btn--primary" @click="confirmResetPassword" :disabled="pwModal.loading">
             {{ pwModal.loading ? "提交中..." : "确认" }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="deleteModal.open" class="modal-backdrop" @click.self="deleteModal.open = false">
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3 class="modal-title">确认注销账号</h3>
+        <p class="delete-warning">
+          将永久删除 <strong>{{ deleteModal.username }}</strong> 的全部个人数据：
+          聊天会话、上传文件、个人资源、审核记录、用户记忆。用户名将被释放，
+          操作<strong>不可恢复</strong>。确定继续吗？
+        </p>
+        <p v-if="deleteModal.error" class="action-msg msg-err">{{ deleteModal.error }}</p>
+        <div class="modal-actions">
+          <button class="modal-btn" @click="deleteModal.open = false">取消</button>
+          <button class="modal-btn modal-btn--danger" :disabled="deleteModal.loading" @click="confirmDelete">
+            {{ deleteModal.loading ? "注销中..." : "确认注销" }}
           </button>
         </div>
       </div>
@@ -225,6 +250,34 @@ async function changeStatus(u: AdminUser, status: AdminUser["status"]) {
   }
 }
 
+const deleteModal = reactive({
+  open: false,
+  id: 0,
+  username: "",
+  loading: false,
+  error: "",
+});
+
+function openDeleteModal(u: AdminUser) {
+  Object.assign(deleteModal, { open: true, id: u.id, username: u.username, loading: false, error: "" });
+}
+
+async function confirmDelete() {
+  deleteModal.loading = true;
+  deleteModal.error = "";
+  try {
+    await api.deleteUserAccount(deleteModal.id);
+    deleteModal.open = false;
+    actionMsg.text = `已注销账号 ${deleteModal.username}`;
+    actionMsg.ok = true;
+    await fetchUsers();
+  } catch (e: unknown) {
+    deleteModal.error = e instanceof Error ? e.message : "注销失败";
+  } finally {
+    deleteModal.loading = false;
+  }
+}
+
 const pwModal = reactive({
   open: false,
   userId: 0,
@@ -321,6 +374,24 @@ onMounted(fetchUsers);
 .modal-input:focus {
   border-color: var(--chat-accent);
   box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+.delete-btn {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+}
+.delete-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+.modal-btn--danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+}
+.delete-warning {
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+  line-height: 1.6;
+  margin: 0 0 12px;
 }
 .modal-actions {
   display: flex;

@@ -568,6 +568,55 @@ export const api = {
     await request("DELETE", `/resources/${id}`);
   },
 
+  // ---- Account deletion ----
+  async submitDeletionRequest(password: string): Promise<DeletionRequest> {
+    const res = await authFetch(`${API_BASE}/profile/deletion-request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /profile/deletion-request failed");
+    return res.json();
+  },
+
+  async getMyDeletionRequest(): Promise<{ request: DeletionRequest | null }> {
+    const res = await authFetch(`${API_BASE}/profile/deletion-request`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /profile/deletion-request failed");
+    return res.json();
+  },
+
+  async cancelDeletionRequest(): Promise<void> {
+    await request("DELETE", `/profile/deletion-request`);
+  },
+
+  async listDeletionRequests(): Promise<{ items: DeletionRequestItem[] }> {
+    const res = await authFetch(`${API_BASE}/admin/deletion-requests`);
+    if (!res.ok) throw await parseErrorDetail(res, "GET /admin/deletion-requests failed");
+    return res.json();
+  },
+
+  async approveDeletionRequest(id: number): Promise<{ receipt: DeletionReceipt }> {
+    const res = await authFetch(`${API_BASE}/admin/deletion-requests/${id}/approve`, {
+      method: "POST",
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /admin/deletion-requests/:id/approve failed");
+    return res.json();
+  },
+
+  async rejectDeletionRequest(id: number): Promise<DeletionRequest> {
+    const res = await authFetch(`${API_BASE}/admin/deletion-requests/${id}/reject`, {
+      method: "POST",
+    });
+    if (!res.ok) throw await parseErrorDetail(res, "POST /admin/deletion-requests/:id/reject failed");
+    return res.json();
+  },
+
+  async deleteUserAccount(id: number): Promise<{ receipt: DeletionReceipt }> {
+    const res = await authFetch(`${API_BASE}/admin/users/${id}`, { method: "DELETE" });
+    if (!res.ok) throw await parseErrorDetail(res, "DELETE /admin/users/:id failed");
+    return res.json();
+  },
+
   // ---- Memory (layered DB-backed memory) ----
   async listMemory(scope: "global" | "mine", domain = "", query = ""): Promise<MemoryEntry[]> {
     const res = await authFetch(
@@ -855,6 +904,26 @@ export interface MemoryChange {
   newHash: string | null;
   actor: string;
   createdAt: string;
+}
+
+export interface DeletionRequest {
+  id: number;
+  userId: number;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "executed";
+  requestedBy: "self" | "admin";
+  decidedBy: string;
+  createdAt: string | null;
+  decidedAt: string | null;
+}
+
+export interface DeletionRequestItem extends DeletionRequest {
+  username: string | null;
+  userStatus: string | null;
+}
+
+export interface DeletionReceipt {
+  counts: Record<string, number>;
+  failures: Record<string, string>;
 }
 
 export interface ResourceSummary {
