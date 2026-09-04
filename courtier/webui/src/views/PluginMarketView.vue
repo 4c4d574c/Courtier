@@ -195,9 +195,9 @@ function stateClass(p: PluginInfo): string {
 
 function isTransitional(state: string): boolean {
   // DISCONNECTED is settled (crashed / refused): admins must be able to
-    // start or restart it — treating it as transitional left a permanently
-    // disabled button with no recovery path.
-    return ["CONNECTING", "REGISTERING", "STOPPING"].includes(state);
+  // start or restart it — treating it as transitional left a permanently
+  // disabled button with no recovery path.
+  return ["CONNECTING", "REGISTERING", "STOPPING"].includes(state);
 }
 
 async function reload() {
