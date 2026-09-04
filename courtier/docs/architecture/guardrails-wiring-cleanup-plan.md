@@ -213,4 +213,9 @@ test_permission_guards.py、test_confirmation.py、tests/agent/api/。
   预留位、暂无内置守卫"的说明（与 config 字段描述同信息）。
 - 环境备注（非本方案改动）：`tests/courtier/test_es_backend_integration.py`
   与并行会话并发跑时出现过一次 ES 索引竞争失败，单独复跑即绿。
-- 实施提交：T1 842fdc7、T2 b52421d、T3 aa05de6、T4 cb20609、T5 本次。
+- 实施提交：T1 842fdc7、T2 b52421d、T3 aa05de6、T4 cb20609、T5 080504f。
+- T6 真机冒烟已通过（2026-09-04）：临时 pre_think 观察者随真实 API 运行派发，
+  日志 `SMOKE pre_think agent=OrchestratorAgent session=sess_6e0a60e73d28`
+  ——run_scope 派发 + set_context 会话身份全链生效；验证后临时代码已移除。
+  备注：开发机后端现由并行会话以 --reload 持有，本次冒烟借其热重载完成，
+  未触碰其进程。
