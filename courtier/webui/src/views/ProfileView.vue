@@ -25,16 +25,14 @@
           </div>
           <p
             v-if="emailForm.msg"
-            class="profile-msg"
             :class="emailForm.ok ? 'msg-ok' : 'msg-err'"
           >
             {{ emailForm.msg }}
           </p>
           <button
             type="submit"
-            class="auth-submit"
+            class="auth-submit profile-btn"
             :disabled="emailForm.loading"
-            style="width: auto; padding: 0 24px"
           >
             {{ emailForm.loading ? "更新中..." : "更新邮箱" }}
           </button>
@@ -74,16 +72,14 @@
           </div>
           <p
             v-if="pwForm.msg"
-            class="profile-msg"
             :class="pwForm.ok ? 'msg-ok' : 'msg-err'"
           >
             {{ pwForm.msg }}
           </p>
           <button
             type="submit"
-            class="auth-submit"
+            class="auth-submit profile-btn"
             :disabled="pwForm.loading"
-            style="width: auto; padding: 0 24px"
           >
             {{ pwForm.loading ? "更新中..." : "修改密码" }}
           </button>
@@ -99,8 +95,7 @@
           </p>
           <button
             type="button"
-            class="auth-submit profile-danger-btn"
-            style="width: auto; padding: 0 24px"
+            class="auth-submit profile-danger-btn profile-btn"
             :disabled="deletion.loading"
             @click="cancelDeletion"
           >
@@ -123,13 +118,12 @@
                 autocomplete="current-password"
               />
             </div>
-            <p v-if="deletion.msg" class="profile-msg" :class="deletion.ok ? 'msg-ok' : 'msg-err'">
+            <p v-if="deletion.msg" :class="deletion.ok ? 'msg-ok' : 'msg-err'">
               {{ deletion.msg }}
             </p>
             <button
               type="submit"
-              class="auth-submit profile-danger-btn"
-              style="width: auto; padding: 0 24px"
+              class="auth-submit profile-danger-btn profile-btn"
               :disabled="deletion.loading || !deletion.password"
             >
               {{ deletion.loading ? "提交中..." : "申请注销账号" }}
@@ -294,7 +288,7 @@ async function updatePassword() {
 .profile-section {
   margin-bottom: 28px;
   padding-bottom: 28px;
-  border-bottom: 1px solid #e0dbd0;
+  border-bottom: 1px solid var(--chat-border);
 }
 
 .profile-section-title {
@@ -329,16 +323,9 @@ async function updatePassword() {
   gap: 14px;
 }
 
-.profile-msg {
-  font-size: 16px;
-  margin: 0;
-}
-
-.msg-ok {
-  color: var(--ok);
-}
-.msg-err {
-  color: var(--err);
+.profile-btn {
+  width: auto;
+  padding: 0 24px;
 }
 
 .profile-footer {
@@ -373,7 +360,7 @@ async function updatePassword() {
 .profile-danger-btn {
   background: var(--err);
   border-color: var(--err);
-  color: #fff;
+  color: var(--err-contrast);
 }
 
 .profile-back:hover {
