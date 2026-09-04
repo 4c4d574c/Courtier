@@ -95,9 +95,15 @@ async def execute_account_deletion(
     injectable for tests.
     """
     if resource_deleter is None:
-        from .resource_service import delete_resource as resource_deleter  # noqa: N813
+        from .resource_service import delete_resource as _default_resource_deleter
+
+        resource_deleter = _default_resource_deleter
     if session_results_cleaner is None:
-        from ...runtime.es_backend import delete_results_by_sessions as session_results_cleaner
+        from ...runtime.es_backend import (
+            delete_results_by_sessions as _default_session_results_cleaner,
+        )
+
+        session_results_cleaner = _default_session_results_cleaner
 
     result = DeletionResult(user_id=user_id, trigger=trigger, executed_by=executed_by)
 

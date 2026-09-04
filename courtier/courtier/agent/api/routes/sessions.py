@@ -229,7 +229,7 @@ async def handle_session_stream(
         # Activation state is persisted per session and replayed on rebuild —
         # it must not be derived from history (compaction drops the evidence).
         active_domains = tuple(existing.active_domains or [])
-        approved_tools = set(existing.approved_tools or [])
+        approved_tools: set[str] = set(existing.approved_tools or [])
 
         # A file uploaded in THIS turn supersedes the session's original
         # file; without it the continuation would silently ignore the new
@@ -260,7 +260,7 @@ async def handle_session_stream(
         start_step = 0
         effective_file_id = fileId
         active_domains = ()
-        approved_tools: set[str] = set()
+        approved_tools = set()
         is_new = True
 
     # Model pool selection for THIS run: explicit modelId (validated, else
@@ -309,7 +309,8 @@ async def handle_session_stream(
             raise HTTPException(400, f"当前模型不支持所选媒体类型: {exc}")
         media_parts = tuple(
             MediaPart(
-                kind=i.kind or infer_kind(i.original_name),
+                # ensure_model_supports_media above rejected non-media kinds.
+                kind=cast(Any, i.kind or infer_kind(i.original_name)),
                 file_id=i.file_id,
                 name=i.original_name,
                 duration_seconds=i.duration_seconds,

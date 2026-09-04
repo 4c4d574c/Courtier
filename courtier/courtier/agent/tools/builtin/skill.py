@@ -8,7 +8,7 @@ import logging
 import types
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Union, cast, get_args, get_origin
 
 from pydantic import ValidationError
 
@@ -211,7 +211,10 @@ class SkillTool:
             ref = getattr(validated, name, None)
             if ref is None:
                 continue
-            parts.append(MediaPart(kind=kind, file_id=ref.file_id, name=ref.file_id))
+            # MediaRef fields only admit image/audio/video kinds.
+            parts.append(
+                MediaPart(kind=cast(Any, kind), file_id=ref.file_id, name=ref.file_id)
+            )
         return tuple(parts)
 
     def _render_validation_error(self, exc: Any) -> str:

@@ -623,11 +623,11 @@ async def probe_connections(settings: Any, targets: set[str]) -> dict[str, str]:
             kwargs: dict[str, Any] = {"request_timeout": 5}
             if settings.es_username and settings.es_password:
                 kwargs["basic_auth"] = (settings.es_username, settings.es_password)
-            client = Elasticsearch(hosts, **kwargs)
+            es_client = Elasticsearch(hosts, **kwargs)
             try:
-                healthy = await asyncio.to_thread(client.ping)
+                healthy = await asyncio.to_thread(es_client.ping)
             finally:
-                client.close()
+                es_client.close()
             if not healthy:
                 errors["es"] = "ES ping 失败（地址或认证错误？）"
         except Exception as exc:
@@ -637,13 +637,13 @@ async def probe_connections(settings: Any, targets: set[str]) -> dict[str, str]:
         try:
             from minio import Minio
 
-            client = Minio(
+            minio_client = Minio(
                 settings.minio_endpoint,
                 access_key=settings.minio_access_key,
                 secret_key=settings.minio_secret_key,
                 secure=settings.minio_secure,
             )
-            await asyncio.to_thread(client.list_buckets)
+            await asyncio.to_thread(minio_client.list_buckets)
         except Exception as exc:
             errors["minio"] = str(exc)[:200]
 

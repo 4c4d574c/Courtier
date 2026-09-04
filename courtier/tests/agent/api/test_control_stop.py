@@ -3,6 +3,7 @@ not-running branches (the running-session path lives in RunManager tests).
 """
 
 import pytest
+
 from courtier.agent.api.app import create_app
 from courtier.agent.api.rate_limiter import limiter
 

@@ -812,7 +812,6 @@ class TestQueryTokenScoping:
         # Unit-level: _resolve_token honors the query token on SSE paths.
         # (TestClient cannot stream the infinite /api/events generator
         # deterministically.)
-        import asyncio
         from types import SimpleNamespace
 
         from courtier.agent.api.middleware.auth import _resolve_token
