@@ -262,10 +262,6 @@
   background: var(--chat-accent-soft);
   color: var(--chat-accent);
 }
-.badge-auditor {
-  background: var(--chat-bg-hover);
-  color: var(--chat-text-secondary);
-}
 .badge-active {
   background: color-mix(in srgb, var(--ok) 13%, transparent);
   color: var(--ok);
@@ -359,4 +355,393 @@
 .admin-pagination button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ---- Shared admin UI vocabulary --------------------------------------
+   One canonical implementation per UI concept, shared by every page in
+   the admin area (users, approvals, plugins, skills, resources, memory,
+   settings, profile). Canonical values follow the settings console
+   scale. Page-specific styling stays in each view's scoped block. ---- */
+
+/* Page header row (heading + subtitle cluster). */
+.admin-header {
+  margin-bottom: 16px;
+}
+
+/* In-page back link — only for pages outside the admin shell or when the
+   target differs from "home" (the shell sidebar already has .admin-back). */
+.admin-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+  text-decoration: none;
+  transition: color 150ms;
+}
+
+.admin-back-link:hover {
+  color: var(--chat-text-primary);
+}
+
+/* Pill tabs. */
+.admin-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.admin-tab {
+  border: 1px solid var(--chat-border);
+  background: transparent;
+  color: var(--chat-text-secondary);
+  border-radius: 999px;
+  padding: 5px 16px;
+  font-size: 13px;
+  font-family: "Noto Sans SC", sans-serif;
+  cursor: pointer;
+}
+
+.admin-tab--active {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+
+/* 32px button family (page-level actions). */
+.btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--chat-radius-sm);
+  border: 1px solid var(--chat-border);
+  background: var(--chat-bg-card);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  font-family: "Noto Sans SC", sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
+
+.btn.primary {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: var(--chat-accent-hover);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--chat-text-secondary);
+}
+
+/* Row-level destructive action: red outline ghost (final confirmations
+   inside modals use .modal-btn--danger solid red instead). */
+.btn.danger {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  color: var(--err);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 28px row-action tints (on top of .action-btn). */
+.action-btn--danger {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+}
+
+.action-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+
+.action-btn--ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.action-btn--ok:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+/* Modal dialog (confirm forms, editors, log viewers). */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal {
+  width: min(460px, calc(100vw - 48px));
+  padding: 20px;
+  background: var(--chat-bg-card);
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.modal--wide {
+  width: min(860px, calc(100vw - 48px));
+}
+
+.modal-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--chat-text-primary);
+}
+
+.modal-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--chat-text-secondary);
+  white-space: pre-wrap;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  color: var(--chat-text-primary);
+  font-size: 13px;
+  font-family: "Noto Sans SC", sans-serif;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.modal-btn:hover:not(:disabled) {
+  background: var(--chat-bg-hover);
+}
+
+.modal-btn--primary {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+  color: var(--chat-accent-contrast);
+}
+
+.modal-btn--primary:hover:not(:disabled) {
+  background: var(--chat-accent-hover);
+}
+
+/* Final destructive confirmation: solid red (strongest affordance). */
+.modal-btn--danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: var(--err-contrast);
+}
+
+.modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inline status messages (tinted pill). */
+.msg-ok {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-dim);
+}
+
+.msg-err {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--chat-radius-sm);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+}
+
+/* Badge tints — grouped with the role/status variants above. */
+.badge-auditor,
+.badge-neutral {
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-secondary);
+}
+.badge-active,
+.badge-ok {
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  color: var(--ok);
+}
+.badge-disabled,
+.badge-err {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  color: var(--err);
+}
+.badge-pending,
+.badge-warn {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+.badge-dim {
+  background: var(--chat-bg-hover);
+  color: var(--chat-text-tertiary);
+}
+.badge-accent {
+  background: var(--chat-accent-soft);
+  color: var(--chat-accent);
+}
+
+/* Toggle switch (38x21 track + optional state label). */
+.switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 21px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.switch .track {
+  position: absolute;
+  inset: 0;
+  background: var(--chat-bg-hover);
+  border: 1px solid var(--chat-border);
+  border-radius: 999px;
+  transition:
+    background 150ms,
+    border-color 150ms;
+}
+
+.switch .track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--chat-bg-card);
+  box-shadow: var(--chat-shadow);
+  transition: transform 150ms;
+}
+
+.switch input:checked + .track {
+  background: var(--chat-accent);
+  border-color: var(--chat-accent);
+}
+
+.switch input:checked + .track::before {
+  transform: translateX(17px);
+}
+
+.switch input:disabled + .track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switch input:focus-visible + .track {
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+
+.switch-state {
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+}
+
+/* Form field: label stacked over control (modal editors, sub forms). */
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.admin-field > span {
+  font-size: 13px;
+  color: var(--chat-text-secondary);
+  font-weight: 500;
+}
+
+.admin-field input,
+.admin-field select,
+.admin-field textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--chat-border);
+  border-radius: var(--chat-radius-sm);
+  background: var(--chat-bg-body);
+  font-size: 13px;
+  color: var(--chat-text-primary);
+  font-family: inherit;
+  outline: none;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.admin-field input:focus,
+.admin-field select:focus,
+.admin-field textarea:focus {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 2px var(--chat-accent-soft);
+}
+
+.admin-field textarea {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  resize: vertical;
+}
+
+/* Empty state for div-based lists (tables use td.admin-empty). */
+.admin-empty-state {
+  text-align: center;
+  padding: 56px 0;
+  color: var(--chat-text-tertiary);
+  font-size: 13px;
+}
+
+/* Card section header: underlined title row inside a card. */
+.admin-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--chat-border);
+}
+
+.admin-section-title {
+  font-family: "Noto Sans SC", sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--chat-text-primary);
+  margin: 0;
 }

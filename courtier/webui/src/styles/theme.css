@@ -25,6 +25,10 @@
   --ok-dim: #3d5d32;
   --warn: #b87a0e;
   --err: #b71c2e;
+  --err-contrast: #ffffff;
+
+  /* Shared font stacks (UI body text comes from the html rule below). */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 [data-theme="dark"] {
@@ -46,6 +50,7 @@
   --ok-dim: #8fca7d;
   --warn: #d9a03f;
   --err: #e07168;
+  --err-contrast: #241114;
 }
 
 /* Global reset (migrated from the retired tokens.css). */

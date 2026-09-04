@@ -277,8 +277,6 @@ onUnmounted(() => {
 });
 </script>
 
-<style scoped src="../styles/extension.css"></style>
-
 <style scoped>
 .se-page {
   max-width: 1240px;

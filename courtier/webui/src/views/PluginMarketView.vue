@@ -273,5 +273,3 @@ onUnmounted(stopLogTimer);
 
 onMounted(reload);
 </script>
-
-<style scoped src="../styles/extension.css"></style>

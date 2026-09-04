@@ -366,5 +366,3 @@ function openEdit(s: SkillInfo, domain: string) {
 
 onMounted(reload);
 </script>
-
-<style scoped src="../styles/extension.css"></style>
