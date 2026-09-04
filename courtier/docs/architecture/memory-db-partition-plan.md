@@ -165,3 +165,26 @@ MemoryChangeTable(审计,append-only)
 - 不迁移 `.agent_memory` 存量;部署后该目录不再读写,可手删。
 - 领域包写入不限制为会话活跃领域(仅校验 domain catalog 里存在);注入才按活跃领域过滤。
 - 不做记忆设置项(注入帽沿用 `memory_auto_inject_*`;开关即插件启停)。
+
+## 实施记录与偏差(2026-09-04 实施,5e5cd48..)
+
+全部落地,以下为与原设计的偏差和实施中的补充决定:
+
+1. **身份注入:ContextVar → 派发边界参数透传。** 反向回调在插件连接的 reader 长驻
+   task 里执行(`client._read_loop` → `_handle_host_request`),ContextVar 跨不过 task
+   边界。改为计划中的降级路径:memory 工具 schema 声明 `_caller_uid/_caller_name/
+   _caller_is_admin`(`x-host-injected: "memory_caller"`),build_agent 按会话注册注入器
+   闭包携带身份,插件只透传给 `memory_store.call`。信任层级与 template_store 相同:
+   插件自身被攻破才可能伪造。配套加固:`ToolRegistry._apply_param_injectors` 现在会
+   **剥离模型自带的宿主注入参数**再注入(原先显式 kwarg 优先,模型 hallucinate 出
+   `_caller_uid` 即可伪造身份;embedding 向量同理,一并收紧,见
+   `test_param_injection.py`)。
+2. **审计动作没有 `clear`**:清空实现为逐条 `delete` 审计行(条目定位信息更完整)。
+3. **T7 级联删除:平台没有账号删除功能**——admin 只能禁用用户(拒绝注册也是
+   disable),无物理删除路径。级联钩子以 `memory_service.delete_user_memory(session,
+   owner_id)` 形式备好(审计 actor=system),账号删除功能立项时必须接线;本次不擅自
+   扩 scope 新增账号删除。
+4. **会话注册表无 memory 工具时不注入**的探测放在 build_agent(agent 按 per-request
+   重建,插件中途连上后下一轮自然生效);provider 查询失败 fail-open 返回空索引。
+5. 落地提交:5e5cd48(T0/T1)、T2、a72f840(T3)、a1709c0(T4/T5)、27b1a8b(T6)、
+   T8(本文档与 guardrails.md/AGENTS.md/memory-file-tools-plan 标记)。

@@ -256,7 +256,10 @@ npm run check
    - `skills/` — Skill registry and loader.
    - `artifacts/` — Artifact system.
    - `prompts/` — Jinja2 PromptEngine, PromptBundle, and core default templates (`defaults/{locale}/`, incl. the domain-agnostic `orchestrator.system_prompt`).
-   - `memory/`, `telemetry/` — Cross-cutting concerns.
+   - `core/memory_manager.py` — working memory + recall injection over the DB-backed
+     layered memory (global shared layer + per-user layers; plan:
+     `courtier/docs/architecture/memory-db-partition-plan.md`).
+   - `telemetry/` — OpenTelemetry tracing.
    - `guardrails/` — Unified run pipeline (GuardrailSystem v2): per-layer guard checks (input/output/tool/tool_call/post_tool), per-call permission guards (ToolDisabledGuard/PathPolicyGuard/ConfirmationGuard), interceptors and observers dispatched per scope with fixed order adapt → enforce → record. The former `permissions/` gate and `hooks/` chain were merged into it (2026-09-02). Reference & extension guide: `courtier/docs/guardrails.md`.
 
 4. **Domain/business layer**
@@ -278,7 +281,7 @@ npm run check
 
 The runtime follows a Think → Act → Observe loop. During execution it emits events such as `session`, `think`, `act`, `observe`, `tool_result`, `token`, `usage`, and `complete`/`error`. These events are currently produced by callbacks in `loop.py` and are being migrated to an in-process `EventBus` (`courtier/agent/core/event_bus.py`, `events.py`).
 
-**Unified guardrail pipeline + enforcement:** every loop dispatches through `GuardrailSystem` (v2): per-scope order adapt (interceptors, fail-open) → enforce (guards, per-layer modes) → record (observers, always-on). Per-call enforcement (`tool_call` layer, fail-closed) hosts the permission guards — `ToolDisabledGuard`, `PathPolicyGuard` (session roots `memory_home` + session workspace; `Capability.meta["permission"]["path_policy"]` declaration overrides the default read/edit/write list), and `ConfirmationGuard`. Domain packages may contribute guards via `domain.yaml` `guards:` class paths (owner-tagged, replayed on activation). The former standalone `PermissionGate` and `HookChain` were absorbed (2026-09-02; deviations from the Pi plan recorded in `docs/architecture/guardrails-unification-plan.md`).
+**Unified guardrail pipeline + enforcement:** every loop dispatches through `GuardrailSystem` (v2): per-scope order adapt (interceptors, fail-open) → enforce (guards, per-layer modes) → record (observers, always-on). Per-call enforcement (`tool_call` layer, fail-closed) hosts the permission guards — `ToolDisabledGuard`, `PathPolicyGuard` (session root = session workspace; the retired file-memory root was dropped when memory moved to the DB-backed `memory` plugin tool, `Capability.meta["permission"]["path_policy"]` declaration overrides the default read/edit/write list), and `ConfirmationGuard`. Domain packages may contribute guards via `domain.yaml` `guards:` class paths (owner-tagged, replayed on activation). The former standalone `PermissionGate` and `HookChain` were absorbed (2026-09-02; deviations from the Pi plan recorded in `docs/architecture/guardrails-unification-plan.md`).
 
 **Confirmation chain:** tools on the `tool_confirmation` settings list (JSON `[{tool, message}]`, guards category) suspend before dispatch — RunManager holds a pending Future per call, publishes `confirmation_requested`/`confirmation_resolved` run-log events, and the owner resolves via `POST /api/sessions/{id}/confirmations/{cid}` (approve / approve_session / deny; no auto-timeout). `approve_session` merges into `SessionRecord.approved_tools` (persisted; reloaded on rebuild). Sub-agents fail closed: a confirm decision without a handler (no interaction channel) denies the call with `confirmation_denied`.
 

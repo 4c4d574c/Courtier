@@ -87,7 +87,7 @@ CallGuardResult.confirm(name, message)    # 挂起等用户确认（确认链路
 | 守卫 | 位置 | 干什么 | 归谁配置 |
 |------|------|--------|----------|
 | `ToolDisabledGuard` | tool_call | 名单内工具整体禁用 | 代码注册（生产默认空名单） |
-| `PathPolicyGuard` | tool_call | 文件路径白名单：`read`/`edit`/`write` 的路径解析后必须落在会话根（记忆目录 + 会话工作区）内 | `build_agent` 按会话注入 |
+| `PathPolicyGuard` | tool_call | 文件路径白名单：`read`/`edit`/`write` 的路径解析后必须落在会话根（会话工作区；记忆已 DB 化走 memory 插件工具，不再受路径管辖）内 | `build_agent` 按会话注入 |
 | `ConfirmationGuard` | tool_call | 名单内工具挂起等用户确认 | 管理后台 `tool_confirmation` 名单 |
 | `ExploreLoopGuard` | post_tool | 连续空结果 / 重复调用 / 空转 → 强制收尾 | `loop_*` 设置 |
 | `BusinessArtifactProgressGuard` | post_tool | 连续无业务产出 → 强制收尾 | `loop_*` 设置 |
@@ -283,7 +283,7 @@ guards:
 第一件事是回答："**这个工具，允许它读写哪些路径？**"
 
 - 内置的 `read`/`edit`/`write` 是**平台基线**：始终受管，范围 = 会话根
-  （记忆目录 + 会话工作区），由 `build_agent` 注入——不需要任何声明；
+  （会话工作区；原记忆目录根已随记忆 DB 化退役，2026-09-04），由 `build_agent` 注入——不需要任何声明；
 - **自定义工具**：默认不受管（可以碰磁盘任何位置——通常这正是漏洞），
   需要在工具类上**声明自己的路径**，声明了就恰好只有声明的那些。
 
