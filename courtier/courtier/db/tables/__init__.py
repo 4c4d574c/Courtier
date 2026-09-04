@@ -14,6 +14,14 @@ from .format_template import (
     FormatTemplateUpdate,
 )
 from .library import LibraryCreate, LibraryTable, LibraryUpdate
+from .memory import (
+    DOMAIN_COMMON,
+    LAYER_GLOBAL,
+    LAYER_USER,
+    OWNER_GLOBAL,
+    MemoryChangeTable,
+    MemoryTable,
+)
 from .page import PageCreate, PageTable, PageUpdate
 from .paragraph import ParagraphCreate, ParagraphTable, ParagraphUpdate
 from .refresh_token import RefreshTokenTable
@@ -55,6 +63,12 @@ __all__ = [
     "Rule",
     "SettingsTable",
     "SettingsChangeTable",
+    "MemoryTable",
+    "MemoryChangeTable",
+    "LAYER_GLOBAL",
+    "LAYER_USER",
+    "DOMAIN_COMMON",
+    "OWNER_GLOBAL",
     "FormatAuditResultTable",
     "ContentAuditResultTable",
     "PlagiarismAuditResultTable",

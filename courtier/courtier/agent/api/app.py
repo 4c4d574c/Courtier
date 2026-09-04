@@ -381,6 +381,14 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
 
     app.include_router(resources_router)
 
+    # Memory routes — layered DB-backed memory (global read-all, write admin;
+    # user layer owner-only) + admin audit trail
+    from .routes.memory import admin_router as memory_admin_router
+    from .routes.memory import router as memory_router
+
+    app.include_router(memory_router)
+    app.include_router(memory_admin_router)
+
     # Admin extension management routes — admin-only
     from .routes.admin_extensions import router as admin_extensions_router
 
