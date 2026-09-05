@@ -68,6 +68,10 @@ class RunRecorder:
         await agent.run(..., on_subagent_event=recorder.on_subagent_event)
     """
 
+    # Queue sizing for the graded subscriptions (see start_listening).
+    _CRITICAL_QUEUE_MAXSIZE = 2000
+    _TOKEN_QUEUE_MAXSIZE = 200
+
     def __init__(
         self,
         run_log: RunEventLog,

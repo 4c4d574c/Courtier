@@ -1813,3 +1813,56 @@ class TestListenerIsolation:
 
         line = render_sse_line(3, {"type": "observe", "meta": {"obj": _Opaque()}})
         assert '"obj": "opaque"' in line
+
+
+class TestGradedSubscriptions:
+    """Token floods cannot evict critical events (graded queues)."""
+
+    @pytest.mark.asyncio
+    async def test_token_flood_keeps_tool_result(self, store):
+        from courtier.agent.core.event_bus import EventBus
+        from courtier.agent.core.events import AgentEvent
+
+        session_id = "sess_graded000001"
+        await store.create(session_id, "task", "file_test1234")
+        bus = EventBus()
+        log = RunEventLog()
+        recorder = RunRecorder(log, store, session_id)
+        recorder.start_listening(bus)
+        try:
+            # Flood: 500 tokens then a tool result then more tokens.
+            for i in range(500):
+                await bus.publish(
+                    AgentEvent(
+                        type="llm.token",
+                        session_id=session_id,
+                        agent_name="agent",
+                        turn_index=0,
+                        payload={"text": f"t{i} "},
+                    )
+                )
+            await bus.publish(
+                AgentEvent(
+                    type="tool.result",
+                    session_id=session_id,
+                    agent_name="agent",
+                    turn_index=0,
+                    payload={"name": "parse_layout", "summary": "ok"},
+                )
+            )
+            for i in range(500):
+                await bus.publish(
+                    AgentEvent(
+                        type="llm.token",
+                        session_id=session_id,
+                        agent_name="agent",
+                        turn_index=0,
+                        payload={"text": f"u{i} "},
+                    )
+                )
+            await recorder.drain_pending(timeout=5.0)
+
+            rendered = "".join(e.line for e in log.replay_after(-1))
+            assert "parse_layout" in rendered, "critical event must survive a token flood"
+        finally:
+            recorder.stop_listening()

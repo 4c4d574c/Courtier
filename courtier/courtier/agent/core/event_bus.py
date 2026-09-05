@@ -37,10 +37,16 @@ class EventSubscription:
         *,
         event_types: set[EventType] | None = None,
         session_id: str | None = None,
+        kind: str = "default",
+        overflow: BackpressureStrategy | None = None,
     ) -> None:
         self.queue = queue
         self.event_types = event_types
         self.session_id = session_id
+        #: Subscription class label (metric/canary dimension).
+        self.kind = kind
+        #: Per-subscription overflow override; falls back to the bus default.
+        self.overflow = overflow
 
     def matches(self, event: AgentEvent) -> bool:
         if self.session_id is not None and event.session_id != self.session_id:
@@ -90,6 +96,8 @@ class EventBus:
         event_types: set[EventType] | None = None,
         session_id: str | None = None,
         maxsize: int | None = None,
+        kind: str = "default",
+        overflow: BackpressureStrategy | None = None,
     ) -> EventSubscription:
         """Create a new filtered subscription.
 
@@ -97,12 +105,18 @@ class EventBus:
             event_types: If provided, only events of these types are delivered.
             session_id: If provided, only events for this session are delivered.
             maxsize: Per-subscriber queue size. Defaults to ``default_maxsize``.
+            kind: Subscriber class label (metrics/canary dimension).
+            overflow: Per-subscription backpressure override.
         """
         queue: asyncio.Queue[AgentEvent] = asyncio.Queue(
             maxsize=maxsize if maxsize is not None else self.default_maxsize
         )
         subscription = EventSubscription(
-            queue, event_types=event_types, session_id=session_id
+            queue,
+            event_types=event_types,
+            session_id=session_id,
+            kind=kind,
+            overflow=overflow,
         )
         self._subscriptions.append(subscription)
         return subscription
@@ -113,10 +127,11 @@ class EventBus:
             if not subscription.matches(event):
                 continue
             queue = subscription.queue
+            strategy = subscription.overflow or self.backpressure
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                if self.backpressure == "drop_oldest":
+                if strategy == "drop_oldest":
                     try:
                         dropped = queue.get_nowait()
                         logger.debug(
@@ -127,13 +142,13 @@ class EventBus:
                         pass
                     queue.put_nowait(event)
                     record_event_bus_dropped(event.type, self.backpressure)
-                elif self.backpressure == "drop_newest":
+                elif strategy == "drop_newest":
                     logger.debug(
                         "Event bus dropped newest event %s for subscriber (queue full)",
                         event.event_id,
                     )
-                    record_event_bus_dropped(event.type, self.backpressure)
-                elif self.backpressure == "block":
+                    record_event_bus_dropped(event.type, strategy)
+                elif strategy == "block":
                     await queue.put(event)
                 else:
                     # Unknown strategy: drop newest as safe fallback.
@@ -142,7 +157,7 @@ class EventBus:
                         self.backpressure,
                         event.event_id,
                     )
-                    record_event_bus_dropped(event.type, "unknown")
+                    record_event_bus_dropped(event.type, strategy)
 
     def unsubscribe(self, subscription: EventSubscription) -> None:
         """Remove a subscription from the bus."""
