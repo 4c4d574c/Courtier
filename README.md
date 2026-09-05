@@ -1,8 +1,10 @@
-# 智能文档审计平台 Courtier
+# Courtier — 通用 AI Agent 平台
 
 **General-Purpose AI Agent Platform / 通用 AI Agent 平台（内网部署优先）**
 
-一个域无关的 AI Agent 平台：核心引擎只提供 Agent 运行时、工具编排、插件系统与技能框架，不包含任何业务知识；领域能力以自包含「域包」形式插入。首个官方域包 **docaudit** 提供中文文档智能审计——排版合规、内容审查、查重、批注导出，**为党政机关与企事业单位内网环境设计，安全是第一设计目标**。
+一个域无关的通用 AI Agent 平台：核心引擎只提供 Agent 运行时、工具编排、插件系统与技能框架，不包含任何业务知识；领域能力以自包含「域包」形式插入，不修改核心代码即可扩展新领域。**为组织内网环境设计，安全是第一设计目标。**
+
+平台自带 **docaudit** 域包作为参考实现——以文档审计为例展示域包机制（技能、规则、插件、工件如何组织），它只是一个普通域包，不是平台身份。
 
 > 配套文档：[面向 AI 代理的仓库说明](AGENTS.md)、[分轮审查报告与设计方案](docs/reviews/)
 
@@ -10,7 +12,7 @@
 
 ## 为什么内网场景需要特别设计
 
-内网（党政机关、涉密单位）与公网 SaaS 的威胁模型完全不同：数据一旦出网即不可接受、所有组件必须可自包含部署、操作必须可审计可追溯、供应链必须可控。Courtier 从第一天起按这些约束设计：
+组织内网与公网 SaaS 的威胁模型完全不同：数据一旦出网即不可接受、所有组件必须可自包含部署、操作必须可审计可追溯、供应链必须可控。Courtier 从第一天起按这些约束设计：
 
 - **全栈自包含** — `docker compose up -d` 在内网起完整基础设施（MySQL / Elasticsearch / MinIO / Langfuse / Prometheus / Grafana），不依赖任何公网 SaaS
 - **数据不出网** — LLM 端点由部署方指定（可指向内网私有化模型），embedding / 重排 / 工具全部走内网
@@ -206,9 +208,9 @@ cd webui && npm test
 - [设置与秘钥](courtier/docs/operations/settings-and-secrets.md)
 - 审查与设计记录：[docs/reviews](docs/reviews/)、[docs/architecture](docs/architecture/)
 
-## docaudit 域包
+## 示例域包：docaudit
 
-内置的 docaudit 域包提供中文文档审计能力：
+docaudit 是平台自带的参考域包，演示技能、规则、插件与工件 profile 的完整打包方式。当前提供：
 
 - **文档解析** — PDF / DOCX / 扫描件（OCR 管线，页数上限与请求级缓存）
 - **排版审查** — 内置 GB/T 9704-2012 公文格式规则集（红头、字号、边距、成文日期），规则文件可替换、可扩展
