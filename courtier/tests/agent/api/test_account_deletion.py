@@ -8,9 +8,8 @@ TestClient with overridden auth dependencies.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI

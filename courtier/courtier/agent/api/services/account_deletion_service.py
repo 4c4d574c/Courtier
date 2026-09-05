@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import logging
 import shutil
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -261,7 +261,6 @@ def quarantine_audit_logs(*, base_dir: str, session_ids: list[str]) -> int:
     quarantined dirs after ``audit_retention_days``.  Returns the number of
     run dirs moved.
     """
-    import asyncio
 
     base = Path(base_dir)
     if not base.is_dir() or not session_ids:
