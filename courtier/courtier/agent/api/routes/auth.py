@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from courtier.config import get_settings
 from courtier.db.tables.refresh_token import RefreshTokenTable
 from courtier.db.tables.user import UserRole, UserStatus, UserTable
 
@@ -27,9 +28,9 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 REFRESH_COOKIE = "refresh_token"
 ACCESS_COOKIE = "access_token"
-from courtier.config import get_settings as _get_settings_for_expiry
-
-ACCESS_EXPIRE = max(60, int(_get_settings_for_expiry().jwt_access_expire_seconds))  # 15 minutes
+ACCESS_EXPIRE = max(
+    60, int(get_settings().jwt_access_expire_seconds)
+)  # 15 minutes — hot-editable via the admin UI
 
 
 class LoginRequest(BaseModel):

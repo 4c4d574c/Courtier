@@ -373,8 +373,10 @@ async def update_category(
         k.startswith("es_index_") for k in list(sets) + clears
     )
     if es_index_changed:
+        from courtier.es.client import init_index as _init_index
+
         try:
-            await asyncio.to_thread(init_index)
+            await asyncio.to_thread(_init_index)
         except Exception as exc:
             raise HTTPException(
                 422,
