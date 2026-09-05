@@ -315,6 +315,29 @@ async def update_category(
         ]
         raise HTTPException(422, detail={"message": "校验失败", "errors": errors}) from exc
 
+    # Guard declarations are import-checked on the SAVE path only (the
+    # Settings validator is structural): a stale class_path must be
+    # rejected here, not crash runtime snapshot composes.
+    if "guardrail_guards" in sets and not clears:
+        from courtier.agent.core.guardrails.registry import (
+            GuardLoadError,
+            check_guard_declaration,
+        )
+
+        guard_errors = []
+        for item in sets["guardrail_guards"]:
+            if not isinstance(item, dict) or item.get("builtin"):
+                continue
+            try:
+                check_guard_declaration(item["class_path"], item["scope"])
+            except GuardLoadError as exc:
+                guard_errors.append(f"{item.get('name', '?')}: {exc}")
+        if guard_errors:
+            raise HTTPException(
+                422,
+                detail={"message": "guardrail_guards 校验失败", "errors": guard_errors},
+            )
+
     # Connection groups validate BEFORE persisting: a bad endpoint or
     # credential must never land in the DB (no save→rebuild→rollback).
     changed = list(sets) + clears

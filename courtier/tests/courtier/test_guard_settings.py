@@ -47,19 +47,24 @@ class TestGuardrailGuardsValidator:
         )
         assert settings.guardrail_guards[0].name == "my_guard"
 
-    def test_bad_class_path_rejected(self):
-        with pytest.raises(ValueError, match="imported"):
-            Settings(
-                _env_file=None,
-                guardrail_guards=[_declaration("my_guard", class_path="no.such.module.Guard")],
-            )
+    def test_bad_class_path_accepted_at_settings_level(self):
+        """The Settings validator is structural only: a stale class_path
+        (e.g. after a guard refactor) must not crash snapshot composes —
+        the import check runs on the admin save path instead."""
+        settings = Settings(
+            _env_file=None,
+            guardrail_guards=[_declaration("my_guard", class_path="no.such.module.Guard")],
+        )
+        assert settings.guardrail_guards[0].class_path == "no.such.module.Guard"
 
-    def test_tool_call_run_scope_rejected(self):
-        with pytest.raises(ValueError, match="session-scoped"):
-            Settings(
-                _env_file=None,
-                guardrail_guards=[_declaration("dummy", class_path=DUMMY_GUARD, scope="run")],
-            )
+    def test_tool_call_run_scope_shape_accepted(self):
+        # scope legality is structural (legal values); the layer conflict
+        # check needs the class import and lives on the save path.
+        settings = Settings(
+            _env_file=None,
+            guardrail_guards=[_declaration("dummy", class_path=DUMMY_GUARD, scope="run")],
+        )
+        assert settings.guardrail_guards[0].scope == "run"
 
     def test_duplicate_names_rejected(self):
         with pytest.raises(ValueError, match="duplicate"):

@@ -546,7 +546,6 @@ class Settings(BaseSettings):
         from courtier.agent.core.guardrails.registry import (
             DEFAULT_GUARD_DECLARATIONS,
             GuardLoadError,
-            check_guard_declaration,
             descriptor_from_raw,
         )
 
@@ -586,11 +585,11 @@ class Settings(BaseSettings):
                         "builtin": False,
                     }
                 )
-        for item in items:
-            try:
-                check_guard_declaration(item["class_path"], item["scope"])
-            except GuardLoadError as exc:
-                raise ValueError(f"guardrail_guards[{item['name']}]: {exc}") from exc
+        # Structural validation only (shape/scope above) — the import check
+        # (check_guard_declaration) runs exclusively on the admin save path.
+        # Running it on every snapshot compose made a stale class_path (e.g.
+        # after a guard refactor) crash startup and every settings API,
+        # defeating the runtime tolerance of the guard registry.
         return items
 
     @field_validator("tools_disabled", mode="before")
