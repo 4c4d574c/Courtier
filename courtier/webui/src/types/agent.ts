@@ -296,7 +296,7 @@ export interface CompactionNotice {
 
 /** SSE event from backend */
 export interface AgentEvent {
-  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting' | 'queued' | 'resync' | 'confirmation_requested' | 'confirmation_resolved' | 'think_retry' | 'refusal_exhausted'
+  type: 'think' | 'act' | 'observe' | 'token' | 'tool_result' | 'tool_start' | 'tool_progress' | 'usage' | 'complete' | 'error' | 'session' | 'subagent_start' | 'subagent_think' | 'subagent_token' | 'subagent_tool_result' | 'subagent_conclusion' | 'subagent_end' | 'stopped' | 'conclusion_token' | 'conclusion_reset' | 'step_verdict' | 'guard_triggered' | 'hint_injected' | 'model_selected' | 'model_fallback' | 'loop_completed' | 'context_compacted' | 'context_compacting' | 'queued' | 'resync' | 'confirmation_requested' | 'confirmation_resolved' | 'think_retry' | 'refusal_exhausted'
   detail?: string
   text?: string
   /** confirmation_requested/resolved: 确认 id、工具名、提示文案与裁决结果 */
