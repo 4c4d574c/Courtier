@@ -145,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { api, type MemoryEntry } from "../api/client";
 import { useAuth } from "../composables/useAuth";
 
@@ -299,6 +299,12 @@ onMounted(async () => {
   }
   await loadList();
 });
+
+// The two scopes (/admin/memory, /admin/my-memory) share this component
+// instance and the domain tabs only mutate a ref — without this watcher
+// every navigation/tab switch would keep rendering the previously
+// fetched list.
+watch([() => props.scope, domainFilter], () => void loadList());
 </script>
 
 <style scoped>
