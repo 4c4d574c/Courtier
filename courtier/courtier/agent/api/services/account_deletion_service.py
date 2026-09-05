@@ -247,6 +247,12 @@ async def _delete_user_memory(session: Any, user_id: int, *, commit: bool = True
     try:
         return await delete_user_memory(session, user_id, commit=commit)
     except Exception:
+        if not commit:
+            # Inside the final transaction: swallowing here would leave the
+            # session pending-rollback and surface as a misleading
+            # PendingRollbackError on the next statement. Let the real
+            # error roll the pipeline back.
+            raise
         logger.warning("memory cleanup failed for user %s", user_id, exc_info=True)
         return 0
 
