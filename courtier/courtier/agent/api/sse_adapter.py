@@ -515,6 +515,16 @@ class RunRecorder:
         await self._emit_sse({"type": "token", "text": token}, seq=seq)
 
     async def on_content_token(self, token: str) -> None:
+        from ..core.model import STREAM_RESET_MARKER
+
+        if token == STREAM_RESET_MARKER:
+            # A streamed attempt was dropped (tool_calls fallback): tell the
+            # frontend to reset this step's rendered buffers before the
+            # replacement content streams in.
+            await self._emit_sse({"type": "conclusion_reset"})
+            self._verdict_parts.clear()
+            self._final_verdict_parts.clear()
+            return
         self._verdict_parts.append(token)
         self._final_verdict_parts.append(token)
         await self._emit_sse({"type": "conclusion_token", "text": token})

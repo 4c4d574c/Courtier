@@ -88,6 +88,13 @@ export function createSessionEventHandlers(deps: () => HandlerDeps) {
         handleConclusionTokenEvent(deps, event);
         break;
       }
+      case "conclusion_reset": {
+        // A streamed attempt was dropped (tool_calls fallback): clear the
+        // step's streamed conclusion so the replacement renders cleanly.
+        session.conclusion = "";
+        session.pendingVerdict = "";
+        break;
+      }
       case "step_verdict": {
         handleStepVerdictEvent(deps, event);
         break;

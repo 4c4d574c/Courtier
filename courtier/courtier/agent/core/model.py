@@ -419,15 +419,28 @@ class BackendModelClient(ModelClient):
             )
             record_stream_tool_calls_lost(self._model)
             try:
-                return await self.generate(messages, tools=tools, **kwargs)
+                fallback = await self.generate(messages, tools=tools, **kwargs)
             except Exception:
                 logger.exception(
                     "Non-streaming fallback also failed after streaming tool_calls drop"
                 )
                 raise
+            # The streamed content of the dropped attempt already reached the
+            # UI: reset its buffers, then stream the fallback content through
+            # the same callbacks so the real conclusion renders in place of
+            # the ghost text.
+            if content_parts and on_content_token:
+                await on_content_token(STREAM_RESET_MARKER)
+            if fallback.content:
+                await on_content_token(fallback.content)
+            return fallback
 
         return result
 
+
+#: Sentinel streamed through on_content_token to tell the frontend to reset
+#: the current step's buffers (the streamed attempt was dropped and replaced).
+STREAM_RESET_MARKER = "\u0000stream-reset\u0000"
 
 def _openai_message_to_chat(message: dict) -> "ChatMessage":
     """Convert an OpenAI wire dict to a ``ChatMessage``.
