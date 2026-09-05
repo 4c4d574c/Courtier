@@ -75,7 +75,8 @@ async def test_locked_account_gets_403_not_500(db_client):
 
     resp = _login(client)
     assert resp.status_code == 403
-    assert "锁定" in resp.json()["detail"]
+    # Error codes are structured now: {code, params}.
+    assert resp.json()["detail"]["code"] == "auth.account_locked"
 
 
 @pytest.mark.asyncio

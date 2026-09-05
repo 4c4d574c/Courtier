@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from courtier.agent.api.ui_errors import UiError
 from courtier.config import get_settings
 from courtier.db.tables.refresh_token import RefreshTokenTable
 from courtier.db.tables.user import UserRole, UserStatus, UserTable
@@ -137,7 +138,7 @@ async def register(request: Request, body: RegisterRequest):
             email=body.email,
         )
     except user_service.UsernameTaken:
-        raise HTTPException(409, "用户名已存在")
+        raise UiError(409, "auth.username_taken")
     return {"message": "注册成功，请等待管理员审批", "user_id": user_id}
 
 
@@ -192,15 +193,13 @@ async def login(request: Request, body: LoginRequest, response: Response):
             get_db(), username=body.username, password=body.password
         )
     except user_service.AccountLocked as exc:
-        raise HTTPException(
-            403, f"账号已被临时锁定，请在 {exc.remaining_seconds} 秒后重试"
-        )
+        raise UiError(403, "auth.account_locked", seconds=exc.remaining_seconds)
     except user_service.AccountNotApproved:
-        raise HTTPException(403, "账号尚未通过审批，请等待管理员审核")
+        raise UiError(403, "auth.pending_approval")
     except user_service.AccountDisabled:
-        raise HTTPException(403, "账号已被禁用")
+        raise UiError(403, "auth.disabled")
     except user_service.InvalidCredentials:
-        raise HTTPException(401, "用户名或密码错误")
+        raise UiError(401, "auth.invalid_credentials")
 
     access_token = create_access_token(
         user.username,

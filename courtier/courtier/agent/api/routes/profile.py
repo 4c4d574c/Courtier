@@ -13,6 +13,7 @@ from sqlalchemy import select
 from courtier.db.tables.user import UserTable
 
 from ..db import get_db, user_repo
+from ..ui_errors import UiError
 from ..middleware.auth import (
     get_current_user,
 )
