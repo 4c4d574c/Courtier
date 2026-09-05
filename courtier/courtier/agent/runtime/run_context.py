@@ -14,3 +14,7 @@ from contextvars import ContextVar
 
 #: The current run's resolved model profile (or None).
 run_model_profile: ContextVar = ContextVar("run_model_profile", default=None)
+
+#: The session the current run belongs to (or None outside a run).  Lets the
+#: plugin cancel path scope request.cancel notifications to one session.
+run_session_id: ContextVar = ContextVar("run_session_id", default=None)

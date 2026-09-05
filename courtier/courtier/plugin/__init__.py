@@ -121,13 +121,14 @@ class PluginSystem:
             status[name] = proc.state.value
         return status
 
-    async def cancel_pending(self) -> None:
-        """Cancel pending requests on all active plugin connections.
+    async def cancel_pending(self, session_id: str | None = None) -> None:
+        """Cancel pending requests on active plugin connections.
 
-        Called when a session is stopped via /stop.  Plugins stay connected
-        for future sessions.
+        With *session_id*, only that session's in-flight requests are
+        cancelled.  Called when a session is stopped via /stop.  Plugins
+        stay connected for future sessions.
         """
-        await self._manager.cancel_pending()
+        await self._manager.cancel_pending(session_id)
 
     async def notify_plugin(self, name: str, method: str, params: dict | None = None) -> None:
         """Send a fire-and-forget notification to one live plugin."""

@@ -12,7 +12,7 @@ class MockClient:
         self.calls: list[dict] = []
         self._responses = responses or []
 
-    async def call(self, method, params=None, timeout=30.0):
+    async def call(self, method, params=None, timeout=30.0, session_id=None):
         self.calls.append({"method": method, "params": params or {}})
         if self._responses:
             return self._responses.pop(0)

@@ -70,7 +70,7 @@ async def stop_session(
         # Permission is verified first: this cancels plugin-wide work.
         plugin_system = getattr(request.app.state, "plugin_system", None)
         if plugin_system is not None:
-            await plugin_system.cancel_pending()
+            await plugin_system.cancel_pending(sessionId)
 
         stopped = await run_manager.stop(sessionId)
         if not stopped:

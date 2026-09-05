@@ -27,7 +27,7 @@ from typing import Any, AsyncGenerator
 
 from ...core.audit_logger import AuditLogger
 from ...core.event_bus import EventBus
-from ...runtime.run_context import run_model_profile
+from ...runtime.run_context import run_model_profile, run_session_id
 from ...telemetry.metrics import set_conversation_tree_branches
 from ..session_store import SessionStore
 from ..sse_adapter import RunRecorder
@@ -624,6 +624,7 @@ class RunManager:
         session_id = spec.session_id
         store = self._store
         profile_token = run_model_profile.set(spec.model_profile)
+        session_token = run_session_id.set(session_id)
         try:
             if spec.is_new:
                 run.log.append(
@@ -851,6 +852,7 @@ class RunManager:
             run.status = "error"
         finally:
             run_model_profile.reset(profile_token)
+            run_session_id.reset(session_token)
             run.finished_at = _time.time()
             if run.recorder is not None:
                 run.recorder.stop_listening()

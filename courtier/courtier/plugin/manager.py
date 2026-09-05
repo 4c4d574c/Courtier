@@ -867,17 +867,17 @@ class ProcessManager:
             self._scan_results[result.name] = result
         return await self.start_plugin(name)
 
-    async def cancel_pending(self) -> None:
-        """Cancel pending requests on all active plugin connections.
+    async def cancel_pending(self, session_id: str | None = None) -> None:
+        """Cancel pending requests on active plugin connections.
 
-        Sends ``request.cancel`` notifications so plugins stop processing
-        in-flight requests.  Does NOT disconnect — plugins remain ACTIVE
-        for future sessions.
+        With *session_id*, only that session's in-flight requests are
+        cancelled; otherwise every active plugin connection is notified.
+        Does NOT disconnect — plugins remain ACTIVE for future sessions.
         """
         for proc in self._processes.values():
             if proc.state == PluginState.ACTIVE and proc._client is not None:
                 try:
-                    await proc._client.cancel_pending()
+                    await proc._client.cancel_pending(session_id)
                 except Exception:
                     logger.debug(
                         "Error cancelling pending requests for plugin '%s'",

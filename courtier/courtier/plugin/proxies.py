@@ -168,6 +168,8 @@ class ProxyTool:
                 "detail": None,
             }
         )
+        from courtier.agent.runtime.run_context import run_session_id
+
         resp = await self._client.call(
             "tool.execute",
             {
@@ -175,6 +177,7 @@ class ProxyTool:
                 "args": args,
             },
             timeout=self.call_timeout_seconds,
+            session_id=run_session_id.get(),
         )
         on_progress(
             {

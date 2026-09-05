@@ -18,7 +18,7 @@ class _FakeClient:
     def __init__(self):
         self.calls: list[dict] = []
 
-    async def call(self, method, params=None, timeout=30.0):
+    async def call(self, method, params=None, timeout=30.0, session_id=None):
         self.calls.append({"method": method, "params": params})
         return {"success": True, "data": {"ok": True}}
 

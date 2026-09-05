@@ -66,6 +66,7 @@ class JSONRPCClient:
         self._next_id = 0
         self._pending: dict[int, asyncio.Future] = {}
         self._response_buffer: dict[int, list[dict]] = {}
+        self._session_by_request: dict[int, str] = {}
         self._reader_task: asyncio.Task | None = None
         self._closed = False
         self._register_event: asyncio.Event | None = None
@@ -281,8 +282,14 @@ class JSONRPCClient:
         method: str,
         params: dict[str, Any] | None = None,
         timeout: float | None = None,
+        *,
+        session_id: str | None = None,
     ) -> Any:
-        """Send a JSON-RPC request and wait for the response."""
+        """Send a JSON-RPC request and wait for the response.
+
+        ``session_id`` tags the request so :meth:`cancel_pending` can scope
+        cancellations to a single session.
+        """
         if timeout is None:
             timeout = self._default_timeout
 
@@ -293,6 +300,8 @@ class JSONRPCClient:
 
         self._next_id += 1
         req_id = self._next_id
+        if session_id:
+            self._session_by_request[req_id] = session_id
 
         request = JSONRPCRequest(id=req_id, method=method, params=params or {})
 
@@ -378,18 +387,28 @@ class JSONRPCClient:
         # event, so it is populated here; fall back to [] defensively.
         return self._register_caps or []
 
-    async def cancel_pending(self) -> None:
-        """Cancel all pending requests by notifying the plugin.
+    async def cancel_pending(self, session_id: str | None = None) -> None:
+        """Cancel pending requests, optionally scoped to one session.
 
-        Sends a ``request.cancel`` notification for each pending request ID,
-        then cancels all pending futures.  Does NOT close the connection —
-        the plugin stays alive for future sessions.
+        Sends a ``request.cancel`` notification for each matching pending
+        request ID, then cancels those pending futures.  Does NOT close the
+        connection — the plugin stays alive for future sessions.
         """
-        pending_ids = list(self._pending.keys())
+        if session_id is None:
+            pending_ids = list(self._pending.keys())
+        else:
+            pending_ids = [
+                req_id
+                for req_id, sid in self._session_by_request.items()
+                if sid == session_id and req_id in self._pending
+            ]
         for req_id in pending_ids:
             await self.notify("request.cancel", {"id": req_id})
-        self._fail_all_pending(asyncio.CancelledError("Session cancelled"))
-        self._response_buffer.clear()
+            future = self._pending.pop(req_id, None)
+            if future is not None and not future.done():
+                future.set_exception(asyncio.CancelledError("Session cancelled"))
+            self._session_by_request.pop(req_id, None)
+            self._response_buffer.pop(req_id, None)
 
     def close(self) -> None:
         """Close the writer and cancel the reader."""
