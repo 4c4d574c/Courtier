@@ -2,7 +2,7 @@
 name = "courtier"
 version = "0.2.0"
 description = "General-purpose AI agent platform with pluggable domain packages"
-readme = "../README.md"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiomysql>=0.3.2",
