@@ -12,12 +12,17 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
 const esInstances = [];
-class FakeEventSource {
-  constructor(url, opts) {
+class FakeStream {
+  constructor(url, init) {
     this.url = url;
-    this.opts = opts;
     this.closed = false;
+    this._pending = [];
+    this._resolvers = [];
     esInstances.push(this);
+    init?.signal?.addEventListener("abort", () => {
+      this.closed = true;
+      this._flush();
+    });
   }
   close() {
     this.closed = true;
@@ -25,14 +30,42 @@ class FakeEventSource {
   open() {
     this.onopen?.(new Event("open"));
   }
-  emit(data) {
-    this.onmessage?.({ data: JSON.stringify(data) });
+  emit(obj) {
+    this._pending.push("id: 1\ndata: " + JSON.stringify(obj) + "\n\n");
+    this._flush();
   }
   error() {
-    this.onerror?.(new Event("error"));
+    this._failed = true;
+    this._flush();
+  }
+  _flush() {
+    for (const r of this._resolvers.splice(0)) r();
   }
 }
-globalThis.EventSource = FakeEventSource;
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input?.url ?? "";
+  const stream = new FakeStream(url, init);
+  return {
+    ok: true,
+    body: {
+      getReader: () => ({
+        read: async () => {
+          for (;;) {
+            if (stream._pending.length) {
+              return { done: false, value: new TextEncoder().encode(stream._pending.shift()) };
+            }
+            if (stream._failed) {
+              console.log("DEBUG read throwing, abort:", init?.signal?.aborted);
+              throw new Error("network error");
+            }
+            if (stream._done) return { done: true };
+            await new Promise((r) => stream._resolvers.push(r));
+          }
+        },
+      }),
+    },
+  };
+};
 
 try {
   execFileSync(
@@ -104,7 +137,7 @@ try {
     runEvents.start();
     assert.equal(esInstances.length, 1);
     esInstances[0].error();
-    await tick();
+    await new Promise((r) => setTimeout(r, 100));
     assert.equal(esInstances[0].closed, true);
     // Errors alone must not spam the list route.
     assert.equal(refetched, 0);

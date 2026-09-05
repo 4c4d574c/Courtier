@@ -9,7 +9,8 @@
  * (handled here via the `onReconnect` hook).
  */
 import { reactive, readonly } from "vue";
-import { api } from "../api/client";
+import { api } from "../api/client"
+import type { SseFetchClient } from "../utils/sseStream";
 
 export interface RunStatusEntry {
   status: string;
@@ -33,7 +34,7 @@ const statuses = reactive<Record<string, RunStatusEntry>>({});
 const listeners = new Set<Listener>();
 const reconnectListeners = new Set<() => void>();
 
-let es: EventSource | null = null;
+let es: SseFetchClient | null = null;
 let seqCounter = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 3000;
@@ -47,19 +48,20 @@ function dispatch(sessionId: string, entry: RunStatusEntry) {
 
 function open() {
   if (es || stopped) return;
-  es = api.createGlobalEventsChannel();
+  const client = api.createGlobalEventsChannel();
+  es = client;
   // onopen fires when the connection is established — the reliable
   // "healthy again" signal (server heartbeats are SSE comment lines, which
   // the browser never dispatches to onmessage, so a quiet-but-healthy
   // channel would otherwise keep the 30s backoff forever).
-  es.onopen = () => {
+  client.onopen = () => {
     if (reconnectDelay !== 3000) {
       reconnectDelay = 3000;
       // The channel has no replay — realign from the authoritative list.
       for (const fn of reconnectListeners) fn();
     }
   };
-  es.onmessage = (e) => {
+  client.onmessage = (e) => {
     try {
       const payload = JSON.parse(e.data);
       if (payload?.type !== "run_status" || !payload.sessionId) return;
@@ -76,8 +78,8 @@ function open() {
       console.warn("[run-events] bad payload:", err, e.data);
     }
   };
-  es.onerror = () => {
-    es?.close();
+  client.onerror = () => {
+    client.close();
     es = null;
     if (stopped) return;
     // Exponential backoff (3s → cap 30s): a long outage must not turn

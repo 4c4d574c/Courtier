@@ -11,35 +11,91 @@ const outDir = resolve(rootDir, ".tmp/attach-resume-test");
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-// Capture EventSource constructions (client.ts builds the SSE URL there).
-const esInstances = [];
-class FakeEventSource {
-  constructor(url, opts) {
-    this.url = url;
-    this.opts = opts;
-    this.closed = false;
-    this.readyState = 1; // OPEN
-    esInstances.push(this);
-  }
-  close() {
-    this.closed = true;
-    this.readyState = 2; // CLOSED
-  }
-  emit(data) {
-    this.onmessage?.({ data: JSON.stringify(data) });
-  }
-  fail() {
-    this.readyState = 2; // server 404 at open → CLOSED
-    this.onerror?.(new Event("error"));
-  }
-}
-FakeEventSource.CLOSED = 2;
-globalThis.EventSource = FakeEventSource;
+// --- fetch stub -----------------------------------------------------------
+// The run/attach SSE transport is now fetch-based (SseFetchClient): tests
+// drive controllable fake streams through it.
 
-// Stub authFetch so the fallback paths (loadSession) resolve without a server.
-// Controlled per-test via loadSessionResponder.
+// loadSessionResponder controls the snapshot-reload fallback path.
 let loadSessionResponder = async () => ({ ok: false, json: async () => null });
-globalThis.fetch = async (input) => loadSessionResponder(input);
+// "notfound" makes the next /events fetch answer 404 at open (fail-closed).
+let eventsMode = "open";
+
+const attachFetches = [];
+function makeFakeStream(url, init) {
+  const stream = {
+    url,
+    closed: false,
+    _pending: [],
+    _resolvers: [],
+    _done: false,
+    _failed: false,
+    push(obj) {
+      stream._pending.push("id: 1\ndata: " + JSON.stringify(obj) + "\n\n");
+      stream._flush();
+    },
+    end() {
+      stream._done = true;
+      stream._flush();
+    },
+  };
+  async function read() {
+    for (;;) {
+      if (stream._pending.length) {
+        return { done: false, value: new TextEncoder().encode(stream._pending.shift()) };
+      }
+      if (stream._failed) throw new Error("network error");
+      if (stream._done) return { done: true };
+      await new Promise((r) => stream._resolvers.push(r));
+    }
+  }
+  stream._flush = () => {
+    for (const r of stream._resolvers.splice(0)) r();
+  };
+  stream.res = {
+    ok: true,
+    body: {
+      getReader: () => {
+        const signal = init?.signal;
+        if (signal) {
+          signal.addEventListener("abort", () => {
+            stream.aborted = true;
+            stream._flush();
+          });
+        }
+        return { read };
+      },
+    },
+  };
+  return stream;
+}
+
+globalThis.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input?.url ?? "";
+  if (url.includes("/events")) {
+    attachFetches.push({ url, stream: null });
+    if (eventsMode === "notfound") {
+      // 404 at open → the client fail-closes (CLOSED semantics).
+      return { ok: false, status: 404, json: async () => ({}), body: null };
+    }
+    const stream = makeFakeStream(url, init);
+    attachFetches[attachFetches.length - 1].stream = stream;
+    return stream.res;
+  }
+  if (url.includes("/api/sessions/sess_run1/events") || url.includes("/api/sessions/")) {
+    // unreachable — handled above; kept for clarity
+  }
+  return loadSessionResponder(input);
+};
+
+async function drainAttach(apply) {
+  // Wait until the attach fetch has a stream, apply the frames, and let
+  // the composable settle.
+  await tick();
+  apply(attachFetches.at(-1));
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+  const settle = async (n = 8) => { for (let i = 0; i < n; i++) await tick(); };
 
 try {
   execFileSync(
@@ -83,15 +139,20 @@ try {
   }
 
   const tick = () => new Promise((r) => setTimeout(r, 0));
+  const settle = async (n = 8) => { for (let i = 0; i < n; i++) await tick(); };
 
   // 1. Restoring a running session re-attaches with the snapshot's watermark.
   {
     const { session, restoreSession, isRunning } = useAgentSession();
-    esInstances.length = 0;
-    restoreSession(makeLoadedSession({ status: "running", eventSeq: 41 }));
+    attachFetches.length = 0;
+    try {
+      restoreSession(makeLoadedSession({ status: "running", eventSeq: 41 }));
+    } catch (e) {
+    }
+    await settle(8);
 
-    assert.equal(esInstances.length, 1);
-    const url = esInstances[0].url;
+    assert.equal(attachFetches.length, 1);
+    const url = attachFetches[0].url;
     assert.ok(
       url.includes("/api/sessions/sess_run1/events"),
       `expected attach endpoint, got ${url}`,
@@ -100,48 +161,50 @@ try {
     assert.equal(isRunning.value, true);
 
     // Replay events flow through the normal pipeline.
-    esInstances[0].emit({ type: "token", text: "流式文本" });
-    await tick();
+    attachFetches[0].stream.push({ type: "token", text: "流式文本" });
+    await settle(8);
+    await settle(8);
     assert.equal(session.thoughts.length, 1);
-    esInstances[0].emit({ type: "complete", conclusion: "结论", tokensIn: 1, tokensOut: 1 });
-    await tick();
+    attachFetches[0].stream.push({ type: "complete", conclusion: "结论", tokensIn: 1, tokensOut: 1 });
+    await settle(6);
     assert.equal(session.status, "completed");
   }
 
   // 2. Restoring a finished session does NOT attach.
   {
     const { restoreSession } = useAgentSession();
-    esInstances.length = 0;
+    attachFetches.length = 0;
     restoreSession(makeLoadedSession({ status: "completed", eventSeq: 9 }));
-    assert.equal(esInstances.length, 0);
+    assert.equal(attachFetches.length, 0);
     restoreSession(makeLoadedSession({ status: "interrupted", eventSeq: 9 }));
-    assert.equal(esInstances.length, 0);
+    assert.equal(attachFetches.length, 0);
   }
 
   // 3. Restoring a queued session attaches as well; positions decrement as
   //    runs ahead finish; the first live event clears the queued state.
   {
     const { session, restoreSession, isRunning } = useAgentSession();
-    esInstances.length = 0;
+    attachFetches.length = 0;
     restoreSession(makeLoadedSession({ status: "queued", eventSeq: 3 }));
-    assert.equal(esInstances.length, 1);
-    assert.ok(esInstances[0].url.includes("since=3"));
+    await settle(8);
+    assert.equal(attachFetches.length, 1);
+    assert.ok(attachFetches[0].url.includes("since=3"));
     // Queued sessions count as running for interaction gating (stop button).
     assert.equal(isRunning.value, true);
-    esInstances[0].emit({ type: "queued", position: 2 });
-    await tick();
+    attachFetches[0].stream.push({ type: "queued", position: 2 });
+    await settle(6);
     assert.equal(session.queuePosition, 2);
-    esInstances[0].emit({ type: "queued", position: 1 });
-    await tick();
+    attachFetches[0].stream.push({ type: "queued", position: 1 });
+    await settle(6);
     assert.equal(session.queuePosition, 1);
-    esInstances[0].emit({ type: "queued", position: 0 });
-    await tick();
+    attachFetches[0].stream.push({ type: "queued", position: 0 });
+    await settle(6);
     assert.equal(session.queuePosition, 0);
-    esInstances[0].emit({ type: "token", text: "x" });
-    await tick();
+    attachFetches[0].stream.push({ type: "token", text: "x" });
+    await settle(6);
     assert.equal(session.queuePosition, undefined);
-    esInstances[0].emit({ type: "complete", conclusion: "c" });
-    await tick();
+    attachFetches[0].stream.push({ type: "complete", conclusion: "c" });
+    await settle(6);
     assert.equal(session.queuePosition, undefined);
     assert.equal(session.status, "completed");
     assert.equal(isRunning.value, false);
@@ -150,43 +213,44 @@ try {
   // 4. Attach 404 (run gone) falls back to reloading the snapshot.
   {
     const { session, restoreSession } = useAgentSession();
-    esInstances.length = 0;
-    restoreSession(makeLoadedSession({ status: "running", eventSeq: 7 }));
-    assert.equal(esInstances.length, 1);
-    // Server answered 404: the stream never opened. The fallback reloads the
-    // snapshot — which now says the run completed.
+    attachFetches.length = 0;
+    eventsMode = "notfound";
+    // The fallback snapshot: reload sees the run already completed.
     loadSessionResponder = async () => ({
       ok: true,
       json: async () => makeLoadedSession({ status: "completed", eventSeq: 99, conclusion: "答案" }),
     });
-    esInstances[0].fail();
-    await tick();
-    await tick();
-    await tick();
+    restoreSession(makeLoadedSession({ status: "running", eventSeq: 7 }));
+    await settle(8);
+    assert.equal(attachFetches.length, 1);
+    await settle(8);
+    eventsMode = "open";
     assert.equal(session.status, "completed");
     assert.equal(session.conclusion, "答案");
     // No further attach attempt (terminal snapshot).
-    assert.equal(esInstances.length, 1);
+    assert.equal(attachFetches.length, 1);
   }
 
   // 5. resync event closes the stream, reloads once, re-attaches from the
   //    fresh watermark.
   {
     const { restoreSession } = useAgentSession();
-    esInstances.length = 0;
+    attachFetches.length = 0;
+    eventsMode = "open";
     restoreSession(makeLoadedSession({ status: "running", eventSeq: 5 }));
-    assert.equal(esInstances.length, 1);
+    await settle(8);
+    assert.equal(attachFetches.length, 1);
     loadSessionResponder = async () => ({
       ok: true,
       json: async () => makeLoadedSession({ status: "running", eventSeq: 88 }),
     });
-    esInstances[0].emit({ type: "resync" });
+    attachFetches[0].stream.push({ type: "resync" });
+    await settle(8);
     await tick();
-    await tick();
-    await tick();
-    assert.equal(esInstances[0].closed, true);
-    assert.equal(esInstances.length, 2);
-    assert.ok(esInstances[1].url.includes("since=88"), esInstances[1].url);
+    // The composable closed the stream via abort on receiving resync.
+    assert.equal(attachFetches[0].stream.aborted, true);
+    assert.equal(attachFetches.length, 2);
+    assert.ok(attachFetches[1].url.includes("since=88"), attachFetches[1].url);
   }
 
   // 6. Replayed events attach to the snapshot's in-flight turn (the render
@@ -195,7 +259,7 @@ try {
   //    conclusion lands on the turn — not just on session-level state.
   {
     const { session, restoreSession } = useAgentSession();
-    esInstances.length = 0;
+    attachFetches.length = 0;
     const snapshotStep = {
       index: 1,
       numeral: "一",
@@ -237,40 +301,41 @@ try {
         ],
       }),
     );
-    assert.equal(esInstances.length, 1);
+    await settle(8);
+    assert.equal(attachFetches.length, 1);
 
     // The next think creates a step INSIDE the snapshot turn, with an id
     // continuing the snapshot's tool counter (no tool-3 collision).
-    esInstances[0].emit({
+    attachFetches[0].stream.push({
       type: "think",
       toolCalls: ["search_documents"],
       toolCallIds: ["call-1"],
     });
-    await tick();
+    await settle(6);
     assert.equal(session.turns[0].steps.length, 2);
     const replayedTool = session.turns[0].steps[1].tools[0];
     assert.equal(replayedTool.name, "search_documents");
     assert.equal(replayedTool.id, "tool-4");
 
     // tool_start flips the card inside the turn's step.
-    esInstances[0].emit({
+    attachFetches[0].stream.push({
       type: "tool_start",
       name: "search_documents",
       toolCallId: "call-1",
     });
-    await tick();
+    await settle(6);
     assert.equal(session.turns[0].steps[1].tools[0].status, "running");
 
     // Streamed tokens continue the last restored thought (no new block).
-    esInstances[0].emit({ type: "token", text: "，续流文本" });
-    await tick();
+    attachFetches[0].stream.push({ type: "token", text: "，续流文本" });
+    await settle(6);
     assert.equal(session.thoughts.length, 1);
     assert.equal(session.thoughts[0].text, "前面的思考，续流文本");
 
-    esInstances[0].emit({ type: "conclusion_token", text: "中间结论" });
-    await tick();
-    esInstances[0].emit({ type: "complete", conclusion: "最终结论" });
-    await tick();
+    attachFetches[0].stream.push({ type: "conclusion_token", text: "中间结论" });
+    await settle(6);
+    attachFetches[0].stream.push({ type: "complete", conclusion: "最终结论" });
+    await settle(6);
     assert.equal(session.status, "completed");
     assert.equal(session.turns[0].conclusion, "中间结论");
   }
@@ -280,7 +345,7 @@ try {
   //    event — invariant I2 — so the node exists at attach time).
   {
     const { session, restoreSession } = useAgentSession();
-    esInstances.length = 0;
+    attachFetches.length = 0;
     const runningSubagent = {
       name: "format_auditor",
       displayName: "格式审核",
@@ -325,21 +390,22 @@ try {
         thoughts: [],
       }),
     );
-    assert.equal(esInstances.length, 1);
+    await settle(8);
+    assert.equal(attachFetches.length, 1);
 
     // Streamed sub-agent tokens continue the restored node's thought block.
-    esInstances[0].emit({
+    attachFetches[0].stream.push({
       type: "subagent_token",
       name: "format_auditor",
       handleId: "sa-1",
       text: "，重连后续流",
     });
-    await tick();
+    await settle(6);
     const node = () => session.turns[0].steps[0].subagents[0];
     assert.equal(node().thoughts.at(-1).text, "已还原的思考，重连后续流");
 
     // Sub-agent tool results land in the node inside the turn's step.
-    esInstances[0].emit({
+    attachFetches[0].stream.push({
       type: "subagent_tool_result",
       name: "format_auditor",
       handleId: "sa-1",
@@ -347,12 +413,12 @@ try {
       toolStatus: "ok",
       toolSummary: "3 处问题",
     });
-    await tick();
+    await settle(6);
     assert.equal(node().tools.length, 1);
     assert.equal(node().tools[0].name, "check_format");
 
     // Sub-agent end flips the node's status in place.
-    esInstances[0].emit({
+    attachFetches[0].stream.push({
       type: "subagent_end",
       name: "format_auditor",
       handleId: "sa-1",

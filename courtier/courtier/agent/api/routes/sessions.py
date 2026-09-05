@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..middleware.auth import _is_admin, get_current_user
 from ..rate_limiter import limiter
@@ -138,19 +138,18 @@ async def handle_sessions(
     return items
 
 
-@router.get("/sessions/run")
-@limiter.limit("30/minute")
-async def handle_session_stream(
+async def _session_stream_impl(
     request: Request,
-    task: Optional[str] = Query(default=None),
-    fileId: Optional[str] = Query(default=None),
-    fileIds: Optional[str] = Query(default=None),
-    sessionId: Optional[str] = Query(default=None),
-    editTurn: Optional[int] = Query(default=None),
-    modelId: Optional[str] = Query(default=None),
-    current_user_payload: dict = Depends(get_current_user),
+    *,
+    task: Optional[str],
+    fileId: Optional[str],
+    fileIds: Optional[str],
+    sessionId: Optional[str],
+    editTurn: Optional[int],
+    modelId: Optional[str],
+    current_user_payload: dict,
 ):
-    """Start a run and stream its events (SSE); its own per-user budget.
+    """Shared run-start core for the GET (legacy) and POST routes.
 
     - task (+ optional fileId), no sessionId: new session (emits session SSE event).
     - task + sessionId: continue existing multi-turn session.
@@ -470,6 +469,66 @@ async def _attach_stream_or_404(
         stream_run(run, reader),
         media_type="text/event-stream",
         headers=_sse_headers(),
+    )
+
+
+@router.get("/sessions/run")
+@limiter.limit("30/minute")
+async def handle_session_stream(
+    request: Request,
+    task: Optional[str] = Query(default=None),
+    fileId: Optional[str] = Query(default=None),
+    fileIds: Optional[str] = Query(default=None),
+    sessionId: Optional[str] = Query(default=None),
+    editTurn: Optional[int] = Query(default=None),
+    modelId: Optional[str] = Query(default=None),
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """Legacy GET run-start (deprecated — clients should use POST).  Kept
+    one release for rollback compatibility; the SSE stream itself is
+    identical to the POST route."""
+    return await _session_stream_impl(
+        request,
+        task=task,
+        fileId=fileId,
+        fileIds=fileIds,
+        sessionId=sessionId,
+        editTurn=editTurn,
+        modelId=modelId,
+        current_user_payload=current_user_payload,
+    )
+
+
+class RunStartBody(BaseModel):
+    """JSON body for the POST run-start route (SSE via fetch)."""
+
+    task: str = Field(min_length=1)
+    fileId: Optional[str] = None
+    fileIds: Optional[str] = None
+    sessionId: Optional[str] = None
+    editTurn: Optional[int] = None
+    modelId: Optional[str] = None
+
+
+@router.post("/sessions/run")
+@limiter.limit("30/minute")
+async def handle_session_stream_post(
+    request: Request,
+    body: RunStartBody,
+    current_user_payload: dict = Depends(get_current_user),
+):
+    """POST run-start: the task rides in the JSON body instead of the URL,
+    so prompts stay out of access logs and browser history.  The response
+    is the same SSE stream as the GET route."""
+    return await _session_stream_impl(
+        request,
+        task=body.task,
+        fileId=body.fileId,
+        fileIds=body.fileIds,
+        sessionId=body.sessionId,
+        editTurn=body.editTurn,
+        modelId=body.modelId,
+        current_user_payload=current_user_payload,
     )
 
 

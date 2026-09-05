@@ -3,6 +3,7 @@ import type { AttachmentMeta, Session, Step, Turn } from "../types/agent";
 import type { AgentEvent } from "../types/agent";
 import { api } from "../api/client";
 import { MESSAGES } from "../constants/messages";
+import { SSE_CLOSED, type SseFetchClient } from "../utils/sseStream";
 import { useModelPool } from "./useModelPool";
 import {
   createSessionEventHandlers,
@@ -56,7 +57,7 @@ export function useAgentSession() {
   });
 
   const currentSessionId = ref("");
-  const eventSource = ref<EventSource | null>(null);
+  const eventSource = ref<SseFetchClient | null>(null);
   let reconnectCount = 0;
   const MAX_RECONNECTS = 3;
   // Incremented on every connect()/disconnect() — a pending createEventSource
@@ -189,7 +190,7 @@ export function useAgentSession() {
    * sequence the live stream would have delivered, so one handler set
    * covers both.
    */
-  function wireEventSource(es: EventSource, _generation: number) {
+  function wireEventSource(es: SseFetchClient, _generation: number) {
     es.onmessage = (e) => {
       reconnectCount = 0;
       try {
@@ -212,7 +213,7 @@ export function useAgentSession() {
       // CLOSED means the browser has given up (initial connect failure:
       // expired cookie, 429, backend restart) — no native retry is coming,
       // and without handling this the UI stays "running" forever.
-      if (es.readyState === EventSource.CLOSED) {
+      if (es.readyState === SSE_CLOSED) {
         es.close();
         if (currentSessionId.value) {
           // The run may have started server-side: reload the authoritative
@@ -316,32 +317,22 @@ export function useAgentSession() {
     session.turns.push(turn);
     state.currentTurn = session.turns[session.turns.length - 1];
 
-    api
-      .createEventSource({
-        task,
-        fileId: fileId || undefined,
-        fileIds: fileIds?.length ? fileIds.join(",") : undefined,
-        sessionId: currentSessionId.value || undefined,
-        editTurn,
-        modelId: useModelPool().selectedModelId.value || undefined,
-      })
-      .then((es: EventSource) => {
-        if (generation !== connectGeneration) {
-          // Superseded by a newer connect()/disconnect() — do not attach
-          // a zombie stream.
-          es.close();
-          return;
-        }
-        wireEventSource(es, generation);
-        eventSource.value = es;
-      })
-      .catch((err: unknown) => {
-        if (generation !== connectGeneration) return;
-        const msg = err instanceof Error ? err.message : "连接失败";
-        session.status = "error";
-        session.errorMessage = `无法连接审核引擎：${msg}`;
-        finalizeRunningOperations(session, "error", "error", "连接失败");
-      });
+    // The fetch client starts streaming immediately; the generation check
+    // closes a zombie stream if a newer connect()/disconnect() superseded us.
+    const es = api.createEventSource({
+      task,
+      fileId: fileId || undefined,
+      fileIds: fileIds?.length ? fileIds.join(",") : undefined,
+      sessionId: currentSessionId.value || undefined,
+      editTurn,
+      modelId: useModelPool().selectedModelId.value || undefined,
+    });
+    if (generation !== connectGeneration) {
+      es.close();
+      return;
+    }
+    wireEventSource(es, generation);
+    eventSource.value = es;
   }
 
   function newSession() {
@@ -520,7 +511,7 @@ export function useAgentSession() {
       }
       // The run vanished (404 at open → readyState CLOSED, no HTTP status to
       // read from EventSource): reload the snapshot and stop streaming.
-      if (es.readyState === EventSource.CLOSED) {
+      if (es.readyState === SSE_CLOSED) {
         es.close();
         if (generation !== connectGeneration) return;
         void api

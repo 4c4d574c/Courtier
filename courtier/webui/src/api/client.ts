@@ -1,5 +1,7 @@
 import type { Session, SessionSummary } from "../types/agent";
 
+import { SseFetchClient } from "../utils/sseStream";
+
 const API_BASE = "/api";
 
 export interface ApiUser {
@@ -30,6 +32,11 @@ let _token: string | null = null;
 
 export function setApiToken(token: string | null) {
   _token = token;
+}
+
+/** Current in-memory Bearer token (for the SSE fetch transport). */
+export function getApiToken(): string | null {
+  return _token;
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -454,37 +461,34 @@ export const api = {
     return res.json();
   },
 
-  async createEventSource(params: {
+  /**
+   * POST run-start via the fetch SSE transport: the task rides in the JSON
+   * body (out of access logs and browser history).  Reconnect is disabled —
+   * re-POSTing would duplicate the run; on break the caller reloads the
+   * snapshot and resumes through attachSessionEvents.
+   */
+  createEventSource(params: {
     task?: string;
     fileId?: string;
     fileIds?: string;
     sessionId?: string;
     editTurn?: number;
     modelId?: string;
-  }): Promise<EventSource> {
-    // SSE authenticates via the httpOnly access_token cookie set at login —
-    // EventSource cannot set an Authorization header, and a ?token= query
-    // param would leak the JWT into browser history and server access logs.
-    // Run-start has its own route/budget (/sessions stays the list read).
-    // The task rides in the URL (EventSource is GET-only): guard against
-    // proxy URL-length limits (~8KB typical) failing later with an opaque
-    // connection error.
-    const taskLength = (params.task ?? "").length + (params.fileIds ?? "").length;
-    if (taskLength > 4000) {
-      throw new Error(
-        "任务文本过长（约 4000 字符上限），请拆分后再发送",
-      );
-    }
-    const url = `${API_BASE}/sessions/run${qs({
-      task: params.task,
-      fileId: params.fileId,
-      fileIds: params.fileIds,
-      sessionId: params.sessionId,
-      editTurn:
-        params.editTurn !== undefined ? String(params.editTurn) : undefined,
-      modelId: params.modelId || undefined,
-    })}`;
-    return new EventSource(url, { withCredentials: true });
+  }): SseFetchClient {
+    const token = getApiToken();
+    return new SseFetchClient(`${API_BASE}/sessions/run`, {
+      method: "POST",
+      body: {
+        task: params.task ?? "",
+        fileId: params.fileId,
+        fileIds: params.fileIds,
+        sessionId: params.sessionId,
+        editTurn: params.editTurn,
+        modelId: params.modelId,
+      },
+      reconnect: false,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
   },
 
   /** Model pool public view for the selector (no endpoint internals). */
@@ -506,16 +510,29 @@ export const api = {
    * *since* (the snapshot's eventSeq watermark) then streams live until the
    * run terminates. Used when restoring a still-running session.
    */
-  attachSessionEvents(sessionId: string, since: number): EventSource {
-    const url = `${API_BASE}/sessions/${sessionId}/events${qs({
-      since: String(since),
-    })}`;
-    return new EventSource(url, { withCredentials: true });
+  attachSessionEvents(sessionId: string, since: number): SseFetchClient {
+    // Attach is read-only and resume-safe: the client reconnects with the
+    // Last-Event-ID header on mid-stream breaks (native-EventSource-like).
+    const token = getApiToken();
+    return new SseFetchClient(
+      `${API_BASE}/sessions/${sessionId}/events${qs({ since: String(since) })}`,
+      {
+        reconnect: true,
+        lastEventId: String(since),
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
   },
 
   /** Global run-status channel (one per app lifetime; auth via cookie). */
-  createGlobalEventsChannel(): EventSource {
-    return new EventSource(`${API_BASE}/events`, { withCredentials: true });
+  createGlobalEventsChannel(): SseFetchClient {
+    // Reconnect is driven by the composable's backoff timer (it also
+    // realigns the list once the channel is healthy), so reconnect stays off.
+    const token = getApiToken();
+    return new SseFetchClient(`${API_BASE}/events`, {
+      reconnect: false,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
   },
 
   async forkSession(
