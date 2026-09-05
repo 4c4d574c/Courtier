@@ -21,6 +21,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import threading
 from pathlib import Path
 
@@ -115,6 +116,22 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
+
+    exit_code = 0
+    # Startup watchdog: a plugin that dies within the first 10 seconds is a
+    # port conflict or config error — abort the whole stack so the failure
+    # is visible instead of leaving a half-running set.
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        alive = [p for p in procs if p.poll() is None]
+        if len(alive) < len(procs):
+            print("[dev-plugins] a plugin exited during startup; aborting")
+            for p2 in alive:
+                p2.terminate()
+            for p2 in procs:
+                p2.wait()
+            return 1
+        time.sleep(0.2)
 
     exit_code = 0
     for proc in procs:

@@ -1,7 +1,9 @@
 # 插件服务共享环境：通道鉴权 token + 受限 MinIO 账号（仅 transfer bucket，
 # 由 scripts/minio_plugin_io.py 创建；密钥经 COURTIER_PLUGIN_MINIO_SECRET 注入）。
 x-plugin-common-env: &plugin-common-env
-  COURTIER_PLUGIN_TOKEN: ${COURTIER_PLUGIN_TOKEN}
+  # Required: an empty/weak channel token would let anything that can reach
+  # the plugin ports impersonate the host.  Set it in .env.
+  COURTIER_PLUGIN_TOKEN: ${COURTIER_PLUGIN_TOKEN:?在 .env 中设置 COURTIER_PLUGIN_TOKEN}
   MINIO_ENDPOINT: minio:9000
   MINIO_ACCESS_KEY: ${COURTIER_PLUGIN_MINIO_USER:-courtier-plugins}
   MINIO_SECRET_KEY: ${COURTIER_PLUGIN_MINIO_SECRET}
@@ -13,6 +15,7 @@ services:
     container_name: courtier-mysql
     image: mysql:8.4
     restart: unless-stopped
+    mem_limit: 2g
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-courtier-dev-root}
       - TZ=Asia/Shanghai
@@ -75,6 +78,11 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-courtier-dev-root-secret}
     volumes:
       - ${DATA_DIR:-./data}/minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
@@ -82,6 +90,7 @@ services:
       - courtier
 
   elasticsearch:
+    mem_limit: 2g
     container_name: courtier-es
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/elasticsearch:8.19.6
     restart: "unless-stopped"
