@@ -129,8 +129,13 @@ class AnnotateDocumentTool:
             # The host may still read this file later — register cleanup for
             # process exit instead of deleting immediately.
             import atexit
+            import os
 
-            atexit.register(lambda p=output_path: __import__("os").path.exists(p) and __import__("os").unlink(p))
+            def _cleanup_temp(path: str = str(output_path)) -> None:
+                if os.path.exists(path):
+                    os.unlink(path)
+
+            atexit.register(_cleanup_temp)
 
             return ToolResult(
                 success=True,
