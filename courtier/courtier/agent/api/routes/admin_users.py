@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from courtier.db.tables.user import UserRole, UserStatus, UserTable
 
 from ..db import get_db, user_repo
-from ..middleware.auth import get_current_user, hash_password, revoke_all_refresh_tokens
+from ..middleware.auth import get_current_user, hash_password
 from ..rate_limiter import limiter
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,9 @@ async def update_user(
             # 避免经 UserUpdate 包装后生成 .values(password=...) 的编译错误。
             update_data["password_hash"] = hash_password(body.password)
             # A stolen refresh cookie must not survive a password reset.
-            await revoke_all_refresh_tokens(user_id, session)
+            from ..services import user_service
+
+            await user_service.revoke_all_tokens(get_db(), user_id)
         if body.email is not None:
             update_data["email"] = body.email
 

@@ -5,22 +5,19 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from courtier.db.tables.refresh_token import RefreshTokenTable
 from courtier.db.tables.user import UserRole, UserStatus, UserTable
 
-from ..db import get_db, user_repo
+from ..db import get_db
 from ..middleware.auth import (
     create_access_token,
     generate_refresh_token,
-    hash_password,
     rotate_refresh_token,
-    verify_password,
 )
 from ..rate_limiter import limiter
 
@@ -127,22 +124,18 @@ def _fallback_login(body: LoginRequest, settings) -> str:
 @limiter.limit("3/hour")
 async def register(request: Request, body: RegisterRequest):
     """注册新用户，status=pending 等待管理员审批。"""
-    db = get_db()
-    async with db.session() as session:
-        result = await session.execute(
-            select(UserTable).where(UserTable.username == body.username)
+    from ..services import user_service
+
+    try:
+        user_id = await user_service.create_pending_user(
+            get_db(),
+            username=body.username,
+            password=body.password,
+            email=body.email,
         )
-        if result.scalar_one_or_none() is not None:
-            raise HTTPException(409, "用户名已存在")
-        user = await user_repo.create(
-            session,
-            {
-                "username": body.username,
-                "password_hash": hash_password(body.password),
-                "email": body.email,
-            },
-        )
-        return {"message": "注册成功，请等待管理员审批", "user_id": user.id}
+    except user_service.UsernameTaken:
+        raise HTTPException(409, "用户名已存在")
+    return {"message": "注册成功，请等待管理员审批", "user_id": user_id}
 
 
 def _fallback_login_response(admin_username: str, settings) -> dict:
@@ -188,57 +181,24 @@ async def login(request: Request, body: LoginRequest, response: Response):
         _set_access_cookie(request, response, payload["token"])
         return payload
 
-    db = get_db()
-    async with db.session() as session:
-        result = await session.execute(
-            select(UserTable).where(UserTable.username == body.username)
+    # Credential check + login bookkeeping live in the user service.
+    from ..services import user_service
+
+    try:
+        user = await user_service.authenticate(
+            get_db(), username=body.username, password=body.password
         )
-        user = result.scalar_one_or_none()
-
-    if user is None:
-        # Dummy bcrypt to normalize timing and prevent username enumeration
-        _DUMMY_HASH = "$2b$12$LJ3m4ys3GZfnYMz8kVsKaOTSxGHLfEhCgJwN5B6Hm3VlOUlS3wFJq"
-        verify_password(body.password, _DUMMY_HASH)
-        raise HTTPException(401, "用户名或密码错误")
-
-    # Check account lockout before verifying password.  The column is a
-    # naive DateTime and drivers return naive UTC — normalize before
-    # comparing against the aware clock (mirrors middleware/auth.py).
-    now = datetime.now(timezone.utc)
-    locked_until = user.locked_until
-    if locked_until is not None and locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    if locked_until is not None and locked_until > now:
-        remaining = int((locked_until - now).total_seconds())
-        raise HTTPException(403, f"账号已被临时锁定，请在 {remaining} 秒后重试")
-
-    _MAX_FAILED_ATTEMPTS = 10
-    _LOCKOUT_DURATION = timedelta(minutes=15)
-
-    if not verify_password(body.password, user.password_hash):
-        # Track failed attempt and potentially lock account
-        async with db.session() as session:
-            merged = await session.merge(user)
-            merged.failed_login_attempts += 1
-            if merged.failed_login_attempts >= _MAX_FAILED_ATTEMPTS:
-                # Naive UTC into the naive DateTime column (see read side).
-                merged.locked_until = (now + _LOCKOUT_DURATION).replace(tzinfo=None)
-                logger.warning(
-                    "Account locked: %s (%d failed attempts)",
-                    merged.username,
-                    merged.failed_login_attempts,
-                )
-        raise HTTPException(401, "用户名或密码错误")
-
-    # Verify account status before resetting failure counters so that a
-    # pending/disabled account does not have its lockout state cleared.
-    if user.status == UserStatus.pending:
+    except user_service.AccountLocked as exc:
+        raise HTTPException(
+            403, f"账号已被临时锁定，请在 {exc.remaining_seconds} 秒后重试"
+        )
+    except user_service.AccountNotApproved:
         raise HTTPException(403, "账号尚未通过审批，请等待管理员审核")
-    if user.status == UserStatus.disabled:
+    except user_service.AccountDisabled:
         raise HTTPException(403, "账号已被禁用")
+    except user_service.InvalidCredentials:
+        raise HTTPException(401, "用户名或密码错误")
 
-    # Successful login — reset failure counters inside the same transaction
-    # that creates the refresh token to keep state consistent.
     access_token = create_access_token(
         user.username,
         user.id,
@@ -248,25 +208,7 @@ async def login(request: Request, body: LoginRequest, response: Response):
         expire_seconds=ACCESS_EXPIRE,
     )
     raw_refresh, token_hash, expires_at = generate_refresh_token()
-    async with db.session() as session:
-        merged = await session.merge(user)
-        if merged.failed_login_attempts > 0 or merged.locked_until is not None:
-            merged.failed_login_attempts = 0
-            merged.locked_until = None
-        session.add(
-            RefreshTokenTable(
-                user_id=user.id, token_hash=token_hash, expires_at=expires_at
-            )
-        )
-        # Opportunistic hygiene: refresh rows are never read past expiry,
-        # and without cleanup the table grows forever.  Sweep expired rows
-        # older than a week while we are already in a transaction.
-        await session.execute(
-            delete(RefreshTokenTable).where(
-                RefreshTokenTable.expires_at
-                < datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
-            )
-        )
+    await user_service.record_successful_login(get_db(), user, token_hash, expires_at)
     _set_refresh_cookie(request, response, raw_refresh, expires_at)
     _set_access_cookie(request, response, access_token)
 

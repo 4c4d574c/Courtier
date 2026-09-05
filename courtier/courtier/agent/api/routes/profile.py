@@ -15,9 +15,6 @@ from courtier.db.tables.user import UserTable
 from ..db import get_db, user_repo
 from ..middleware.auth import (
     get_current_user,
-    hash_password,
-    revoke_all_refresh_tokens,
-    verify_password,
 )
 from ..rate_limiter import limiter
 
@@ -91,16 +88,28 @@ async def update_profile(
             update_data["email"] = body.email
 
         if body.new_password is not None:
-            if not body.current_password:
-                raise HTTPException(400, "修改密码时需要提供当前密码")
-            if not verify_password(body.current_password, user.password_hash):
+            # Password change (verify + rehash + refresh-token revocation)
+            # lives in the user service; runs in its own transaction.
+            from ..services import user_service
+
+            try:
+                await user_service.change_password(
+                    get_db(),
+                    user_id=user.id,
+                    current_password=body.current_password,
+                    new_password=body.new_password,
+                )
+            except user_service.WrongCurrentPassword:
                 raise HTTPException(400, "当前密码错误")
-            update_data["password_hash"] = hash_password(body.new_password)
-            # A stolen refresh cookie must not survive a password change.
-            await revoke_all_refresh_tokens(user.id, session)
+            update_data["password_hash"] = "changed"  # marker; re-fetch below
 
         if not update_data:
             raise HTTPException(400, "没有提供需要更新的字段")
+
+        if update_data.keys() == {"password_hash"}:
+            # Password-only change already committed by the service.
+            updated_user = await user_repo.get(session, user.id)
+            return _profile_to_dict(updated_user)
 
         updated = await user_repo.update(session, user.id, update_data)
         if updated is None:
