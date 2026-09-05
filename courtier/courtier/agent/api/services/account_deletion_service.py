@@ -24,7 +24,10 @@ never "account gone but rows still referencing it".
 from __future__ import annotations
 
 import logging
+import shutil
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, select, update
@@ -146,6 +149,16 @@ async def execute_account_deletion(
             logger.warning("Session deletion failed for %s", sid, exc_info=True)
             result.failures[f"session:{sid}"] = str(exc)
 
+    # -- 2.5 audit log files → quarantine (purged after the retention window) --
+    try:
+        quarantined = quarantine_audit_logs(
+            base_dir=str(settings.audit_log_dir), session_ids=session_ids
+        )
+        result.counts["audit_files_quarantined"] = quarantined
+    except Exception as exc:
+        logger.warning("Audit log quarantine failed for %s", username, exc_info=True)
+        result.failures["audit_files"] = str(exc)
+
     # -- 3. uploaded files ------------------------------------------------------
     try:
         removed_files = await file_store.delete_owned(username, str(settings.upload_dir))
@@ -239,6 +252,67 @@ async def execute_account_deletion(
         await session.commit()
 
     return result
+
+
+def quarantine_audit_logs(*, base_dir: str, session_ids: list[str]) -> int:
+    """Move the deleted user's audit-log run dirs into the quarantine area.
+
+    The pipeline calls this best-effort; the daily retention sweeper purges
+    quarantined dirs after ``audit_retention_days``.  Returns the number of
+    run dirs moved.
+    """
+    import asyncio
+
+    base = Path(base_dir)
+    if not base.is_dir() or not session_ids:
+        return 0
+    quarantine = base / "_quarantine"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    moved = 0
+    for sid in session_ids:
+        src = base / sid
+        if not src.is_dir():
+            continue
+        dest_dir = quarantine / f"deleted-{stamp}"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / sid
+        if dest.exists():
+            continue
+        try:
+            shutil.move(str(src), str(dest))
+            moved += 1
+        except OSError:
+            logger.warning("Audit dir move failed for %s", sid, exc_info=True)
+    if moved:
+        logger.info("Quarantined %d audit run dir(s) into %s", moved, quarantine)
+    return moved
+
+
+def purge_expired_quarantine(*, base_dir: str, retention_days: int) -> int:
+    """Delete quarantined audit dirs older than the retention window.
+
+    Returns the number of quarantine batch dirs removed.  Sync I/O — call
+    from a worker thread.
+    """
+    import time as _time
+
+    quarantine = Path(base_dir) / "_quarantine"
+    if not quarantine.is_dir():
+        return 0
+    cutoff = _time.time() - retention_days * 86400
+    removed = 0
+    for batch in quarantine.iterdir():
+        if not batch.is_dir():
+            continue
+        try:
+            if batch.stat().st_mtime > cutoff:
+                continue
+            shutil.rmtree(batch)
+            removed += 1
+            logger.info("Purged expired audit quarantine dir %s", batch.name)
+        except OSError:
+            logger.warning("Quarantine purge failed for %s", batch, exc_info=True)
+    return removed
 
 
 async def _delete_user_memory(session: Any, user_id: int, *, commit: bool = True) -> int:

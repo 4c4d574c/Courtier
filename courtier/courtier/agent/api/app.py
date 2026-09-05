@@ -270,6 +270,33 @@ def create_app(sessions_dir: str = "", start_plugins: bool = True) -> FastAPI:
         pause_event=app.state.pause_event,
     )
     app.state.run_manager.set_notification_hub(app.state.notification_hub)
+
+    # Daily audit-quarantine retention sweep (deleted users' audit logs are
+    # quarantined at deletion time and purged after audit_retention_days).
+    async def _audit_retention_loop() -> None:
+        import asyncio as _asyncio
+
+        from courtier.agent.api.services.account_deletion_service import (
+            purge_expired_quarantine,
+        )
+
+        while True:
+            await _asyncio.sleep(86400)
+            try:
+                # Read fresh: audit_retention_days is hot-editable in the
+                # admin UI (DB-backed snapshot).
+                current = get_settings()
+                removed = await _asyncio.to_thread(
+                    purge_expired_quarantine,
+                    base_dir=current.audit_log_dir,
+                    retention_days=current.audit_retention_days,
+                )
+                if removed:
+                    logger.info("Audit retention sweep removed %d batch dir(s)", removed)
+            except Exception:
+                logger.exception("Audit retention sweep failed")
+
+    app.state._audit_retention_task = asyncio.create_task(_audit_retention_loop())
     # Run-limit knobs (and later per-run reads) follow configuration
     # changes: Phase 0 wiring — the env-only ConfigService never fires,
     # the DB-backed phases drive it.  Keep the unsubscribe handle so a

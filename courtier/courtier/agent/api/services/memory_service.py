@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -620,6 +620,16 @@ async def delete_user_memory(
         )
     count = len(rows)
     if count:
+        # Audit rows for these entries carry the plaintext memory titles and
+        # actors that may include agent:<插件名> (not covered by the
+        # username-based anonymization) — anonymize by entry linkage.
+        entry_ids = [row.id for row in rows]
+        # Same actor convention as account_deletion_service's anonymization.
+        await session.execute(
+            update(MemoryChangeTable)
+            .where(MemoryChangeTable.entry_id.in_(entry_ids))
+            .values(actor=f"deleted-user:{owner_id}", title="")
+        )
         await session.execute(
             delete(MemoryTable).where(
                 MemoryTable.layer == LAYER_USER, MemoryTable.owner_id == owner_id

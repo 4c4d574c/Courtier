@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -72,8 +74,14 @@ async def env(tmp_path):
     settings = SimpleNamespace(
         cache_dir=str(tmp_path / ".cache"),
         upload_dir=str(upload_dir),
+        audit_log_dir=str(tmp_path / ".agent_logs"),
     )
     settings.cache_dir and (tmp_path / ".cache").mkdir(exist_ok=True)
+    # Pre-create the audit run dir for the user's only session so the
+    # quarantine step has something to move.
+    audit_dir = Path(settings.audit_log_dir)
+    audit_dir.mkdir(parents=True, exist_ok=True)
+    (audit_dir / ("sess_" + "a" * 12)).mkdir(exist_ok=True)
     session_store = SessionStore(str(tmp_path / ".cache" / "sessions"))
     file_store = FileStore(str(upload_dir / ".file_registry"))
     yield SimpleNamespace(
@@ -193,6 +201,17 @@ async def test_pipeline_cascades_and_writes_receipt(env, monkeypatch):
         session_results_cleaner=fake_es_cleaner,
     )
 
+
+    # 审计日志目录已被移入隔离区（测试夹具预建了本会话的 run 目录）
+    audit_base = Path(env.tmp) / ".agent_logs"
+    quarantined = (
+        list((audit_base / "_quarantine").glob("**/*"))
+        if (audit_base / "_quarantine").exists()
+        else []
+    )
+    assert any("sess_" in str(q) for q in quarantined), (
+        f"expected quarantined audit dir, got {quarantined}"
+    )
 
     # ES 清理只收到本人会话
     assert es_calls and sorted(es_calls[0]) == ["sess_" + "a" * 12]

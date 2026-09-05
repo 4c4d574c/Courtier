@@ -731,6 +731,13 @@ class Settings(BaseSettings):
     es_index_chunks: str = "courtier_chunks"
     es_index_results: str = "courtier_results"
 
+    audit_retention_days: int = Field(
+        default=30,
+        ge=1,
+        description=(
+            "已注销用户审计日志隔离区（_quarantine）的保留天数，超期由每日清理任务删除"
+        ),
+    )
     logger_level: str = Field(default="INFO", alias="logger_level")
 
     audit_log_enabled: bool = Field(
@@ -1310,7 +1317,10 @@ def _setting_category(field: str) -> str:
         "tools_disabled",
     ):
         return "guards"
-    if field.startswith(("otel_", "audit_log_")) or field == "logger_level":
+    if field.startswith(("otel_", "audit_log_")) or field in (
+        "logger_level",
+        "audit_retention_days",
+    ):
         return "observability"
     if field.startswith(("cors_", "jwt_")) or field in (
         "bcrypt_rounds",
