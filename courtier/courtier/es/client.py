@@ -139,7 +139,15 @@ def resolve_write_index() -> str:
     if client.indices.exists_alias(name=base):
         aliases = dict(client.indices.get_alias(name=base))
         if aliases:
-            real = next(iter(aliases))
+            # Prefer the entry flagged as write index (a swap window can
+            # have the alias span two physical indices).
+            write_indices = [
+                name
+                for name, meta in aliases.items()
+                if isinstance(meta, dict) and meta.get("aliases")
+                and any(a.get("is_write_index") for a in meta["aliases"].values())
+            ]
+            real = write_indices[0] if write_indices else next(iter(aliases))
         else:
             real = _real_index_name(1)
     elif client.indices.exists(index=base):
@@ -236,7 +244,7 @@ def update_chunk(doc_id: str, body: dict) -> None:
     """更新单条切片（用于审核后添加标注）。"""
     client = get_es_client()
     client.update(
-        index=resolve_write_index(),
+        index=_es_index_name(),
         id=doc_id,
         body={"doc": body},
     )
@@ -250,8 +258,11 @@ def _delete_by_field(field: str, value: int) -> None:
     resource row is gone, so surface them as an error.
     """
     client = get_es_client()
+    # Alias, not the write index: after a reindex swap the alias spans old
+    # and new indices — deleting by write index would leave the old copy
+    # searchable.
     resp = client.delete_by_query(
-        index=resolve_write_index(),
+        index=_es_index_name(),
         body={"query": {"term": {field: value}}},
     )
     if resp.get("failures"):

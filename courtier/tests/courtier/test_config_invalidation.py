@@ -53,6 +53,12 @@ class TestEsClientInvalidation:
         assert es_client._write_index_cache_ts == 0.0
 
         rebuilt = es_client.get_es_client()
+        # The rebuilt client is a _FakeEsClient because Elasticsearch is
+        # monkeypatched — restore the real singleton so later tests in the
+        # same process (e.g. test_es_backend_integration) don't build against
+        # the patched constructor with empty hosts.
+        monkeypatch.undo()
+        es_client.invalidate_es_client()
         assert rebuilt is not old
         assert built == [((["http://new-es:9200"]), {"request_timeout": 30})]
 

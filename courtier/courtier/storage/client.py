@@ -12,6 +12,7 @@ import threading
 from datetime import timedelta
 
 from minio import Minio
+from minio.error import S3Error
 
 logger = logging.getLogger(__name__)
 
@@ -89,15 +90,21 @@ def get_object(bucket: str, key: str) -> bytes:
 
 
 def object_exists(bucket: str, key: str) -> bool:
-    """判断对象是否存在（含 bucket 不存在的情况）。"""
+    """判断对象是否存在（含 bucket 不存在的情况）。
+
+    只有确定性的 404 回答 False；MinIO 宕机/鉴权/网络故障向上抛出——
+    调用方必须把存储故障当作错误，而不是"对象不存在"。
+    """
     try:
         client = get_minio_client()
         if not client.bucket_exists(bucket):
             return False
         client.stat_object(bucket, key)
         return True
-    except Exception:
-        return False
+    except S3Error as exc:
+        if exc.code in ("NoSuchKey", "NoSuchObject", "NoSuchBucket"):
+            return False
+        raise
 
 
 def get_presigned_url(bucket: str, key: str, expires: int = 3600) -> str:
