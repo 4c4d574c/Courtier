@@ -32,11 +32,10 @@ logger = logging.getLogger(__name__)
 # 投影目标候选：materialize_as → 目标类型优先级。"dict" 由
 # _infer_projection_target 特判为源类型自身；候选逐个经 ProjectionResolver
 # 按源类型可行性筛选，避免硬编码类型表。
-_PROJECTION_TARGET_CANDIDATES: dict[str, tuple[str, ...]] = {
-    "string": ("core.plain_text",),
-    "list_string": ("docaudit.paragraph_list", "core.text_collection"),
-    "list_dict": ("docaudit.paragraph_list", "docaudit.reference_text_list"),
-}
+def _projection_target_candidates(materialize_as: str) -> tuple[str, ...]:
+    """Projection-target candidates per materialize_as — core defaults plus
+    whatever the activated domains registered (see DomainActivator)."""
+    return MaterializerRegistry.default().projection_candidates(materialize_as)
 
 if TYPE_CHECKING:
     from ..summary import ToolSummary
@@ -122,7 +121,7 @@ def _infer_projection_target(
     if materialize_as is None:
         candidates: tuple[str, ...] = ("core.plain_text",)
     else:
-        candidates = _PROJECTION_TARGET_CANDIDATES.get(materialize_as, ())
+        candidates = _projection_target_candidates(materialize_as)
     for target in candidates:
         if _resolvable(target):
             return target
@@ -222,7 +221,7 @@ class GetArtifactTool:
                 "description": (
                     "可选。仅在需要【转换数据类型】时传，"
                     "取值见 list_artifacts 输出的 projectable_to_types"
-                    "（如 core.plain_text、docaudit.paragraph_list）。\n"
+                    "（如 core.plain_text、core.text_collection）。\n"
                     "不传则按原始数据直接返回（推荐，大多数情况不需要转换）。"
                 ),
             },
@@ -954,16 +953,4 @@ class GetArtifactTool:
 
 def _default_materialize_as(artifact_type: str) -> str:
     """Return the default materialize_as for known artifact types."""
-    defaults: dict[str, str] = {
-        "core.plain_text": "string",
-        "core.text_collection": "list_string",
-        "docaudit.paragraph_list": "dict",
-        "docaudit.reference_text_list": "dict",
-        "docaudit.search_results": "dict",
-        "docaudit.parsed_layout": "dict",
-        "docaudit.audit_finding_list": "dict",
-        "docaudit.audit_report": "dict",
-        "docaudit.document_structure": "dict",
-        "docaudit.plagiarism_report": "dict",
-    }
-    return defaults.get(artifact_type, "dict")
+    return MaterializerRegistry.default().default_materialize_as(artifact_type)

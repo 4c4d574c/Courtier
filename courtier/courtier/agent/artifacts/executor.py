@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from courtier.prompts.errors import render_error
 
@@ -28,9 +28,14 @@ class MaterializerRegistry:
     """Registry for converting artifacts into concrete tool arguments."""
 
     _default_instance: "MaterializerRegistry | None" = None
+    #: Named rebuild hooks — domain profiles re-apply their registrations
+    #: whenever the default registry is rebuilt (see DomainActivator).
+    _rebuild_hooks: "dict[str, Callable[[MaterializerRegistry], None]]" = {}
 
     def __init__(self) -> None:
         self._materializers: dict[tuple[str, str], Any] = {}
+        self._projection_candidates: dict[str, tuple[str, ...]] = {}
+        self._default_materialize_as: dict[str, str] = {}
 
     @classmethod
     def default(cls) -> "MaterializerRegistry":
@@ -50,6 +55,19 @@ class MaterializerRegistry:
         cls._default_instance = None
 
     @classmethod
+    def register_rebuild_hook(
+        cls, name: str, fn: "Callable[[MaterializerRegistry], None]"
+    ) -> None:
+        """Register a named hook applied on every default-registry build.
+
+        If the default instance already exists, *fn* runs immediately so the
+        registration takes effect without waiting for a rebuild.
+        """
+        cls._rebuild_hooks[name] = fn
+        if cls._default_instance is not None:
+            fn(cls._default_instance)
+
+    @classmethod
     def _build_default(cls) -> "MaterializerRegistry":
         registry = cls()
         registry.register(
@@ -60,22 +78,46 @@ class MaterializerRegistry:
             "list_string",
             lambda artifact: [item.get("text", "") for item in artifact.data.get("items", [])],
         )
-        registry.register("docaudit.parsed_layout", "dict", lambda artifact: artifact.data)
-        registry.register(
-            "docaudit.paragraph_list",
-            "list_string",
-            lambda artifact: [p.get("text", "") for p in artifact.data.get("paragraphs", [])],
+        # Core projection hints; domain packages extend them via their
+        # domain_artifacts profile (see DomainActivator).
+        registry.register_projection_candidates(
+            "string", ("core.plain_text",), _extend=False
         )
-        registry.register("docaudit.paragraph_list", "dict", lambda artifact: artifact.data)
-        registry.register(
-            "docaudit.paragraph_list",
-            "list_dict",
-            lambda artifact: artifact.data.get("paragraphs", []),
+        registry.register_default_materialize_as(
+            {"core.plain_text": "string", "core.text_collection": "list_string"}
         )
+        for hook in cls._rebuild_hooks.values():
+            hook(registry)
         return registry
 
     def register(self, artifact_type: str, materialize_as: str, fn: Any) -> None:
         self._materializers[(artifact_type, materialize_as)] = fn
+
+    def register_projection_candidates(
+        self, materialize_as: str, types: tuple[str, ...], *, _extend: bool = True
+    ) -> None:
+        """Register projection-target candidates for a materialize_as shape.
+
+        Domain profiles append their own types after the core ones; the
+        projection resolver filters candidates by feasibility per source
+        type, so duplicates would be harmless but are avoided anyway.
+        """
+        if _extend:
+            existing = self._projection_candidates.get(materialize_as, ())
+            merged = existing + tuple(t for t in types if t not in existing)
+            self._projection_candidates[materialize_as] = merged
+        else:
+            self._projection_candidates[materialize_as] = types
+
+    def projection_candidates(self, materialize_as: str) -> tuple[str, ...]:
+        return self._projection_candidates.get(materialize_as, ())
+
+    def register_default_materialize_as(self, mapping: dict[str, str]) -> None:
+        """Register default materialize_as per artifact type (idempotent)."""
+        self._default_materialize_as.update(mapping)
+
+    def default_materialize_as(self, artifact_type: str) -> str:
+        return self._default_materialize_as.get(artifact_type, "dict")
 
     @property
     def materializable_types(self) -> set[str]:

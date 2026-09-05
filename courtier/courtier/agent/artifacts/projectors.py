@@ -1,9 +1,8 @@
-"""Projector registry and initial docaudit projectors."""
+"""Projector registry (core edges; domain edges come from profiles)."""
 
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -200,6 +199,19 @@ class ProjectorRegistry:
 
 
 _default_projector_registry: ProjectorRegistry | None = None
+#: Named rebuild hooks - domain profiles re-apply their registrations
+#: whenever the default registry is rebuilt (see DomainActivator).
+_rebuild_hooks: dict[str, Any] = {}
+
+
+def register_rebuild_hook(name: str, fn: Any) -> None:
+    """Register a named hook applied on every default-registry build.
+
+    If the default instance already exists, *fn* runs immediately.
+    """
+    _rebuild_hooks[name] = fn
+    if _default_projector_registry is not None:
+        fn(_default_projector_registry)
 
 
 def create_default_projector_registry() -> ProjectorRegistry:
@@ -222,24 +234,32 @@ def reset_default_projector_registry() -> None:
     _default_projector_registry = None
 
 
+def _document_markdown_to_plain_text(
+    artifact: Artifact,
+    constraints: dict[str, Any],
+) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
+    """Project a convert_document Markdown artifact into core.plain_text.
+
+    Content skills (content audit, text correction, plagiarism, secret
+    analysis) consume plain text; the Markdown is used verbatim — no
+    markdown-source stripping, so heading markers etc. stay visible to the
+    consumer.
+    """
+    markdown = artifact.data.get("markdown", "") or ""
+    return (
+        {"text": markdown, "language": "zh", "source_scope": "full_document"},
+        ProjectionQuality(
+            confidence=1.0 if markdown else 0.0,
+            lossiness="lossy",
+            stats={"chars": len(markdown)},
+        ),
+        (),
+    )
+
+
+
 def _build_default_projector_registry() -> ProjectorRegistry:
     registry = ProjectorRegistry()
-    registry.register(
-        Projector(
-            ProjectorSpec(
-                name="docaudit.parsed_layout.to_paragraph_list",
-                source_type="docaudit.parsed_layout",
-                target_type="docaudit.paragraph_list",
-                owner="document",
-                quality_score=0.95,
-                lossiness="lossy",
-                cost="cheap",
-                supported_constraints=("source_scope",),
-                description="Extract document paragraphs in reading order.",
-            ),
-            _parsed_layout_to_paragraph_list,
-        )
-    )
     registry.register(
         Projector(
             ProjectorSpec(
@@ -256,55 +276,8 @@ def _build_default_projector_registry() -> ProjectorRegistry:
             _document_markdown_to_plain_text,
         )
     )
-    registry.register(
-        Projector(
-            ProjectorSpec(
-                name="docaudit.paragraph_list.to_plain_text",
-                source_type="docaudit.paragraph_list",
-                target_type="core.plain_text",
-                owner="document",
-                quality_score=0.98,
-                lossiness="lossy",
-                cost="cheap",
-                supported_constraints=("source_scope", "normalize_whitespace", "max_chars"),
-                description="Join paragraph texts into plain text. When max_chars truncation is "
-                "active the projector is effectively a summary, not lossy.",
-            ),
-            _paragraph_list_to_plain_text,
-        )
-    )
-    registry.register(
-        Projector(
-            ProjectorSpec(
-                name="docaudit.search_results.to_reference_text_list",
-                source_type="docaudit.search_results",
-                target_type="docaudit.reference_text_list",
-                owner="search",
-                quality_score=0.92,
-                lossiness="lossy",
-                cost="cheap",
-                supported_constraints=("max_items", "min_text_chars", "dedupe"),
-                description="Extract reference chunks from search results.",
-            ),
-            _search_results_to_reference_text_list,
-        )
-    )
-    registry.register(
-        Projector(
-            ProjectorSpec(
-                name="docaudit.reference_text_list.to_text_collection",
-                source_type="docaudit.reference_text_list",
-                target_type="core.text_collection",
-                owner="search",
-                quality_score=0.97,
-                lossiness="lossy",
-                cost="cheap",
-                supported_constraints=("min_items",),
-                description="Convert reference texts to generic text collection.",
-            ),
-            _reference_text_list_to_text_collection,
-        )
-    )
+    for hook in _rebuild_hooks.values():
+        hook(registry)
     return registry
 
 
@@ -384,134 +357,6 @@ def parsed_layout_to_text(data: dict, source_scope: str | None = None) -> str:
             lines.append(text)
     return "\n".join(lines)
 
-
-def _parsed_layout_to_paragraph_list(
-    artifact: Artifact,
-    constraints: dict[str, Any],
-) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
-    paragraphs: list[dict[str, Any]] = []
-    for section, paragraph, source_path in _iter_body_paragraphs(artifact.data):
-        _append_paragraph(paragraphs, paragraph, section=section, source_path=source_path)
-    diagnostics: tuple[ProjectionDiagnostic, ...] = ()
-    confidence = 1.0
-    if not paragraphs:
-        confidence = 0.0
-        pages = artifact.data.get("pages", []) or []
-        first_page_keys = list(pages[0].keys()) if pages else []
-        logger.warning(
-            "No paragraphs extracted from parsed document. "
-            "Expected structure: pages[].page_content.body.{title,main_text}. "
-            "Got %d pages; first page keys: %s",
-            len(pages),
-            first_page_keys,
-        )
-        diagnostics = (
-            ProjectionDiagnostic(
-                level="warning",
-                code="no_paragraphs_extracted",
-                message="No paragraphs were extracted from parsed document.",
-            ),
-        )
-    return (
-        {"paragraphs": paragraphs},
-        ProjectionQuality(
-            confidence=confidence,
-            lossiness="lossy",
-            stats={"paragraphs": len(paragraphs)},
-        ),
-        diagnostics,
-    )
-
-
-def _document_markdown_to_plain_text(
-    artifact: Artifact,
-    constraints: dict[str, Any],
-) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
-    """Project a convert_document Markdown artifact into core.plain_text.
-
-    Content skills (content audit, text correction, plagiarism, secret
-    analysis) consume plain text; the Markdown is used verbatim — no
-    markdown-source stripping, so heading markers etc. stay visible to the
-    consumer.
-    """
-    markdown = artifact.data.get("markdown", "") or ""
-    return (
-        {"text": markdown, "language": "zh", "source_scope": "full_document"},
-        ProjectionQuality(
-            confidence=1.0 if markdown else 0.0,
-            lossiness="lossy",
-            stats={"chars": len(markdown)},
-        ),
-        (),
-    )
-
-
-def _paragraph_list_to_plain_text(
-    artifact: Artifact,
-    constraints: dict[str, Any],
-) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
-    source_scope = constraints.get("source_scope", "full_document")
-    normalize = bool(constraints.get("normalize_whitespace", False))
-    max_chars = constraints.get("max_chars")
-    paragraphs = artifact.data.get("paragraphs", []) or []
-    if source_scope == "body":
-        paragraphs = [p for p in paragraphs if p.get("section") == "body"]
-    texts = [p.get("text", "") for p in paragraphs if p.get("text")]
-    text = "\n".join(texts)
-    if normalize:
-        text = re.sub(r"[ \t\r\f\v]+", " ", text).strip()
-    if isinstance(max_chars, int) and max_chars >= 0:
-        text = text[:max_chars]
-    return (
-        {"text": text, "language": "zh", "source_scope": source_scope},
-        ProjectionQuality(
-            confidence=1.0 if text else 0.0,
-            lossiness="lossy",
-            stats={"chars": len(text)},
-        ),
-        (),
-    )
-
-
-def _search_results_to_reference_text_list(
-    artifact: Artifact,
-    constraints: dict[str, Any],
-) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
-    max_items = constraints.get("max_items")
-    min_text_chars = int(constraints.get("min_text_chars", 1))
-    dedupe = bool(constraints.get("dedupe", False))
-    seen: set[str] = set()
-    items: list[dict[str, Any]] = []
-    for hit in artifact.data.get("hits", []) or []:
-        text = str(hit.get("chunk_text", "")).strip()
-        if len(text) < min_text_chars:
-            continue
-        if dedupe and text in seen:
-            continue
-        seen.add(text)
-        items.append(
-            {
-                "text": text,
-                "title": hit.get("title"),
-                "resource_id": hit.get("resource_id"),
-                "source_id": hit.get("source_id"),
-                "chunk_no": hit.get("chunk_no"),
-                "score": hit.get("score"),
-            }
-        )
-        if isinstance(max_items, int) and len(items) >= max_items:
-            break
-    return (
-        {"items": items},
-        ProjectionQuality(
-            confidence=1.0 if items else 0.0,
-            lossiness="lossy",
-            stats={"items": len(items)},
-        ),
-        (),
-    )
-
-
 def audit_projector_graph(registry: ProjectorRegistry) -> dict[str, Any]:
     """Audit the projector graph for common issues.
 
@@ -573,26 +418,3 @@ def audit_projector_graph(registry: ProjectorRegistry) -> dict[str, Any]:
         "total_projectors": len(registry.all()),
         "total_types": len(all_types),
     }
-
-
-def _reference_text_list_to_text_collection(
-    artifact: Artifact,
-    constraints: dict[str, Any],
-) -> tuple[dict[str, Any], ProjectionQuality, tuple[ProjectionDiagnostic, ...]]:
-    items = [
-        {
-            "text": item.get("text", ""),
-            "metadata": {k: v for k, v in item.items() if k != "text"},
-        }
-        for item in artifact.data.get("items", []) or []
-        if item.get("text")
-    ]
-    return (
-        {"items": items},
-        ProjectionQuality(
-            confidence=1.0 if items else 0.0,
-            lossiness="lossy",
-            stats={"items": len(items)},
-        ),
-        (),
-    )

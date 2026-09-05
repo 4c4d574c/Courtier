@@ -220,6 +220,7 @@ class DomainActivator:
             )
 
         registry = self._skill_registry(domain, pkg)
+        self._register_domain_artifact_profile(domain, pkg)
 
         # Register skill configs on the runtime (idempotent), then build
         # SkillTools on the agent's private registry so the orchestrator can
@@ -352,6 +353,48 @@ class DomainActivator:
             if pkg.name == domain:
                 return pkg
         return None
+
+
+    def _register_domain_artifact_profile(self, domain: str, pkg: Any) -> None:
+        """Load the domain's artifact profile (schemas, materializers,
+        projection hints) if it ships one.
+
+        The profile module (``<domain>/domain_artifacts.py``) is imported
+        from the package directory — no sys.path order dependency.  The
+        profile is idempotent: a repeated activation is a no-op.
+        """
+        import importlib.util
+        from pathlib import Path
+
+        from courtier.agent.artifacts.executor import MaterializerRegistry
+        from courtier.agent.artifacts.models import default_registry
+        from courtier.agent.artifacts.projectors import create_default_projector_registry
+
+        base_path = getattr(pkg, "base_path", None)
+        module_path = Path(base_path) / "domain_artifacts.py" if base_path else None
+        if module_path is None or not module_path.is_file():
+            return
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"{domain}_domain_artifacts", module_path
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+            register = getattr(module, "register_domain_artifacts", None)
+            if register is not None:
+                register(
+                    default_registry,
+                    MaterializerRegistry.default(),
+                    create_default_projector_registry(),
+                )
+                logger.info("Registered artifact profile for domain '%s'", domain)
+        except Exception:
+            # A broken profile must not fail the activation (consistent
+            # with the guard-registry tolerance).
+            logger.warning(
+                "Artifact profile for domain '%s' failed to load", domain, exc_info=True
+            )
+
 
     def _skill_registry(self, domain: str, pkg: "DomainPackage") -> SkillRegistry:
         """Return the domain's SkillRegistry, scanning it once and caching."""

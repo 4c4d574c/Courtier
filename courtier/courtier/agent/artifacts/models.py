@@ -13,6 +13,8 @@ from typing import Any, Literal
 from courtier_plugin_sdk.models import InputField  # noqa: F401
 from pydantic import BaseModel, Field
 
+from .schema_registry import build_core_registry
+
 ProjectorStability = Literal["stable", "experimental", "deprecated", "disabled"]
 ProjectorLayer = Literal["core", "domain", "plugin", "local"]
 ProjectorCost = Literal["free", "cheap", "moderate", "expensive"]
@@ -33,300 +35,6 @@ class ArtifactSchema(BaseModel, frozen=True):
     description: str = ""
 
 
-_artifact_type_schemas_cache: dict[str, ArtifactSchema] | None = None
-
-
-def get_artifact_type_schemas() -> dict[str, ArtifactSchema]:
-    """Return the registered artifact type schemas, lazy-initialised.
-
-    This avoids import-time side effects (pydantic model instantiation).
-    """
-    global _artifact_type_schemas_cache
-    if _artifact_type_schemas_cache is None:
-        _artifact_type_schemas_cache = _build_artifact_type_schemas()
-    return _artifact_type_schemas_cache
-
-
-def _build_artifact_type_schemas() -> dict[str, ArtifactSchema]:
-    """Build the full artifact type schema registry."""
-    schemas: dict[str, ArtifactSchema] = {}
-
-    # -- Core types ----------------------------------------------------------
-    schemas["core.plain_text"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["text"],
-            "properties": {
-                "text": {"type": "string"},
-                "language": {"type": "string"},
-                "source_scope": {
-                    "type": "string",
-                    "enum": [
-                        "full_document",
-                        "body",
-                        "header",
-                        "footer",
-                        "mixed",
-                        "unknown",
-                    ],
-                },
-            },
-        },
-        description="Plain text with optional language and scope metadata.",
-    )
-
-    schemas["core.text_collection"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["items"],
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["text"],
-                        "properties": {
-                            "text": {"type": "string"},
-                            "metadata": {"type": "object"},
-                        },
-                    },
-                },
-            },
-        },
-        description="Ordered collection of text items with optional per-item metadata.",
-    )
-
-    schemas["core.json_object"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={"type": "object"},
-        description=(
-            "Fallback type for arbitrary JSON objects. "
-            "Tool contracts should not casually require this."
-        ),
-    )
-
-    schemas["core.document_markdown"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["markdown"],
-            "properties": {
-                "markdown": {"type": "string"},
-                "format": {"type": "string"},
-                "ocr": {"type": "boolean"},
-                "pages": {"type": "integer"},
-            },
-        },
-        description=("GitHub-Flavored Markdown rendering of a document (optionally OCR'd)."),
-    )
-
-    schemas["core.error_report"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["errors"],
-            "properties": {
-                "errors": {"type": "array", "items": {"type": "object"}},
-                "summary": {"type": "string"},
-            },
-        },
-        description="Structured error/warning report from an audit or validation tool.",
-    )
-
-    schemas["core.debug_view"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={"type": "object"},
-        description="Debug-only view of cached tool output. Not for business data flow.",
-    )
-
-    schemas["core.cached_output"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={"type": "object"},
-        description=(
-            "Fallback type for tool outputs without an explicit artifact type contract.  "
-            "Always projection-allowed so downstream tools can discover and use the data."
-        ),
-    )
-
-    # -- Docaudit types ------------------------------------------------------
-    schemas["docaudit.parsed_layout"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["pages"],
-            "properties": {"pages": {"type": "array"}},
-        },
-        description="Parsed document with pages, each containing body/header/footer structure.",
-    )
-
-    schemas["docaudit.paragraph_list"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["paragraphs"],
-            "properties": {
-                "paragraphs": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["text", "section"],
-                        "properties": {
-                            "index": {"type": "integer"},
-                            "text": {"type": "string"},
-                            "section": {"type": "string"},
-                            "source_path": {"type": "string"},
-                            "style": {"type": "object"},
-                        },
-                    },
-                },
-            },
-        },
-        description="Ordered list of document paragraphs extracted from parsed document.",
-    )
-
-    schemas["docaudit.search_results"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["total", "hits"],
-            "properties": {
-                "total": {"type": "integer"},
-                "took_ms": {"type": "integer"},
-                "hits": {"type": "array"},
-            },
-        },
-        description="Raw search results from document search, containing total count and hit list.",
-    )
-
-    schemas["docaudit.document_structure"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["sections"],
-            "properties": {
-                "sections": {"type": "array"},
-                "outline": {"type": "array"},
-                "page_count": {"type": "integer"},
-            },
-        },
-        description="Structural analysis of a document (sections, outline, page layout).",
-    )
-
-    schemas["docaudit.audit_finding_list"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["findings"],
-            "properties": {
-                "findings": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["severity", "message"],
-                        "properties": {
-                            "severity": {"type": "string"},
-                            "message": {"type": "string"},
-                            "location": {"type": "string"},
-                            "rule": {"type": "string"},
-                            "suggestion": {"type": "string"},
-                        },
-                    },
-                },
-                "summary": {"type": "string"},
-            },
-        },
-        description="List of audit findings produced by any audit agent.",
-    )
-
-    schemas["docaudit.audit_report"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["auditor", "findings"],
-            "properties": {
-                "auditor": {"type": "string"},
-                "doc_type": {"type": "string"},
-                "findings": {"type": "array"},
-                "passed": {"type": "boolean"},
-                "summary": {"type": "string"},
-                "details": {"type": "object"},
-            },
-        },
-        description="Aggregated audit report from a single auditor.",
-    )
-
-    schemas["docaudit.reference_text_list"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["items"],
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["text"],
-                        "properties": {
-                            "text": {"type": "string"},
-                            "title": {"type": "string"},
-                            "resource_id": {"type": "integer"},
-                            "source_id": {"type": "string"},
-                            "chunk_no": {"type": "integer"},
-                            "score": {"type": "number"},
-                        },
-                    },
-                },
-            },
-        },
-        description="Filtered reference text items extracted from search results.",
-    )
-
-    schemas["docaudit.plagiarism_report"] = ArtifactSchema(
-        schema_version="1.0",
-        schema_format="type_hint",
-        schema_body={
-            "type": "object",
-            "required": ["is_plagiarism", "max_similarity"],
-            "properties": {
-                "is_plagiarism": {"type": "boolean"},
-                "max_similarity": {"type": "number"},
-                "dynamic_threshold": {"type": "number"},
-                "matched_doc_index": {"type": "integer"},
-                "matched_substring_length": {"type": "integer"},
-                "matched_text": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-        },
-        description="Plagiarism detection report.",
-    )
-
-    return schemas
-
-
-def get_artifact_schema(artifact_type: str) -> ArtifactSchema | None:
-    """Return the registered ArtifactSchema for *artifact_type*, or None."""
-    return get_artifact_type_schemas().get(artifact_type)
-
-
-def register_artifact_schema(artifact_type: str, schema: ArtifactSchema) -> None:
-    """Register a new artifact type schema (idempotent — last write wins)."""
-    get_artifact_type_schemas()[artifact_type] = schema
 
 
 def validate_artifact_data(artifact_type: str, data: Any) -> list[str]:
@@ -337,7 +45,7 @@ def validate_artifact_data(artifact_type: str, data: Any) -> list[str]:
     schema has ``schema_format="type_hint"``.  Full JSON Schema validation can
     be added later without changing the call sites.
     """
-    schema = get_artifact_type_schemas().get(artifact_type)
+    schema = get_artifact_schema(artifact_type)
     if schema is None:
         return []  # unknown types pass through
     if schema.schema_format != "type_hint":
@@ -580,15 +288,16 @@ _MATERIALIZE_AS_DEFAULTS: dict[str, str] = {
     "core.json_object": "dict",
     "core.error_report": "dict",
     "core.debug_view": "dict",
-    "docaudit.parsed_layout": "dict",
-    "docaudit.paragraph_list": "list_dict",
-    "docaudit.search_results": "dict",
-    "docaudit.document_structure": "dict",
-    "docaudit.audit_finding_list": "list_dict",
-    "docaudit.audit_report": "dict",
-    "docaudit.reference_text_list": "list_dict",
-    "docaudit.plagiarism_report": "dict",
 }
+
+#: Contributed by domain artifact profiles (see DomainActivator) so the
+#: core table stays domain-agnostic.
+_DOMAIN_MATERIALIZE_AS_DEFAULTS: dict[str, str] = {}
+
+
+def register_domain_materialize_as_defaults(mapping: dict[str, str]) -> None:
+    """Register domain-contributed materialize_as defaults (idempotent)."""
+    _DOMAIN_MATERIALIZE_AS_DEFAULTS.update(mapping)
 
 
 def build_contract_from_input_fields(
@@ -604,7 +313,10 @@ def build_contract_from_input_fields(
             name=f.name,
             artifact_type=f.artifact_type,
             materialize_as=f.materialize_as
-            or _MATERIALIZE_AS_DEFAULTS.get(f.artifact_type, "dict"),
+            or _MATERIALIZE_AS_DEFAULTS.get(
+                f.artifact_type,
+                _DOMAIN_MATERIALIZE_AS_DEFAULTS.get(f.artifact_type, "dict"),
+            ),
             required=f.required,
             constraints=f.constraints,
         )
@@ -787,3 +499,18 @@ def check_schema_version_compatible(
             if not (a == b):
                 return False
     return True
+
+#: Process-wide vocabulary (built from the core ``core.*`` types; domain
+#: packages add theirs on activation).  Built after all models are defined
+#: so ``core_schemas`` can import them safely.
+default_registry = build_core_registry()
+
+
+def get_artifact_schema(artifact_type: str) -> ArtifactSchema | None:
+    """Return the schema for *artifact_type* from the process vocabulary."""
+    return default_registry.get(artifact_type)
+
+
+def register_artifact_schema(type_name: str, schema: ArtifactSchema) -> None:
+    """Register (or replace) a schema in the process vocabulary."""
+    default_registry.register(type_name, schema)

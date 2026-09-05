@@ -1,6 +1,29 @@
 """Shared helpers for artifact tool tests."""
 
-from courtier.agent.artifacts.models import Artifact, ArtifactMetadata
+import domain_artifacts  # domains/docaudit is on the pytest pythonpath
+
+from courtier.agent.artifacts.executor import MaterializerRegistry
+from courtier.agent.artifacts.models import default_registry
+from courtier.agent.artifacts.projectors import register_rebuild_hook
+
+
+# Same rationale as tests/agent/artifacts/conftest.py.
+def _register_docaudit_materializers(reg) -> None:
+    # reg IS the materializer registry being built — calling default()
+    # here would recurse.
+    domain_artifacts.register_domain_artifacts(default_registry, reg)
+
+
+def _register_docaudit_projectors(reg) -> None:
+    domain_artifacts.register_domain_artifacts(
+        default_registry, MaterializerRegistry.default(), reg
+    )
+
+
+MaterializerRegistry.register_rebuild_hook("docaudit", _register_docaudit_materializers)
+register_rebuild_hook("docaudit", _register_docaudit_projectors)
+
+from courtier.agent.artifacts.models import Artifact, ArtifactMetadata  # noqa: E402
 
 
 def _make(

@@ -964,6 +964,9 @@ class _DomainPackageImpl:
     plugins_path: Path
     skills_path: Path
     prompt_bundle: PromptBundle
+    #: Package directory — lets runtime hooks (e.g. the domain artifact
+    #: profile) import domain modules without relying on sys.path order.
+    base_path: Path = Path(".")
 
 
 @dataclass
@@ -1094,6 +1097,7 @@ class CourtierConfig:
                 plugins_path=self.repo_root / "plugins",
                 skills_path=domain_path / "skills",
                 prompt_bundle=prompt_engine._bundle,
+                base_path=domain_path,
             )
             self._domains.append(pkg)
             logger.info(
