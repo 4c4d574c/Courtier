@@ -496,6 +496,27 @@ class ProcessManager:
             params = request.get("params", {})
             session_id = params.get("session_id")
 
+            # A half-trusted plugin must not touch another session's data:
+            # the session it claims must be one this connection is actually
+            # serving right now (a request in flight carries the session id).
+            def _session_known(sid: Any) -> bool:
+                if sid is None:
+                    return True  # session-less host services (probe, meta)
+                client = proc._client
+                sessions = (
+                    set(client._session_by_request.values())
+                    if client is not None
+                    else set()
+                )
+                known = sid in sessions
+                if not known:
+                    logger.warning(
+                        "Plugin '%s' requested unknown session %r", proc.name, sid
+                    )
+                return known
+
+            _ = _session_known  # consulted by the session-scoped methods below
+
             if method == METHOD_CACHE_PERSIST:
                 if "cache" not in host_services or "write:cache" not in perms:
                     return _deny(INVALID_PARAMS, "Missing write:cache permission")
@@ -540,6 +561,35 @@ class ProcessManager:
                 messages = params.get("messages", [])
                 compacted = await _micro_compact_dict_messages(messages, artifact_store)
                 return compacted
+
+            # Session-scoped host services validate the claimed session:
+            # a plugin may only touch sessions it is currently serving a
+            # request for (the connection's in-flight request map is the
+            # source of truth — see client._session_by_request).
+            if method in (
+                METHOD_ARTIFACT_STORE_PUT,
+                METHOD_ARTIFACT_STORE_GET,
+                METHOD_ARTIFACT_STORE_LIST,
+                METHOD_CACHE_RESOLVE,
+                METHOD_CACHE_LOAD,
+                METHOD_CACHE_PERSIST,
+                METHOD_CACHE_MICRO_COMPACT,
+                METHOD_MEMORY_STORE_CALL,
+                METHOD_TEMPLATE_STORE_GET,
+            ):
+                client = proc._client
+                serving = (
+                    set(client._session_by_request.values())
+                    if client is not None
+                    else set()
+                )
+                if session_id is not None and serving and session_id not in serving:
+                    logger.warning(
+                        "Plugin '%s' requested unknown session %r",
+                        proc.name,
+                        session_id,
+                    )
+                    return _deny(INVALID_PARAMS, "unknown session")
 
             if method == METHOD_ARTIFACT_STORE_PUT:
                 if "artifact_store" not in host_services or "write:artifacts" not in perms:

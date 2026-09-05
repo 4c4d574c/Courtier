@@ -234,6 +234,12 @@ class _Connection:
         self.closed = False
         self.host_service_client: HostServiceClient | None = None
         self._active_requests: dict[int, asyncio.Task] = {}
+        #: In-flight request cap (fail-fast beyond it).  Overridable via the
+        #: PLUGIN_MAX_CONCURRENT env var; 8 is plenty for real tool calls.
+        try:
+            self._max_concurrent = max(1, int(os.environ.get("PLUGIN_MAX_CONCURRENT", "8")))
+        except ValueError:
+            self._max_concurrent = 8
         self._pending_tasks: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ serve
@@ -266,6 +272,19 @@ class _Connection:
                     if not line:
                         continue
                 logger.info("READ line: %s", _sanitize_rpc_log(line))
+                # Bounded in-flight requests: an unbounded task-per-line loop
+                # let a hostile (or simply misbehaving) host drive the plugin
+                # to OOM via thousands of simultaneous tool executions.
+                if len(self._active_requests) >= self._max_concurrent:
+                    logger.warning(
+                        "Rejecting request: %d in-flight (cap %d)",
+                        len(self._active_requests),
+                        self._max_concurrent,
+                    )
+                    await self._send_error_for_line(
+                        line, -32000, "plugin busy: too many in-flight requests"
+                    )
+                    continue
                 task = asyncio.create_task(self._process_line_safe(line))
                 self._pending_tasks.add(task)
                 task.add_done_callback(self._pending_tasks.discard)
@@ -484,6 +503,16 @@ class _Connection:
     async def _send_response(self, req_id: int, result: Any) -> None:
         msg = json.dumps({"id": req_id, "result": result}, ensure_ascii=False)
         await self._send_line(msg)
+
+    async def _send_error_for_line(self, line: str, code: int, message: str) -> None:
+        """Send an error response for a raw request line (id extracted)."""
+        try:
+            msg = json.loads(line)
+            req_id = msg.get("id")
+            if isinstance(req_id, int):
+                await self._send_error(req_id, code, message)
+        except (ValueError, TypeError):
+            pass
 
     async def _send_error(self, req_id: int, code: int, message: str) -> None:
         msg = json.dumps(
