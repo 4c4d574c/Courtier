@@ -86,6 +86,7 @@ class PluginSystem:
             scanner=self._scanner,
             domain_names_provider=domain_names_provider,
         )
+        self._domain_names_provider = domain_names_provider
         self._started = False
 
     async def start(self) -> dict[str, str]:
@@ -165,9 +166,37 @@ class PluginSystem:
         """Return plugin_name → system_prompt for all live plugins.
 
         Delegates to ExtensionRegistry; used to inject plugin-provided tool
-        usage guidance into agent system prompts.
+        usage guidance into agent system prompts.  Plugins that consume the
+        ``memory_store`` host service get the live loaded-domain list
+        annexed (queried per call, so domains added at runtime appear
+        without a restart) — validation rejects unknown domains at write
+        time, so the model must be able to see the valid ones.
         """
-        return self._registry.get_system_prompts()
+        prompts = dict(self._registry.get_system_prompts())
+        provider = self._domain_names_provider
+        if provider is None:
+            return prompts
+        try:
+            domains = sorted(provider())
+        except Exception:
+            logger.warning("domain_names_provider failed; skipping memory annex", exc_info=True)
+            return prompts
+        if not domains:
+            return prompts
+        annex = "已加载领域包：" + "、".join(domains)
+        for name, text in prompts.items():
+            if not text or not self._consumes_memory_store(name):
+                continue
+            prompts[name] = f"{text}\n\n{annex}"
+        return prompts
+
+    def _consumes_memory_store(self, name: str) -> bool:
+        """Whether the plugin's manifest declares the memory_store host service."""
+        proc = self._manager.get_processes().get(name)
+        manifest = getattr(proc, "manifest", None)
+        deps = getattr(manifest, "dependencies", None)
+        host_services = getattr(deps, "host_services", None) or []
+        return "memory_store" in host_services
 
     def get_tool_summaries(self) -> dict[str, list[dict[str, str]]]:
         """Return plugin_name → tool summaries for all live plugins.

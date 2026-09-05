@@ -156,6 +156,22 @@ class TestToolAction:
             assert [e["title"] for e in view["global"]] == ["规范"]
             assert view["user"] == []
 
+    async def test_list_announces_known_domains_when_provided(self, db):
+        async with db.session() as session:
+            view = await tool_action(
+                session,
+                identity=USER_A,
+                action="list",
+                known_domains={"docaudit", "legal", "common"},
+            )
+            # 域名列表取自已加载领域包（不含 common），排序稳定。
+            assert view["known_domains"] == ["docaudit", "legal"]
+
+    async def test_list_omits_known_domains_when_unwired(self, db):
+        async with db.session() as session:
+            view = await tool_action(session, identity=USER_A, action="list")
+            assert "known_domains" not in view
+
     async def test_read_prefers_own_user_layer(self, db):
         async with db.session() as session:
             await upsert_entry(

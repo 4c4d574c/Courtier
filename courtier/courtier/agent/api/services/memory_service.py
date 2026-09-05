@@ -479,7 +479,7 @@ async def tool_action(
     action = (action or "").strip().lower()
 
     if action == "list":
-        return {
+        result: dict = {
             "user": await list_entries(
                 session,
                 layer=LAYER_USER,
@@ -495,6 +495,12 @@ async def tool_action(
                 query=query,
             ),
         }
+        # Live loaded-domain names: the model discovers writable domain
+        # values here (the write path rejects anything else).  common is a
+        # default bucket, not a domain package — never advertise it.
+        if known_domains:
+            result["known_domains"] = sorted(known_domains - {DOMAIN_COMMON})
+        return result
 
     if action == "read":
         if entry_id is not None:

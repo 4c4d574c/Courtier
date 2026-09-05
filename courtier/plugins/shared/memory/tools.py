@@ -22,10 +22,12 @@ class MemoryTool:
     name: str = "memory"
     display_name: str | None = "记忆"
     description: str = (
-        "长期记忆读写。list 列出条目（返回你的用户层与全局共享层，含内容预览）；"
-        "read 按 entry_id 或 title 取全文；write 按 title 创建或更新（默认写入你的用户层，"
-        "layer='global' 仅管理员可用）；delete 按 entry_id 或 title 删除。"
-        "domain 省略为通用（common），填领域包名（如 docaudit）则为领域记忆。"
+        "长期记忆读写。list 列出条目（返回你的用户层与全局共享层，含内容预览，"
+        "并附 known_domains=已加载领域包列表）；read 按 entry_id 或 title 取全文；"
+        "write 按 title 创建或更新（默认写入你的用户层，layer='global' 仅管理员可用）；"
+        "delete 按 entry_id 或 title 删除。"
+        "domain 省略为通用（common）；用户偏好归 common，领域相关的口径/规则"
+        "（如审核规则、验收标准）填 known_domains 中的领域包名（如 docaudit）。"
         "用户偏好请主动写入记忆（domain=common）。"
     )
     parameters: dict[str, Any] = {
@@ -134,13 +136,17 @@ class MemoryTool:
                     success=False,
                     error=str((result.get("error") or {}).get("message") or "记忆服务错误"),
                 )
-            # list 结果做预览压缩，read/write/delete 原样返回。
+            # list 结果做预览压缩（known_domains 原样透传），read/write/delete
+            # 原样返回。
             if isinstance(result, dict) and {"user", "global"} <= set(result.keys()):
-                compact = {
+                compact: dict[str, Any] = {
                     layer: [self._preview(e) for e in (entries or [])]
                     for layer, entries in result.items()
+                    if layer in ("user", "global")
                 }
                 total = sum(len(v) for v in compact.values())
+                if result.get("known_domains"):
+                    compact["known_domains"] = list(result["known_domains"])
                 return ToolResult(
                     success=True,
                     data={**compact, "total": total},
