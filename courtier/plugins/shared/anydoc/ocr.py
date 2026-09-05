@@ -48,6 +48,10 @@ def is_ocr_configured() -> bool:
     return bool(os.environ.get("ANYDOC_OCR_API_URL"))
 
 
+#: Hard page cap for a single OCR call (cost control).
+_MAX_OCR_PAGES = 200
+
+
 def ocr_image(path: str) -> str:
     """OCR a single image file and return the full-page Markdown.
 
@@ -83,16 +87,30 @@ async def ocr_pdf(path: str) -> tuple[str, int]:
         if page_count == 0:
             raise RuntimeError("PDF 没有任何页面")
 
+        # Bound runaway costs: thousands of scanned pages would pin the
+        # plugin for hours and produce thousands of PNGs.
+        if page_count > _MAX_OCR_PAGES:
+            raise RuntimeError(
+                f"PDF 有 {page_count} 页，超过 OCR 上限 {_MAX_OCR_PAGES} 页；"
+                "请拆分后分批处理"
+            )
+
         with tempfile.TemporaryDirectory(prefix="anydoc_ocr_") as tmp:
-            images: list[str] = []
-            for idx in range(page_count):
-                try:
-                    pix = doc[idx].get_pixmap(dpi=150)
-                except Exception as exc:
-                    raise RuntimeError(f"第 {idx + 1} 页渲染失败：{exc}") from exc
-                img = Path(tmp) / f"page_{idx}.png"
-                pix.save(img)
-                images.append(str(img))
+            # Pixmap rendering is CPU-bound PyMuPDF work — run it off the
+            # event loop so concurrent OCR requests keep making progress.
+            def _render_pages() -> list[str]:
+                images: list[str] = []
+                for idx in range(page_count):
+                    try:
+                        pix = doc[idx].get_pixmap(dpi=150)
+                    except Exception as exc:
+                        raise RuntimeError(f"第 {idx + 1} 页渲染失败：{exc}") from exc
+                    img = Path(tmp) / f"page_{idx}.png"
+                    pix.save(img)
+                    images.append(str(img))
+                return images
+
+            images = await asyncio.to_thread(_render_pages)
 
             sem = asyncio.Semaphore(_OCR_CONCURRENCY)
 

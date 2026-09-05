@@ -769,6 +769,7 @@ class ProcessManager:
                             domain=params.get("domain"),
                             content=params.get("content"),
                             layer=params.get("layer"),
+                            query=params.get("query"),
                             known_domains=known_domains,
                         )
                 except memory_service.MEMORY_ERRORS as exc:

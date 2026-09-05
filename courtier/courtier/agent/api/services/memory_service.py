@@ -468,6 +468,7 @@ async def tool_action(
     domain: str | None = None,
     content: str | None = None,
     layer: str | None = None,
+    query: str | None = None,
     known_domains: set[str] | None = None,
 ) -> dict:
     """The agent-facing ``memory`` tool surface (list/read/write/delete).
@@ -480,10 +481,18 @@ async def tool_action(
     if action == "list":
         return {
             "user": await list_entries(
-                session, layer=LAYER_USER, identity=identity, domain=domain
+                session,
+                layer=LAYER_USER,
+                identity=identity,
+                domain=domain,
+                query=query,
             ),
             "global": await list_entries(
-                session, layer=LAYER_GLOBAL, identity=identity, domain=domain
+                session,
+                layer=LAYER_GLOBAL,
+                identity=identity,
+                domain=domain,
+                query=query,
             ),
         }
 

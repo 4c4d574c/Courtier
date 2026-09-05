@@ -175,7 +175,10 @@ def create_access_token(
 def generate_refresh_token() -> tuple[str, str, datetime]:
     raw = secrets.token_hex(64)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    from courtier.config import get_settings
+
+    days = get_settings().jwt_expire_seconds / 86400
+    expires_at = datetime.now(timezone.utc) + timedelta(days=days)
     return raw, token_hash, expires_at
 
 

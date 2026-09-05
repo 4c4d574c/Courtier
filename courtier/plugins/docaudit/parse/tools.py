@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -104,10 +105,13 @@ class ParseTool:
 
     _MAX_CACHE_SIZE = 64
 
+    _MAX_CACHE_BYTES = 64 * 1024 * 1024
+
     def __init__(self) -> None:
         # key: resolved absolute path -> ((mtime_ns, size) fingerprint, result)
         self._cache: dict[str, tuple[tuple[int, int], ToolResult]] = {}
         self._cache_keys: list[str] = []  # LRU tracking (most recent last)
+        self._cache_bytes = 0
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         try:
@@ -138,6 +142,15 @@ class ParseTool:
             stat = resolved.stat()
             fingerprint = (stat.st_mtime_ns, stat.st_size)
             cache_key = str(resolved)
+            # Entries from a previous request workdir are unreachable (each
+            # request gets its own req-<uuid> dir) — drop them instead of
+            # pinning dozens of full documents in memory forever.
+            if self._cache_keys:
+                last_dir = str(Path(self._cache_keys[-1]).parent)
+                if last_dir != str(resolved.parent) and "req-" in last_dir:
+                    self._cache.clear()
+                    self._cache_keys.clear()
+                    self._cache_bytes = 0
             cached = self._cache.get(cache_key)
             if cached is not None and cached[0] == fingerprint:
                 # LRU: move to end
@@ -171,10 +184,24 @@ class ParseTool:
                 data["warnings_summary"] = f"解析警告 {len(warnings)} 条：{preview}"
                 metadata["warnings"] = warnings
             result = ToolResult(success=True, data=data, metadata=metadata)
-            # LRU eviction: remove oldest if at capacity
-            if cache_key not in self._cache and len(self._cache) >= self._MAX_CACHE_SIZE:
+            # LRU eviction: count and byte budget (deep-copied documents
+            # are large — 64 entries of a 10MB doc pinned ~640MB).
+            entry_bytes = len(json.dumps(data, ensure_ascii=False, default=str))
+            self._cache_bytes += entry_bytes
+            while (
+                cache_key not in self._cache
+                and self._cache_keys
+                and (
+                    len(self._cache) >= self._MAX_CACHE_SIZE
+                    or self._cache_bytes > self._MAX_CACHE_BYTES
+                )
+            ):
                 oldest = self._cache_keys.pop(0)
-                self._cache.pop(oldest, None)
+                evicted = self._cache.pop(oldest, None)
+                if evicted is not None:
+                    self._cache_bytes -= len(
+                        json.dumps(evicted[1].data, ensure_ascii=False, default=str)
+                    )
             # Store a private copy; every returned object stays caller-owned.
             self._cache[cache_key] = (fingerprint, copy.deepcopy(result))
             if cache_key in self._cache_keys:

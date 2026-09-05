@@ -126,6 +126,11 @@ class AnnotateDocumentTool:
             ) as tmp:
                 tmp.write(result_bytes)
                 output_path = tmp.name
+            # The host may still read this file later — register cleanup for
+            # process exit instead of deleting immediately.
+            import atexit
+
+            atexit.register(lambda p=output_path: __import__("os").path.exists(p) and __import__("os").unlink(p))
 
             return ToolResult(
                 success=True,

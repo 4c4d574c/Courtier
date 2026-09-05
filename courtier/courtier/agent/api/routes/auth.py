@@ -27,7 +27,9 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 REFRESH_COOKIE = "refresh_token"
 ACCESS_COOKIE = "access_token"
-ACCESS_EXPIRE = 900  # 15 minutes
+from courtier.config import get_settings as _get_settings_for_expiry
+
+ACCESS_EXPIRE = max(60, int(_get_settings_for_expiry().jwt_access_expire_seconds))  # 15 minutes
 
 
 class LoginRequest(BaseModel):

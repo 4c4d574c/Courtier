@@ -8,6 +8,7 @@ All routes require the admin role.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Literal, get_args
@@ -338,6 +339,22 @@ async def update_category(
                 detail={"message": "guardrail_guards 校验失败", "errors": guard_errors},
             )
 
+    # CORS has an env escape hatch (lockout rescue): when the env value is
+    # active, DB changes to cors_* would be silently ignored — reject the
+    # save so the admin knows.
+    cors_changed = [k for k in list(sets) + clears if k.startswith("cors_")]
+    if cors_changed:
+        from courtier.settings_store import _cors_env_escape_active
+
+        if _cors_env_escape_active():
+            raise HTTPException(
+                409,
+                detail={
+                    "message": "CORS_ORIGINS 由环境变量覆盖，当前保存不会生效",
+                    "errors": [{"field": "cors_origins", "message": "请修改部署环境变量"}],
+                },
+            )
+
     # Connection groups validate BEFORE persisting: a bad endpoint or
     # credential must never land in the DB (no save→rebuild→rollback).
     changed = list(sets) + clears
@@ -349,6 +366,20 @@ async def update_category(
                 422,
                 detail={"message": "连接测试失败，未保存", "errors": probe_errors},
             )
+
+    # A renamed chunks index must exist before anything writes to it —
+    # init_index is a no-op when the index already exists.
+    es_index_changed = any(
+        k.startswith("es_index_") for k in list(sets) + clears
+    )
+    if es_index_changed:
+        try:
+            await asyncio.to_thread(init_index)
+        except Exception as exc:
+            raise HTTPException(
+                422,
+                detail={"message": f"ES 索引初始化失败，未保存：{exc}"},
+            ) from exc
 
     actor = str(user.get("sub") or "admin")
     if sets:

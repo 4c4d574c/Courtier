@@ -832,7 +832,10 @@ class Settings(BaseSettings):
     )
 
     jwt_secret: str = Field(default="", description="JWT 签名密钥，生产环境必须设置为强随机字符串")
-    jwt_algorithm: str = Field(default="HS256", description="JWT 签名算法")
+    jwt_algorithm: Literal["HS256"] = Field(
+        default="HS256",
+        description="JWT 签名算法（仅支持 HS256——其他算法在中间件中一律拒绝）",
+    )
     jwt_expire_seconds: int = Field(
         default=86400, description="JWT token 过期时间（秒），默认 24 小时"
     )
