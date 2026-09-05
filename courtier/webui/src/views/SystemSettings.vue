@@ -2269,6 +2269,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 .llm-test {
   font-size: 12px;
   max-width: 360px;
+  overflow-wrap: anywhere;
 }
 .llm-test.ok {
   color: var(--ok);
@@ -2331,6 +2332,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 .test-detail {
   margin: 6px 0 0;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .test-errors {
   margin: 6px 0 0;
@@ -2339,6 +2341,7 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-wrap: anywhere;
 }
 .test-errors code {
   opacity: 0.75;
@@ -2751,7 +2754,10 @@ onUnmounted(() => document.removeEventListener("click", onDocumentClickCloseSugg
 }
 .pool-test-result {
   font-size: 12px;
-  white-space: nowrap;
+  /* Endpoint test failures can carry long unbroken dumps (HTML error
+   * pages, URLs) — they must wrap inside the row, never widen it. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pool-test-result.ok {
   color: var(--ok);

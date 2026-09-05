@@ -570,7 +570,13 @@
   cursor: not-allowed;
 }
 
-/* Inline status messages (tinted pill). */
+/* Inline status messages (tinted pill). Long unbroken content (API error
+ * dumps, URLs) must wrap inside the pill, never widen the page. */
+.msg-ok,
+.msg-err {
+  overflow-wrap: anywhere;
+}
+
 .msg-ok {
   margin: 0 0 12px;
   padding: 10px 14px;
