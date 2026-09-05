@@ -52,3 +52,15 @@ test_*.txt
 .claude/
 .claude/worktrees/
 .worktrees/
+
+# Runtime / non-image content (the compose plugin targets ship the whole
+# courtier/ dir as build context — keep it lean).
+.agent_cache/
+docs/
+tests/
+scripts/
+grafana/
+otel-collector-config.yaml
+prometheus.yml
+docker-compose.yml
+.dockerignore
