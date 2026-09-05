@@ -155,7 +155,12 @@
 
 ---
 
-# Part C — 三组：小型修复方案
+# Part C — 三组：小型修复方案（✅ 已全部实施）
+
+> 实施记录：C1（ES 别名）、C2（object_exists）、C3（guards 结构校验）、
+> C5（memory list 查询）、C7（CORS 409 / init_index）、C8（杂项）见提交
+> 029224a / a8a9c72 / 7c5761a；C4（jwt 接线+Literal）见 18fe35d；C6（插件卫生三件）
+> 见 a17f50d 前后各提交。
 
 | # | 修复 | 具体改动 |
 |---|------|----------|
@@ -170,7 +175,10 @@
 
 ---
 
-# Part D — 四组：运维方案
+# Part D — 四组：运维方案（✅ 已实施 D1/D3；D2 digest 与 D4 存量迁移待运维窗口）
+
+> 实施记录：D1（minio healthcheck、mem_limit、PLUGIN_TOKEN 必填）、D3（Dockerfile.env
+> dev-only 标注、dev-plugins 启动 watchdog）见 1a0c95c。
 
 | # | 项 | 改动 |
 |---|-----|------|
